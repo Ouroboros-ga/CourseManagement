@@ -1,7 +1,7 @@
-# Compiled class file
+# Compiled class files
 *.class
 
-# Log file
+# Log files
 *.log
 
 # BlueJ files
@@ -10,7 +10,7 @@
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/
 
-# Package Files #
+# Package Files
 *.jar
 *.war
 *.nar
@@ -19,6 +19,75 @@
 *.tar.gz
 *.rar
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+# virtual machine crash logs
 hs_err_pid*
 replay_pid*
+
+# Gradle
+.gradle/
+build/
+!.gradle/
+
+# Maven
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versions-original.xml
+pom.xml.received
+
+# Eclipse
+bin/
+target/
+.classpath
+.project
+.settings/
+.springBeans
+.sts4-cache
+.idea/
+!**/.idea/*.iml
+
+# IntelliJ
+out/
+**/.idea
+!**.ipr
+!**.iws
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# IDE specific
+*.swp
+*.swo
+*~
+
+# Application-specific
+application-local.yml
+application-local.properties
+
+# Database
+*.db
+*.sqlite
+*.h2.db
+
+# Logs and temp files
+logs/
+temp/
+*.tmp
+*.bak
