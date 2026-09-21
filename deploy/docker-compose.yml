@@ -1,0 +1,38 @@
+# 查课管理系统 - 本地开发/测试基础设施
+# 仅用于开发环境拉起 MySQL 8.4 与隔离测试库；生产数据库应置于私网并单独管理。
+#
+# 启动:  docker compose -f deploy/docker-compose.yml up -d
+# 停止:  docker compose -f deploy/docker-compose.yml down
+# 清卷:  docker compose -f deploy/docker-compose.yml down -v
+#
+# 说明：本机 3306 端口已被其它项目占用；宿主机端口选 13306，
+# 避开 Windows WinNAT 开机动态预留的 TCP 段（此前 3307 落入 3305-3404 排除段无法绑定）。
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: cm_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: change_me_root
+      MYSQL_DATABASE: course_management
+      MYSQL_USER: cm_app
+      MYSQL_PASSWORD: change_me_app
+    ports:
+      - "13306:3306"
+    volumes:
+      - cm_mysql_data:/var/lib/mysql
+      - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pchange_me_root"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - cm_net
+
+networks:
+  cm_net:
+    driver: bridge
+
+volumes:
+  cm_mysql_data:

@@ -91,3 +91,44 @@ logs/
 temp/
 *.tmp
 *.bak
+
+# ===== Python / FastAPI backend =====
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+uv.zip
+
+# ===== 密钥与环境配置（保留示例，忽略真实凭证）=====
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ===== Node / Web 管理端 =====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+apps/admin-web/dist/
+apps/admin-web/.vite/
+
+# ===== 本地上传/对象存储模拟目录 =====
+storage/
+*.sqlite3
+
+# ===== 冒烟测试响应转储（可能含令牌，绝不入库）=====
+backend/*.json
+!backend/package.json
