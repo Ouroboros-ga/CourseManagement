@@ -17,7 +17,9 @@ from app.core.config import get_settings
 from app.core.exceptions import AppError
 from app.core.logging import get_logger, setup_logging
 from app.core.middleware import RequestIdMiddleware
+from app.modules.academic.router import router as academic_router
 from app.modules.identity.router import router as identity_router
+from app.modules.importer.router import router as importer_router
 
 logger = get_logger(__name__)
 
@@ -73,6 +75,12 @@ def create_app() -> FastAPI:
 
     # 身份与权限路由（阶段 1）。
     app.include_router(identity_router, prefix="/api/v1")
+
+    # 基础数据路由（阶段 3）：学期/节次/校历/行政班/学生/课程/教学班/课表/志愿者资格。
+    app.include_router(academic_router, prefix="/api/v1/academic")
+
+    # 导入路由（阶段 3）：名单/课表/志愿者资格的预览→确认两步原子导入。
+    app.include_router(importer_router, prefix="/api/v1")
 
     return app
 

@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     binding_token_valid_minutes: int = Field(default=60, alias="BINDING_TOKEN_VALID_MINUTES")
     binding_token_max_failed: int = Field(default=5, alias="BINDING_TOKEN_MAX_FAILED")
 
+    # ---- 导入（预览→确认两步、整批原子）----
+    import_preview_ttl_minutes: int = Field(
+        default=30, alias="IMPORT_PREVIEW_TTL_MINUTES"
+    )
+    import_max_rows: int = Field(default=5000, alias="IMPORT_MAX_ROWS")
+
     # ---- 日志 ----
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 

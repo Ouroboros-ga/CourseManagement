@@ -782,6 +782,9 @@ class IdentityService:
         )
         self._repo.grant_role(user.id, student_role.id)
         user.lock_version += 1
+        # 反向补授："先导入资格后绑定"——若该生此前已被导入启用中的志愿者资格
+        # （落在 ACTIVE 学期），绑定即刻补授 VOLUNTEER 身份，与导入确认时的正向补授对称。
+        self._grant_volunteer_if_qualified(user)
         after_roles = self._repo.list_role_codes(user.id)
 
         self._record_audit(
@@ -801,3 +804,36 @@ class IdentityService:
         # 核销、绑定、自动授角色、审计在同一提交内完成（同事务原子）。
         self._session.commit()
         return student.id, student.student_no, student.name
+
+    def _grant_volunteer_if_qualified(self, user: UserAccount) -> bool:
+        """绑定后反向补授 VOLUNTEER：若该生已有 ACTIVE 学期下启用中的志愿者资格。
+
+        与导入确认阶段的正向补授（importer._grant_volunteer_if_bound）对称，覆盖
+        "先导入资格、后绑定微信"的时序。幂等：已持有 VOLUNTEER 则跳过。本方法不
+        commit，交调用方在同一事务内提交。
+        """
+        if user.student_id is None:
+            return False
+        # 局部导入规避 identity↔academic 的模块级循环依赖风险。
+        from app.modules.academic.models import Semester, VolunteerQualification
+
+        has_qualified = self._session.execute(
+            select(VolunteerQualification.id)
+            .join(Semester, VolunteerQualification.semester_id == Semester.id)
+            .where(
+                VolunteerQualification.student_id == user.student_id,
+                VolunteerQualification.enabled.is_(True),
+                Semester.status == "ACTIVE",
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if has_qualified is None:
+            return False
+        if RoleCode.VOLUNTEER.value in self._repo.list_role_codes(user.id):
+            return False
+        role = self._repo.get_or_create_role(
+            RoleCode.VOLUNTEER.value, RoleCode.VOLUNTEER.value
+        )
+        self._repo.grant_role(user.id, role.id)
+        user.lock_version += 1
+        return True
