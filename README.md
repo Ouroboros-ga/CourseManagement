@@ -120,12 +120,8 @@ CourseManagement/
 | [业务资源与权限策略 V1.1](./docs/PERMISSIONS.md) | 38 个 Permission、默认矩阵、身份生命周期及 API/范围规则 |
 | [开发路线](./docs/DEVELOPMENT_PLAN.md) | 分阶段交付范围、依赖与验收门槛，以及首批开发任务 |
 | [权限实施对照](./docs/PERMISSIONS_IMPLEMENTATION.md) | 设计接入细节、当前代码差距和新增验收项 |
-| [建设说明](./查课管理系统V1.0建设说明.md) | V1.0 与 V1.01 合并版，统一产品需求依据 |
-| [初始化指南](./INITIALIZATION_GUIDE.md) | 历史 Java 初稿，待按当前方案重写 |
-| [项目初始化报告](./PROJECT_STATUS.md) | 历史记录，不代表当前业务已实现 |
-| [数据库设计](./database_design.md) | 旧课程查询模型，待按当前查课业务细化 |
-| [database.sql](./database.sql) | 旧数据库脚本，不能直接用作当前方案的初始化迁移 |
+| [建设说明](./查课管理系统V1.0建设说明.md) | 原始产品输入；已调整条款以当前技术方案及用户决定为准 |
 
-本轮根据用户提供的权限文件更新设计与实施对照，未修改业务代码或执行数据库赋权。后续按新基线补齐权限种子、身份生命周期、受限角色分配和业务范围；旧 database.sql 不作为当前查课系统的初始化依据。
+本轮根据用户提供的权限文件更新设计与实施对照，未修改业务代码或执行数据库赋权。后续按新基线补齐权限种子、身份生命周期、受限角色分配和业务范围。早期 Java/课程查询方案的历史文档（初始化报告、初始化指南、旧 database.sql 与 database_design.md）已清理，当前数据库设计以 SQLAlchemy 模型 + Alembic 迁移及技术方案第 8–9 节为准。
 
 GitHub：[Ouroboros-ga/CourseManagement](https://github.com/Ouroboros-ga/CourseManagement)
