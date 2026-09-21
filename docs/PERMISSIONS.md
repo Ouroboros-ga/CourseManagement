@@ -163,6 +163,8 @@ objection.initial_review
 
 志愿者采用“角色 + 学期资格”双重模型。
 
+2026-09-21 补充：VOLUNTEER 自动继承 STUDENT 全部基础权限，当前为 attendance.read、objection.create、objection.read；仍要求有效学生绑定和 OWN_STUDENT 范围。资格停用/学期结束不影响有效学生身份的这些能力；未绑定、绑定失效或账号停用不得借继承绕过限制。
+
 每学期通过 Excel 导入志愿者资格：
 
 ```text
@@ -382,13 +384,13 @@ POST /auth/logout
 | submission.read | 是 | 是 | 否 | 是 | 否 |
 | submission.review | 是 | 是 | 否 | 否 | 否 |
 | attendance.expected_count_adjust | 是 | 是 | 否 | 否 | 否 |
-| attendance.read | 是 | 是 | 是 | 否 | 是 |
+| attendance.read | 是 | 是 | 是 | 是（继承，仅本人） | 是 |
 | attendance.correct | 是 | 是 | 否 | 否 | 否 |
 | statistics.read | 是 | 是 | 可选 | 否 | 否 |
 | report.read | 是 | 是 | 可选 | 否 | 否 |
 | report.generate | 是 | 是 | 否 | 否 | 否 |
-| objection.create | 否 | 否 | 否 | 否 | 是 |
-| objection.read | 是 | 是 | 条件派生 | 否 | 是 |
+| objection.create | 否 | 否 | 否 | 是（继承，仅本人） | 是 |
+| objection.read | 是 | 是 | 条件派生 | 是（继承，仅本人） | 是 |
 | objection.initial_review | 是 | 是 | 可选 | 否 | 否 |
 | objection.final_review | 是 | 是 | 否 | 否 | 否 |
 | audit.read | 是 | 否 | 否 | 否 | 否 |
@@ -1089,6 +1091,10 @@ V1.0 集成测试至少覆盖：
 | 成功绑定 student_id | 自动获得 STUDENT |
 | 新学期导入志愿者 | 自动维护 VOLUNTEER 业务身份 |
 | 志愿者资格停用 | 不能继续提交 |
+| 有效绑定的志愿者读取本人考勤、提交/读取本人异议 | 继承学生权限，允许 |
+| 志愿者通过继承权限访问他人考勤或异议 | 拒绝 |
+| 志愿者资格停用但学生绑定仍有效 | 保留普通学生基础权限 |
+| 志愿者绑定失效 | 不得凭继承权限访问学生数据 |
 | 被改派志愿者再次提交 | 拒绝 |
 | 被改派志愿者查看本人历史提交 | 允许 |
 | 学生 A 修改 URL 中学生 B ID | 不可读取 |

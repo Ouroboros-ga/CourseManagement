@@ -132,3 +132,8 @@ storage/
 # ===== 冒烟测试响应转储（可能含令牌，绝不入库）=====
 backend/*.json
 !backend/package.json
+
+# ===== 本地开发计划 / 进度文档（仅本地维护，不上 git；长期规划文档另计）=====
+/docs/DEVELOPMENT_PLAN.md
+/docs/PERMISSIONS_IMPLEMENTATION.md
+/docs/superpowers/plans/
