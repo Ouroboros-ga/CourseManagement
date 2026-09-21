@@ -20,6 +20,7 @@ from app.core.middleware import RequestIdMiddleware
 from app.modules.academic.router import router as academic_router
 from app.modules.identity.router import router as identity_router
 from app.modules.importer.router import router as importer_router
+from app.modules.inspection.router import router as inspection_router
 
 logger = get_logger(__name__)
 
@@ -81,6 +82,9 @@ def create_app() -> FastAPI:
 
     # 导入路由（阶段 3）：名单/课表/志愿者资格的预览→确认两步原子导入。
     app.include_router(importer_router, prefix="/api/v1")
+
+    # 查课任务与排班路由（阶段 4）：任务预览/生成、列表/详情/本人任务、名单读取。
+    app.include_router(inspection_router, prefix="/api/v1")
 
     return app
 

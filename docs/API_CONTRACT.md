@@ -208,3 +208,68 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 各目标落库语义：roster 对目标教学班整体替换名单（学号→ID，缺任一即写前 422）；timetable 按课程代码 get-or-create 课程、按 `(学期,课程,教学班码)` get-or-create 教学班，再建课表与生效周（`1-16`、`单周/双周`、`1,3,5`、`第x-y周` 等组合，越界/倒置为 error）；volunteer 按 `(学期,学生)` upsert 资格行，`enabled` 且学生已绑定则即时补授 VOLUNTEER（幂等，`lock_version+=1`）。
 
 "先导入资格后绑定"对称：导入阶段资格已启用但学生尚未绑定，则仅落资格行；待该生后续 `POST /me/student-binding` 绑定时，`bind_student` 检测到其持有 ACTIVE 学期下启用中的资格，反向补授 VOLUNTEER（与正向补授对称）。
+
+## 附录 C：P4 查课任务生成与排班（`/api/v1`）
+
+数据前缀 `/api/v1`，Inspection 路由独立挂载。令牌双路径与错误字典同第 2、7 节。ID 一律字符串出入；所有写操作在服务会话取操作者、事务内 `SELECT … FOR UPDATE` 串行化、末尾单次 `commit`、同事务追加 `AuditLog`。
+
+### C.1 任务生成（预览 → 生成两步，`inspection.generate`）
+
+`POST /inspection-tasks/preview` 与 `POST /inspection-tasks/generate` 共用 `InspectionGenerateRequest`：`semester_id`、`inspection_type∈{COURSE,MORNING_STUDY}`、时段选择 `week_nos` **或** `date_from/date_to`（至少其一，越学期 422）、`COURSE` 需 `teaching_class_ids`、`MORNING_STUDY` 需 `administrative_class_ids`+`start_period`+`end_period`（`end>=start`）；`require_photo`、`reason`。
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `POST /inspection-tasks/preview` | `inspection.generate` | **只读**：返回 `{task_count,new_task_count,existing_task_count,date_count,student_total,within_limit,sample[]}`，`finally` 必 `rollback`，零写库。校历 `STOP` 日跳过、`MAKEUP` 取来源星期 |
+| `POST /inspection-tasks/generate` | `inspection.generate` | 事务内锁学期（`FOR UPDATE`）串行化同学期并发；按 `task_key` 幂等物化新任务 + 名单版本 `v1` + 成员快照 + 缺失查课日的 `SubmissionDeadlineDay/Version v1`（默认时刻本地转 naive-UTC），**整批单事务单次提交**；计划任务数超 `INSPECTION_GENERATE_MAX_TASKS` 在写入前 422。归档学期 409。审计 `inspection.task.generate` |
+
+生成后读取：`GET /inspection-tasks`、`GET /inspection-tasks/{id}`、`GET /inspection-tasks/{id}/students`（名单，`inspection.roster.read`+可见性范围）、`GET /me/inspection-tasks`（强制本人受派范围）。数据范围：管理角色全部可见、志愿者仅本人受派（`resolve_scope`，管理范围优先）。
+
+### C.2 排班与改派（Wave 3a，`assignment.manage`）
+
+硬约束（技术方案 11.2，人工与自动同判、不允许旁路）：账号为启用志愿者、本学期资格有效、避开本人行政班被查名单（本班回避）、与本人课表时段不冲突、与本人其他受派任务时段不冲突（按完整起止节次重叠比较）。软约束单日上限 `ASSIGNMENT_MAX_TASKS_PER_DAY`（默认 `0`=不限）。
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `PUT /inspection-tasks/{task_id}/assignment` | `assignment.manage` | 人工分配/改派：`AssignmentSetRequest{volunteer_user_id,lock_version,reason?}`。锁层级先取 `(志愿者,日期)` 日期锚点（含换人时新旧双方），再锁任务行；已取消 409 `STATE_CONFLICT`、`lock_version` 不符 409 `VERSION_CONFLICT`、硬约束不过 422 `VALIDATION_ERROR`+`fieldErrors.reason_code`；受派 upsert（`assign_method=MANUAL`，改写则 `assignment.lock_version+=1`）、`task.lock_version+=1`；审计 `assignment.manual_set`（含 before/after 快照） |
+| `POST /assignments/auto` | `assignment.manage` | 自动排班：`AutoAssignRequest{semester_id, task_ids \| inspection_date \| date_from/date_to, candidate_user_ids?, reason?}`（三选一范围、`date_to>=date_from`）。Phase A 无锁贪心（任务按 `(date,id)`、候选按 id 升序，批内占用记 busy），Phase B 单事务按全局锁层级加锁后逐条**锁内重验**再落库（`assign_method=AUTO`）。全成全败，一任务一受派；审计 `assignment.auto_run`。返回 `{target_task_count,assigned_count,unassigned_count,assigned[],unassigned[{task_id,reason_code,message}]}` |
+
+排班拒绝原因码（`fieldErrors.reason_code` / `unassigned[].reason_code`）：`NOT_VOLUNTEER`、`NO_QUALIFICATION`、`OWN_CLASS_CONFLICT`、`SELF_CLASS_AVOID`、`TASK_TIME_CONFLICT`、`DAY_TASK_CAP`、`TASK_CANCELED`。判定优先级即按上序取首个命中。
+
+### C.3 并发不变式（技术方案 15）
+
+全局锁层级：`(志愿者, 日期)` 锚点 → 任务 → …，一律升序取得。人工改派先锁新旧志愿者当日锚点、自动排班 Phase B 先锁全部计划锚点再按 id 升序锁任务，杜绝交叉死锁。落库阶段的时段冲突重查用 `SELECT … FOR SHARE` 锁定读（`list_assignments_for_volunteer_on_date(for_update=True)`）——REPEATABLE READ 快照读会错过并发方刚提交的受派，锁定读绕过旧读视图，确保"同一志愿者同日重叠时段至多一条受派"。集成测试以独立连接 + `threading.Barrier` 双线程验证：恰好一条落库、另一方在锁内重验被拒（`VALIDATION_ERROR`/`VERSION_CONFLICT`/死锁回滚均可）。
+
+### C.4 调班申请（Wave 3b，志愿者发起 / 管理人员处理）
+
+语义边界：志愿者对**本人当前受派**发起调班诉求并留痕；`APPROVED/REJECTED` 仅迁移申请状态，**不隐式改派**——真正的换人仍走 `assignment.manage`（申请模型无替补志愿者字段，避免审核即换人的越权副作用）。
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `POST /assignment-change-requests` | `assignment.change_request` | `ChangeRequestCreateRequest{assignment_id,reason}`。"当前受派人"边界：受派不存在 404、非本人受派 403；任务已取消 409 `STATE_CONFLICT`；同受派已有 `PENDING` 再发起 409。成功建 `PENDING` 行，返回 `ChangeRequestResponse`（回填 `task_id`）。审计 `assignment.change_request.create` |
+| `GET /me/assignment-change-requests` | `assignment.change_request` | 志愿者读取**本人**申请（无论角色强制 `request_user_id=本人`），分页 + 可选 `status` 过滤 |
+| `GET /assignment-change-requests` | `assignment.change_review` | 管理视图读取**全部**申请，分页 + 可选 `status` 过滤 |
+| `POST /assignment-change-requests/{request_id}/review` | `assignment.change_review` | `ChangeRequestReviewRequest{decision∈{APPROVED,REJECTED},comment?}`。`SELECT … FOR UPDATE` 锁申请行，仅 `PENDING` 可处理（否则 409）、申请不存在 404；置 `status/processed_by/processed_at/comment`。审计 `assignment.change_request.review`（before/after 状态） |
+
+响应 `ChangeRequestResponse`：`{id,assignment_id,task_id,request_user_id,reason,status,processed_by,processed_at,comment,created_at,updated_at}`。
+
+申请并发不变式：同一 `PENDING` 申请被两连接同时处理时，申请行 `FOR UPDATE` + "非 `PENDING` 即 409"保证**恰好一次转态**、另一方被拒；`approve` 后受派人 `volunteer_user_id` 保持不变（集成测试断言无隐式改派）。
+
+### C.5 取消 / 名单改版 / 截止配置 / 截止时结算（Wave 3c）
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `POST /inspection-tasks/{task_id}/cancel` | `inspection.cancel` | `TaskCancelRequest{reason,lock_version}`。`SELECT … FOR UPDATE` 锁任务，不存在 404、已取消 409 `STATE_CONFLICT`、版本不符 409 `VERSION_CONFLICT`。**锁内先按当前适用旧截止版本幂等结算锁定既有逾期事实**，再置 `canceled_at/canceled_by/cancel_reason`、`lock_version++`。审计 `inspection.task.cancel`。返回任务 DTO（`status=已取消`） |
+| `POST /inspection-tasks/{task_id}/roster-versions` | `inspection.roster.manage` | `RosterVersionCreateRequest{student_ids,reason,lock_version}`。锁任务，已取消 409、版本不符 409；学生含不存在/非在读 → 422 `fieldErrors{missing_student_ids,inactive_student_ids}`。生成 `roster_version+1` 新版本、冻结学生快照（学号/姓名/班名/年级），更正 `expected_count_current`、`lock_version++`。审计 `inspection.roster.revise` |
+| `GET /inspection-tasks/{task_id}/roster-versions` | `inspection.roster.read` | 叠加任务可见性范围（志愿者仅本人受派，否则 404）；返回 `[{version_no,reason,created_by,member_count,created_at}]` |
+| `GET /submission-deadlines/default` | `submission_deadline.read` | 只读反射部署配置的全局默认提交截止时刻（本地墙上时钟 `HH:MM`）+ `utc_offset_hours` + 说明。**改默认值属部署/配置动作、无写接口**，仅影响后续新建日截止，不追溯改写既有（技术方案 13.1、冻结纪律） |
+| `GET /submission-deadlines/days?semester_id&date_from&date_to` | `submission_deadline.read` | 某学期日截止列表（可选日期范围），每项含 `task_count`（当日未取消任务数） |
+| `GET /submission-deadlines/days/{inspection_date}?semester_id` | `submission_deadline.read` | 单日截止；无记录 404 |
+| `GET /submission-deadlines/days/{inspection_date}/versions?semester_id` | `submission_deadline.read` | 该日截止版本历史（`version_no/deadline_at/changed_by/reason/created_at`） |
+| `PUT /submission-deadlines/days/{inspection_date}?semester_id` | `submission_deadline.manage` | `DeadlineDayUpdateRequest{time(HH:MM),reason,lock_version(ge1)}`。锁日截止行，学期/记录不存在 404、版本不符 409。`time` 非法 → 422 `fieldErrors{time}`。**改期前先对该日未结算任务按旧截止版本幂等结算锁定既有事实**；若新截止早于当日最晚任务结束时刻 → 422 `fieldErrors{reason_code:DEADLINE_BEFORE_TASK_END,latest_task_end}`（无节次时刻定义时不阻断）。成功 `version++` 并写 `SubmissionDeadlineVersion` 历史。审计 `submission_deadline.day_update`（before/after 截止值以 ISO 字符串入库） |
+| `POST /submission-deadlines/settle` | `submission_deadline.manage` | `DeadlineSettleRequest{semester_id,inspection_date?,task_ids?,limit(默认500,≤2000)}`。有界同步结算，不依赖页面访问。对未结算任务逐个 `FOR UPDATE` 锁行后幂等生成 `task_deadline_assessment`。返回 `{semester_id,considered,settled,already_settled,not_due,results[{task_id,result}]}`。审计 `submission_deadline.settle` |
+
+截止时考核结果 `result ∈ {VALID_SUBMISSION, OVERDUE_UNEXECUTED, CANCELED}`：截止前已取消 → `CANCELED`；服务端时间严格超过适用截止（等值仍按时）且未取消 → `OVERDUE_UNEXECUTED`；未到期 → 不生成快照（`deadlineAssessment=null`）。`VALID_SUBMISSION` 留待 P5 提交域填充。任务视图回填 `deadline_at/deadline_version_id/deadline_assessment`。
+
+任务当前态五态精判（`_derive_status`，技术方案 12）：`canceled_at → 已取消`；（P5）审核通过提交 → 已完成；（P5）待审核提交 → 待审核；`utcnow() > 当日 deadline_at → 已逾期`；否则 `待执行`。`已完成/待审核` 为提交域注释钩子。
+
+结算/改期并发不变式：`settle` 与 `cancel`/`day_update` 均在任务行（或日截止行）`FOR UPDATE` 锁内先结算再变更，`_settle_assessment` 对已存在快照返回 `SKIP`（幂等）；两连接同时结算同一到期任务时，任务锁串行化 + 已有快照检查保证**恰好一行 `task_deadline_assessment`**（集成测试 `threading.Barrier` 双线程验证）。改晚截止不清除已结算的 `OVERDUE_UNEXECUTED`（截止时事实不可被普通业务改写）。

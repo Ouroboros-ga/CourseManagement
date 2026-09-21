@@ -104,8 +104,30 @@ Router 处理 HTTP，Schema 定义输入输出，Service 负责授权/规则/事
   执行导入需组合权限 `import.execute` + 目标 `manage`（路由早拦 + 服务纵深复核）；预览过期/重复确认
   构成状态机；周次解析复用 `common/parsing`。志愿者资格在启用且学生已绑定时即时补授 VOLUNTEER，
   "先导入资格后绑定"经 `bind_student` 反向补授，停用不回收。解析参考见 `../docs/legacy_parser_reference/`。
-- **待接入（P4+）**：inspection / attendance / objection / report / file 业务模块，
-  以及各模块 permissions.py 的行级数据范围过滤与历史/文件父资源读取范围。
+- **P4 巡检任务域（进行中，Wave 1–3c 已完成）**：`/api/v1/inspection-tasks` 实现"预览→生成"
+  两步（`task_key` 幂等、名单快照冻结为 `v1`、查课日截止记录随生成播种、整批单事务单次提交、
+  规模有界 `INSPECTION_GENERATE_MAX_TASKS`），读取按 `resolve_scope` 区分管理全可见 / 志愿者仅本人受派。
+  排班 Wave 3a 落地 `PUT /inspection-tasks/{id}/assignment`（人工改派）与 `POST /assignments/auto`
+  （自动贪心 + 锁内重验），硬约束（志愿者身份/学期资格/本班回避/本人课表冲突/本人任务时段冲突）
+  经 `fieldErrors.reason_code` 反馈，单日软上限 `ASSIGNMENT_MAX_TASKS_PER_DAY` 可配置；全局锁层级
+  `(志愿者,日期)` 锚点→任务，落库阶段时段冲突用 `SELECT … FOR SHARE` 锁定读防并发双分，
+  真实 MySQL 双线程 Barrier 不变式有集成测试。调班申请 Wave 3b 落地
+  `POST /assignment-change-requests`（志愿者仅对本人当前受派发起，任务已取消 / 已有 `PENDING` 均 409）
+  与 `GET /me/assignment-change-requests`；管理侧 `GET /assignment-change-requests` 读全量、
+  `POST /{id}/review` 以 `SELECT … FOR UPDATE` 锁申请行做 `PENDING→APPROVED/REJECTED` 迁移，
+  **approve/reject 仅迁移申请状态、不改受派人（无隐式改派）**，同申请并发处理恰好一次转态。
+  Wave 3c 落地取消 `POST /inspection-tasks/{id}/cancel`（`inspection.cancel`，锁内**先按旧截止幂等
+  结算锁定既有逾期事实再置取消**、乐观锁、审计），名单改版 `POST/GET /inspection-tasks/{id}/roster-versions`
+  （`inspection.roster.manage`：新版本 + 冻结学生快照 + `expected_count_current` 更正，非存在/非在读 422），
+  截止配置 `GET /submission-deadlines/{default,days,days/{date},days/{date}/versions}` 与
+  `PUT /submission-deadlines/days/{date}`（`submission_deadline.read/manage`：全局默认经配置反射只读、
+  改日截止走乐观锁 + 版本历史 + 改期前先结算锁定事实，下界不早于当日最晚任务结束 `DEADLINE_BEFORE_TASK_END`），
+  有界同步结算 `POST /submission-deadlines/settle`（幂等 `task_deadline_assessment` 快照，
+  到期未取消→`OVERDUE_UNEXECUTED`、截止前已取消→`CANCELED`、未到期→无快照，真实并发恰好一行）；
+  任务当前态五态精判补齐至"已逾期"（已完成/待审核留 P5 提交域钩子）。
+  端点契约见 `../docs/API_CONTRACT.md` 附录 C。
+- **待接入**：P5 提交/审核域（提交生成 `已完成/待审核`、考勤与异议），
+  以及 attendance / objection / report / file 业务模块与各模块 permissions.py 的行级数据范围过滤。
 
 > `../INITIALIZATION_GUIDE.md` 与 `../PROJECT_STATUS.md` 为早期 Java 方案的历史文档，
 > 不代表当前实现。

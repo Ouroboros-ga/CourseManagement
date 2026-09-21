@@ -20,5 +20,6 @@ from app.modules.academic import models as academic_models  # noqa: F401
 from app.modules.audit import models as audit_models  # noqa: F401
 from app.modules.identity import models as identity_models  # noqa: F401
 from app.modules.importer import models as importer_models  # noqa: F401
+from app.modules.inspection import models as inspection_models  # noqa: F401
 
 __all__ = ["Base"]

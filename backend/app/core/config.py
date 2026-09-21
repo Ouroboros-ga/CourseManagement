@@ -77,6 +77,26 @@ class Settings(BaseSettings):
     )
     import_max_rows: int = Field(default=5000, alias="IMPORT_MAX_ROWS")
 
+    # ---- 查课任务与排班（P4）----
+    # 以下均为"上线部署参数"而非写死的学校制度（技术方案 1.2 / DEVELOPMENT_PLAN 冻结纪律）：
+    # 默认每日截止时间示例 22:00，实际由管理端配置覆盖；这里仅提供首次为某天建任务时
+    # 生成该日截止记录所用的种子默认值。
+    default_submission_deadline_time: str = Field(
+        default="22:00", alias="DEFAULT_SUBMISSION_DEADLINE_TIME"
+    )
+    # 截止时刻以本地墙上时钟配置，落库统一转 naive-UTC（与 utcnow() 同域可比）。
+    # 中国校区单时区，偏移仅作基础设施换算，可按部署环境覆盖，不是业务制度数值。
+    app_utc_offset_hours: float = Field(default=8.0, alias="APP_UTC_OFFSET_HOURS")
+    # 有界同步生成：单次生成计划的任务数超此上限时在写入前拒绝，提示缩小选择范围。
+    inspection_generate_max_tasks: int = Field(
+        default=2000, alias="INSPECTION_GENERATE_MAX_TASKS"
+    )
+    # 排班软约束：单个志愿者单个查课日的最大受派任务数，0 表示不限（默认）。
+    # 属可配置运行参数而非学校制度，硬约束（时间冲突/本班回避/资格）始终强制。
+    assignment_max_tasks_per_day: int = Field(
+        default=0, alias="ASSIGNMENT_MAX_TASKS_PER_DAY"
+    )
+
     # ---- 日志 ----
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
