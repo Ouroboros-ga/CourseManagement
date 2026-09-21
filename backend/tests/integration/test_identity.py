@@ -14,12 +14,11 @@ import pytest
 from app.core.database import utcnow
 from app.core.permissions import PermissionCode, RoleCode
 from app.core.security import hash_password, hash_token
+from app.modules.academic.models import AdministrativeClass, Student
 from app.modules.identity.models import (
-    AdministrativeClass,
     IdentityBindingToken,
     Permission,
     Role,
-    Student,
     UserAccount,
     UserPermission,
     UserStatus,

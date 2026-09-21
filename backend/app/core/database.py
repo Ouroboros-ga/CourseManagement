@@ -13,7 +13,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 
-from sqlalchemy import INTEGER, BigInteger, DateTime, MetaData, create_engine
+from sqlalchemy import INTEGER, BigInteger, Date, DateTime, MetaData, create_engine
 from sqlalchemy.dialects import mysql
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import (
@@ -36,6 +36,10 @@ def utcnow() -> datetime:
 
 DATETIME_3 = DateTime(timezone=False).with_variant(mysql.DATETIME(fsp=3), "mysql")
 
+# 业务日历日期（学期起止、首周一、校历覆盖日期）以本地 DATE 存储，不带时区
+# （技术方案 8.1：学期/查课日期用 DATE 表示本地日历日期，时刻类才用 DATETIME(3)）。
+DATE_COL = Date()
+
 # 业务主键：MySQL 用 BIGINT AUTO_INCREMENT；SQLite（离线单测）降级为 INTEGER。
 PkBigInt = BigInteger().with_variant(INTEGER, "sqlite")
 
@@ -54,9 +58,7 @@ class Base(DeclarativeBase):
 class TimestampMixin:
     """可修改记录：created_at + updated_at。"""
 
-    created_at: Mapped[datetime] = mapped_column(
-        DATETIME_3, nullable=False, default=utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DATETIME_3, nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DATETIME_3, nullable=False, default=utcnow, onupdate=utcnow
     )
@@ -65,10 +67,7 @@ class TimestampMixin:
 class CreateTimeMixin:
     """不可变版本/历史表：只需创建时间。"""
 
-    created_at: Mapped[datetime] = mapped_column(
-        DATETIME_3, nullable=False, default=utcnow
-    )
-
+    created_at: Mapped[datetime] = mapped_column(DATETIME_3, nullable=False, default=utcnow)
 
 
 _engine: Engine | None = None

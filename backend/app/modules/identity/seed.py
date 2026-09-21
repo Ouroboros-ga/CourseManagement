@@ -32,13 +32,12 @@ from app.core.database import session_scope, utcnow
 from app.core.logging import get_logger, setup_logging
 from app.core.permissions import PermissionCode, RoleCode
 from app.core.security import generate_secure_token, hash_password, hash_token
+from app.modules.academic.models import AdministrativeClass, Student
 from app.modules.identity.models import (
-    AdministrativeClass,
     BindingTokenStatus,
     IdentityBindingToken,
     Permission,
     Role,
-    Student,
     UserAccount,
     UserStatus,
 )

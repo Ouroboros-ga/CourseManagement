@@ -86,39 +86,6 @@ class UserAccount(TimestampMixin, Base):
         return self.status == UserStatus.ACTIVE.value
 
 
-class Student(TimestampMixin, Base):
-    """学生基础记录（阶段 2 将扩展行政班等字段）。绑定核验依赖此表。"""
-
-    __tablename__ = "student"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
-
-    id: Mapped[int] = pk_column()
-    student_no: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(128), nullable=False)
-    administrative_class_id: Mapped[int | None] = mapped_column(
-        ForeignKey("administrative_class.id", ondelete="SET NULL")
-    )
-    status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="ACTIVE", server_default=text("'ACTIVE'")
-    )
-
-
-class AdministrativeClass(TimestampMixin, Base):
-    """行政班（最小字段，供 student 外键指向；阶段 2 扩展）。"""
-
-    __tablename__ = "administrative_class"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
-
-    id: Mapped[int] = pk_column()
-    class_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    class_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    grade_year: Mapped[int | None] = mapped_column()
-    major_name: Mapped[str | None] = mapped_column(String(128))
-    status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="ACTIVE", server_default=text("'ACTIVE'")
-    )
-
-
 class WechatIdentity(CreateTimeMixin, Base):
     """微信身份。未来多小程序时身份唯一键为 appid + openid。"""
 

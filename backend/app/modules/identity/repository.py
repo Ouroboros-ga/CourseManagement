@@ -5,13 +5,13 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.academic.models import Student
 from app.modules.identity.models import (
     AuthSession,
     IdentityBindingToken,
     Permission,
     Role,
     RolePermission,
-    Student,
     UserAccount,
     UserPermission,
     UserRole,
