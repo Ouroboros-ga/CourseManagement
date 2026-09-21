@@ -96,9 +96,16 @@ Router 处理 HTTP，Schema 定义输入输出，Service 负责授权/规则/事
   核销一次性码 + 自动授予 STUDENT + 写审计，绑定码核销对同一码行加 `FOR UPDATE` 锁，
   并发核销仅一人成功；管理员可签发/作废绑定码、换绑/解绑并撤销旧会话；
   `session_key/appid/secret` 绝不进入响应/审计/日志。
-- **待接入（P3+）**：`academic` 基础数据与课表/名单导入（解析参考见
-  `../docs/legacy_parser_reference/`）、学期志愿者资格自动身份、inspection /
-  attendance / objection / report / file 业务模块，以及各模块 permissions.py 的行级数据范围过滤。
+- **P3 基础数据 + 两步原子导入 已完成**：`/api/v1/academic` 覆盖学期/节次/校历/行政班/
+  学生/课程/教学班/名单整体替换/课表（含生效周）/志愿者资格，按 `academic|student|volunteer`
+  的 read/manage 守卫，写操作同事务审计、`SELECT … FOR UPDATE` 串行化，真实 MySQL 并发有集成测试。
+  `/api/v1/imports` 实现"预览→确认"两步原子导入（roster/timetable/volunteer）：上传解析只暂存
+  `import_batch`（规范行/统计/结构化错误），确认前重校验外部引用后整批单事务落库、任一失败全回滚零副作用；
+  执行导入需组合权限 `import.execute` + 目标 `manage`（路由早拦 + 服务纵深复核）；预览过期/重复确认
+  构成状态机；周次解析复用 `common/parsing`。志愿者资格在启用且学生已绑定时即时补授 VOLUNTEER，
+  "先导入资格后绑定"经 `bind_student` 反向补授，停用不回收。解析参考见 `../docs/legacy_parser_reference/`。
+- **待接入（P4+）**：inspection / attendance / objection / report / file 业务模块，
+  以及各模块 permissions.py 的行级数据范围过滤与历史/文件父资源读取范围。
 
 > `../INITIALIZATION_GUIDE.md` 与 `../PROJECT_STATUS.md` 为早期 Java 方案的历史文档，
 > 不代表当前实现。

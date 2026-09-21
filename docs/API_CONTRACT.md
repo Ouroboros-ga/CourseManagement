@@ -1,12 +1,12 @@
-# 后端 API 契约（身份与授权，P1 + P2 已实现）
+# 后端 API 契约（身份与授权 + 基础数据 + 导入，P1 + P2 + P3 已实现）
 
 | 项目 | 内容 |
 |---|---|
 | 日期 | 2026-09-21 |
 | 权限基线 | [PERMISSIONS.md V1.1](./PERMISSIONS.md)（第 12 节 API 映射为权威来源） |
 | 实施对照 | [PERMISSIONS_IMPLEMENTATION.md](./PERMISSIONS_IMPLEMENTATION.md) |
-| 范围 | 本文只描述 **已落地并纳入真实 MySQL 测试** 的身份/授权端点的可执行契约；未实现端点见 PERMISSIONS.md 第 12 节标注。 |
-| 代码 | `backend/app/modules/identity/{router,service,schemas,repository,wechat,deps}.py`、`backend/app/modules/audit/models.py` |
+| 范围 | 本文只描述 **已落地并纳入真实 MySQL 测试** 的端点可执行契约（身份/授权 P1+P2、基础数据与两步原子导入 P3）；未实现端点见 PERMISSIONS.md 第 12 节标注。 |
+| 代码 | `backend/app/modules/identity/{router,service,schemas,repository,wechat,deps}.py`、`backend/app/modules/audit/models.py`、`backend/app/modules/academic/{router,service,schemas,repository,models}.py`、`backend/app/modules/importer/{router,service,schemas,repository,models,permissions}.py`、`backend/app/common/parsing/{time_slots,xlsx_tabular}.py` |
 
 ## 1. 通用约定
 
@@ -151,6 +151,8 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | `WECHAT_TIMEOUT_SECONDS` | `5.0` | 出站超时，避免抖动拖垮同步线程池 |
 | `BINDING_TOKEN_VALID_MINUTES` | `60` | 一次性绑定码有效期 |
 | `BINDING_TOKEN_MAX_FAILED` | `5` | 绑定码失败次数上限（预留） |
+| `IMPORT_PREVIEW_TTL_MINUTES` | `30` | 导入预览批次有效期；超时确认置 EXPIRED 并返回 409 |
+| `IMPORT_MAX_ROWS` | `5000` | 单文件解析行数上限，超限预览返回 422 |
 
 ## 9. 测试覆盖
 
@@ -159,3 +161,50 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 - `test_admin_rbac.py`：角色边界矩阵、可选权限三项、目标选择器、会话自洽、并发与审计回滚。
 - `test_wechat_binding.py`：code2session 错误映射、首次登录建号与 PRE_BINDING、完整链路签发→绑定→自动授 STUDENT、同一码并发核销仅一人成功、作废与幂等、明文只回显一次且库中仅存摘要、换绑/解绑撤销旧会话、Web 管理员不受限、敏感字段不外泄。
 - `test_migrations.py` / `test_seed.py`：迁移升级/回滚零漂移、单 head、种子矩阵幂等。
+- `test_academic.py`：基础数据 CRUD 与错误码矩阵（学期/节次/校历/行政班/学生/课程/教学班/名单/课表/志愿者资格）、`FOR UPDATE` 真实并发（名单整体替换、志愿者资格核销恰一成功）、有效资格自动授 VOLUNTEER、审计。
+- `test_importer.py`：三类导入（roster/timetable/volunteer）预览→确认两步、组合权限象限（execute/target-manage 缺一即 403）、作用域校验、周次解析（区间/单双周/越界）、错误阻断确认、引用在两步之间失效的原子回滚零副作用、过期/重复确认状态机、审计，以及"先导入资格后绑定"由 `bind_student` 反向补授 VOLUNTEER。
+
+## 附录 A：P3 基础数据端点（`/api/v1/academic`）
+
+守卫以功能权限为准（`require_permission`）；写操作均在服务端会话取操作者、同事务追加 `AuditLog`、`SELECT … FOR UPDATE` 串行化父资源。ID 一律字符串出入。
+
+| 方法 路径 | 守卫 | 关键错误码 |
+|---|---|---|
+| `POST/PATCH /semesters[/{id}]`、`GET /semesters[/{id}]` | 写 `academic.manage` / 读 `academic.read` | `409`（code 重复、归档后写子资源）、`422`（结束早于开始、非法状态） |
+| `PUT/GET/DELETE /semesters/{id}/period-definitions[/{no|id}]` | `academic.manage` / `academic.read` | `422`（`period_no` 越界 1..20、时刻逆序）；节次号以路径为权威，请求体可省略 |
+| `POST/GET/DELETE /semesters/{id}/calendar-overrides[/{oid}]` | `academic.manage` / `academic.read` | `422`（补课缺来源星期）、`409`（同日期唯一） |
+| `POST/PATCH/GET /administrative-classes[/{id}]` | `academic.manage` / `academic.read` | `409`（class_code 重复） |
+| `POST/PATCH/GET /students[/{id}]`、`GET /students` | 写 `student.manage` / 读 `student.read` | `404`（行政班不存在）、`409`（学号重复）、`422`（非法状态） |
+| `POST/PATCH/GET /courses[/{id}]` | `academic.manage` / `academic.read` | `409`（course_code 重复） |
+| `POST/PATCH/GET /teaching-classes[/{id}]` | `academic.manage` / `academic.read` | `404`（课程不存在）、`409`（同学期同课同码重复、非活跃学期） |
+| `GET/PUT /teaching-classes/{id}/students`（名单整体替换） | `student.read` / `student.manage` | `404`（含不存在学生）；PUT 语义为整体替换并去重 |
+| `POST/PATCH/GET/DELETE /course-schedules[/{id}]` | `academic.manage` / `academic.read` | `422`（周次越界、结束早于开始）、`404`（教学班不存在、删除后读取） |
+| `PUT/GET /volunteer-qualifications` | `volunteer.manage` / `volunteer.read` | `404`（学生不存在）；启用且学生已绑定则同事务自动授 VOLUNTEER，停用不回收 |
+
+## 附录 B：P3 两步原子导入（`/api/v1`）
+
+设计（技术方案 19、PERMISSIONS.md 12.5）：上传解析只暂存为 `import_batch`（规范行入 `payload_json`、统计入 `summary_json`、结构化问题入 `error_json`），确认阶段不再依赖原文件，仅重校验外部引用后整批单事务落库、**单次提交**。明文文件不入库。
+
+组合权限：执行导入 = `import.execute` **且** 目标资源 `manage`。目标映射 roster→`student.manage`、timetable→`academic.manage`、volunteer→`volunteer.manage`。路由级 `ImportExecuteDep` 早拦（缺 execute → 403），服务事务内重读有效权限纵深复核（缺 target-manage → 403）。模板下载仅需 target-manage。
+
+预览→确认状态机：
+
+```
+(上传) --POST /imports--> PREVIEW --POST /{id}/confirm--> CONFIRMED（终态，重复确认 409）
+                              |                 ^-- 有 error 项 --> 422（拒绝确认）
+                              |-- 过期 --> EXPIRED（确认时置位并 409）
+```
+
+| 方法 路径 | 守卫 | 说明 |
+|---|---|---|
+| `GET /import-templates/{target}` | target-manage | 返回 `{target, scope_fields, columns[], example_rows[]}`；`target∈{roster,timetable,volunteer}`，未知 422 |
+| `POST /imports`（multipart） | import.execute（+服务纵深） | 表单：`file`(xlsx)、`target`、`semester_id?`、`teaching_class_id?`、`replace=true`。成功 `200`：`data={id,target,status:"PREVIEW",semester_id,teaching_class_id,summary,errors[],warnings[],expires_at,can_confirm}`。非法/损坏 xlsx→422；行数超 `IMPORT_MAX_ROWS`→422；作用域缺失→422、作用域资源不存在→404；写审计 `import.batch.preview` |
+| `GET /imports/{id}` | import.execute（+纵深） | 复用预览视图；批次不存在 404 |
+| `GET /imports/{id}/errors` | import.execute（+纵深） | 返回 `{errors[], warnings[]}`（按 severity 拆分） |
+| `POST /imports/{id}/confirm` | import.execute（+纵深） | 成功 `200`：`data={id,target,status:"CONFIRMED",summary}`（并入创建计数）。`409`（已确认 / 非 PREVIEW / 已过期）；`422`（存在 error 项、两步之间外部引用失效、周次超学期范围）。**任一失败整批回滚、业务零副作用**；成功写审计 `import.batch.confirm` |
+
+`can_confirm` = `status==PREVIEW` 且无 error 级问题且未过期。确认对批次行 `SELECT … FOR UPDATE`，并锁定父作用域（roster 锁教学班→其学期须 ACTIVE；timetable/volunteer 锁学期须 ACTIVE，归档 409）。
+
+各目标落库语义：roster 对目标教学班整体替换名单（学号→ID，缺任一即写前 422）；timetable 按课程代码 get-or-create 课程、按 `(学期,课程,教学班码)` get-or-create 教学班，再建课表与生效周（`1-16`、`单周/双周`、`1,3,5`、`第x-y周` 等组合，越界/倒置为 error）；volunteer 按 `(学期,学生)` upsert 资格行，`enabled` 且学生已绑定则即时补授 VOLUNTEER（幂等，`lock_version+=1`）。
+
+"先导入资格后绑定"对称：导入阶段资格已启用但学生尚未绑定，则仅落资格行；待该生后续 `POST /me/student-binding` 绑定时，`bind_student` 检测到其持有 ACTIVE 学期下启用中的资格，反向补授 VOLUNTEER（与正向补授对称）。

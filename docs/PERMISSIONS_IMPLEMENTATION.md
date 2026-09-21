@@ -6,8 +6,8 @@
 | 权限基线 | [PERMISSIONS.md V1.1](./PERMISSIONS.md) |
 | 关联技术方案 | [开发技术方案 V1.5](../查课管理系统V1.0开发技术方案.md) |
 | 关联 API 契约 | [API_CONTRACT.md](./API_CONTRACT.md)（已落地端点的可执行契约与错误码） |
-| 本轮范围 | 记录 P1 权限基础/管理闭环与 P2 微信身份闭环的实际落地：设计对照、实现进度台账与验收覆盖 |
-| 核对方式 | 阅读当前代码 + 真实 MySQL 集成测试（`tests/integration/`，79 通过）；缺库自动跳过不算通过 |
+| 本轮范围 | 记录 P1 权限基础/管理闭环、P2 微信身份闭环与 P3 基础数据 + 两步原子导入的实际落地：设计对照、实现进度台账与验收覆盖 |
+| 核对方式 | 阅读当前代码 + 真实 MySQL 集成测试（`tests/integration/`，195 通过）；缺库自动跳过不算通过 |
 
 ## 1. 相对旧草案的确定变化
 
@@ -87,7 +87,7 @@ OWN_SUBMISSION 下的本人照片仍受文件实际状态和保留期限约束�
 
 模板下载按新基线仅要求对应资源 manage；真正上传、预览、确认和错误文件读取还需要 import.execute。导入类型从实际批次取得，不能由客户端改传 type 绕过。
 
-## 3. 实现进度台账（截至 2026-09-21，P1 + P2 已落地）
+## 3. 实现进度台账（截至 2026-09-21，P1 + P2 + P3 已落地）
 
 | 项目 | 状态 | 说明 / 覆盖测试 |
 |---|---|---|
@@ -97,7 +97,9 @@ OWN_SUBMISSION 下的本人照片仍受文件实际状态和保留期限约束�
 | 当前身份 | 已实现 | CurrentUser 增 `pre_binding`；PRE_BINDING 由 `student_id` 空且无角色派生；Web 管理员不误封（`test_wechat_binding.py`） |
 | 微信登录 | 已实现 | `identity/wechat.py` code2session（httpx 生产 + Mock）；错误/超时映射 401/502；首次登录建无口令账号（`test_wechat_binding.py`） |
 | STUDENT 自动维护 | 已实现 | `bind_student` 同事务核销码 + 自动授 STUDENT + `lock_version+1` + 审计；一次性码加 `FOR UPDATE` 锁，并发核销仅一人成功（`test_wechat_binding.py`） |
-| VOLUNTEER 自动维护 | 待实现 | 学期资格模块（P3）：导入/启停/绑定后补齐身份、当前资格校验及历史只读 |
+| VOLUNTEER 自动维护 | 已实现 | 学期资格 upsert 与导入确认时若学生已绑定且资格启用则即时补授 VOLUNTEER（幂等，`lock_version+1`）；停用不回收；"先导入资格后绑定"由 `bind_student` 反向补授（`test_academic.py`、`test_importer.py`） |
+| 基础数据（P3） | 已实现 | `/api/v1/academic` 学期/节次/校历/行政班/学生/课程/教学班/名单整体替换/课表(生效周)/志愿者资格；`academic.read|manage`、`student.read|manage`、`volunteer.read|manage` 守卫，同事务审计、`FOR UPDATE` 串行化、真实并发（`test_academic.py`，33） |
+| 两步原子导入（P3） | 已实现 | `/api/v1/imports` 预览→确认；`import_batch` 暂存规范行，确认前重校验外部引用后整批单事务落库、任一失败全回滚零副作用；组合权限 `import.execute` + 目标 manage（路由早拦 + 服务纵深）；过期/重复确认状态机；周次解析复用 `common/parsing`（`test_importer.py`，24） |
 | role.assign | 已实现 | `GET /role-assignment-targets` + `PUT /users/{id}/roles`，差集边界 + 乐观并发 + 同事务审计（`test_admin_rbac.py`） |
 | 个人权限 | 已实现 | 三项许可清单管理 API、非负责人 422、禁自我提权 403、撤角色清除授权且重授不恢复、下一请求即时生效（`test_admin_rbac.py`） |
 | 绑定管理 | 已实现 | 超管/教师/负责人经 `identity.binding.manage` 签发、作废、换绑/解绑并撤销旧会话（`test_wechat_binding.py`） |
@@ -111,7 +113,12 @@ OWN_SUBMISSION 下的本人照片仍受文件实际状态和保留期限约束�
 - [CurrentUser 与绑定服务](../backend/app/modules/identity/service.py)
 - [身份路由](../backend/app/modules/identity/router.py)
 - [权限读取/写入 Repository](../backend/app/modules/identity/repository.py)
+- [基础数据模块](../backend/app/modules/academic/)（router/service/repository/models/permissions）
+- [两步原子导入模块](../backend/app/modules/importer/)（router/service/repository/models/permissions）
+- [表格与时间解析](../backend/app/common/parsing/)（xlsx_tabular、time_slots）
 - [现有身份测试](../backend/tests/integration/test_identity.py)
+- [基础数据测试](../backend/tests/integration/test_academic.py)
+- [导入测试](../backend/tests/integration/test_importer.py)
 
 ## 4. 实施与验收顺序
 
@@ -128,4 +135,4 @@ OWN_SUBMISSION 下的本人照片仍受文件实际状态和保留期限约束�
 - 多角色的全年级读取不扩大 submission.create、objection.create 的本人范围。
 - 38 个注册权限与默认矩阵一一对应；不存在未知 code、漏授默认项或把三个可选项误设为负责人默认。
 
-截至本轮，上述 PRE_BINDING 白名单、教师角色边界、负责人三项可选项、绑定签发/作废/换绑及一次性码并发核销等已由 P1/P2 实现并经真实 MySQL 集成测试覆盖（见 [API_CONTRACT.md](./API_CONTRACT.md) 与 `tests/integration/`）。志愿者学期资格自动身份、历史/文件父资源读取范围与各业务模块的行级数据过滤仍属 P3+ 的后续开发，其运行时生效与否以对应阶段验收为准。
+截至本轮，上述 PRE_BINDING 白名单、教师角色边界、负责人三项可选项、绑定签发/作废/换绑及一次性码并发核销等已由 P1/P2 实现并经真实 MySQL 集成测试覆盖（见 [API_CONTRACT.md](./API_CONTRACT.md) 与 `tests/integration/`）。P3 进一步落地基础数据全量 CRUD 与两步原子导入，志愿者学期资格的 VOLUNTEER 自动身份（导入/启用即时补授、"先导入资格后绑定"经 `bind_student` 反向补授、停用不回收）已实现并经测试覆盖。历史/文件父资源读取范围与各业务模块的行级数据过滤仍属 P4+ 的后续开发，其运行时生效与否以对应阶段验收为准。
