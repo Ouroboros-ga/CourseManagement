@@ -36,6 +36,7 @@ from app.modules.identity.models import (
     UserAccount,
     UserStatus,
 )
+from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.seed import sync_registry
 from app.modules.identity.service import IdentityService
 from fastapi.testclient import TestClient
@@ -641,6 +642,92 @@ def test_qualification_imported_before_binding_grants_on_bind(
     role_codes = {r.code for r in acct.roles}
     assert RoleCode.STUDENT.value in role_codes
     assert RoleCode.VOLUNTEER.value in role_codes
+
+
+# --------------------------------------------------------------------------- #
+# 志愿者继承学生基础权限（经"绑定同持 STUDENT"的角色并集，PERMISSIONS.md §1.5）
+# --------------------------------------------------------------------------- #
+# 学生基础三项：绑定成功由 STUDENT 角色提供；志愿者"继承"应由此并集而来。
+_STUDENT_BASE = {
+    PermissionCode.ATTENDANCE_READ.value,
+    PermissionCode.OBJECTION_CREATE.value,
+    PermissionCode.OBJECTION_READ.value,
+}
+# 志愿者专有语义权限：与 STUDENT 无关，应由 VOLUNTEER 角色提供。
+_VOLUNTEER_ONLY = {
+    PermissionCode.INSPECTION_READ.value,
+    PermissionCode.INSPECTION_ROSTER_READ.value,
+    PermissionCode.SUBMISSION_CREATE.value,
+    PermissionCode.SUBMISSION_READ.value,
+    PermissionCode.ASSIGNMENT_CHANGE_REQUEST.value,
+}
+
+
+def _bind_volunteer_via_import_then_bind(
+    client: TestClient, session: Session, username: str, code: str
+) -> int:
+    """先为未绑定 S002 导入启用中的志愿者资格，再走真实 bind_student 绑定。
+
+    返回绑定后的 user_id；此时该用户应同时持有 STUDENT 与 VOLUNTEER。
+    """
+    h = _admin_headers(client, session)
+    sc = _scene(client, h)
+    content = _xlsx(["学号", "是否启用"], [{"学号": "S002", "是否启用": "是"}])
+    pdata = _post_import(
+        client, h, target="volunteer", content=content, semester_id=sc["semester_id"]
+    ).json()["data"]
+    assert client.post(f"{_IM}/{int(pdata['id'])}/confirm", headers=h).status_code == 200
+
+    user = _make_user(session, username, [])
+    session.add(
+        IdentityBindingToken(
+            student_id=int(sc["students"]["S002"]["id"]),
+            token_hash=hash_token(code),
+            status="UNUSED",
+            expires_at=utcnow() + timedelta(hours=1),
+        )
+    )
+    session.commit()
+    IdentityService(session).bind_student(user.id, "S002", code)
+    session.expire_all()
+    return int(user.id)
+
+
+def test_volunteer_inherits_student_base_via_bound_student_role_union(
+    client: TestClient, session: Session
+) -> None:
+    """合法绑定志愿者：有效权限 = STUDENT ∪ VOLUNTEER，必然含学生基础三项。
+
+    钉死 PERMISSIONS.md §1.5 "志愿者继承学生基础权限"契约，并锁定其实现方式——
+    继承由"绑定同持 STUDENT"的角色权限并集提供，而非把三项硬写进 VOLUNTEER 角色集。
+    """
+    user_id = _bind_volunteer_via_import_then_bind(
+        client, session, "wx_inherit", "INHERIT-BIND-CODE-1"
+    )
+    repo = IdentityRepository(session)
+    roles = set(repo.list_role_codes(user_id))
+    assert {RoleCode.STUDENT.value, RoleCode.VOLUNTEER.value} <= roles, roles
+
+    eff = set(repo.list_effective_permissions(user_id))
+    assert eff >= _STUDENT_BASE, f"继承缺失：{eff}"
+    assert eff >= _VOLUNTEER_ONLY, f"志愿者专有权限缺失：{eff}"
+
+
+def test_unbound_volunteer_loses_inherited_student_base(
+    client: TestClient, session: Session
+) -> None:
+    """解绑态守护：仅持 VOLUNTEER（无 STUDENT）不得拥有学生基础三项。
+
+    反向锁死实现方式——学生三项来自 STUDENT 角色，绝不能并入 VOLUNTEER 集，
+    否则 student_binding_reset 解绑收回 STUDENT、保留 VOLUNTEER 后，绑定失效者会
+    借"继承"绕过 §1.5 的有效绑定门禁访问学生数据。
+    """
+    _bootstrap(session)
+    repo = IdentityRepository(session)
+    user = _make_user(session, "wx_unbound", [RoleCode.VOLUNTEER.value])
+    eff = set(repo.list_effective_permissions(user.id))
+    assert eff >= _VOLUNTEER_ONLY, eff
+    assert not (eff & _STUDENT_BASE), f"VOLUNTEER 集不应含学生基础项：{eff}"
 
 
 # --------------------------------------------------------------------------- #

@@ -25,6 +25,17 @@ _admin: frozenset[str] = frozenset(p.value for p in PermissionCode) - {
 }
 
 # 默认角色 → 权限 code 集合（PERMISSIONS.md 第 5 节的"是"；可选/条件派生/自动不计入）。
+#
+# 志愿者继承学生基础权限（PERMISSIONS.md §1.5 "VOLUNTEER 自动继承 STUDENT 全部基础权限"）
+# 不在此表内以静态并集表达——原因：绑定成功后 bind_student 必发 STUDENT 角色；志愿者资格
+# 生效时 importer / bind_student 反向补授 VOLUNTEER，所以一个"合法志愿者"必然同时持有
+# STUDENT + VOLUNTEER 两个角色，Repository.list_effective_permissions 取角色权限并集，
+# 学生基础三项（attendance.read / objection.create / objection.read）自然到位。
+# 反之 student_binding_reset 解绑会收回 STUDENT 但保留 VOLUNTEER（历史只读入口），若把这三项
+# 硬写进 VOLUNTEER 集，绑定失效者仍能通过继承门禁访问学生数据，违反 §1.5 "未绑定、绑定失效
+# 或账号停用不得借继承绕过限制"。因此 VOLUNTEER 集刻意不含这三项，由"绑定同持 STUDENT"的
+# 不变量提供继承能力；契约钉死见 tests/integration/test_importer.py 中
+# test_volunteer_inherits_student_base_via_bound_student_role_union。
 DEFAULT_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     RoleCode.SUPER_ADMIN.value: _admin,
     RoleCode.TEACHER_ADMIN.value: _admin - {
@@ -42,6 +53,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "submission_deadline.read",
         "attendance.read",
     }),
+    # VOLUNTEER：仅志愿者专有语义权限；学生基础三项经"绑定同持 STUDENT"并集获得，见上方注释。
     RoleCode.VOLUNTEER.value: frozenset({
         "inspection.read",
         "inspection.roster.read",
@@ -49,6 +61,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "submission.create",
         "submission.read",
     }),
+    # STUDENT：绑定即获得；解绑即收回；三项基础权限是 VOLUNTEER 继承能力的来源。
     RoleCode.STUDENT.value: frozenset({
         "attendance.read",
         "objection.create",
