@@ -1,0 +1,76 @@
+[project]
+name = "coursemanagement-backend"
+version = "0.1.0"
+description = "查课管理系统 V1.0 后端 (FastAPI + SQLAlchemy 2.x + Alembic + MySQL)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+
+# 运行时依赖：以范围约束声明，具体精确版本由 uv.lock 锁定，禁止动态 latest。
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "pydantic>=2.7,<3.0",
+    "pydantic-settings>=2.3,<3.0",
+    "sqlalchemy>=2.0.30,<2.1",
+    "alembic>=1.13,<2.0",
+    "pymysql>=1.1,<2.0",
+    "cryptography>=42.0",          # PyMySQL 使用 caching_sha2_password 时需要
+    "openpyxl>=3.1,<4.0",
+    "defusedxml>=0.7,<1.0",        # Excel/XML 解析防护
+    "argon2-cffi>=23.1,<24.0",     # 密码哈希 (Argon2id)
+    "pyjwt>=2.9,<3.0",             # 访问令牌签名 (HS256)
+    "python-multipart>=0.0.9,<0.1", # 表单/文件上传解析
+    "httpx>=0.27,<1.0",            # 微信 code2session 出站调用 (P2)，运行时依赖
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2,<9.0",
+    "httpx>=0.27,<1.0",            # TestClient / 接口测试
+    "ruff>=0.5,<1.0",
+    "mypy>=1.10,<2.0",
+    "pytest-asyncio>=0.23,<0.25",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "tests"]
+extend-exclude = [
+    "migrations/versions",  # Alembic autogenerate 产物，不纳入人工风格检查
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "B008",  # FastAPI 依赖注入惯用函数调用作为默认值
+]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+strict = false
+warn_unused_ignores = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "integration: 需连真实 MySQL 的集成测试（库不可用时自动跳过）",
+]
