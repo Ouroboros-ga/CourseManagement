@@ -24,6 +24,7 @@ from app.modules.identity.router import router as identity_router
 from app.modules.importer.router import router as importer_router
 from app.modules.inspection.router import router as inspection_router
 from app.modules.objection.router import router as objection_router
+from app.modules.report.router import router as report_router
 
 logger = get_logger(__name__)
 
@@ -97,6 +98,9 @@ def create_app() -> FastAPI:
 
     # 异议路由（阶段 6）：学生对本人考勤提异议、初核/终审与终审更正考勤（技术方案 14）。
     app.include_router(objection_router, prefix="/api/v1")
+
+    # 统计路由（阶段 7 W7a）：只读考勤统计与未完成清单（技术方案 17）。周报生成归后续波次。
+    app.include_router(report_router, prefix="/api/v1")
 
     return app
 
