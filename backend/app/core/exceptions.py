@@ -73,3 +73,10 @@ class ConflictError(AppError):
         message: str = "资源状态冲突，请刷新后重试",
     ) -> None:
         super().__init__(code, message, http_status=409)
+
+
+class FileExpiredError(AppError):
+    """访问已清理或已过保留期的材料（技术方案 16.3：返回明确的 FILE_EXPIRED）。"""
+
+    def __init__(self, message: str = "文件已过期或已清理") -> None:
+        super().__init__(ErrorCode.FILE_EXPIRED, message, http_status=410)

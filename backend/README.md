@@ -104,7 +104,7 @@ Router 处理 HTTP，Schema 定义输入输出，Service 负责授权/规则/事
   执行导入需组合权限 `import.execute` + 目标 `manage`（路由早拦 + 服务纵深复核）；预览过期/重复确认
   构成状态机；周次解析复用 `common/parsing`。志愿者资格在启用且学生已绑定时即时补授 VOLUNTEER，
   "先导入资格后绑定"经 `bind_student` 反向补授，停用不回收。解析参考见 `../docs/legacy_parser_reference/`。
-- **P4 巡检任务域（进行中，Wave 1–3c 已完成）**：`/api/v1/inspection-tasks` 实现"预览→生成"
+- **P4 巡检任务域（已完成，Wave 1–3c）**：`/api/v1/inspection-tasks` 实现"预览→生成"
   两步（`task_key` 幂等、名单快照冻结为 `v1`、查课日截止记录随生成播种、整批单事务单次提交、
   规模有界 `INSPECTION_GENERATE_MAX_TASKS`），读取按 `resolve_scope` 区分管理全可见 / 志愿者仅本人受派。
   排班 Wave 3a 落地 `PUT /inspection-tasks/{id}/assignment`（人工改派）与 `POST /assignments/auto`
@@ -124,10 +124,32 @@ Router 处理 HTTP，Schema 定义输入输出，Service 负责授权/规则/事
   改日截止走乐观锁 + 版本历史 + 改期前先结算锁定事实，下界不早于当日最晚任务结束 `DEADLINE_BEFORE_TASK_END`），
   有界同步结算 `POST /submission-deadlines/settle`（幂等 `task_deadline_assessment` 快照，
   到期未取消→`OVERDUE_UNEXECUTED`、截止前已取消→`CANCELED`、未到期→无快照，真实并发恰好一行）；
-  任务当前态五态精判补齐至"已逾期"（已完成/待审核留 P5 提交域钩子）。
+  任务当前态五态精判至"已逾期"，"已完成/待审核"由 P5 提交域补齐。
   端点契约见 `../docs/API_CONTRACT.md` 附录 C。
-- **待接入**：P5 提交/审核域（提交生成 `已完成/待审核`、考勤与异议），
-  以及 attendance / objection / report / file 业务模块与各模块 permissions.py 的行级数据范围过滤。
+- **P5 提交 / 审核 / 考勤 / 文件域（已完成，Wave 5b–5e）**：文件域（5b）`POST /files` 受限上传
+  （服务端随机 `object_key`、纯解析器校验尺寸/像素/类型、`READY` 落库固化 `expires_at`+保留策略版本），
+  `GET /files/{id}/access` 按业务资源归属放行并签发短时链接（`FILE_SIGNED_URL_TTL_SECONDS`），
+  `GET /files/{id}/download` 只校验签名不再鉴权（不即时撤销已发链接）；`FILE_STORAGE_BACKEND` 可插拔。
+  查课提交（5c）`POST /inspection-tasks/{id}/submissions`（`submission.create`）事务内守卫链含
+  "仅持 `submission.create` 但无 `VOLUNTEER` 角色 403""仅可提交本人当前受派任务""本学期资格有效"，
+  结论一致性与"异常学生须在当前名单版本且无重复"校验，附件按 `FILE_MAX_FILES_PER_SUBMISSION` 与
+  归属/状态/有效期把关，写前幂等结算锁定截止时事实并冻结 `deadline_version_id`；
+  `GET /me/submissions`（强制 `OWN_SUBMISSION`）、`GET /submissions/{id}`（越界 404 防枚举）；
+  "至多一个待审核/审核通过"不变式经真实并发恰好一成一拒。审核（5d）
+  `POST /submissions/{id}/review`（`submission.review`）按 §15 锁序（任务→提交）串行化，
+  `APPROVED` 先结算再按名单当前版本逐生 `AttendanceRecord`（命中异常取类型 + `source_submission_item_id`、
+  未列 `NORMAL`、`v1 source=SUBMISSION`），`REJECTED` 仅记痕不改事实可再提交，审核与取消互斥
+  （`canceled XOR has_attendance`）、已有 `APPROVED` 后取消 409。考勤（5d）`attendance.read` 全角色持有但范围分层
+  （SA/TA/SAM=`MANAGE`、VOLUNTEER/STUDENT=`SELF_STUDENT`）`GET /me/attendance|/attendance|/{id}|/{id}/versions`
+  （越界 404 防枚举），`attendance.correct` 追加式版本更正（`current_version` 不符 409），
+  `attendance.expected_count_adjust` `PATCH /inspection-tasks/{id}/expected-count`（下界为非 NORMAL 考勤数、
+  快照冻结不动、乐观锁）。到期清理（5e）部署定时脚本 `../deploy/scripts/cleanup_expired_files.py`
+  复用 `FileService.purge_expired_files`（不在 API 进程内起定时器），逐文件独立事务、可重跑幂等地
+  `READY→PURGE_PENDING→PURGED`，删除失败保留 `PURGE_PENDING` 待下次、访问侧到期/已清理返回 `FILE_EXPIRED`，
+  `file.purge` 审计系统触发（`actor_user_id=NULL`）。至此任务五态精判补齐至"已完成/待审核"。
+  端点契约见 `../docs/API_CONTRACT.md` 附录 D。
+- **待接入**：objection（异议，P6）、report（统计与周报，P7）业务模块及各模块 permissions.py
+  尚未覆盖的行级数据范围过滤。
 
 > `../INITIALIZATION_GUIDE.md` 与 `../PROJECT_STATUS.md` 为早期 Java 方案的历史文档，
 > 不代表当前实现。

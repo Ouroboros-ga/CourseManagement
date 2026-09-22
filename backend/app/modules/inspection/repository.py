@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date as date_
+from datetime import datetime
 
-from sqlalchemy import ColumnElement, Select, and_, func, select
+from sqlalchemy import ColumnElement, Select, and_, case, func, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.orm import Session
 
@@ -20,9 +21,12 @@ from app.common.pagination import PageParams
 from app.modules.inspection.models import (
     AssignmentChangeRequest,
     InspectionAssignment,
+    InspectionSubmission,
     InspectionTask,
+    ReviewStatus,
     SubmissionDeadlineDay,
     SubmissionDeadlineVersion,
+    SubmissionFile,
     TaskDeadlineAssessment,
     TaskRosterMember,
     TaskRosterVersion,
@@ -437,6 +441,164 @@ class InspectionRepository:
             stmt = stmt.where(InspectionTask.id.in_(list(task_ids)))
         stmt = stmt.order_by(InspectionTask.inspection_date, InspectionTask.id).limit(limit)
         return [int(r) for r in self._session.execute(stmt).scalars().all()]
+
+    # ==================== 查课提交（P5c）====================
+    def get_submission(self, submission_id: int) -> InspectionSubmission | None:
+        return self._session.get(InspectionSubmission, submission_id)
+
+    def get_submission_for_update(self, submission_id: int) -> InspectionSubmission | None:
+        stmt = _for_update(
+            select(InspectionSubmission).where(InspectionSubmission.id == submission_id)
+        )
+        return self._session.execute(stmt).scalar_one_or_none()
+
+    def list_submissions_by_task(self, task_id: int) -> list[InspectionSubmission]:
+        return list(
+            self._session.execute(
+                select(InspectionSubmission)
+                .where(InspectionSubmission.task_id == task_id)
+                .order_by(InspectionSubmission.attempt_no)
+            )
+            .scalars()
+            .all()
+        )
+
+    def has_open_submission(self, task_id: int) -> bool:
+        """该任务是否已有待审核或审核通过提交（"至多一个"不变式判定，技术方案 12、15）。"""
+        return (
+            self._session.execute(
+                select(InspectionSubmission.id)
+                .where(
+                    InspectionSubmission.task_id == task_id,
+                    InspectionSubmission.review_status.in_(
+                        [ReviewStatus.PENDING.value, ReviewStatus.APPROVED.value]
+                    ),
+                )
+                .limit(1)
+            )
+            .scalar_one_or_none()
+            is not None
+        )
+
+    def has_approved_submission(self, task_id: int) -> bool:
+        """该任务是否已有审核通过提交（据以生成考勤）——已生成考勤者不可再取消（技术方案 51）。"""
+        return (
+            self._session.execute(
+                select(InspectionSubmission.id)
+                .where(
+                    InspectionSubmission.task_id == task_id,
+                    InspectionSubmission.review_status == ReviewStatus.APPROVED.value,
+                )
+                .limit(1)
+            )
+            .scalar_one_or_none()
+            is not None
+        )
+
+    def max_attempt_no(self, task_id: int) -> int:
+        return int(
+            self._session.execute(
+                select(func.max(InspectionSubmission.attempt_no)).where(
+                    InspectionSubmission.task_id == task_id
+                )
+            ).scalar_one()
+            or 0
+        )
+
+    def map_submission_flags_by_task_ids(
+        self, task_ids: Sequence[int]
+    ) -> dict[int, tuple[bool, bool]]:
+        """批量派生各任务"有审核通过 / 有待审核"标记，供五态推导（禁 N+1，技术方案 12）。
+
+        单次按任务聚合条件计数即可，不逐任务查询；(has_approved, has_pending)。
+        """
+        ids = list(task_ids)
+        if not ids:
+            return {}
+        rows = self._session.execute(
+            select(
+                InspectionSubmission.task_id,
+                func.sum(
+                    case(
+                        (InspectionSubmission.review_status == ReviewStatus.APPROVED.value, 1),
+                        else_=0,
+                    )
+                ),
+                func.sum(
+                    case(
+                        (InspectionSubmission.review_status == ReviewStatus.PENDING.value, 1),
+                        else_=0,
+                    )
+                ),
+            )
+            .where(InspectionSubmission.task_id.in_(ids))
+            .group_by(InspectionSubmission.task_id)
+        ).all()
+        return {int(r[0]): (int(r[1] or 0) > 0, int(r[2] or 0) > 0) for r in rows}
+
+    def has_on_time_submission(self, task_id: int, deadline_at: datetime) -> bool:
+        """是否存在**按时**提交（submitted_at ≤ 适用截止，含等于，技术方案 13.3）。
+
+        只看提交时刻不看审核结果：截止前提交后被退回，仍算截止时"有有效提交"，
+        不得倒算为未执行（技术方案 13.2、DEVELOPMENT_PLAN 62/64）。
+        """
+        return (
+            self._session.execute(
+                select(InspectionSubmission.id)
+                .where(
+                    InspectionSubmission.task_id == task_id,
+                    InspectionSubmission.submitted_at <= deadline_at,
+                )
+                .limit(1)
+            )
+            .scalar_one_or_none()
+            is not None
+        )
+
+    def get_submission_file_ids(self, submission_id: int) -> list[int]:
+        return [
+            int(fid)
+            for fid in self._session.execute(
+                select(SubmissionFile.file_id).where(
+                    SubmissionFile.submission_id == submission_id
+                )
+            ).scalars().all()
+        ]
+
+    def list_submission_file_ids_by_ids(
+        self, submission_ids: Sequence[int]
+    ) -> dict[int, list[int]]:
+        """批量取各提交的关联文件 id，供装配（禁 N+1）。"""
+        ids = list(submission_ids)
+        if not ids:
+            return {}
+        rows = self._session.execute(
+            select(SubmissionFile.submission_id, SubmissionFile.file_id).where(
+                SubmissionFile.submission_id.in_(ids)
+            )
+        ).all()
+        out: dict[int, list[int]] = {}
+        for sub_id, fid in rows:
+            out.setdefault(int(sub_id), []).append(int(fid))
+        return out
+
+    def list_my_submissions(
+        self,
+        params: PageParams,
+        *,
+        volunteer_user_id: int,
+        task_id: int | None = None,
+    ) -> tuple[list[InspectionSubmission], int]:
+        """本人历史提交（OWN_SUBMISSION 范围）：强制 volunteer_user_id=本人（技术方案 12）。"""
+        stmt = select(InspectionSubmission).where(
+            InspectionSubmission.volunteer_user_id == volunteer_user_id
+        )
+        if task_id is not None:
+            stmt = stmt.where(InspectionSubmission.task_id == task_id)
+        stmt = stmt.order_by(
+            InspectionSubmission.submitted_at.desc(), InspectionSubmission.id.desc()
+        )
+        return _paged(self._session, stmt, params)
 
     # ==================== 调班申请 ====================
     def get_change_request(self, request_id: int) -> AssignmentChangeRequest | None:

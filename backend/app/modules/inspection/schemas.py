@@ -359,6 +359,100 @@ class DeadlineSettleResultResponse(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# 查课提交（P5c）——志愿者对本人当前受派任务提交结果，读取本人历史。
+# --------------------------------------------------------------------------- #
+SubmissionResultLiteral = Literal["NORMAL", "ABNORMAL"]
+ReviewStatusLiteral = Literal["PENDING", "APPROVED", "REJECTED"]
+# 异常明细仅限三类（技术方案 12）：请假 / 迟到 / 缺勤，NORMAL 不落明细。
+AbnormalTypeLiteral = Literal["LEAVE", "LATE", "ABSENT"]
+
+
+class SubmissionAbnormalItemInput(BaseModel):
+    student_id: int = Field(ge=1)
+    attendance_type: AbnormalTypeLiteral
+    note: str | None = Field(default=None, max_length=512)
+
+
+class SubmissionCreateRequest(BaseModel):
+    """志愿者提交查课结果。
+
+    - result=NORMAL 时异常明细必须为零；ABNORMAL 时至少一项（技术方案 12）；
+    - 异常学生必须属于任务当前名单版本、不可重复（归属校验在 service）；
+    - file_ids 关联本人上传、READY、未过期的照片材料（归属校验在 service）；
+    - 无 lock_version：并发以任务行锁 + "至多一个待审核/审核通过提交"不变式收敛，
+      重复提交在锁内命中既有待审核而拒（技术方案 12、15）。
+    """
+
+    result: SubmissionResultLiteral
+    abnormal_items: list[SubmissionAbnormalItemInput] = Field(
+        default_factory=list, max_length=2000
+    )
+    file_ids: list[int] = Field(default_factory=list, max_length=50)
+    note: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _check_result_consistency(self) -> SubmissionCreateRequest:
+        if self.result == "NORMAL" and self.abnormal_items:
+            raise ValueError("结论为 NORMAL 时不得包含异常明细")
+        if self.result == "ABNORMAL" and not self.abnormal_items:
+            raise ValueError("结论为 ABNORMAL 时至少需一条异常明细")
+        return self
+
+
+class SubmissionAbnormalItemResponse(BaseModel):
+    student_id: IdStr
+    student_no: str | None
+    name: str | None
+    attendance_type: AbnormalTypeLiteral
+    note: str | None
+
+
+class SubmissionResponse(BaseModel):
+    id: IdStr
+    task_id: IdStr
+    attempt_no: int
+    volunteer_user_id: IdStr
+    roster_version: int
+    result: SubmissionResultLiteral
+    review_status: ReviewStatusLiteral
+    submitted_at: datetime
+    deadline_version_id: OptIdStr
+    late_at_submission: bool
+    note: str | None
+    reviewed_by: OptIdStr
+    reviewed_at: datetime | None
+    review_comment: str | None
+    abnormal_items: list[SubmissionAbnormalItemResponse]
+    file_ids: list[IdStr]
+    created_at: datetime
+    updated_at: datetime
+
+
+# --------------------------------------------------------------------------- #
+# 审核（submission.review，Wave P5d）：管理人员通过 / 驳回某待审核提交。
+# --------------------------------------------------------------------------- #
+ReviewDecisionLiteral = Literal["APPROVED", "REJECTED"]
+
+
+class SubmissionReviewRequest(BaseModel):
+    """处理待审核提交：通过则据提交所用名单版本生成考勤，驳回保留原事实与照片。"""
+
+    decision: ReviewDecisionLiteral
+    comment: str | None = Field(default=None, max_length=512)
+
+
+# --------------------------------------------------------------------------- #
+# 应到人数调整（attendance.expected_count_adjust，Wave P5d）：改当前应到人数，保留初始快照。
+# --------------------------------------------------------------------------- #
+class ExpectedCountUpdateRequest(BaseModel):
+    """人工调整任务当前应到人数：非负、须写原因、lock_version 乐观锁；不动名单与历史认定。"""
+
+    expected_count_current: int = Field(ge=0)
+    reason: str = Field(min_length=1, max_length=512)
+    lock_version: int = Field(ge=0)
+
+
+# --------------------------------------------------------------------------- #
 # 排班冲突原因码（Wave 3a 硬约束）——集中定义，服务与测试共用字面量。
 # --------------------------------------------------------------------------- #
 REASON_NOT_VOLUNTEER = "NOT_VOLUNTEER"  # 账号停用或非志愿者身份
@@ -404,4 +498,14 @@ __all__ = [
     "DeadlineSettleRequest",
     "SettledTaskBrief",
     "DeadlineSettleResultResponse",
+    "SubmissionAbnormalItemInput",
+    "SubmissionCreateRequest",
+    "SubmissionAbnormalItemResponse",
+    "SubmissionResponse",
+    "SubmissionResultLiteral",
+    "ReviewStatusLiteral",
+    "AbnormalTypeLiteral",
+    "ReviewDecisionLiteral",
+    "SubmissionReviewRequest",
+    "ExpectedCountUpdateRequest",
 ]

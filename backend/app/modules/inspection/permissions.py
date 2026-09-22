@@ -65,6 +65,13 @@ ROSTER_MANAGE_PERMISSION = PermissionCode.INSPECTION_ROSTER_MANAGE.value
 # Wave 3c：提交截止时间配置读取 / 管理。
 DEADLINE_READ_PERMISSION = PermissionCode.SUBMISSION_DEADLINE_READ.value
 DEADLINE_MANAGE_PERMISSION = PermissionCode.SUBMISSION_DEADLINE_MANAGE.value
+# P5c：志愿者提交本人受派任务查课结果 / 读取本人历史提交（OWN_SUBMISSION 范围）。
+SUBMISSION_CREATE_PERMISSION = PermissionCode.SUBMISSION_CREATE.value
+SUBMISSION_READ_PERMISSION = PermissionCode.SUBMISSION_READ.value
+# P5d：管理人员审核（通过 / 驳回）待审核提交；通过后据名单版本生成考勤。
+SUBMISSION_REVIEW_PERMISSION = PermissionCode.SUBMISSION_REVIEW.value
+# P5d：人工调整任务当前应到人数（attendance.expected_count_adjust，动的是任务表字段）。
+EXPECTED_COUNT_ADJUST_PERMISSION = PermissionCode.ATTENDANCE_EXPECTED_COUNT_ADJUST.value
 
 
 def resolve_scope(roles: Sequence[str]) -> DataScope:
@@ -98,6 +105,10 @@ __all__ = [
     "ROSTER_MANAGE_PERMISSION",
     "DEADLINE_READ_PERMISSION",
     "DEADLINE_MANAGE_PERMISSION",
+    "SUBMISSION_CREATE_PERMISSION",
+    "SUBMISSION_READ_PERMISSION",
+    "SUBMISSION_REVIEW_PERMISSION",
+    "EXPECTED_COUNT_ADJUST_PERMISSION",
     "resolve_scope",
     "is_management_scope",
 ]

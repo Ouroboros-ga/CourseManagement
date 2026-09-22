@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import date as date_
 from datetime import datetime, time, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -49,7 +49,14 @@ from app.modules.academic.models import (
     VolunteerQualification,
 )
 from app.modules.academic.repository import AcademicRepository
+from app.modules.attendance.models import (
+    AttendanceRecord,
+    AttendanceRecordVersion,
+    AttendanceSourceType,
+    AttendanceType,
+)
 from app.modules.audit.models import AuditLog
+from app.modules.file.models import FileCategory, FileObject, FileStatus
 from app.modules.identity.models import Role, UserAccount, UserRole, UserStatus
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
@@ -60,10 +67,14 @@ from app.modules.inspection.models import (
     ChangeRequestStatus,
     DeadlineAssessmentResult,
     InspectionAssignment,
+    InspectionSubmission,
     InspectionTask,
     InspectionType,
+    ReviewStatus,
+    SubmissionAbnormalItem,
     SubmissionDeadlineDay,
     SubmissionDeadlineVersion,
+    SubmissionFile,
     TaskDeadlineAssessment,
     TaskRosterMember,
     TaskRosterVersion,
@@ -87,6 +98,7 @@ from app.modules.inspection.schemas import (
     DeadlineDayUpdateRequest,
     DeadlineSettleRequest,
     DeadlineSettleResultResponse,
+    ExpectedCountUpdateRequest,
     GeneratePreviewResponse,
     GenerateResultResponse,
     InspectionGenerateRequest,
@@ -96,9 +108,13 @@ from app.modules.inspection.schemas import (
     RosterVersionCreateRequest,
     RosterVersionResponse,
     SettledTaskBrief,
+    SubmissionAbnormalItemResponse,
+    SubmissionCreateRequest,
     SubmissionDeadlineDayResponse,
     SubmissionDeadlineDefaultResponse,
     SubmissionDeadlineVersionResponse,
+    SubmissionResponse,
+    SubmissionReviewRequest,
     TaskAssignmentBrief,
     TaskCancelRequest,
     TaskRosterMemberResponse,
@@ -632,6 +648,7 @@ class InspectionService:
         ids = [t.id for t in tasks]
         assignments = self._repo.list_assignments_by_task_ids(ids)
         assessments = self._repo.list_assessments_by_task_ids(ids)
+        sub_flags = self._repo.map_submission_flags_by_task_ids(ids)
         deadline_by_date: dict[tuple[int, date_], SubmissionDeadlineDay] = {}
         sem_ids = {t.semester_id for t in tasks}
         for sid in sem_ids:
@@ -649,26 +666,40 @@ class InspectionService:
                 if assessment is not None
                 else (cur_ver_ids.get(day.id) if day is not None else None)
             )
-            result.append(self._to_task_dto(t, assignments.get(t.id), day, assessment, version_id))
+            result.append(
+                self._to_task_dto(
+                    t,
+                    assignments.get(t.id),
+                    day,
+                    assessment,
+                    version_id,
+                    sub_flags.get(t.id, (False, False)),
+                )
+            )
         return result
 
     @staticmethod
     def _derive_status(
         task: InspectionTask,
-        assignment: InspectionAssignment | None,  # noqa: ARG004 - 保留签名，P5 提交域据此精判
+        assignment: InspectionAssignment | None,  # noqa: ARG004 - 保留签名，数据范围已在谓词层
         day: SubmissionDeadlineDay | None,
+        submission_flags: tuple[bool, bool] = (False, False),
     ) -> str:
         """五种当前状态派生（技术方案 12、13.3）。
 
-        优先级：已取消 →（P5）已完成 →（P5）待审核 → 已逾期 → 待执行。
+        优先级：已取消 → 已完成（有审核通过提交）→ 待审核（有待审核提交）→ 已逾期 → 待执行。
 
-        Wave 3c 落地"截止时刻"这一维度：无有效提交（提交域属 P5，此刻恒成立）且服务端
-        时间**严格超过**该日适用截止 → 已逾期；等于截止仍算按时（技术方案 13.3）。
-        "已完成 / 待审核"依赖提交与审核事实，随 P5 submission 模块落地，此处以注释占位。
+        ``submission_flags`` = (has_approved, has_pending)：由批量提交聚合得出，避免逐任务查询。
+        截止时刻维度沿用 Wave 3c：无待审核/审核通过提交且服务端时间**严格超过**该日适用截止
+        → 已逾期；等于截止仍算按时（技术方案 13.3）。
         """
         if task.canceled_at is not None:
             return "已取消"
-        # P5：有审核通过提交 → 已完成；有待审核提交 → 待审核。
+        has_approved, has_pending = submission_flags
+        if has_approved:
+            return "已完成"
+        if has_pending:
+            return "待审核"
         if day is not None and utcnow() > day.deadline_at:
             return "已逾期"
         return "待执行"
@@ -680,6 +711,7 @@ class InspectionService:
         day: SubmissionDeadlineDay | None,
         assessment: TaskDeadlineAssessment | None = None,
         deadline_version_id: int | None = None,
+        submission_flags: tuple[bool, bool] = (False, False),
     ) -> InspectionTaskResponse:
         brief = (
             TaskAssignmentBrief(
@@ -719,7 +751,7 @@ class InspectionService:
             expected_count_snapshot=task.expected_count_snapshot,
             expected_count_current=task.expected_count_current,
             roster_version=task.roster_version,
-            status=self._derive_status(task, assignment, day),
+            status=self._derive_status(task, assignment, day, submission_flags),
             assignment=brief,
             lock_version=task.lock_version,
             deadline_at=day.deadline_at if day is not None else None,
@@ -1425,8 +1457,9 @@ class InspectionService:
         - NOT_DUE：未到期且未在截止前取消——不生成快照（deadlineAssessment 为 null）；
         - SETTLED：本次新建。
 
-        结果判定（提交域属 P5，当前恒"无有效提交"）：截止前已取消 → CANCELED；
-        服务端时间严格超过适用截止（等值仍按时，技术方案 13.3）→ OVERDUE_UNEXECUTED。
+        结果判定：截止前已取消 → CANCELED；服务端时间严格超过适用截止（等值仍按时，
+        技术方案 13.3）后回看提交历史——存在按时（submitted_at ≤ 截止）提交 → VALID_SUBMISSION，
+        否则 → OVERDUE_UNEXECUTED。按时提交后被退回仍算截止时有效，不倒算为未执行。
         """
         # 存在性复查用锁定读（SELECT ... FOR UPDATE）：调用方已持任务行 FOR UPDATE 锁串行化，
         # 但 MySQL 默认 REPEATABLE READ 下本事务一致性读视图早在加锁前（_require /
@@ -1442,7 +1475,10 @@ class InspectionService:
         if task.canceled_at is not None and task.canceled_at <= day.deadline_at:
             result = DeadlineAssessmentResult.CANCELED
         elif now > day.deadline_at:
-            result = DeadlineAssessmentResult.OVERDUE_UNEXECUTED
+            if self._repo.has_on_time_submission(task.id, day.deadline_at):
+                result = DeadlineAssessmentResult.VALID_SUBMISSION
+            else:
+                result = DeadlineAssessmentResult.OVERDUE_UNEXECUTED
         else:
             return None, "NOT_DUE"
         ver = self._repo.get_deadline_version(day.id, day.version)
@@ -1530,6 +1566,11 @@ class InspectionService:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可重复取消")
         if task.lock_version != body.lock_version:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "任务版本已变化，请刷新后重试")
+        # 已有审核通过提交（已生成考勤）者不可取消：考勤事实已成立，取消致不一致（技术方案 51）。
+        if self._repo.has_approved_submission(task.id):
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT, "任务已有审核通过提交并生成考勤，不可取消"
+            )
         # 取消前按当前适用截止版本幂等结算，锁定"截止时"事实不受本次取消影响。
         day = self._repo.get_deadline_day(task.semester_id, task.inspection_date)
         self._settle_assessment(task, day)
@@ -1832,6 +1873,430 @@ class InspectionService:
         )
         self._session.commit()
         return self._day_to_dto(day)
+
+    # ================================================================== #
+    # P5c：查课提交（submission.create / submission.read，OWN_SUBMISSION 范围）
+    # ================================================================== #
+    def _current_student_id(self, actor_user_id: int) -> int | None:
+        acct = self._identity.get_user_by_id(actor_user_id)
+        return acct.student_id if acct is not None else None
+
+    def create_submission(
+        self,
+        actor: CurrentUser,
+        task_id: int,
+        body: SubmissionCreateRequest,
+        request_id: str | None,
+    ) -> SubmissionResponse:
+        """志愿者对本人当前受派任务提交查课结果（技术方案 12、13.3、15）。
+
+        身份三重实时校验（VOLUNTEER + 本学期资格 + 当前受派 + 未取消）与"至多一个待审核/
+        审核通过提交"不变式，全在任务行锁内成立；补交前先幂等结算锁定截止时事实；
+        提交时刻以服务端 UTC 记录，等于截止仍按时；迟交与适用截止版本一并冻结不被后续改写。
+        """
+        self._require(actor.id, perms.SUBMISSION_CREATE_PERMISSION)
+        if actor.pre_binding:
+            raise PermissionDeniedError("请先完成身份绑定")
+        acct = self._identity.get_user_by_id(actor.id)
+        if acct is None or acct.status != UserStatus.ACTIVE.value:
+            raise PermissionDeniedError("账号已停用，不可提交")
+        if RoleCode.VOLUNTEER.value not in set(self._identity.list_role_codes(actor.id)):
+            raise PermissionDeniedError("仅志愿者可提交查课结果")
+
+        # 任务行锁：串行化同任务的并发提交与结算（技术方案 15 全局锁层级）。
+        task = self._repo.get_task_for_update(task_id)
+        if task is None:
+            raise NotFoundError("查课任务不存在")
+        if task.canceled_at is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可提交")
+
+        # 当前受派：仅本人受派任务可提交；不存在受派或非本人 → 403（任务已确认存在 → 非 404）。
+        assignment = self._repo.get_assignment_by_task(task.id)
+        if assignment is None or assignment.volunteer_user_id != actor.id:
+            raise PermissionDeniedError("仅可提交本人当前受派的任务")
+
+        # 本学期有效志愿者资格：资格停用立即禁止提交（保留历史读取，见读取侧）。
+        student_id = acct.student_id
+        if student_id is None or not self._has_qualification(task.semester_id, student_id):
+            raise PermissionDeniedError("本学期无有效志愿者资格，不可提交")
+
+        # "至多一个待审核 / 审核通过提交"不变式：重复提交在锁内命中既有开放提交而拒；
+        # 仅有被驳回历史提交时放行，生成下一 attempt（技术方案 12）。
+        if self._repo.has_open_submission(task.id):
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT, "该任务已有待审核或审核通过提交，不可重复提交"
+            )
+
+        # 异常明细：学生须属本任务当前名单版本、不可重复；结论与明细数量一致性由 schema 保证。
+        roster_members = self._repo.list_roster_members(task.id, task.roster_version)
+        roster_ids = {m.student_id for m in roster_members}
+        seen: set[int] = set()
+        dup: list[int] = []
+        not_in_roster: list[int] = []
+        for item in body.abnormal_items:
+            if item.student_id in seen:
+                dup.append(item.student_id)
+            seen.add(item.student_id)
+            if item.student_id not in roster_ids:
+                not_in_roster.append(item.student_id)
+        if dup or not_in_roster:
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                "异常明细学生非法：重复或不属于本任务名单",
+                http_status=422,
+                field_errors={
+                    "duplicate_student_ids": dup,
+                    "not_in_roster_student_ids": not_in_roster,
+                },
+            )
+
+        # 附件校验（技术方案 12、16.2）：照片要求、数量上限、归属、状态、有效期。
+        file_ids = self._validate_attachments(task, actor.id, body.file_ids)
+
+        # 补交前幂等结算：按旧截止版本锁定"截止时"事实不受本次提交影响（技术方案 13.3）。
+        day = self._repo.get_deadline_day(task.semester_id, task.inspection_date)
+        self._settle_assessment(task, day)
+
+        now = utcnow()
+        late = day is not None and now > day.deadline_at
+        deadline_version_id: int | None = None
+        if day is not None:
+            ver = self._repo.get_deadline_version(day.id, day.version)
+            deadline_version_id = ver.id if ver is not None else None
+
+        attempt_no = self._repo.max_attempt_no(task.id) + 1
+        sub = InspectionSubmission(
+            task_id=task.id,
+            attempt_no=attempt_no,
+            volunteer_user_id=actor.id,
+            roster_version=task.roster_version,
+            result=body.result,
+            review_status=ReviewStatus.PENDING.value,
+            submitted_at=now,
+            deadline_version_id=deadline_version_id,
+            late_at_submission=late,
+            note=body.note,
+        )
+        self._repo.add(sub)
+        self._repo.flush()  # 取得 submission.id 供明细与附件外键
+        for item in body.abnormal_items:
+            self._repo.add(
+                SubmissionAbnormalItem(
+                    submission_id=sub.id,
+                    student_id=item.student_id,
+                    attendance_type=item.attendance_type,
+                    note=item.note,
+                )
+            )
+        for fid in file_ids:
+            self._repo.add(SubmissionFile(submission_id=sub.id, file_id=fid))
+        task.lock_version += 1
+        self._repo.flush()
+        self._audit(
+            actor_user_id=actor.id,
+            action="submission.create",
+            resource_type="inspection_submission",
+            resource_id=f"{sub.id}",
+            after={
+                "task_id": task.id,
+                "attempt_no": attempt_no,
+                "result": body.result,
+                "review_status": ReviewStatus.PENDING.value,
+                "late_at_submission": late,
+                "abnormal_count": len(body.abnormal_items),
+                "file_count": len(file_ids),
+                "submitted_at": now.isoformat(),
+            },
+            reason=body.note,
+            request_id=request_id,
+        )
+        # 单一提交点：提交 + 异常明细 + 附件关联 + 结算快照 + 审计同事务原子生效。
+        self._session.commit()
+        self._session.refresh(sub)
+        return self._assemble_submissions([sub])[0]
+
+    def _validate_attachments(
+        self, task: InspectionTask, actor_id: int, file_ids: list[int]
+    ) -> list[int]:
+        """校验并去重提交附件：均须 READY、本人上传、类别相符、未过期（技术方案 16.2）。"""
+        settings = get_settings()
+        uniq = list(dict.fromkeys(file_ids))
+        if task.require_photo_snapshot and not uniq:
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                "本任务要求上传现场照片",
+                http_status=422,
+                field_errors={"file_ids": uniq},
+            )
+        cap = settings.file_max_files_per_submission
+        if cap and len(uniq) > cap:
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                f"单次提交附件不得超过 {cap} 个",
+                http_status=422,
+                field_errors={"file_ids": uniq},
+            )
+        bad: list[int] = []
+        now = utcnow()
+        for fid in uniq:
+            f = self._session.get(FileObject, fid)
+            if (
+                f is None
+                or f.status != FileStatus.READY.value
+                or f.category != FileCategory.SUBMISSION_PHOTO.value
+                or f.uploader_user_id != actor_id
+                or (f.expires_at is not None and f.expires_at <= now)
+            ):
+                bad.append(fid)
+        if bad:
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                "附件不存在、未就绪、非本人上传或已过期",
+                http_status=422,
+                field_errors={"file_ids": bad},
+            )
+        return uniq
+
+    def list_my_submissions(
+        self, actor: CurrentUser, params: PageParams, *, task_id: int | None
+    ) -> dict:
+        # 本人历史提交：无论角色一律强制 volunteer_user_id=本人（OWN_SUBMISSION，技术方案 12）。
+        self._require(actor.id, perms.SUBMISSION_READ_PERMISSION)
+        rows, total = self._repo.list_my_submissions(
+            params, volunteer_user_id=actor.id, task_id=task_id
+        )
+        dto = self._assemble_submissions(rows)
+        return {
+            "items": [d.model_dump() for d in dto],
+            "page": params.page,
+            "page_size": params.page_size,
+            "total": total,
+        }
+
+    def get_my_submission(self, actor: CurrentUser, submission_id: int) -> SubmissionResponse:
+        self._require(actor.id, perms.SUBMISSION_READ_PERMISSION)
+        sub = self._repo.get_submission(submission_id)
+        # 非本人或不存在统一 404，防枚举探测他人提交（PERMISSIONS.md 7）。
+        if sub is None or sub.volunteer_user_id != actor.id:
+            raise NotFoundError("提交不存在或不可见")
+        return self._assemble_submissions([sub])[0]
+
+    # ---- 审核（submission.review）：通过据名单版本生成考勤，驳回保留原事实（技术方案 12、14）----
+    def review_submission(
+        self,
+        actor: CurrentUser,
+        submission_id: int,
+        body: SubmissionReviewRequest,
+        request_id: str | None,
+    ) -> SubmissionResponse:
+        """管理人员处理某待审核提交（技术方案 12、15）。
+
+        锁序遵全局层级"任务→提交"：先无锁读定位所属任务，再锁任务、后锁提交并事务内重读，
+        确保并发的审核 vs 取消、双人同审互斥（谁先持任务锁谁生效，落败方见既成事实得 409）。
+        通过前按当前截止版本幂等结算锁定截止时事实；通过后为该名单版本每生建初始考勤
+        （列异常者取明细类型，未列者 NORMAL），驳回仅改审核态、不动提交事实与照片。
+        """
+        self._require(actor.id, perms.SUBMISSION_REVIEW_PERMISSION)
+        probe = self._repo.get_submission(submission_id)
+        if probe is None:
+            raise NotFoundError("提交不存在")
+        task = self._repo.get_task_for_update(probe.task_id)
+        if task is None:
+            raise NotFoundError("提交所属任务不存在")
+        sub = self._repo.get_submission_for_update(submission_id)
+        if sub is None:
+            raise NotFoundError("提交不存在")
+        if sub.review_status != ReviewStatus.PENDING.value:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "提交已被处理，不可重复审核")
+        if task.canceled_at is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可审核提交")
+
+        now = utcnow()
+        generated = 0
+        if body.decision == ReviewStatus.APPROVED.value:
+            # 通过（生成考勤）前先幂等结算，锁定"截止时"事实不受本次审核影响（技术方案 13.3）。
+            day = self._repo.get_deadline_day(task.semester_id, task.inspection_date)
+            self._settle_assessment(task, day)
+            generated = self._generate_attendance(sub, actor.id)
+            sub.review_status = ReviewStatus.APPROVED.value
+        else:
+            sub.review_status = ReviewStatus.REJECTED.value
+        sub.reviewed_by = actor.id
+        sub.reviewed_at = now
+        sub.review_comment = body.comment
+        task.lock_version += 1
+        self._repo.flush()
+        self._audit(
+            actor_user_id=actor.id,
+            action=f"submission.review.{sub.review_status.lower()}",
+            resource_type="inspection_submission",
+            resource_id=f"{sub.id}",
+            before={"review_status": ReviewStatus.PENDING.value},
+            after={
+                "review_status": sub.review_status,
+                "attendance_generated": generated,
+                "reviewed_at": now.isoformat(),
+            },
+            reason=body.comment,
+            request_id=request_id,
+        )
+        self._session.commit()
+        self._session.refresh(sub)
+        return self._assemble_submissions([sub])[0]
+
+    def _generate_attendance(self, sub: InspectionSubmission, actor_id: int) -> int:
+        """审核通过时按提交所用名单版本为每生建初始考勤 + 版本 1（技术方案 12、14）。
+
+        列异常者取该明细类型并回填 source_submission_item_id，未列者 NORMAL（明细引用为空）；
+        一次批量插入并单次 flush 取得各行主键再补版本行，避免逐行往返。"至多一个审核通过
+        提交"不变式保证同一任务考勤只生成一次，无需去重既有记录。返回生成的考勤条数。
+        """
+        abnormal = {i.student_id: i for i in sub.abnormal_items}
+        members = self._repo.list_roster_members(sub.task_id, sub.roster_version)
+        pending: list[tuple[AttendanceRecord, str, int | None]] = []
+        for m in members:
+            item = abnormal.get(m.student_id)
+            eff = item.attendance_type if item is not None else AttendanceType.NORMAL.value
+            item_id = item.id if item is not None else None
+            rec = AttendanceRecord(
+                task_id=sub.task_id,
+                student_id=m.student_id,
+                effective_type=eff,
+                current_version=1,
+                source_submission_item_id=item_id,
+            )
+            self._repo.add(rec)
+            pending.append((rec, eff, item_id))
+        self._repo.flush()  # 取得各 AttendanceRecord.id 供版本行外键
+        for rec, eff, item_id in pending:
+            self._repo.add(
+                AttendanceRecordVersion(
+                    attendance_record_id=rec.id,
+                    version_no=1,
+                    attendance_type=eff,
+                    source_type=AttendanceSourceType.SUBMISSION.value,
+                    source_id=item_id,
+                    changed_by=actor_id,
+                    reason=None,
+                )
+            )
+        self._repo.flush()
+        return len(pending)
+
+    # ---- 应到人数调整（attendance.expected_count_adjust）：改当前值、留快照（技术方案 14）----
+    def update_expected_count(
+        self,
+        actor: CurrentUser,
+        task_id: int,
+        body: ExpectedCountUpdateRequest,
+        request_id: str | None,
+    ) -> InspectionTaskResponse:
+        """人工调整任务当前应到人数：非负、不得小于已认定异常数、乐观锁、不改名单与既有认定。"""
+        self._require(actor.id, perms.EXPECTED_COUNT_ADJUST_PERMISSION)
+        task = self._repo.get_task_for_update(task_id)
+        if task is None:
+            raise NotFoundError("查课任务不存在")
+        if task.canceled_at is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可调整应到人数")
+        if task.lock_version != body.lock_version:
+            raise ConflictError(ErrorCode.VERSION_CONFLICT, "任务版本已变化，请刷新后重试")
+        # 当前异常认定数（考勤非 NORMAL 者）= 人数下界，避免"应到 < 异常"不可能事实（技术方案 14）。
+        abnormal_count = int(
+            self._session.execute(
+                select(func.count())
+                .select_from(AttendanceRecord)
+                .where(
+                    AttendanceRecord.task_id == task.id,
+                    AttendanceRecord.effective_type != AttendanceType.NORMAL.value,
+                )
+            ).scalar_one()
+            or 0
+        )
+        if body.expected_count_current < abnormal_count:
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                f"当前应到人数不得小于已认定的异常人数({abnormal_count})",
+                http_status=422,
+                field_errors={
+                    "expected_count_current": body.expected_count_current,
+                    "abnormal_count": abnormal_count,
+                },
+            )
+        prev = task.expected_count_current
+        task.expected_count_current = body.expected_count_current
+        task.lock_version += 1
+        self._repo.flush()
+        self._audit(
+            actor_user_id=actor.id,
+            action="attendance.expected_count_adjust",
+            resource_type="inspection_task",
+            resource_id=f"{task.id}",
+            before={"expected_count_current": prev},
+            after={"expected_count_current": task.expected_count_current},
+            reason=body.reason,
+            request_id=request_id,
+        )
+        self._session.commit()
+        return self._assemble_tasks([task])[0]
+
+    def _assemble_submissions(
+        self, subs: Sequence[InspectionSubmission]
+    ) -> list[SubmissionResponse]:
+        """批量装配提交响应：异常明细回填名单快照学号/姓名，附件 id 一次聚合取（禁 N+1）。"""
+        if not subs:
+            return []
+        sub_ids = [s.id for s in subs]
+        files_map = self._repo.list_submission_file_ids_by_ids(sub_ids)
+        roster_map = self._build_roster_display_map(subs)
+        out: list[SubmissionResponse] = []
+        for s in subs:
+            display = roster_map.get((s.task_id, s.roster_version), {})
+            items = [
+                SubmissionAbnormalItemResponse(
+                    student_id=i.student_id,
+                    student_no=display.get(i.student_id, (None, None))[0],
+                    name=display.get(i.student_id, (None, None))[1],
+                    attendance_type=i.attendance_type,
+                    note=i.note,
+                )
+                for i in s.abnormal_items
+            ]
+            out.append(
+                SubmissionResponse(
+                    id=s.id,
+                    task_id=s.task_id,
+                    attempt_no=s.attempt_no,
+                    volunteer_user_id=s.volunteer_user_id,
+                    roster_version=s.roster_version,
+                    result=s.result,
+                    review_status=s.review_status,
+                    submitted_at=s.submitted_at,
+                    deadline_version_id=s.deadline_version_id,
+                    late_at_submission=s.late_at_submission,
+                    note=s.note,
+                    reviewed_by=s.reviewed_by,
+                    reviewed_at=s.reviewed_at,
+                    review_comment=s.review_comment,
+                    abnormal_items=items,
+                    file_ids=files_map.get(s.id, []),
+                    created_at=s.created_at,
+                    updated_at=s.updated_at,
+                )
+            )
+        return out
+
+    def _build_roster_display_map(
+        self, subs: Sequence[InspectionSubmission]
+    ) -> dict[tuple[int, int], dict[int, tuple[str | None, str | None]]]:
+        """为各提交所用名单版本建立 (task_id, version) -> {student_id: (学号, 姓名)} 显示映射。"""
+        keys = {(s.task_id, s.roster_version) for s in subs}
+        out: dict[tuple[int, int], dict[int, tuple[str | None, str | None]]] = {}
+        for task_id, version in keys:
+            members = self._repo.list_roster_members(task_id, version)
+            out[(task_id, version)] = {
+                m.student_id: (m.student_no, m.name) for m in members
+            }
+        return out
 
 
 __all__ = ["InspectionService", "PlanItem", "_VolProfile"]

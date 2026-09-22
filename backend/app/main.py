@@ -18,6 +18,8 @@ from app.core.exceptions import AppError
 from app.core.logging import get_logger, setup_logging
 from app.core.middleware import RequestIdMiddleware
 from app.modules.academic.router import router as academic_router
+from app.modules.attendance.router import router as attendance_router
+from app.modules.file.router import router as file_router
 from app.modules.identity.router import router as identity_router
 from app.modules.importer.router import router as importer_router
 from app.modules.inspection.router import router as inspection_router
@@ -85,6 +87,12 @@ def create_app() -> FastAPI:
 
     # 查课任务与排班路由（阶段 4）：任务预览/生成、列表/详情/本人任务、名单读取。
     app.include_router(inspection_router, prefix="/api/v1")
+
+    # 文件路由（阶段 5）：受限上传、短时签名访问与验签下载（技术方案 16）。
+    app.include_router(file_router, prefix="/api/v1")
+
+    # 考勤路由（阶段 5）：当前考勤与历史认定读取（按数据范围）、最终考勤更正（技术方案 14）。
+    app.include_router(attendance_router, prefix="/api/v1")
 
     return app
 

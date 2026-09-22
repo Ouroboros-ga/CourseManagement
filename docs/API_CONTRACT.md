@@ -1,4 +1,4 @@
-# 后端 API 契约（身份与授权 + 基础数据 + 导入，P1 + P2 + P3 已实现）
+# 后端 API 契约（身份与授权 + 基础数据 + 导入 + 查课 + 提交/审核/考勤/文件，P1 + P2 + P3 + P4 + P5 已实现）
 
 | 项目 | 内容 |
 |---|---|
@@ -273,3 +273,58 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 任务当前态五态精判（`_derive_status`，技术方案 12）：`canceled_at → 已取消`；（P5）审核通过提交 → 已完成；（P5）待审核提交 → 待审核；`utcnow() > 当日 deadline_at → 已逾期`；否则 `待执行`。`已完成/待审核` 为提交域注释钩子。
 
 结算/改期并发不变式：`settle` 与 `cancel`/`day_update` 均在任务行（或日截止行）`FOR UPDATE` 锁内先结算再变更，`_settle_assessment` 对已存在快照返回 `SKIP`（幂等）；两连接同时结算同一到期任务时，任务锁串行化 + 已有快照检查保证**恰好一行 `task_deadline_assessment`**（集成测试 `threading.Barrier` 双线程验证）。改晚截止不清除已结算的 `OVERDUE_UNEXECUTED`（截止时事实不可被普通业务改写）。
+
+## 附录 D：P5 文件 / 提交 / 审核 / 考勤 / 到期清理（`/api/v1`）
+
+数据前缀 `/api/v1`。令牌双路径与错误字典同第 2、7 节；ID 一律字符串出入。写操作事务内 `SELECT … FOR UPDATE` 串行化、末尾单次 `commit`、同事务追加 `AuditLog`（到期清理系统作业除外，见 D.5）。
+
+### D.1 文件域（Wave 5b，技术方案 16）
+
+文件无独立功能权限，访问按"业务资源归属"放行。存储后端可插拔（`FILE_STORAGE_BACKEND=local|object`，V1.0 dev/test 用 `LocalStorage`）。
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `POST /files` | 类别相关（multipart） | `category ∈ {SUBMISSION_PHOTO,OBJECTION_PROOF,IMPORT_FILE,REPORT_FILE,TEMP}`，受限类别经 `required_upload_permission` 追加校验（如导入/报表需 `import.execute`/`report.*`）。PRE_BINDING 受限会话 403。服务端随机 `object_key`（绝不用原名作路径）、纯解析器读头校验尺寸/像素/类型，超限 422。落 `READY` 行，`expires_at` 按类别保留期（`FILE_RETENTION_*_DAYS`，起算上传成功时刻）固化，`retention_policy_version` 记命中版本。审计 `file.upload` |
+| `GET /files/{file_id}/access` | 资源归属 | 不可见/不存在统一 404 防枚举；已清理/到期 → `FILE_EXPIRED`；未就绪（`UPLOADING/FAILED`）→ 409。返回短时签名 GET 链接（`FILE_SIGNED_URL_TTL_SECONDS`，默认 300s） |
+| `GET /files/{file_id}/download` | 仅签名 | **不再鉴权**（技术方案 16.2：不即时撤销已发链接），只校验 HMAC 签名 + 过期时间戳 + 对象未清理；已清理/到期 `FILE_EXPIRED`，签名无效/过期 403 |
+
+`can_access`：上传者本人恒可访问自己的 `READY` 材料；已挂到提交的材料，持 `submission.review` 者经任意提交链接可得、仅持 `submission.read` 的志愿者只能经本人受派提交访问。
+
+### D.2 查课提交（Wave 5c，`submission.create` / `submission.read`）
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `POST /inspection-tasks/{task_id}/submissions` | `submission.create` | `SubmissionCreateRequest{result∈{NORMAL,ABNORMAL},abnormal_items[{student_id,attendance_type,note?}],file_ids[]}`。守卫链：`_require` 锁操作者并重读权限 → PRE_BINDING 403 → 账号 `ACTIVE` → 持 `VOLUNTEER` 角色（仅持权限码无角色 403）→ 任务 `FOR UPDATE` 且未取消 → `assignment.volunteer_user_id==actor`（非本人受派 403）→ 本学期志愿者资格 → 无开放提交（否则 409 `STATE_CONFLICT`）→ 结论一致性（NORMAL 带明细 / ABNORMAL 无明细 → 422）→ 异常学生须在本任务当前名单版本且无重复（422 `fieldErrors{duplicate_student_ids,not_in_roster_student_ids}`）→ 附件校验（要求照片却空 / 超 `FILE_MAX_FILES_PER_SUBMISSION` / 非 `READY`/非本人/类别不符/已过期 → 422）。写前幂等结算锁"截止时"事实，冻结 `deadline_version_id`，`attempt_no=max+1`，插 `PENDING` 提交 + 异常明细 + 提交文件关联，`task.lock_version++`，审计 `submission.create` |
+| `GET /me/submissions` | `submission.read` | 强制 `volunteer_user_id=本人`（`OWN_SUBMISSION` 范围），分页 |
+| `GET /submissions/{id}` | `submission.read` | 读他人/越界提交统一 404 防枚举；本人可读 |
+
+不变式"至多一个待审核/审核通过"：存在 `PENDING|APPROVED` 提交时再次提交 → 409；真实并发恰好一成一拒（任务 `FOR UPDATE` 串行化）。
+
+### D.3 审核通过生成考勤（Wave 5d，`submission.review`）
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `POST /submissions/{submission_id}/review` | `submission.review` | `SubmissionReviewRequest{decision∈{APPROVED,REJECTED},comment?(≤512)}`。锁序遵 §15：先探提交（不加锁，缺失 404）→ `get_task_for_update`（任务先于提交）→ 再 `FOR UPDATE` 提交行；非 `PENDING` → 409 `STATE_CONFLICT`（提交已处理），任务已取消 → 409（提交已处理）。`APPROVED`：先幂等结算锁截止事实，再**按名单当前版本逐生生成考勤**（命中异常明细者取 `attendance_type` + `source_submission_item_id`，未列者 `NORMAL`；`current_version=1`、写 `AttendanceRecordVersion v1 source=SUBMISSION`），`AttendanceRecord` 批量 `add→flush` 取 id 再补版本行。`REJECTED` 仅记审核痕迹、不生成考勤、不改事实（可再次提交 `attempt_no+1`）。`task.lock_version++`；审计 `submission.review.approved`/`.rejected` |
+
+考勤事实唯一约束 `unique(task_id, student_id)`；审核与取消互斥（都锁任务，恰一成功，绝不"既取消又生成考勤"，集成测试 `threading.Barrier` 断言 `canceled XOR has_attendance`）。已有 `APPROVED` 提交（考勤已成立）后取消任务 → 409 `STATE_CONFLICT`（技术方案 51）。
+
+### D.4 考勤读取 / 更正 / 应到人数调整（Wave 5d）
+
+数据可见性（PERMISSIONS.md 6.3）：`attendance.read` 全五角色持有，但 **SA/TA/SAM=全院 `MANAGE` 范围、VOLUNTEER+STUDENT=仅本人 `SELF_STUDENT`**。
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `GET /me/attendance` | `attendance.read` | 强制 `student_id=本人`；无绑定学生 403 |
+| `GET /attendance` | `attendance.read` | 仅 `MANAGE` 范围可列（非管理范围 403）；分页 + `task_id/semester_id/effective_type` 过滤 |
+| `GET /attendance/{record_id}` | `attendance.read` | 越界（非管理读他人、本人无该记录）统一 404 防枚举 |
+| `GET /attendance/{record_id}/versions` | `attendance.read` | 同读取范围门禁，返回不可变版本历史 |
+| `POST /attendance/{record_id}/corrections` | `attendance.correct` | `AttendanceCorrectionRequest{attendance_type,reason(1–512),current_version(ge1)}`。`AttendanceRecord` 行 `FOR UPDATE`，`current_version` 不符 → 409 `VERSION_CONFLICT`；改 `effective_type` + `current_version+=1`，**追加** `AttendanceRecordVersion(source=CORRECTION,source_id=record.id,changed_by=actor)`（不可变多态来源）。审计 `attendance.correct` |
+| `PATCH /inspection-tasks/{task_id}/expected-count` | `attendance.expected_count_adjust` | `ExpectedCountUpdateRequest{expected_count_current(ge0),reason(1–512),lock_version(ge0)}`。锁任务，已取消 409、版本不符 409 `VERSION_CONFLICT`；`expected_count_current < 该任务非 NORMAL 考勤数` → 422 `fieldErrors{expected_count_current,abnormal_count}`。仅改 `expected_count_current`（`expected_count_snapshot` 冻结不动）、`lock_version++`；审计 `attendance.expected_count_adjust`（before/after 人数） |
+
+`AttendanceRecord` 仅 `CreateTimeMixin`（记录无 `updated_at`，更正以版本行追加留痕）；`AttendanceRecordVersion` 不可变多态来源 `source_type ∈ {SUBMISSION,CORRECTION,OBJECTION_FINAL}`、`source_id` 无外键。响应不含 `updated_at`。
+
+### D.5 到期材料清理（Wave 5e，部署定时脚本）
+
+**不在 API 进程内起独立定时器**（技术方案 66）。清理由部署侧定时任务（cron / 任务计划）执行 `deploy/scripts/cleanup_expired_files.py`，复用 `FileService.purge_expired_files`，逐文件独立事务提交、可重跑幂等：
+
+状态机（技术方案 16.1/16.3）：到期 `READY` → 先落库 `PURGE_PENDING`（持久化清理意图，崩溃可恢复）→ 删底层对象，成功才置 `PURGED` 记 `purged_at`；底层删除失败**保留 `PURGE_PENDING`** 待下次运行、绝不改判为已清理；对象已缺失视作清理完成。访问侧已 `PURGED`/`PURGE_PENDING`/已过期文件一律 `FILE_EXPIRED`。审计 `file.purge` 由**系统触发**（`actor_user_id=NULL`，`reason=retention_expired`，before/after 记状态）。已 `PURGED` 者不再入选候选，重复运行无副作用。`expires_at`/`retention_policy_version` 落库后不随配置改动无审计地缩短旧材料期限。

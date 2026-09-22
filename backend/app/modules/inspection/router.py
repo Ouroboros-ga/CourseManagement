@@ -27,8 +27,11 @@ from app.modules.inspection.schemas import (
     ChangeRequestReviewRequest,
     DeadlineDayUpdateRequest,
     DeadlineSettleRequest,
+    ExpectedCountUpdateRequest,
     InspectionGenerateRequest,
     RosterVersionCreateRequest,
+    SubmissionCreateRequest,
+    SubmissionReviewRequest,
     TaskCancelRequest,
 )
 from app.modules.inspection.service import InspectionService
@@ -79,6 +82,22 @@ DeadlineReadDep = Annotated[
 DeadlineManageDep = Annotated[
     CurrentUserDep,
     Depends(require_permission(PermissionCode.SUBMISSION_DEADLINE_MANAGE.value)),
+]
+SubmissionCreateDep = Annotated[
+    CurrentUserDep,
+    Depends(require_permission(PermissionCode.SUBMISSION_CREATE.value)),
+]
+SubmissionReadDep = Annotated[
+    CurrentUserDep,
+    Depends(require_permission(PermissionCode.SUBMISSION_READ.value)),
+]
+SubmissionReviewDep = Annotated[
+    CurrentUserDep,
+    Depends(require_permission(PermissionCode.SUBMISSION_REVIEW.value)),
+]
+ExpectedCountAdjustDep = Annotated[
+    CurrentUserDep,
+    Depends(require_permission(PermissionCode.ATTENDANCE_EXPECTED_COUNT_ADJUST.value)),
 ]
 
 
@@ -359,4 +378,74 @@ def settle_deadlines(
     request: Request,
 ) -> dict[str, object]:
     result = service.settle_deadline(actor, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+
+
+# ================================================================== #
+# Wave P5c：查课提交（志愿者本人受派任务提交结果 + 本人历史读取）
+# ================================================================== #
+# ---- 提交查课结果（submission.create，仅本人当前受派任务，Service 内纵深校验）----
+@router.post("/inspection-tasks/{task_id}/submissions")
+def create_inspection_submission(
+    task_id: int,
+    body: SubmissionCreateRequest,
+    actor: SubmissionCreateDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    result = service.create_submission(actor, task_id, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+
+
+# ---- 本人提交历史（submission.read，强制本人范围；须在 /{id} 之前声明）----
+@router.get("/me/submissions")
+def list_my_submissions(
+    actor: SubmissionReadDep,
+    service: ServiceDep,
+    request: Request,
+    params: Annotated[PageParams, Depends(page_params)],
+    task_id: Annotated[int | None, Query(ge=1)] = None,
+) -> dict[str, object]:
+    data = service.list_my_submissions(actor, params, task_id=task_id)
+    return success(data, _rid(request))
+
+
+# ---- 本人单条提交（submission.read，非本人统一 404 防枚举）----
+@router.get("/submissions/{submission_id}")
+def get_my_submission(
+    submission_id: int,
+    actor: SubmissionReadDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    result = service.get_my_submission(actor, submission_id)
+    return success(result.model_dump(), _rid(request))
+
+
+# ================================================================== #
+# Wave P5d：提交审核（通过据名单版本生成考勤 / 驳回保留原事实）+ 应到人数调整
+# ================================================================== #
+# ---- 审核待审核提交（submission.review，管理人员）----
+@router.post("/submissions/{submission_id}/review")
+def review_submission(
+    submission_id: int,
+    body: SubmissionReviewRequest,
+    actor: SubmissionReviewDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    result = service.review_submission(actor, submission_id, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+
+
+# ---- 人工调整任务当前应到人数（attendance.expected_count_adjust，保留初始快照与历史）----
+@router.patch("/inspection-tasks/{task_id}/expected-count")
+def update_expected_count(
+    task_id: int,
+    body: ExpectedCountUpdateRequest,
+    actor: ExpectedCountAdjustDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    result = service.update_expected_count(actor, task_id, body, _rid(request))
     return success(result.model_dump(), _rid(request))

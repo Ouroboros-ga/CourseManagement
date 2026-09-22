@@ -97,6 +97,50 @@ class Settings(BaseSettings):
         default=0, alias="ASSIGNMENT_MAX_TASKS_PER_DAY"
     )
 
+    # ---- 文件上传、访问与保留（P5，技术方案 16）----
+    # 下列均为"上线部署参数"而非写死的学院制度（DEVELOPMENT_PLAN §6 冻结纪律）：
+    # 大小 / 张数 / 扩展名 / 像素上限 / 签名链接有效期 / 各类材料保留天数均可经环境覆盖，
+    # 技术方案标注"示例 / 待业务确认"者取文档化默认值，不作为制度固化。
+    file_storage_backend: Literal["local", "object"] = Field(
+        default="local", alias="FILE_STORAGE_BACKEND"
+    )
+    # 本地存储根目录（dev/test 无对象存储时的可插拔后端；生产可切 object 适配器）。
+    file_local_storage_dir: str = Field(
+        default=".local_files", alias="FILE_LOCAL_STORAGE_DIR"
+    )
+    file_max_bytes: int = Field(default=10 * 1024 * 1024, alias="FILE_MAX_BYTES")
+    file_max_files_per_submission: int = Field(
+        default=5, alias="FILE_MAX_FILES_PER_SUBMISSION"
+    )
+    file_allowed_extensions: str = Field(
+        default="jpg,jpeg,png,webp", alias="FILE_ALLOWED_EXTENSIONS"
+    )
+    file_signed_url_ttl_seconds: int = Field(
+        default=300, alias="FILE_SIGNED_URL_TTL_SECONDS"
+    )
+    # 图像像素上限（防解码炸弹）：以纯解析器读头得宽高乘积判定，V1.0 不引入重型解码库。
+    file_max_image_pixels: int = Field(default=40_000_000, alias="FILE_MAX_IMAGE_PIXELS")
+    # 按材料类别分别设保留天数（起算为上传成功时刻），落库固化为 expires_at。
+    file_retention_submission_photo_days: int = Field(
+        default=180, alias="FILE_RETENTION_SUBMISSION_PHOTO_DAYS"
+    )
+    file_retention_objection_proof_days: int = Field(
+        default=180, alias="FILE_RETENTION_OBJECTION_PROOF_DAYS"
+    )
+    file_retention_report_file_days: int = Field(
+        default=365, alias="FILE_RETENTION_REPORT_FILE_DAYS"
+    )
+    file_retention_temp_days: int = Field(
+        default=1, alias="FILE_RETENTION_TEMP_DAYS"
+    )
+    file_retention_import_file_days: int = Field(
+        default=30, alias="FILE_RETENTION_IMPORT_FILE_DAYS"
+    )
+    # 保留策略版本：随任一保留期配置调整而人工递增，固化进 file_object 以便审计追溯。
+    file_retention_policy_version: int = Field(
+        default=1, alias="FILE_RETENTION_POLICY_VERSION"
+    )
+
     # ---- 日志 ----
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
@@ -107,6 +151,25 @@ class Settings(BaseSettings):
     @property
     def csrf_allowed_origin_list(self) -> list[str]:
         return [o.strip() for o in self.csrf_allowed_origins.split(",") if o.strip()]
+
+    @property
+    def allowed_extension_set(self) -> frozenset[str]:
+        """允许的下载扩展名集合（小写、去点），供文件模块校验。"""
+        return frozenset(
+            e.strip().lstrip(".").lower()
+            for e in self.file_allowed_extensions.split(",")
+            if e.strip()
+        )
+
+    def file_retention_days_by_category(self) -> dict[str, int]:
+        """材料类别 → 保留天数（上传成功起算）。单一真相源，供落库固化 expires_at。"""
+        return {
+            "SUBMISSION_PHOTO": self.file_retention_submission_photo_days,
+            "OBJECTION_PROOF": self.file_retention_objection_proof_days,
+            "REPORT_FILE": self.file_retention_report_file_days,
+            "TEMP": self.file_retention_temp_days,
+            "IMPORT_FILE": self.file_retention_import_file_days,
+        }
 
     @property
     def refresh_cookie_max_age(self) -> int:
