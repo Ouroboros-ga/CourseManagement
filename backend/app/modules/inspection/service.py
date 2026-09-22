@@ -121,6 +121,7 @@ from app.modules.inspection.schemas import (
     TaskRosterResponse,
     UnassignedTaskBrief,
 )
+from app.modules.report.source_revision import SourceRevisionService
 
 
 # --------------------------------------------------------------------------- #
@@ -2119,6 +2120,8 @@ class InspectionService:
             self._settle_assessment(task, day)
             generated = self._generate_attendance(sub, actor.id)
             sub.review_status = ReviewStatus.APPROVED.value
+            # 考勤事实新增 → 同事务递增该(学期,周)报表源修订号（技术方案 9.4；W7b 还 P6 挂账）。
+            SourceRevisionService.bump_for_task(self._session, task)
         else:
             sub.review_status = ReviewStatus.REJECTED.value
         sub.reviewed_by = actor.id
@@ -2226,6 +2229,9 @@ class InspectionService:
         task.expected_count_current = body.expected_count_current
         task.lock_version += 1
         self._repo.flush()
+        # 应到人数是统计分母的一部分：真实变化才递增源修订号（无变化不算源变更）。
+        if task.expected_count_current != prev:
+            SourceRevisionService.bump_for_task(self._session, task)
         self._audit(
             actor_user_id=actor.id,
             action="attendance.expected_count_adjust",

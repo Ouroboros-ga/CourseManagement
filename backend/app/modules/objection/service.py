@@ -64,6 +64,7 @@ from app.modules.objection.schemas import (
     ObjectionInitialReviewRequest,
     ObjectionResponse,
 )
+from app.modules.report.source_revision import SourceRevisionService
 
 
 class ObjectionService:
@@ -455,10 +456,11 @@ class ObjectionService:
             reason=body.comment,
             request_id=request_id,
         )
+        # 终审改判若实际更正了考勤 → 同事务递增该(学期,周)报表源修订号（技术方案 9.4；还 P6 挂账）。
+        if needs_correction:
+            SourceRevisionService.bump_for_task_id(self._session, record.task_id)
         self._session.commit()
         self._session.refresh(obj)
-        # 说明：报表源修订号（report_source_revision）对考勤类变更的统一递增留待 P7 报表域
-        # 一次性施加（更正 / 终审改判等所有影响考勤的路径同批接入），此处不单独造数。
         return self._assemble([obj])[0]
 
     # ================================================================== #

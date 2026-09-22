@@ -43,6 +43,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
 from app.modules.inspection.models import InspectionTask
+from app.modules.report.source_revision import SourceRevisionService
 
 
 class AttendanceService:
@@ -240,6 +241,8 @@ class AttendanceService:
             reason=body.reason,
             request_id=request_id,
         )
+        # 考勤事实被更正 → 同事务递增所属任务(学期,周)报表源修订号（技术方案 9.4；W7b 还 P6 挂账）。
+        SourceRevisionService.bump_for_task_id(self._session, record.task_id)
         self._session.commit()
         return self._assemble([record])[0]
 

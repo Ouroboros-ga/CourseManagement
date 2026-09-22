@@ -24,5 +24,6 @@ from app.modules.identity import models as identity_models  # noqa: F401
 from app.modules.importer import models as importer_models  # noqa: F401
 from app.modules.inspection import models as inspection_models  # noqa: F401
 from app.modules.objection import models as objection_models  # noqa: F401
+from app.modules.report import models as report_models  # noqa: F401
 
 __all__ = ["Base"]
