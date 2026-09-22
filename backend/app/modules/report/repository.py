@@ -1,18 +1,23 @@
-"""统计/周报域仓储：仅只读聚合取数，绝不 commit、绝不写。
+"""统计/周报域仓储：只读聚合取数 + 版本化周报读写助手，一律 flush-only、绝不 commit。
 
-约定（技术方案 5.1、17）：
-- 与 attendance/inspection 仓储同源，本波纯读，无写路径（周报生成写路径在 W7c 另建）；
-- 一切"先范围过滤再聚合"的时间窗谓词经 `_task_window` 统一施加到子查询，命中集合只算一次，
+约定（技术方案 5.1、17、18）：
+- ReportRepository 承接统计只读聚合：与 attendance/inspection 仓储同源，纯读、无写；
+- 一切"先范围过滤再聚合"的时间窗谓词经 `_task_ids_subq` 统一施加到子查询，命中集合只算一次，
   各聚合在其上做 GROUP BY，避免全表扫描（技术方案 17 第 544 行：仅统计符合条件任务）；
-- 聚合以 SQL GROUP BY 完成，不在应用层拉取全量考勤逐行累加，杜绝大数据量下的内存放大。
+- 聚合以 SQL GROUP BY 完成，不在应用层拉取全量考勤逐行累加，杜绝大数据量下的内存放大；
+- W7c 新增 ReportVersionRepository：为版本化周报提供 get-or-create、版本登记、发布条件更新等
+  写助手；与其余仓储一致——只 add/flush/条件 UPDATE，提交由上层 ReportService 在事务边界统一 commit。
 """
 
 from __future__ import annotations
 
 from datetime import date as date_
-from typing import Any
+from datetime import datetime
+from typing import Any, cast
 
-from sqlalchemy import ColumnElement, Select, and_, case, func, select
+from sqlalchemy import ColumnElement, Select, and_, case, func, select, update
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.attendance.models import AttendanceRecord, AttendanceType
@@ -22,6 +27,12 @@ from app.modules.inspection.models import (
     ReviewStatus,
     TaskDeadlineAssessment,
     TaskRosterMember,
+)
+from app.modules.report.models import (
+    Report,
+    ReportSourceRevision,
+    ReportVersion,
+    ReportVersionStatus,
 )
 
 
@@ -357,3 +368,186 @@ class ReportRepository:
             for r in rows
         ]
         return items, total, cur_incomplete_total, overdue_total
+
+    # ---- 个人明细（供版本化周报快照，技术方案 18；下载受 report.read 约束）----
+    def abnormal_details(self, task_ids: list[int]) -> list[dict[str, Any]]:
+        """命中任务的非 NORMAL 当前有效考勤逐条明细（异常学生 + 班级快照）。
+
+        join 当前 roster_version 名单成员取学号/姓名/班级快照；异常者必在其任务当前名单内
+        （技术方案 12）。仅统计已过滤为符合条件（审核通过且未取消）的 task_ids。NORMAL 不入
+        明细（周报正文只列异常个人，聚合人数走班级/任务维度）。
+        """
+        if not task_ids:
+            return []
+        rv = select(InspectionTask.roster_version).where(
+            InspectionTask.id == TaskRosterMember.task_id
+        )
+        rows = self._session.execute(
+            select(
+                AttendanceRecord.task_id,
+                AttendanceRecord.effective_type,
+                TaskRosterMember.student_no,
+                TaskRosterMember.name,
+                TaskRosterMember.class_name_snapshot,
+            )
+            .join(
+                TaskRosterMember,
+                and_(
+                    TaskRosterMember.task_id == AttendanceRecord.task_id,
+                    TaskRosterMember.student_id == AttendanceRecord.student_id,
+                    TaskRosterMember.roster_version == rv.scalar_subquery(),
+                ),
+            )
+            .where(
+                AttendanceRecord.task_id.in_(task_ids),
+                AttendanceRecord.effective_type.in_(
+                    [
+                        AttendanceType.LEAVE.value,
+                        AttendanceType.LATE.value,
+                        AttendanceType.ABSENT.value,
+                    ]
+                ),
+            )
+            .order_by(AttendanceRecord.task_id, TaskRosterMember.student_no)
+        ).all()
+        return [
+            {
+                "task_id": int(r[0]),
+                "attendance_type": str(r[1]),
+                "student_no": r[2],
+                "name": r[3],
+                "class_name_snapshot": r[4],
+            }
+            for r in rows
+        ]
+
+
+class ReportVersionRepository:
+    """版本化周报读写助手（W7c）：一律 flush-only、绝不 commit，提交归上层 ReportService。
+
+    锁序遵循技术方案 512（考勤→异议→报表源修订→周报）：本仓储只在报表侧自身行上加锁，
+    get-or-create 用 SELECT ... FOR UPDATE 串行化同 (学期,周,范围) 的版本号分配。
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get_report(self, report_id: int) -> Report | None:
+        return self._session.get(Report, report_id)
+
+    def get_or_create_report_for_update(
+        self, *, semester_id: int, week_no: int, scope: str
+    ) -> Report:
+        """取（并锁）指定 (学期,周,范围) 的周报主记录，缺则建。行锁串行化版本号分配。
+
+        首次生成时两并发会话可能同时查不到主记录而双双尝试 INSERT，撞 uq_report_sem_week_scope
+        唯一键。故把插入放入 SAVEPOINT：败者仅回滚该保存点，再以锁定读取得胜者已提交的行
+        （FOR UPDATE 读总见最新已提交版本，不受本会话快照所限），从而安全串行到同一 report 行。
+        """
+
+        def _lock_existing() -> Report | None:
+            return self._session.execute(
+                select(Report)
+                .where(
+                    Report.semester_id == semester_id,
+                    Report.week_no == week_no,
+                    Report.scope == scope,
+                )
+                .with_for_update()
+            ).scalar_one_or_none()
+
+        row = _lock_existing()
+        if row is not None:
+            return row
+        try:
+            with self._session.begin_nested():
+                self._session.add(
+                    Report(
+                        semester_id=semester_id,
+                        week_no=week_no,
+                        scope=scope,
+                        latest_version_no=0,
+                    )
+                )
+        except IntegrityError:
+            # 并发对手已建：仅保存点回滚，锁定读取其行。
+            self._session.expire_all()
+            row = _lock_existing()
+            if row is None:  # pragma: no cover - 理论上对手已提交必可见
+                raise
+            return row
+        # 新建成功：保存点已提交，INSERT 自持该行排他锁至外层事务提交；再锁定读取得规范锁句柄。
+        created = _lock_existing()
+        assert created is not None
+        return created
+
+    def latest_version(self, report_id: int) -> ReportVersion | None:
+        return self._session.execute(
+            select(ReportVersion)
+            .where(ReportVersion.report_id == report_id)
+            .order_by(ReportVersion.version_no.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+    def list_versions(self, report_id: int) -> list[ReportVersion]:
+        return list(
+            self._session.execute(
+                select(ReportVersion)
+                .where(ReportVersion.report_id == report_id)
+                .order_by(ReportVersion.version_no.desc())
+            ).scalars()
+        )
+
+    def add_version(self, version: ReportVersion) -> None:
+        self._session.add(version)
+        self._session.flush()  # 取回 id 供发布阶段条件更新
+
+    def get_version(self, version_id: int) -> ReportVersion | None:
+        return self._session.get(ReportVersion, version_id)
+
+    def get_version_for_update(self, version_id: int) -> ReportVersion | None:
+        return self._session.execute(
+            select(ReportVersion)
+            .where(ReportVersion.id == version_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+
+    def current_source_revision(self, semester_id: int, week_no: int) -> int:
+        """当前 (学期,周) 考勤源修订号（无行即 0），供生成时读取与落后判定。"""
+        val = self._session.execute(
+            select(ReportSourceRevision.revision).where(
+                ReportSourceRevision.semester_id == semester_id,
+                ReportSourceRevision.week_no == week_no,
+            )
+        ).scalar_one_or_none()
+        return 0 if val is None else int(val)
+
+    def take_over_stale_generating(
+        self,
+        *,
+        version_id: int,
+        old_token: str,
+        new_token: str,
+        stale_before: datetime,
+    ) -> int:
+        """接管停留在 GENERATING 且已超预算（created_at 早于 stale_before）的版本行。
+
+        条件更新原子换令牌：仅当该行仍为 GENERATING、attempt_token 仍等于 old_token 时改写为
+        new_token。返回受影响行数（0 表示已被他人接管/发布，调用方据此放弃接管）。
+        """
+        result = cast(
+            "CursorResult[Any]",
+            self._session.execute(
+                update(ReportVersion)
+                .where(
+                    ReportVersion.id == version_id,
+                    ReportVersion.status == ReportVersionStatus.GENERATING.value,
+                    ReportVersion.attempt_token == old_token,
+                    ReportVersion.created_at < stale_before,
+                )
+                .values(attempt_token=new_token)
+            ),
+        )
+        self._session.flush()
+        return int(result.rowcount or 0)

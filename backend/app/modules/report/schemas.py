@@ -148,6 +148,80 @@ class IncompleteTasksResponse(BaseModel):
     total: int
 
 
+# --------------------------------------------------------------------------- #
+# W7c：版本化周报（技术方案 18）
+# --------------------------------------------------------------------------- #
+ReportScopeLiteral = Literal["COLLEGE", "CLASS"]
+ReportVersionStatusLiteral = Literal["GENERATING", "PUBLISHED", "FAILED"]
+
+
+class WeeklyVersionCreateRequest(BaseModel):
+    """POST /reports/weekly/versions 入参：生成某学期某周的一份新版本周报。
+
+    - semester_id、week_no 必填正整数（V1.0 周报以周为轴，技术方案 18）；
+    - scope 默认 COLLEGE（学院级聚合）；
+    - reason 可选：人工触发原因，落版本行 reason 供审计。
+    """
+
+    semester_id: int = Field(ge=1)
+    week_no: int = Field(ge=1)
+    scope: ReportScopeLiteral = "COLLEGE"
+    reason: str | None = Field(default=None, max_length=512)
+
+
+class ReportVersionSummary(BaseModel):
+    """单版本对外摘要：不暴露 ORM 实体；落后/更新标记由服务按"当前"口径计算填充。
+
+    behind_source：该版本生成时读到的 source_revision < 当前源修订号 → 源数据已更新，
+    前端提示"请生成新版本"（技术方案 18）。rule_outdated / template_outdated 同理比较
+    版本内记录的公式/模板版本与当前生效值，提示口径/模板已升级。
+    """
+
+    id: IdStr
+    version_no: int
+    status: ReportVersionStatusLiteral
+    source_revision: int
+    rule_version: int
+    template_version: int
+    generated_at: str | None  # 发布时刻 ISO；GENERATING/FAILED 为 null
+    created_at: str  # 版本行登记时刻 ISO
+    generated_by: IdStr | None
+    reason: str | None
+    snapshot_available: bool  # 是否已落明细 JSON 快照文件
+    excel_available: bool  # 是否已落 Excel 文件
+    behind_source: bool
+    rule_outdated: bool
+    template_outdated: bool
+
+
+class GenerateReportResponse(BaseModel):
+    """生成结果：新登记版本的摘要 + 落后提示基准（供即时反馈"是否仍落后源数据"）。"""
+
+    report_id: IdStr
+    semester_id: IdStr
+    week_no: int
+    scope: ReportScopeLiteral
+    version: ReportVersionSummary
+    current_source_revision: int
+    message: str
+
+
+class ReportVersionsResponse(BaseModel):
+    """某逻辑周报（学期×周×范围）的全部版本列表 + 落后判定基准。"""
+
+    report_id: IdStr
+    semester_id: IdStr
+    week_no: int
+    scope: ReportScopeLiteral
+    current_source_revision: int
+    current_rule_version: int
+    current_template_version: int
+    latest_version_no: int
+    latest_updated_at: str | None
+    latest_behind_source: bool  # 最新版本是否落后于当前源数据
+    items: list[ReportVersionSummary]
+
+
 __all__ = [
     "AttendanceTypeLiteral",
     "DeadlineAssessmentLiteral",
@@ -158,4 +232,10 @@ __all__ = [
     "AttendanceStatsResponse",
     "IncompleteTaskItem",
     "IncompleteTasksResponse",
+    "ReportScopeLiteral",
+    "ReportVersionStatusLiteral",
+    "WeeklyVersionCreateRequest",
+    "ReportVersionSummary",
+    "GenerateReportResponse",
+    "ReportVersionsResponse",
 ]

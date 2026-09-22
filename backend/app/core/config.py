@@ -150,6 +150,22 @@ class Settings(BaseSettings):
     # 单次异议可关联的证明材料数上限，0 表示不限（示例默认与提交照片同量级）。
     objection_max_files: int = Field(default=5, alias="OBJECTION_MAX_FILES")
 
+    # ---- 版本化周报（P7 W7c，技术方案 18）----
+    # 均为"上线部署参数"而非写死的学院制度（DEVELOPMENT_PLAN §6 冻结纪律）：
+    # 统计公式版本 / Excel 模板版本随口径调整而人工递增，写入版本行用于"公式/模板已更新"
+    # 提示；单次周报生成的命中任务规模上限与中断接管时限可按部署环境覆盖，不臆造校务数值。
+    report_rule_version: int = Field(default=1, alias="REPORT_RULE_VERSION")
+    report_template_version: int = Field(default=1, alias="REPORT_TEMPLATE_VERSION")
+    # 有界生成：一致性快照命中的符合条件任务数超此上限时在写入前拒绝，避免超大聚合拖垮同步线程。
+    report_generate_max_tasks: int = Field(
+        default=5000, alias="REPORT_GENERATE_MAX_TASKS"
+    )
+    # 中断接管：GENERATING 版本停留超此秒数视为中断，后续请求可带新 attempt_token 接管重试；
+    # 未超则拒绝并发重复生成（有界并发）。属运行时参数，非业务制度。
+    report_generate_takeover_stale_seconds: int = Field(
+        default=600, alias="REPORT_GENERATE_TAKEOVER_STALE_SECONDS"
+    )
+
     # ---- 日志 ----
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
