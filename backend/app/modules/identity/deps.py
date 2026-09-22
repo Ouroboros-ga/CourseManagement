@@ -85,6 +85,19 @@ def require_permission(code: str) -> Callable[[CurrentUser], CurrentUser]:
     return _dep
 
 
+def require_any_permission(*codes: str) -> Callable[[CurrentUser], CurrentUser]:
+    """要求当前用户至少持有给定权限之一（供"多路径可达"的读取入口使用，如异议读取：
+    管理路径 objection.initial_review / objection.final_review，或本人路径 objection.read）。
+    仅为路由级早拦，资源范围与纵深复核仍在各模块服务内以有效权限重新判定。"""
+
+    def _dep(user: CurrentUserDep) -> CurrentUser:
+        if not any(user.has_permission(code) for code in codes):
+            raise PermissionDeniedError()
+        return user
+
+    return _dep
+
+
 def require_binding_complete(
     user: CurrentUserDep,
 ) -> CurrentUser:

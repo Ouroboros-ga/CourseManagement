@@ -141,6 +141,15 @@ class Settings(BaseSettings):
         default=1, alias="FILE_RETENTION_POLICY_VERSION"
     )
 
+    # ---- 异议（P6，技术方案 14、PERMISSIONS.md 8）----
+    # 均为"上线部署参数"而非写死的学院制度（DEVELOPMENT_PLAN §6 冻结纪律）：
+    # 异议窗口天数、单次异议证明材料上限可经环境覆盖，取文档化默认值，不作为制度固化。
+    # 窗口以考勤记录生成（审核通过）时刻起算，超窗学生不得再对本人该条考勤提异议；
+    # 0 表示不限窗口（部署未确定异议期时保守放开，业务上线前按学院制度设正值）。
+    objection_window_days: int = Field(default=7, alias="OBJECTION_WINDOW_DAYS")
+    # 单次异议可关联的证明材料数上限，0 表示不限（示例默认与提交照片同量级）。
+    objection_max_files: int = Field(default=5, alias="OBJECTION_MAX_FILES")
+
     # ---- 日志 ----
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 

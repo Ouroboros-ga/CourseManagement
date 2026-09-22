@@ -33,19 +33,29 @@ class FileRepository:
         """到期需清理的文件：READY（尚未标记）或 PURGE_PENDING（上次标记但底层删除失败待重试）。
 
         仅取 expires_at 已固化且已到期（<= cutoff）者；按 id 升序，供定时脚本可续跑分批处理。
+        被**未完成异议**（objection.final_status=PENDING）引用的材料**暂停清理**——异议关闭后
+        其自然重新纳入候选（技术方案 16.3、538/713；与新建异议关联材料按同一文件行锁串行化）。
         """
         stmt = (
             select(FileObject)
             .where(
-                FileObject.status.in_(
-                    (FileStatus.READY.value, FileStatus.PURGE_PENDING.value)
-                ),
+                FileObject.status.in_((FileStatus.READY.value, FileStatus.PURGE_PENDING.value)),
                 FileObject.expires_at.is_not(None),
                 FileObject.expires_at <= cutoff,
             )
             .order_by(FileObject.id)
             .limit(limit)
         )
+
+        # 延迟导入异议模型，避免 file 模块导入期耦合异议域；排除被未完成异议引用的文件。
+        from app.modules.objection.models import Objection, ObjectionFile, ObjectionFinalStatus
+
+        open_objection_files = (
+            select(ObjectionFile.file_id)
+            .join(Objection, Objection.id == ObjectionFile.objection_id)
+            .where(Objection.final_status == ObjectionFinalStatus.PENDING.value)
+        )
+        stmt = stmt.where(FileObject.id.not_in(open_objection_files))
         return list(self._session.execute(stmt).scalars().all())
 
     def is_linked_to_submittable_for(

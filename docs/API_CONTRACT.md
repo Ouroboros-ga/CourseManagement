@@ -1,12 +1,12 @@
-# 后端 API 契约（身份与授权 + 基础数据 + 导入 + 查课 + 提交/审核/考勤/文件，P1 + P2 + P3 + P4 + P5 已实现）
+# 后端 API 契约（身份与授权 + 基础数据 + 导入 + 查课 + 提交/审核/考勤/文件 + 异议，P1 + P2 + P3 + P4 + P5 + P6 已实现）
 
 | 项目 | 内容 |
 |---|---|
-| 日期 | 2026-09-21 |
+| 日期 | 2026-09-22 |
 | 权限基线 | [PERMISSIONS.md V1.1](./PERMISSIONS.md)（第 12 节 API 映射为权威来源） |
 | 实施对照 | [PERMISSIONS_IMPLEMENTATION.md](./PERMISSIONS_IMPLEMENTATION.md) |
-| 范围 | 本文只描述 **已落地并纳入真实 MySQL 测试** 的端点可执行契约（身份/授权 P1+P2、基础数据与两步原子导入 P3）；未实现端点见 PERMISSIONS.md 第 12 节标注。 |
-| 代码 | `backend/app/modules/identity/{router,service,schemas,repository,wechat,deps}.py`、`backend/app/modules/audit/models.py`、`backend/app/modules/academic/{router,service,schemas,repository,models}.py`、`backend/app/modules/importer/{router,service,schemas,repository,models,permissions}.py`、`backend/app/common/parsing/{time_slots,xlsx_tabular}.py` |
+| 范围 | 本文只描述 **已落地并纳入真实 MySQL 测试** 的端点可执行契约（身份/授权 P1+P2、基础数据与两步原子导入 P3、查课任务与排班/申请/截止 P4、文件/提交/审核/考勤/到期清理 P5、异议 P6）；未实现端点见 PERMISSIONS.md 第 12 节标注。 |
+| 代码 | `backend/app/modules/identity/{router,service,schemas,repository,wechat,deps}.py`、`backend/app/modules/audit/models.py`、`backend/app/modules/academic/{router,service,schemas,repository,models}.py`、`backend/app/modules/importer/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/inspection/*`、`backend/app/modules/attendance/*`、`backend/app/modules/file/*`、`backend/app/modules/objection/{router,service,schemas,repository,models,permissions}.py`、`backend/app/common/parsing/{time_slots,xlsx_tabular}.py` |
 
 ## 1. 通用约定
 
@@ -136,7 +136,10 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | `CSRF_FAILED` | 403 | Cookie 写接口跨站校验未通过 |
 | `NOT_FOUND` | 404 | 资源不存在或对操作者不可见 |
 | `STATE_CONFLICT` | 409 | 状态冲突（已绑定、码已用/过期、账号锁定 429 亦复用此码） |
-| `VERSION_CONFLICT` | 409 | `lock_version` 乐观并发不符 |
+| `VERSION_CONFLICT` | 409 | `lock_version` 乐观并发不符；异议终审改判时考勤版本 ≠ 发起版本亦返回此码（不覆盖他人新认定） |
+| `DUPLICATE_ACTIVE_OBJECTION` | 409 | 同一考勤已存在未完成异议（`final_status=PENDING`），并发下锁考勤行串行化恰一成功（P6） |
+| `OBJECTION_WINDOW_CLOSED` | 409 | 超过可配置异议窗口（`OBJECTION_WINDOW_DAYS`）再对考勤提异议（P6） |
+| `FILE_EXPIRED` | 410 | 访问已清理（`PURGED`/`PURGE_PENDING`）或超保留期的材料（P5，技术方案 16.3） |
 | `UPSTREAM_UNAVAILABLE` | 502 | 微信 code2session 超时/上游错误/响应异常（P2） |
 | `INTERNAL_ERROR` | 500 | 兜底内部错误（不回显细节） |
 
@@ -153,6 +156,8 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | `BINDING_TOKEN_MAX_FAILED` | `5` | 绑定码失败次数上限（预留） |
 | `IMPORT_PREVIEW_TTL_MINUTES` | `30` | 导入预览批次有效期；超时确认置 EXPIRED 并返回 409 |
 | `IMPORT_MAX_ROWS` | `5000` | 单文件解析行数上限，超限预览返回 422 |
+| `OBJECTION_WINDOW_DAYS` | `7` | 学生对某条考勤可提异议的窗口天数（自考勤生成时刻起算）；`0` 表示不限窗口（部署未定异议期时的保守值）（P6） |
+| `OBJECTION_MAX_FILES` | `5` | 单条异议可关联的证明材料数上限，超限创建返回 422（P6） |
 
 ## 9. 测试覆盖
 
@@ -163,6 +168,9 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 - `test_migrations.py` / `test_seed.py`：迁移升级/回滚零漂移、单 head、种子矩阵幂等。
 - `test_academic.py`：基础数据 CRUD 与错误码矩阵（学期/节次/校历/行政班/学生/课程/教学班/名单/课表/志愿者资格）、`FOR UPDATE` 真实并发（名单整体替换、志愿者资格核销恰一成功）、有效资格自动授 VOLUNTEER、审计。
 - `test_importer.py`：三类导入（roster/timetable/volunteer）预览→确认两步、组合权限象限（execute/target-manage 缺一即 403）、作用域校验、周次解析（区间/单双周/越界）、错误阻断确认、引用在两步之间失效的原子回滚零副作用、过期/重复确认状态机、审计，以及"先导入资格后绑定"由 `bind_student` 反向补授 VOLUNTEER。
+- `test_inspection_*.py`（P4/P5）：任务生成预览→确认、排班改派、调班申请、取消/名单改版/截止结算、志愿者提交、审核通过生成考勤、考勤读取范围/更正/应到人数调整；含 `threading.Barrier` 真实 MySQL 并发不变式（改派/核销/审核与取消互斥等恰一成功）。
+- `test_file_upload.py` / `test_file_purge.py`（P5）：上传尺寸/类型/保留期固化、按资源归属访问与签名下载；到期清理状态机 `READY→PURGE_PENDING→PURGED`、底层删除失败留 `PURGE_PENDING` 不改判、重跑幂等、系统触发空操作者审计。
+- `test_objection.py`（P6）：创建守卫/归属防枚举/诉求与当前一致 422/未完成异议去重 409/窗口超期 409/材料校验 422 与合法关联；读取 OWN vs MANAGE、负责人默认无路径 403 及授予初核后派生管理读取（关闭即失去）、详情越界 404；初核不改考勤、重复 409；终审驳回不改、通过改判并追加 `OBJECTION_FINAL` 版本、陈旧/他人新认定 `VERSION_CONFLICT`、重复 409、负责人无终审 403；同一考勤并发创建恰一成功；未完成异议暂停其材料到期清理、关闭后重新纳入并清理。
 
 ## 附录 A：P3 基础数据端点（`/api/v1/academic`）
 
@@ -328,3 +336,23 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 **不在 API 进程内起独立定时器**（技术方案 66）。清理由部署侧定时任务（cron / 任务计划）执行 `deploy/scripts/cleanup_expired_files.py`，复用 `FileService.purge_expired_files`，逐文件独立事务提交、可重跑幂等：
 
 状态机（技术方案 16.1/16.3）：到期 `READY` → 先落库 `PURGE_PENDING`（持久化清理意图，崩溃可恢复）→ 删底层对象，成功才置 `PURGED` 记 `purged_at`；底层删除失败**保留 `PURGE_PENDING`** 待下次运行、绝不改判为已清理；对象已缺失视作清理完成。访问侧已 `PURGED`/`PURGE_PENDING`/已过期文件一律 `FILE_EXPIRED`。审计 `file.purge` 由**系统触发**（`actor_user_id=NULL`，`reason=retention_expired`，before/after 记状态）。已 `PURGED` 者不再入选候选，重复运行无副作用。`expires_at`/`retention_policy_version` 落库后不随配置改动无审计地缩短旧材料期限。
+
+## 附录 E：P6 异议域（`/api/v1`）
+
+数据前缀 `/api/v1`。令牌双路径与错误字典同第 2、7 节；ID 一律字符串出入。写操作事务内 `SELECT … FOR UPDATE` 串行化、末尾单次 `commit`、同事务追加 `AuditLog`。全局锁层级（技术方案 15）：考勤 → 异议——创建**先锁考勤行**再在其保护下查重与落异议；终审**先锁考勤、再锁异议**（`populate_existing` 重读）；初核不改考勤故仅锁异议行（对缺席层跳过）。
+
+**读取路径的特殊性（PERMISSIONS.md 7.6 / 8.2 / 8.3）**：异议"管理读取"并非靠 `objection.read`，而是路由用 `require_any_permission(objection.read | objection.initial_review | objection.final_review)` 早拦后，由 Service 依有效权限解析范围——持 `initial_review` 或 `final_review` 之一 = `MANAGE`（全学院）；仅持 `objection.read` 且能解析出有效 `student_id` = `OWN`（只见本人）；二者皆无或 `read` 却无学生绑定 = `NONE`。学生工作负责人默认**不持** `objection.read`（矩阵"条件派生"），仅当被授予可选项 `objection.initial_review` 后才派生出 `MANAGE` 读取来源，关闭初核即失去（`attendance.read` 不提供替代证明读取）。
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `POST /attendance/{record_id}/objections` | `objection.create` | `ObjectionCreateRequest{desired_type∈{NORMAL,LEAVE,LATE,ABSENT},reason(1–512),file_ids[](≤50)}`。守卫链：`_require` 锁操作者并重读权限 → 解析本人 `student_id`（无绑定 403）→ `AttendanceRecord` 行 `FOR UPDATE`（他人生成/不存在统一 404 防枚举）→ 窗口校验（`utcnow() > created_at + OBJECTION_WINDOW_DAYS` → 409 `OBJECTION_WINDOW_CLOSED`，`0`=不限）→ 诉求 == `effective_type` → 422 → 同考勤有 `final_status=PENDING` 未完成异议 → 409 `DUPLICATE_ACTIVE_OBJECTION`。材料校验：去重后须 ≤ `OBJECTION_MAX_FILES`（超 422），逐个 `get_for_update` 核验仍 `READY`、类别 `OBJECTION_PROOF`、`uploader==本人`、未过期（任一不符 422，与到期清理同锁协议串行化）。落 `Objection`（记 `base_attendance_version=record.current_version`）+ `ObjectionFile` 关联，审计 `objection.create` |
+| `GET /objections` | `objection.read \| initial_review \| final_review`（任一） | Service 解析范围：`MANAGE` 全量 / `OWN` 加 `student_id=本人` 谓词 / `NONE` 403。分页 + `attendance_record_id/final_status/initial_status` 过滤 |
+| `GET /objections/{objection_id}` | 同上（任一） | 越界/不可见与不存在统一 404 防枚举；`MANAGE` 可读任意、`OWN` 仅本人 |
+| `POST /objections/{objection_id}/initial-review` | `objection.initial_review` | `ObjectionInitialReviewRequest{decision∈{PASSED,REJECTED},comment?(≤512)}`。锁异议行，`initial_status≠PENDING` → 409 `STATE_CONFLICT`；置状态/处理人/时刻/意见，**绝不改考勤**，审计 `objection.initial_review` |
+| `POST /objections/{objection_id}/final-review` | `objection.final_review` | `ObjectionFinalReviewRequest{decision∈{APPROVED,REJECTED},final_type?(∈全集),comment?,current_version(ge1)}`。先探异议（不加锁，缺失 404）→ `AttendanceRecord` `FOR UPDATE` → 异议 `FOR UPDATE` 重读；`final_status≠PENDING` → 409。`REJECTED` 不改考勤。`APPROVED` 须给 `final_type`（缺 422）；`final_type≠effective_type` 即"更正"，须另持 `attendance.correct`（否则 403），且 `current_version==record.current_version` 且 `record.current_version==base_attendance_version`（任一不符 409 `VERSION_CONFLICT`，不覆盖他人新认定），通过则同事务改 `effective_type`、`current_version=base+1`、**追加** `AttendanceRecordVersion(source=OBJECTION_FINAL,source_id=objection.id)`。审计 `objection.final_review`（before/after 含考勤） |
+
+状态机：`initial_status∈{PENDING,PASSED,REJECTED}`、`final_status∈{PENDING,APPROVED,REJECTED}`（`PENDING` 即"未完成异议"）。`Objection` 用 `TimestampMixin`（可变流转，有 `updated_at`）；`attendance_record_id` 随考勤 `CASCADE`，`student_id` 对主数据 `RESTRICT`。`ObjectionFile` 联合主键、`file_id` 对文件 `RESTRICT`。
+
+**清理耦合（技术方案 16.3、538/713）**：被**未完成异议**（`final_status=PENDING`）引用的材料暂停到期清理——`FileRepository.list_purge_candidates` 以 `NOT IN` 未完成异议文件子查询排除之；异议关闭后自然重新纳入候选。新建异议关联材料用与清理相同的**文件行 `FOR UPDATE` + `READY` 核验**串行化，避免"校验后新增引用而误删"。
+
+**遗留到 P7**：报表源修订号（`report_source_revision`）对考勤类变更（更正 / 终审改判等所有影响考勤路径）的统一递增，留待报表域一次性施加，此处不单独造数（遵循冻结纪律，见 §6）。

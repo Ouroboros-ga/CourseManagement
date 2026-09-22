@@ -148,8 +148,21 @@ Router 处理 HTTP，Schema 定义输入输出，Service 负责授权/规则/事
   `READY→PURGE_PENDING→PURGED`，删除失败保留 `PURGE_PENDING` 待下次、访问侧到期/已清理返回 `FILE_EXPIRED`，
   `file.purge` 审计系统触发（`actor_user_id=NULL`）。至此任务五态精判补齐至"已完成/待审核"。
   端点契约见 `../docs/API_CONTRACT.md` 附录 D。
-- **待接入**：objection（异议，P6）、report（统计与周报，P7）业务模块及各模块 permissions.py
-  尚未覆盖的行级数据范围过滤。
+- **P6 异议域（已完成）**：`/api/v1/objections` 落地"学生对本人考勤提异议 → 初核 → 终审"闭环。
+  创建 `POST /attendance/{id}/objections`（`objection.create`）先锁考勤行（他人/不存在统一 404 防枚举）、
+  记 `base_attendance_version`，可配置异议窗口（`OBJECTION_WINDOW_DAYS`，`0`=不限）超期 409
+  `OBJECTION_WINDOW_CLOSED`，诉求与当前认定相同 422，同一考勤存在未完成异议 409
+  `DUPLICATE_ACTIVE_OBJECTION`；证明材料须 `READY`/本人/类别 `OBJECTION_PROOF`/未过期，关联前用与到期
+  清理同一文件行锁协议串行化（`OBJECTION_MAX_FILES` 上限）。读取按范围分层（PERMISSIONS.md 7.6/8）——
+  管理路径靠 `objection.initial_review|final_review`、本人路径靠 `objection.read`+有效 `student_id`，
+  负责人默认无读取来源、授予可选初核后派生管理读取（关闭即失去），越界统一 404。初核
+  `POST /{id}/initial-review` 仅改异议状态**绝不动考勤**；终审 `POST /{id}/final-review` 先锁考勤再锁异议，
+  驳回不改考勤，通过且需更正须另持 `attendance.correct`、校验 `current_version` 与 `base` 一致
+  （不符 409 `VERSION_CONFLICT`，不覆盖他人新认定），通过则同事务改判 `effective_type` + 追加
+  `AttendanceRecordVersion(source=OBJECTION_FINAL)`。被未完成异议引用的材料暂停到期清理、异议关闭后
+  重新纳入；同一考勤并发创建恰好一人成功（真实 MySQL `threading.Barrier`）。报表源修订号统一递增留
+  P7 施加。端点契约见 `../docs/API_CONTRACT.md` 附录 E。
+- **待接入**：report（统计与周报，P7）业务模块及各模块 permissions.py 尚未覆盖的行级数据范围过滤。
 
 > `../INITIALIZATION_GUIDE.md` 与 `../PROJECT_STATUS.md` 为早期 Java 方案的历史文档，
 > 不代表当前实现。

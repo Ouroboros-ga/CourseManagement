@@ -23,6 +23,7 @@ from app.modules.file.router import router as file_router
 from app.modules.identity.router import router as identity_router
 from app.modules.importer.router import router as importer_router
 from app.modules.inspection.router import router as inspection_router
+from app.modules.objection.router import router as objection_router
 
 logger = get_logger(__name__)
 
@@ -93,6 +94,9 @@ def create_app() -> FastAPI:
 
     # 考勤路由（阶段 5）：当前考勤与历史认定读取（按数据范围）、最终考勤更正（技术方案 14）。
     app.include_router(attendance_router, prefix="/api/v1")
+
+    # 异议路由（阶段 6）：学生对本人考勤提异议、初核/终审与终审更正考勤（技术方案 14）。
+    app.include_router(objection_router, prefix="/api/v1")
 
     return app
 
