@@ -355,4 +355,45 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 **清理耦合（技术方案 16.3、538/713）**：被**未完成异议**（`final_status=PENDING`）引用的材料暂停到期清理——`FileRepository.list_purge_candidates` 以 `NOT IN` 未完成异议文件子查询排除之；异议关闭后自然重新纳入候选。新建异议关联材料用与清理相同的**文件行 `FOR UPDATE` + `READY` 核验**串行化，避免"校验后新增引用而误删"。
 
-**遗留到 P7**：报表源修订号（`report_source_revision`）对考勤类变更（更正 / 终审改判等所有影响考勤路径）的统一递增，留待报表域一次性施加，此处不单独造数（遵循冻结纪律，见 §6）。
+**P6 挂账已偿（W7b）**：报表源修订号（`report_source_revision`）对影响考勤事实的四条写入路径（审核生成考勤、应到人数调整、人工更正、异议终审更正）已在各自 Service 末尾 `commit` 前、同事务内以 `INSERT … ON DUPLICATE KEY UPDATE` 统一递增（集中助手 `SourceRevisionService.bump`，Repository 约定 flush-only）。任务生成/取消、改期等非考勤源修订作为后续增量补齐（表已就绪，接一条不影响旧字段行为）。锁序遵技术方案 §15：考勤 → 异议 → 报表源修订（本递增处最内层）。详见附录 F。
+
+## 附录 F：P7 统计与版本化周报域（`/api/v1`）
+
+数据前缀 `/api/v1`。令牌双路径与错误字典同第 2、7 节；ID 一律字符串出入。三个相关权限 code：`statistics.read`、`report.read`（均属可选项 `OPTIONAL_PERMISSION_CODES`，默认关闭逐人开关）、`report.generate`（非可选，由 `_admin` 基线覆盖 SUPER_ADMIN / TEACHER_ADMIN；SAM / VOLUNTEER / STUDENT 不持）。**三权分立关键约束（PERMISSIONS.md 266）：周报下载含个人明细，`statistics.read` 不得隐式获得 `report.read`，二者独立开关。** 数据范围：统计/周报为聚合读数，沿用各模块既有「管理类全量、非管理拒 403」判定；学院行级隔离 V1.0 尚未落地账号↔学院归属，实现处注释标注「管理范围全量可见，待补齐后收敛为强制行级过滤」。
+
+无 worker/队列/Redis/MQ/集群（技术方案 §66、DEVELOPMENT_PLAN 66）——周报为**受限同步执行**，规模超限在写产物前拒绝。
+
+### F.1 统计只读（W7a）
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `GET /statistics/attendance` | `statistics.read` | 入参 `semester_id(ge1)` 必填、`week_no(ge1)` 或 `date_from/date_to` 二选一（互斥必居其一，非法经路由捕获转 422）、`include_tasks?`。返回聚合：仅计「有 APPROVED 提交且未取消」任务的当前有效考勤；待审核异常不计正式缺勤；分母≤0 → 该维度 `rate=null` 且 `statistics_available=false`（不冒充 0%/100%）；先累加分子分母再相除，非班级百分比平均；班级维度按 `TaskRosterMember.class_name_snapshot` 分组，`expected_count_current≠snapshot` 且无分班明细推导则该任务 `class_ratio_available=false` 不均摊 |
+| `GET /statistics/incomplete-tasks` | `statistics.read` | 分页未完成清单，`semester_id` + 周次/日期窗 + `only_current_incomplete?`。**两指标分别命名输出、不混名**：「当前未完成」= 未取消且无 APPROVED 提交（当前状态派生）；「截止时未完成」= `TaskDeadlineAssessment.result==OVERDUE_UNEXECUTED`（快照事实）；CANCELED 不纳入未完成 |
+
+范围/门禁：路由 `require_permission(statistics.read)`；Service `_lock_actor` + 事务内重读有效权限纵深复核（复用 attendance/objection 既有 `_require` 模式）。聚合口径与 W7c 周报同源单一真相（`report/aggregation.py`）。
+
+### F.2 版本化周报（W7c）
+
+表：`report`（逻辑周报主记录，联合唯一 `(semester_id,week_no,scope)`，`scope∈{COLLEGE,CLASS}`，`latest_version_no`、`latest_updated_at`）；`report_version`（版本化不可覆盖，联合唯一 `(report_id,version_no)`，`source_revision`/`rule_version`/`template_version`、`snapshot_file_id`/`excel_file_id` 对 `file_object` SET NULL、`status∈{GENERATING,PUBLISHED,FAILED}`、`attempt_token`、`generated_by` 对 `user_account` SET NULL）。迁移单头 `2658519d48fa`（down=`9443750a1ff5`），零漂移可逆。
+
+| 端点 | 守卫 | 说明 |
+|---|---|---|
+| `POST /reports/weekly/versions` | `report.generate` | `WeeklyVersionCreateRequest{semester_id(ge1),week_no(ge1),scope∈{COLLEGE,CLASS}="COLLEGE",reason?(≤512)}`。**三阶段有界同步**：①短事务对 `report` 行 `SELECT … FOR UPDATE` 串行化 `version_no` 分配 + SAVEPOINT 保护 get-or-create + 登记 `GENERATING` 行（`attempt_token`）；陈旧 `GENERATING`（`created_at < now - REPORT_GENERATE_TAKEOVER_STALE_SECONDS`）可带 token 条件接管，否则冲突；`rule_version`/`template_version` 于此刻按当前 Settings 盖章。②一致性只读快照（先范围过滤再聚合），规模 `> REPORT_GENERATE_MAX_TASKS` → 422 `VALIDATION_ERROR` 并标 `FAILED`（版本号不被失败尝试占用）。③事务外产出 JSON 明细快照 + Excel（openpyxl，汇总/班级/任务/异常明细）。④**独立短事务条件发布** `(id,status=GENERATING,attempt_token=?)→PUBLISHED`，写两 `FileObject`（类别 `REPORT_FILE`、`uploader=NULL`、`expires_at` 按 `FILE_RETENTION_REPORT_FILE_DAYS` 固化）；晚到重复回滚并安全删孤儿。审计 `report.version.start` / `report.version.publish` |
+| `GET /reports/{report_id}/versions` | `report.read` | `report_id(Path ge1)`。返回逻辑周报全部版本 + 落后判定：`behind_source`（最新发布版 `source_revision < 当前 report_source_revision.revision`）、`rule_outdated`、`template_outdated`（版本快照值 vs 当前 Settings）；含 `latest_updated_at`、`current_source_revision/rule/template` |
+| `GET /report-versions/{version_id}/download` | `report.read` | `version_id(Path ge1)`、`kind∈{EXCEL,SNAPSHOT}="EXCEL"`。仅 `PUBLISHED` 可下载（否则 409），底层已清理/超期 `FILE_EXPIRED`（410）。返回附件流（`Content-Disposition`），非统一 `success` 包裹 |
+
+**清理关系（W7d 确认）**：`REPORT_FILE` 走自有归档期限（默认 365 天，非临时件短周期），未到期不被清理误删、确到期者按 `READY→PURGE_PENDING→PURGED` 同一状态机清理；归档期过后对应 `report_version` 下载返回 `FILE_EXPIRED`，`snapshot_available`/`excel_available` 转 false，与数据侧一致。
+
+### F.3 运行交付（W7d）
+
+到期清理部署脚本 `deploy/scripts/cleanup_expired_files.py`（复用 `FileService.purge_expired_files`，cron/任务计划触发、逐文件独立事务、可重跑幂等，见 D.5）已确认对 `REPORT_FILE` 类别生效。备份恢复与压测验收见运维手册 `docs/RUNBOOK_BACKUP_RESTORE.md`、`docs/RUNBOOK_LOADTEST_ACCEPTANCE.md`（规模/阈值/RPO/RTO 均为待学院确认的占位，未给数字不臆造）。
+
+### F.4 相关配置（全部走 Settings/env，冻结纪律）
+
+| env | 默认 | 含义 |
+|---|---|---|
+| `REPORT_RULE_VERSION` / `REPORT_TEMPLATE_VERSION` | 1 / 1 | 公式/模板版本，生成时盖章入版本行，变更驱动陈旧提示 |
+| `REPORT_GENERATE_MAX_TASKS` | 5000 | 单次生成聚合任务上限，超限写产物前 422 |
+| `REPORT_GENERATE_TAKEOVER_STALE_SECONDS` | 600 | `GENERATING` 可接管陈旧阈值 |
+| `FILE_RETENTION_REPORT_FILE_DAYS` | 365 | 报表产物独立归档期限 |
+| `OBJECTION_WINDOW_DAYS` / `OBJECTION_MAX_FILES` | 7 / 5 | （P6）异议窗口与附件上限 |

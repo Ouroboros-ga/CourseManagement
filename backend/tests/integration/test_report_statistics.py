@@ -642,7 +642,8 @@ def test_multi_task_sum_before_divide(client: TestClient, session: Session) -> N
 def test_overdue_and_current_incomplete_distinct(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session, two_tasks=True)
-    # task_w1(week1)：审核通过（有 APPROVED 提交）→ 当前已完成；其截止仍在未来且不结算 → 无截止快照。
+    # task_w1(week1)：审核通过（有 APPROVED 提交）→ 当前已完成；
+    # 其截止仍在未来且不结算 → 无截止快照。
     _approve_abnormal(
         client,
         h,

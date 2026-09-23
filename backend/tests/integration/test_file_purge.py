@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from app.core.config import get_settings
 from app.core.database import utcnow
 from app.modules.audit.models import AuditLog
 from app.modules.file.models import FileCategory, FileObject, FileStatus
@@ -54,13 +55,16 @@ def _make_file(
     status: str,
     expires_in_hours: int | None,
     key: str,
+    category: str = FileCategory.SUBMISSION_PHOTO.value,
+    content_type: str = "image/png",
+    ext: str = "png",
 ) -> FileObject:
     now = utcnow()
     row = FileObject(
         object_key=key,
-        category=FileCategory.SUBMISSION_PHOTO.value,
-        original_name=f"{key}.png",
-        content_type="image/png",
+        category=category,
+        original_name=f"{key}.{ext}",
+        content_type=content_type,
         size_bytes=10,
         sha256="a" * 64,
         uploader_user_id=None,
@@ -183,3 +187,58 @@ def test_purge_rerun_is_idempotent(session: Session, tmp_path: Path) -> None:
     assert second["scanned"] == 0
     assert second["purged"] == 0
     assert len(_purge_audits(session)) == 1
+
+
+# --------------------------------------------------------------------------- #
+# W7d 运行交付：报表产物（REPORT_FILE）纳入清理但走自有归档期限
+# --------------------------------------------------------------------------- #
+def test_report_file_expired_is_purged_but_future_survives(
+    session: Session, tmp_path: Path
+) -> None:
+    """REPORT_FILE 与照片/临时件共用按 expires_at 固化的清理状态机。
+
+    报表产物在建时按自有归档期限（FILE_RETENTION_REPORT_FILE_DAYS）固化到期时刻：
+    未到期者绝不被清理误删；确已到期者按同一状态机置 PURGED。二者同批处理，证明
+    "清理类别无关、期限各自固化"（技术方案 16.3、DEVELOPMENT_PLAN 第 65 条）。
+    """
+    store = _storage(tmp_path)
+    expired = _make_file(
+        session,
+        status=FileStatus.READY.value,
+        expires_in_hours=-1,  # 已过归档期
+        key="report-expired",
+        category=FileCategory.REPORT_FILE.value,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ext="xlsx",
+    )
+    future = _make_file(
+        session,
+        status=FileStatus.READY.value,
+        expires_in_hours=+24 * 400,  # 模拟 365 天归档期，远未到期
+        key="report-future",
+        category=FileCategory.REPORT_FILE.value,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ext="xlsx",
+    )
+    store.save("report-expired", b"x" * 10, "application/octet-stream")
+    store.save("report-future", b"y" * 10, "application/octet-stream")
+
+    stats = FileService(session, storage=store).purge_expired_files()
+    # 仅到期那份入选并清理，未到期那份原样保留。
+    assert stats["scanned"] == 1
+    assert stats["purged"] == 1
+    assert _reload(session, expired.id).status == FileStatus.PURGED.value
+    assert not store.exists("report-expired")
+    assert _reload(session, future.id).status == FileStatus.READY.value
+    assert store.exists("report-future")  # 归档期内，底层对象不受触碰
+
+
+def test_report_retention_days_are_configurable_and_independent() -> None:
+    """报表保留天数走 Settings/env（冻结纪律），且与临时件期限相互独立。"""
+    settings = get_settings()
+    mapping = settings.file_retention_days_by_category()
+    assert "REPORT_FILE" in mapping
+    assert mapping["REPORT_FILE"] == settings.file_retention_report_file_days
+    # 独立归档期限：不套用 TEMP 短周期，二者各由独立 env 驱动。
+    assert mapping["TEMP"] == settings.file_retention_temp_days
+    assert mapping["REPORT_FILE"] != mapping["TEMP"]
