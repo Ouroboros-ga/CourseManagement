@@ -1,0 +1,101 @@
+.container {
+  padding: 32rpx;
+  background-color: #F8FAFC;
+  min-height: 100vh;
+  padding-bottom: 200rpx;
+}
+
+.info-card {
+  background-color: #ffffff;
+  border-radius: 20rpx;
+  padding: 32rpx;
+  margin-bottom: 40rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.02);
+}
+
+.title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #1E293B;
+  margin-bottom: 16rpx;
+}
+
+.desc {
+  font-size: 28rpx;
+  color: #64748B;
+  margin-bottom: 8rpx;
+}
+
+.section-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 16rpx;
+  margin-top: 40rpx;
+}
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.radio-card, .abnormal-card, .upload-card {
+  background-color: #ffffff;
+  border-radius: 20rpx;
+  padding: 16rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.02);
+}
+
+.abnormal-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.student-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24rpx 32rpx;
+  border-bottom: 1px solid #F1F5F9;
+}
+.student-item:last-child {
+  border-bottom: none;
+}
+
+.stu-info {
+  display: flex;
+  align-items: center;
+}
+.stu-name {
+  font-size: 30rpx;
+  font-weight: 500;
+  color: #1E293B;
+  margin-right: 16rpx;
+}
+.stu-no {
+  font-size: 24rpx;
+  color: #94A3B8;
+}
+
+.empty-hint {
+  padding: 48rpx;
+  text-align: center;
+  color: #94A3B8;
+  font-size: 28rpx;
+}
+
+.upload-card {
+  padding: 32rpx;
+}
+
+.footer-btn {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 32rpx;
+  background-color: #ffffff;
+  box-shadow: 0 -4rpx 16rpx rgba(0,0,0,0.05);
+  z-index: 100;
+}

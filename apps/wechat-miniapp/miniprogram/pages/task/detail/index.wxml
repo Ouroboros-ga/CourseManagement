@@ -1,0 +1,61 @@
+<view class="container">
+  <!-- 任务基础信息 -->
+  <view class="info-card">
+    <view class="title">{{task.courseName}}</view>
+    <view class="desc" wx:if="{{task.timeStr}}">{{task.timeStr}} · {{task.classroom}}</view>
+    <view class="desc">班级：{{task.className}}</view>
+    <view class="desc">应到人数：{{task.expectedCount}}人</view>
+  </view>
+
+  <view class="section-title">查课结果</view>
+  <view class="radio-card">
+    <t-radio-group value="{{resultType}}" bind:change="onResultTypeChange">
+      <t-radio value="NORMAL" label="全部正常 (无迟到、旷课、请假)" />
+      <t-radio value="ABNORMAL" label="存在异常学生" />
+    </t-radio-group>
+  </view>
+
+  <!-- 异常学生列表 (仅在选了异常时展示) -->
+  <block wx:if="{{resultType === 'ABNORMAL'}}">
+    <view class="section-title flex-between">
+      <text>异常名单 ({{abnormalList.length}}人)</text>
+      <t-button size="small" theme="primary" variant="text" bind:tap="goToAbnormalPage">
+        添加学生
+      </t-button>
+    </view>
+
+    <view class="abnormal-card" wx:if="{{abnormalList.length > 0}}">
+      <view class="student-item" wx:for="{{abnormalList}}" wx:key="studentId">
+        <view class="stu-info">
+          <text class="stu-name">{{item.name}}</text>
+          <text class="stu-no">{{item.studentNo}}</text>
+        </view>
+        <t-tag theme="{{item.type === 'LEAVE' ? 'warning' : 'danger'}}" variant="light">
+          {{item.typeName}}
+        </t-tag>
+      </view>
+    </view>
+    <view class="abnormal-card empty-hint" wx:else bind:tap="goToAbnormalPage">
+      点击此处添加异常学生
+    </view>
+  </block>
+
+  <!-- 照片上传 -->
+  <view class="section-title" wx:if="{{task.requirePhoto}}">现场照片 (必填)</view>
+  <view class="section-title" wx:else>现场照片 (选填)</view>
+  <view class="upload-card">
+    <t-upload
+      mediaType="{{['image']}}"
+      max="3"
+      files="{{fileList}}"
+      bind:add="onAddPhoto"
+      bind:remove="onRemovePhoto"
+    />
+  </view>
+
+  <view class="footer-btn">
+    <t-button theme="primary" size="large" block disabled="{{!task.canSubmit || submitting || uploading}}" bind:tap="handleSubmit">提交记录</t-button>
+  </view>
+
+  <t-toast id="t-toast" />
+</view>

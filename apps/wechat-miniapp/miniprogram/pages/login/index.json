@@ -1,0 +1,9 @@
+{
+  "navigationBarTitleText": "登录与绑定",
+  "usingComponents": {
+    "t-input": "tdesign-miniprogram/input/input",
+    "t-button": "tdesign-miniprogram/button/button",
+    "t-toast": "tdesign-miniprogram/toast/toast",
+    "t-message": "tdesign-miniprogram/message/message"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "navigationBarTitleText": "添加异常学生",
+  "usingComponents": {
+    "t-search": "tdesign-miniprogram/search/search",
+    "t-button": "tdesign-miniprogram/button/button",
+    "t-icon": "tdesign-miniprogram/icon/icon",
+    "t-radio": "tdesign-miniprogram/radio/radio",
+    "t-radio-group": "tdesign-miniprogram/radio-group/radio-group",
+    "t-toast": "tdesign-miniprogram/toast/toast"
+  }
+}

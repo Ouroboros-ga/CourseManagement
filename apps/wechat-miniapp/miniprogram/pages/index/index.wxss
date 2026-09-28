@@ -1,0 +1,57 @@
+.container {
+  padding: 32rpx;
+  background-color: #F8FAFC;
+  min-height: 100vh;
+}
+
+.header-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 48rpx;
+  background-color: #ffffff;
+  padding: 32rpx;
+  border-radius: 20rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.02);
+}
+
+.welcome-text {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #1E293B;
+}
+
+.role-tag {
+  font-size: 24rpx;
+  color: #3B82F6;
+  background-color: #EFF6FF;
+  padding: 8rpx 20rpx;
+  border-radius: 12rpx;
+  font-weight: 500;
+}
+
+.action-card {
+  display: flex;
+  align-items: center;
+  background-color: #fff;
+  padding: 32rpx;
+  border-radius: 16rpx;
+  margin-bottom: 32rpx;
+}
+
+.card-content {
+  flex: 1;
+  margin-left: 24rpx;
+}
+
+.card-title {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 8rpx;
+}
+
+.card-desc {
+  font-size: 24rpx;
+  color: #999;
+}

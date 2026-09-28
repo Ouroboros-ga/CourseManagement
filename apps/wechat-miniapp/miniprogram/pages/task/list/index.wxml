@@ -1,0 +1,36 @@
+<view class="container">
+  <t-tabs defaultValue="TODO" bind:change="onTabChange" sticky theme="card">
+    <t-tab-panel label="待执行" value="TODO" />
+    <t-tab-panel label="已提交" value="DONE" />
+  </t-tabs>
+
+  <view class="task-list">
+    <block wx:if="{{tasks.length > 0}}">
+      <view class="task-card" wx:for="{{tasks}}" wx:key="id" bind:tap="goToDetail" data-id="{{item.id}}">
+        <view class="task-header">
+          <view class="task-title">{{item.courseName}}</view>
+          <t-tag theme="{{item.status === '待执行' ? 'primary' : (item.status === '已逾期' ? 'warning' : 'success')}}" variant="light-outline">
+            {{item.status}}
+          </t-tag>
+        </view>
+        <view class="task-info">
+          <view class="info-row">
+            <t-icon name="time" size="32rpx" color="#94A3B8" />
+            <text class="info-text">{{item.timeStr}}</text>
+          </view>
+          <view class="info-row">
+            <t-icon name="location" size="32rpx" color="#94A3B8" />
+            <text class="info-text">{{item.classroom}}</text>
+          </view>
+          <view class="info-row">
+            <t-icon name="usergroup" size="32rpx" color="#94A3B8" />
+            <text class="info-text">{{item.className}}</text>
+          </view>
+        </view>
+      </view>
+    </block>
+    <view wx:else class="empty-wrap">
+      <t-empty wx:if="{{!loading}}" icon="info-circle" description="暂无任务" />
+    </view>
+  </view>
+</view>

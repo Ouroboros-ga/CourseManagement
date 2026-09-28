@@ -1,0 +1,94 @@
+.container {
+  min-height: 100vh;
+  background-color: #F8FAFC;
+  padding-bottom: 200rpx;
+}
+
+.search-bar {
+  background-color: #ffffff;
+  padding: 16rpx 32rpx;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.02);
+}
+
+.section-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #334155;
+  margin: 32rpx 32rpx 16rpx;
+}
+
+.result-list, .selected-list {
+  margin-top: 16rpx;
+}
+
+.student-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #ffffff;
+  padding: 24rpx 32rpx;
+  margin: 0 32rpx 16rpx;
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.02);
+}
+
+.stu-info {
+  display: flex;
+  align-items: center;
+}
+.stu-name {
+  font-size: 32rpx;
+  font-weight: 500;
+  color: #1E293B;
+  margin-right: 16rpx;
+}
+.stu-no {
+  font-size: 26rpx;
+  color: #94A3B8;
+}
+
+.empty-hint {
+  text-align: center;
+  padding: 60rpx;
+  color: #94A3B8;
+  font-size: 28rpx;
+}
+
+.selected-item {
+  background-color: #ffffff;
+  margin: 0 32rpx 24rpx;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.02);
+}
+
+.selected-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24rpx;
+}
+
+.type-selector {
+  border-top: 1px solid #F1F5F9;
+  padding-top: 16rpx;
+}
+
+/* 覆盖 tdesign 的 radio 边距使其更紧凑 */
+.type-selector .t-radio {
+  padding: 16rpx 0;
+}
+
+.footer-btn {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 32rpx;
+  background-color: #ffffff;
+  box-shadow: 0 -4rpx 16rpx rgba(0,0,0,0.05);
+  z-index: 100;
+}

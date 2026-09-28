@@ -1,0 +1,30 @@
+.login-container {
+  min-height: 100vh;
+  background-color: #fff;
+  padding: 48rpx;
+}
+
+.header {
+  margin-top: 80rpx;
+  margin-bottom: 80rpx;
+}
+
+.title {
+  font-size: 56rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 16rpx;
+}
+
+.subtitle {
+  font-size: 28rpx;
+  color: #999;
+}
+
+.form-container {
+  margin-top: 60rpx;
+}
+
+.btn-container {
+  margin-top: 80rpx;
+}

@@ -1,0 +1,31 @@
+.container {
+  padding: 32rpx;
+  background-color: #F6F6F6;
+  min-height: 100vh;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 60rpx;
+  margin-bottom: 80rpx;
+}
+
+.avatar {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 50%;
+  overflow: hidden;
+  margin-bottom: 24rpx;
+}
+
+.name {
+  font-size: 36rpx;
+  font-weight: bold;
+  color: #333;
+}
+
+.action-list {
+  margin-top: 60rpx;
+}

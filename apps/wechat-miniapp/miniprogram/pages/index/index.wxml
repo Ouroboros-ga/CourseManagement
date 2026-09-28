@@ -1,0 +1,17 @@
+<view class="container">
+  <view class="header-section">
+    <view class="welcome-text">你好，{{userInfo.display_name || '同学'}}</view>
+    <view class="role-tag" wx:if="{{roleName}}">{{roleName}}</view>
+  </view>
+
+  <!-- 志愿者入口 -->
+  <view class="action-card" wx:if="{{isVolunteer}}" bind:tap="goToTaskList">
+    <t-icon name="check-circle" size="48rpx" color="#3B82F6" />
+    <view class="card-content">
+      <view class="card-title">查课任务</view>
+      <view class="card-desc">查看并执行分配给您的查课任务</view>
+    </view>
+    <t-icon name="chevron-right" size="48rpx" color="#CBD5E1" />
+  </view>
+
+</view>

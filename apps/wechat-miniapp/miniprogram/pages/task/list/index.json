@@ -1,0 +1,10 @@
+{
+  "navigationBarTitleText": "查课任务",
+  "usingComponents": {
+    "t-tabs": "tdesign-miniprogram/tabs/tabs",
+    "t-tab-panel": "tdesign-miniprogram/tab-panel/tab-panel",
+    "t-tag": "tdesign-miniprogram/tag/tag",
+    "t-icon": "tdesign-miniprogram/icon/icon",
+    "t-empty": "tdesign-miniprogram/empty/empty"
+  }
+}

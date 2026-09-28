@@ -1,0 +1,20 @@
+<view class="login-container">
+  <view class="header">
+    <view class="title">查课管理系统</view>
+    <view class="subtitle">使用微信身份登录后查看查课任务</view>
+  </view>
+
+  <view class="form-container" wx:if="{{!needBinding}}">
+    <t-button theme="primary" size="large" block disabled="{{busy}}" bind:tap="handleWechatLogin">微信登录</t-button>
+  </view>
+
+  <view class="form-container" wx:else>
+    <view class="subtitle">首次登录须使用管理员发放的一次性绑定码核验学号</view>
+    <t-input label="学号" placeholder="请输入学号" value="{{studentNo}}" bind:change="onStudentNoChange" />
+    <t-input label="绑定码" type="password" placeholder="请输入一次性绑定码" value="{{bindingCode}}" bind:change="onBindingCodeChange" />
+    <view class="btn-container">
+      <t-button theme="primary" size="large" block disabled="{{busy}}" bind:tap="handleBind">完成绑定</t-button>
+    </view>
+  </view>
+  <t-message id="t-message" />
+</view>

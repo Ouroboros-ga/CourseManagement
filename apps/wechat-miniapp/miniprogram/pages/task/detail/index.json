@@ -1,0 +1,13 @@
+{
+  "navigationBarTitleText": "查课录入",
+  "usingComponents": {
+    "t-cell": "tdesign-miniprogram/cell/cell",
+    "t-cell-group": "tdesign-miniprogram/cell-group/cell-group",
+    "t-button": "tdesign-miniprogram/button/button",
+    "t-radio": "tdesign-miniprogram/radio/radio",
+    "t-radio-group": "tdesign-miniprogram/radio-group/radio-group",
+    "t-upload": "tdesign-miniprogram/upload/upload",
+    "t-toast": "tdesign-miniprogram/toast/toast",
+    "t-tag": "tdesign-miniprogram/tag/tag"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/login/index",
+    "pages/task/list/index",
+    "pages/task/detail/index",
+    "pages/task/abnormal/index",
+    "pages/profile/index"
+  ],
+  "window": {
+    "backgroundColor": "#F8FAFC",
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#3B82F6",
+    "navigationBarTitleText": "查课管理系统",
+    "navigationBarTextStyle": "white"
+  },
+  "tabBar": {
+    "color": "#94A3B8",
+    "selectedColor": "#3B82F6",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/profile/index",
+        "text": "我的"
+      }
+    ]
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "usingComponents": {}
+}

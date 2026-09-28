@@ -1,0 +1,46 @@
+<view class="container">
+  <view class="search-bar">
+    <t-search value="{{keyword}}" bind:change="onKeywordChange" placeholder="输入姓名或学号搜索" action="搜索" bind:action-click="handleSearch" />
+  </view>
+
+  <!-- 搜索结果列表 -->
+  <view class="result-list" wx:if="{{searchResults.length > 0}}">
+    <view class="section-title">搜索结果</view>
+    <view class="student-item" wx:for="{{searchResults}}" wx:key="studentId" bind:tap="addStudent" data-item="{{item}}">
+      <view class="stu-info">
+        <text class="stu-name">{{item.name}}</text>
+        <text class="stu-no">{{item.studentNo}}</text>
+      </view>
+      <t-icon name="add-circle" size="48rpx" color="#3B82F6" />
+    </view>
+  </view>
+
+  <!-- 已选名单 -->
+  <view class="selected-list">
+    <view class="section-title">已选名单 ({{selectedList.length}}人)</view>
+    <view class="empty-hint" wx:if="{{selectedList.length === 0}}">暂无选择</view>
+
+    <view class="selected-item" wx:for="{{selectedList}}" wx:key="studentId">
+      <view class="selected-header">
+        <view class="stu-info">
+          <text class="stu-name">{{item.name}}</text>
+          <text class="stu-no">{{item.studentNo}}</text>
+        </view>
+        <t-icon name="close-circle" size="40rpx" color="#CBD5E1" bind:tap="removeStudent" data-index="{{index}}" />
+      </view>
+      <view class="type-selector">
+        <t-radio-group value="{{item.type}}" bind:change="onTypeChange" data-index="{{index}}" borderless placement="horizontal">
+          <t-radio value="LATE" label="迟到" />
+          <t-radio value="ABSENT" label="旷课" />
+          <t-radio value="LEAVE" label="请假" />
+        </t-radio-group>
+      </view>
+    </view>
+  </view>
+
+  <view class="footer-btn">
+    <t-button theme="primary" size="large" block bind:tap="handleConfirm">确定添加</t-button>
+  </view>
+
+  <t-toast id="t-toast" />
+</view>
