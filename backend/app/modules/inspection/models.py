@@ -8,7 +8,7 @@
 - task_roster_member         名单成员：随版本冻结学生学号/姓名/班级/年级快照；
 - submission_deadline_day    某日截止时间当前值：首次为该日建任务时按默认时刻生成，带版本指针；
 - submission_deadline_version 截止时间历史版本：改期追加版本、记录人与原因，不改写历史事实；
-- inspection_assignment      当前受派关系：一任务一受派人（task_id 唯一），记录分配方式与乐观锁；
+- inspection_assignment      当前及历史受派：生成列约束每任务最多一个当前受派，记录失效时刻；
 - task_deadline_assessment   截止时考核快照（技术方案 13.3）：截止时点回看的既成事实，非当前状态；
 - assignment_change_request  调班申请：志愿者本人发起、管理人员处理；
 - volunteer_day_lock         志愿者某日锁锚点（技术方案 15）：为并发排班提供稳定可锁记录。
@@ -27,8 +27,10 @@ from datetime import date as date_
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
+    Computed,
     ForeignKey,
     Integer,
     String,
@@ -305,10 +307,10 @@ class SubmissionDeadlineVersion(CreateTimeMixin, Base):
 
 
 # --------------------------------------------------------------------------- #
-# 当前受派关系
+# 受派关系（当前与历史）
 # --------------------------------------------------------------------------- #
 class InspectionAssignment(TimestampMixin, Base):
-    """任务当前受派关系。V1.0 一任务一受派人，故 task_id 唯一（技术方案 9.2）。"""
+    """失效行保留历史；生成列只对未失效受派保留 task_id 的唯一性。"""
 
     __tablename__ = "inspection_assignment"
     __table_args__ = (
@@ -316,12 +318,18 @@ class InspectionAssignment(TimestampMixin, Base):
             f"assign_method IN {_ASSIGN_METHODS}",
             name="ck_inspection_assignment_method",
         ),
+        UniqueConstraint("active_task_id"),
         MYSQL_TABLE_ARGS,
     )
 
     id: Mapped[int] = pk_column()
     task_id: Mapped[int] = mapped_column(
-        ForeignKey("inspection_task.id", ondelete="CASCADE"), unique=True, nullable=False
+        ForeignKey("inspection_task.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DATETIME_3)
+    active_task_id: Mapped[int | None] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        Computed("CASE WHEN revoked_at IS NULL THEN task_id ELSE NULL END", persisted=True),
     )
     volunteer_user_id: Mapped[int] = mapped_column(
         ForeignKey("user_account.id", ondelete="RESTRICT"), nullable=False, index=True

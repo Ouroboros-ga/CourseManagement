@@ -26,12 +26,12 @@ class ObjectionCreateRequest(BaseModel):
     """学生对本人某条考勤提交异议（POST /attendance/{id}/objections）。
 
     - desired_type：学生诉求的认定类型，必填；不得与当前认定相同（无意义申诉由 service 拒绝）；
-    - reason：异议理由，必填、可审计；
+    - reason：异议理由，选填、可审计；
     - file_ids：本人上传、READY、类别 OBJECTION_PROOF、未过期的证明材料（归属校验在 service）。
     """
 
     desired_type: ObjectionTypeLiteral
-    reason: str = Field(min_length=1, max_length=512)
+    reason: str = Field(default="", max_length=512)
     file_ids: list[int] = Field(default_factory=list, max_length=50)
 
 

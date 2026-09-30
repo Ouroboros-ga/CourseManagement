@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily CourseManagement backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=300
+Unit=course-management-backup.service
+
+[Install]
+WantedBy=timers.target

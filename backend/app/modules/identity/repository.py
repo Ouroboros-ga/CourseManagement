@@ -58,8 +58,8 @@ class IdentityRepository:
     def list_effective_permissions(self, user_id: int) -> list[str]:
         """角色权限 ∪ 逐人可选权限（技术方案 6.3）。
 
-        个人授权分支仅认三项可配置权限（OPTIONAL_PERMISSION_CODES）：
-        有效个人权限只来自负责人身份 + 三项许可清单（P1 第 6 步）；
+        个人授权分支仅认可配置权限集合（OPTIONAL_PERMISSION_CODES）：
+        当前包含统计读取、异议初核；周报读取已转为角色默认权限。
         负责人角色被撤销时其个人授权已在变更服务中清除，重新授角色不自动恢复。
         """
         role_perms = self._session.execute(

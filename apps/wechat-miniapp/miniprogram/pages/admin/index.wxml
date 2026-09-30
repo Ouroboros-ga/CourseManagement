@@ -1,0 +1,44 @@
+<view class="container">
+  <view class="mode-bar" wx:if="{{canInitialReview || canFinalReview}}">
+    <t-button wx:if="{{canInitialReview}}" size="small" theme="primary" variant="{{mode === 'initial' ? 'base' : 'outline'}}" data-mode="initial" bind:tap="onModeChange">待初核</t-button>
+    <t-button wx:if="{{canFinalReview}}" size="small" theme="primary" variant="{{mode === 'final' ? 'base' : 'outline'}}" data-mode="final" bind:tap="onModeChange">待终审</t-button>
+  </view>
+  <view class="list-wrap" wx:if="{{canInitialReview || canFinalReview}}">
+    <block wx:if="{{approvals.length > 0}}">
+      <view class="approval-card" wx:for="{{approvals}}" wx:key="id">
+        <view class="card-header">
+          <view class="stu-info">
+            <text class="name">{{item.studentName}}</text>
+            <text class="no">{{item.studentNo}}</text>
+          </view>
+          <t-tag theme="warning" variant="light">期望：{{item.desiredTypeName}}</t-tag>
+        </view>
+        <view class="course-info">{{item.courseName}} · {{item.date}}</view>
+        <view class="course-info">当前认定：{{item.currentTypeName}} · 初核：{{item.initial_status}}</view>
+        <view class="reason-box">
+          <text class="label">理由：</text>
+          <text class="content">{{item.reason}}</text>
+        </view>
+        <view class="proof-box" wx:if="{{item.fileIds.length > 0}}">
+          <t-button wx:for="{{item.fileIds}}" wx:for-item="fileId" wx:for-index="fileIndex" wx:key="*this" size="small" variant="outline" data-id="{{fileId}}" bind:tap="previewImage">查看材料{{fileIndex + 1}}</t-button>
+        </view>
+        <view class="final-type-box" wx:if="{{mode === 'final'}}">
+          <view class="final-type-label">最终认定</view>
+          <radio-group data-id="{{item.id}}" bindchange="onFinalTypeChange">
+            <label><radio value="NORMAL" checked="{{item.finalType === 'NORMAL'}}" />正常</label>
+            <label><radio value="LEAVE" checked="{{item.finalType === 'LEAVE'}}" />请假</label>
+            <label><radio value="LATE" checked="{{item.finalType === 'LATE'}}" />迟到</label>
+            <label><radio value="ABSENT" checked="{{item.finalType === 'ABSENT'}}" />旷课</label>
+          </radio-group>
+        </view>
+        <view class="action-bar">
+          <t-button size="small" theme="danger" variant="outline" disabled="{{workingId || loading}}" bind:tap="handleReject" data-id="{{item.id}}">{{mode === 'initial' ? '初核驳回' : '终审驳回'}}</t-button>
+          <t-button size="small" theme="primary" disabled="{{workingId || loading || (mode === 'final' && !item.currentVersion)}}" bind:tap="handleApprove" data-id="{{item.id}}">{{mode === 'initial' ? '初核通过' : '终审通过'}}</t-button>
+        </view>
+      </view>
+    </block>
+    <view wx:else class="empty-wrap"><t-empty icon="info-circle" description="暂无待处理异议" /></view>
+  </view>
+  <view wx:else class="empty-wrap"><t-empty icon="info-circle" description="当前账号没有异议审核权限" /></view>
+  <t-toast id="t-toast" />
+</view>

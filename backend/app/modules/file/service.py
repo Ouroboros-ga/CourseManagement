@@ -7,7 +7,8 @@ Service 顶层在成功前单次 commit。上传先经校验与存储落盘再�
 
 访问授权（技术方案 16.2）：文件无独立功能权限，按"业务资源归属"放行——上传者本人恒可
 访问自己上传的 READY 材料；已关联到某提交的材料，具备 submission.review 的审核者可访问、
-具备 submission.read 的志愿者仅能经本人提交访问。不可见资源统一以 404 处理，避免枚举探测。
+具备 submission.read 的志愿者仅能经本人提交访问；异议证明仅在关联异议后，按本人
+objection.read 或管理初核/终审权限访问。不可见资源统一以 404 处理，避免枚举探测。
 下载路由不再鉴权，只校验 HMAC 签名与过期（技术方案 16.2 明确不即时撤销已发出链接）。
 """
 
@@ -31,7 +32,7 @@ from app.core.exceptions import (
 )
 from app.modules.audit.models import AuditLog
 from app.modules.file import permissions as fperm
-from app.modules.file.models import FileObject, FileStatus
+from app.modules.file.models import FileCategory, FileObject, FileStatus
 from app.modules.file.repository import FileRepository
 from app.modules.file.schemas import FileAccessResponse, FileUploadResponse
 from app.modules.file.storage import StorageBackend, build_default_storage
@@ -153,8 +154,21 @@ class FileService:
     def can_access(self, actor: CurrentUser, file: FileObject) -> bool:
         if file.uploader_user_id == actor.id:
             return True
-        may_review = "submission.review" in set(actor.permissions)
-        may_read_own = "submission.read" in set(actor.permissions)
+        permissions = set(actor.permissions)
+        if file.category == FileCategory.OBJECTION_PROOF.value:
+            from app.modules.objection.permissions import (
+                MANAGE_READ_PERMISSIONS,
+                OBJECTION_READ_PERMISSION,
+            )
+
+            return self._repo.is_linked_to_readable_objection_for(
+                file_id=file.id,
+                actor_user_id=actor.id,
+                may_manage=bool(permissions & MANAGE_READ_PERMISSIONS),
+                may_read_own=OBJECTION_READ_PERMISSION in permissions,
+            )
+        may_review = "submission.review" in permissions
+        may_read_own = "submission.read" in permissions
         if not (may_review or may_read_own):
             return False
         return self._repo.is_linked_to_submittable_for(
@@ -187,16 +201,24 @@ class FileService:
             raise ConflictError(
                 ErrorCode.STATE_CONFLICT, "文件尚未就绪，暂不可访问"
             )
-        if file.expires_at is not None and file.expires_at <= utcnow():
+        if self._retention_expired(file):
             raise FileExpiredError()
+
+    def _retention_expired(self, file: FileObject) -> bool:
+        if file.expires_at is None or file.expires_at > utcnow():
+            return False
+        return not (
+            file.category == FileCategory.OBJECTION_PROOF.value
+            and self._repo.is_linked_to_pending_objection(file.id)
+        )
 
     def download(self, file_id: int, expires: int, sig: str) -> tuple[bytes, str, str | None]:
         """下载路由取内容：不再鉴权，仅校验对象存在、未清理、签名与有效期（技术方案 16.2）。"""
         file = self._repo.get(file_id)
         if file is None:
             raise NotFoundError()
-        if file.status == FileStatus.PURGED.value or file.expires_at is not None and (
-            file.expires_at <= utcnow()
+        if file.status in (FileStatus.PURGED.value, FileStatus.PURGE_PENDING.value) or (
+            self._retention_expired(file)
         ):
             raise FileExpiredError()
         verifier = getattr(self._storage, "verify_download", None)

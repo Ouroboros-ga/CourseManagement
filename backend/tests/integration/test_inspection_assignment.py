@@ -577,6 +577,182 @@ def test_manual_reassign_switches_volunteer(client: TestClient, session: Session
 # --------------------------------------------------------------------------- #
 # 自动排班
 # --------------------------------------------------------------------------- #
+def test_auto_uses_semester_load_across_dates(client: TestClient, session: Session) -> None:
+    from datetime import timedelta
+
+    h = _admin_headers(client, session)
+    sc = _one_task_scene(client, h)
+    other = _create_admin_class(client, h, "BALANCE")
+    volunteers = [
+        _make_volunteer(client, h, session, sem_id=sc["sem_id"], username=f"balance{i}",
+                        student_no=f"BAL{i}", admin_class_id=other)
+        for i in range(2)
+    ]
+    original = session.get(InspectionTask, int(sc["task"]["id"]))
+    ids = [original.id]
+    for i in range(1, 4):
+        clone = InspectionTask(
+            task_key=f"balance:{i}", semester_id=original.semester_id,
+            inspection_date=original.inspection_date + timedelta(days=i),
+            week_no=1, inspection_type="COURSE", start_period=1, end_period=2,
+            roster_version=1, expected_count_snapshot=0, expected_count_current=0,
+            require_photo_snapshot=False,
+        )
+        session.add(clone)
+        session.flush()
+        ids.append(clone.id)
+    session.commit()
+    # 分两次请求，第二次必须计入第一次已落库的学期负载。
+    from app.modules.academic.models import Semester
+    from app.modules.inspection.scheduling.loader import load_snapshot
+    from sqlalchemy import event
+
+    sem = session.get(Semester, sc["sem_id"])
+    targets = list(session.scalars(select(InspectionTask).where(InspectionTask.id.in_(ids))))
+    statements = []
+
+    def record_sql(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(session.bind, "before_cursor_execute", record_sql)
+    try:
+        load_snapshot(session, sem, targets[:1], [v.id for v in volunteers])
+        single_count = len(statements)
+        statements.clear()
+        load_snapshot(session, sem, targets, [v.id for v in volunteers])
+        assert len(statements) == single_count
+        assert single_count <= 10
+    finally:
+        event.remove(session.bind, "before_cursor_execute", record_sql)
+
+    owners = []
+    for batch in [ids[:2], ids[2:]]:
+        resp = client.post(_AUTO, headers=h,
+                           json={"semester_id": sc["sem_id"], "task_ids": batch})
+        assert resp.status_code == 200, resp.text
+        owners.extend(int(row["volunteer_user_id"]) for row in resp.json()["data"]["assigned"])
+    assert owners.count(volunteers[0].id) == 2
+    assert owners.count(volunteers[1].id) == 2
+
+
+def test_auto_excludes_disabled_student(client: TestClient, session: Session) -> None:
+    from app.modules.academic.models import Student
+
+    h = _admin_headers(client, session)
+    sc = _one_task_scene(client, h)
+    other = _create_admin_class(client, h, "DISABLED")
+    vol = _make_volunteer(client, h, session, sem_id=sc["sem_id"], username="disabled",
+                          student_no="DIS1", admin_class_id=other)
+    session.get(Student, vol.student_id).status = "DISABLED"
+    session.commit()
+    resp = client.post(_AUTO, headers=h, json={"semester_id": sc["sem_id"],
+                        "task_ids": [int(sc["task"]["id"])], "candidate_user_ids": [vol.id]})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["assigned_count"] == 0
+
+
+def test_auto_loads_fresh_counts_after_prior_repeatable_read(
+    client: TestClient, session: Session, engine: Engine,
+) -> None:
+    from datetime import timedelta
+
+    from app.modules.inspection.schemas import AutoAssignRequest
+
+    h = _admin_headers(client, session)
+    sc = _one_task_scene(client, h)
+    other = _create_admin_class(client, h, "FRESH")
+    volunteers = [
+        _make_volunteer(client, h, session, sem_id=sc["sem_id"], username=f"fresh{i}",
+                        student_no=f"FRESH{i}", admin_class_id=other)
+        for i in range(2)
+    ]
+    admin = session.execute(select(UserAccount).where(UserAccount.username == "admin")).scalar_one()
+    actor = CurrentUser(admin.id, admin.username, admin.display_name, admin.status, [], [])
+    next_task = InspectionTask(
+        task_key="fresh:next", semester_id=sc["sem_id"],
+        inspection_date=date(2026, 9, 7) + timedelta(days=1), week_no=1,
+        inspection_type="COURSE", start_period=1, end_period=2,
+        roster_version=1, expected_count_snapshot=0, expected_count_current=0,
+        require_photo_snapshot=False,
+    )
+    session.add(next_task)
+    session.commit()
+    ids = [v.id for v in volunteers]
+    next_id = next_task.id
+    session.commit()
+    # 模拟请求鉴权已建立 RR 快照；另一个请求随后提交受派。
+    assert session.scalar(select(func.count()).select_from(InspectionAssignment)) == 0
+    with Session(engine) as writer:
+        writer.add(InspectionAssignment(task_id=int(sc["task"]["id"]),
+                   volunteer_user_id=ids[0], assign_method="AUTO", assigned_by=actor.id))
+        writer.commit()
+    result = InspectionService(session).auto_assign(
+        actor, AutoAssignRequest(semester_id=sc["sem_id"], task_ids=[next_id]), None)
+    assert int(result.assigned[0].volunteer_user_id) == ids[1]
+
+
+def test_auto_with_single_connection_business_pool(
+    client: TestClient, session: Session, engine: Engine,
+) -> None:
+    from app.modules.inspection.schemas import AutoAssignRequest
+    from sqlalchemy import create_engine
+
+    h = _admin_headers(client, session)
+    sc = _one_task_scene(client, h)
+    other = _create_admin_class(client, h, "POOL1")
+    vol = _make_volunteer(client, h, session, sem_id=sc["sem_id"],
+                          username="pool1", student_no="POOL1", admin_class_id=other)
+    admin = session.execute(select(UserAccount).where(UserAccount.username == "admin")).scalar_one()
+    actor = CurrentUser(admin.id, admin.username, admin.display_name, admin.status, [], [])
+    one = create_engine(engine.url, pool_size=1, max_overflow=0, pool_timeout=1)
+    try:
+        with Session(one) as request_session:
+            result = InspectionService(request_session).auto_assign(
+                actor, AutoAssignRequest(semester_id=sc["sem_id"],
+                                         task_ids=[int(sc["task"]["id"])]), None)
+        assert int(result.assigned[0].volunteer_user_id) == vol.id
+    finally:
+        one.dispose()
+
+
+def test_auto_final_conflict_rolls_back_whole_plan(
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    h = _admin_headers(client, session)
+    sc = _one_task_scene(client, h)
+    other = _create_admin_class(client, h, "ROLLBACK")
+    _make_volunteer(client, h, session, sem_id=sc["sem_id"], username="rollback",
+                    student_no="ROLL1", admin_class_id=other)
+    clone = InspectionTask(
+        task_key="rollback:next", semester_id=sc["sem_id"], inspection_date=date(2026, 9, 8),
+        week_no=1, inspection_type="COURSE", start_period=1, end_period=2,
+        roster_version=1, expected_count_snapshot=0, expected_count_current=0,
+        require_photo_snapshot=False,
+    )
+    session.add(clone)
+    session.commit()
+    from dataclasses import replace
+
+    import app.modules.inspection.service as service_module
+
+    original = service_module.load_snapshot
+
+    def qualification_changed(*args, **kwargs):
+        snapshot = original(*args, **kwargs)
+        if kwargs.get("lock_inputs"):
+            # 模拟锁内当前读发现后一个任务的资格变化；整批不应有任何部分写入。
+            snapshot.tasks[-1] = replace(snapshot.tasks[-1], candidates=frozenset())
+        return snapshot
+
+    monkeypatch.setattr(service_module, "load_snapshot", qualification_changed)
+    resp = client.post(_AUTO, headers=h, json={"semester_id": sc["sem_id"],
+                        "task_ids": [int(sc["task"]["id"]), clone.id]})
+    assert resp.status_code == 409, resp.text
+    session.rollback()
+    assert _count(session, InspectionAssignment) == 0
+    assert _audit_actions(session, "assignment.auto_run") == 0
+
+
 def test_auto_assign_full_pool(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _one_task_scene(client, h)

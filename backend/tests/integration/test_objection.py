@@ -22,6 +22,7 @@ from datetime import date as date_
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from app.core.config import get_settings
@@ -586,6 +587,44 @@ def test_create_links_valid_proof_files(client: TestClient, session: Session) ->
     assert sorted(int(x) for x in obj["file_ids"]) == sorted([f1.id, f2.id])
 
 
+def test_objection_proof_access_follows_review_permission_and_ownership(
+    client: TestClient, session: Session
+) -> None:
+    h = _admin_headers(client, session)
+    sc = _scene(client, h)
+    rec_ids = _approve_setup(client, h, session, sc)
+    student, sh = _student_headers(client, session, sc, "s2")
+    proof = _make_proof_file(session, uploader_id=student.id, key="review-proof")
+    unlinked = _make_proof_file(session, uploader_id=student.id, key="unlinked-proof")
+    _create_objection(client, sh, rec_ids[sc["s2"]], desired="LATE", file_ids=[proof.id])
+    url = f"/api/v1/files/{proof.id}/access"
+    assert client.get(url, headers=sh).status_code == 200
+    assert client.get(url, headers=h).status_code == 200
+    assert client.get(f"/api/v1/files/{unlinked.id}/access", headers=h).status_code == 404
+
+    _, other = _student_headers(client, session, sc, "s1")
+    assert client.get(url, headers=other).status_code == 404
+
+    sam = _make_user(session, "proof-reviewer", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
+    sam_h = _bearer(_login(client, "proof-reviewer"))
+    assert client.get(url, headers=sam_h).status_code == 404
+    grant = client.put(
+        f"/api/v1/users/{sam.id}/optional-permissions/objection.initial_review",
+        headers=h,
+        json={"enabled": True, "lockVersion": sam.lock_version, "reason": "负责初核"},
+    )
+    assert grant.status_code == 200, grant.text
+    assert client.get(url, headers=sam_h).status_code == 200
+    session.refresh(sam)
+    revoke = client.put(
+        f"/api/v1/users/{sam.id}/optional-permissions/objection.initial_review",
+        headers=h,
+        json={"enabled": False, "lockVersion": sam.lock_version, "reason": "收回初核"},
+    )
+    assert revoke.status_code == 200, revoke.text
+    assert client.get(url, headers=sam_h).status_code == 404
+
+
 # --------------------------------------------------------------------------- #
 # 读取范围：OWN vs MANAGE vs 派生 vs 防枚举
 # --------------------------------------------------------------------------- #
@@ -626,6 +665,15 @@ def test_sam_default_cannot_read_403(client: TestClient, session: Session) -> No
     sam = _bearer(_login(client, "sam"))
     r = client.get(_OBJS, headers=sam)
     assert r.status_code == 403, r.text
+
+
+def test_unbound_student_cannot_list_all_objections(client: TestClient, session: Session) -> None:
+    h = _admin_headers(client, session)
+    sc = _scene(client, h)
+    _open_objection(client, h, session, sc, which="s2")
+    _make_user(session, "unbound", [RoleCode.STUDENT.value])
+    response = client.get(_OBJS, headers=_bearer(_login(client, "unbound")))
+    assert response.status_code == 403, response.text
 
 
 def test_sam_derived_read_after_initial_review_grant(client: TestClient, session: Session) -> None:
@@ -955,7 +1003,21 @@ def test_open_objection_pauses_purge_until_closed(
     session.commit()
 
     store: Any = LocalStorage(str(tmp_path / "store"), secret="test-secret")
+    store.save("purge1", b"proof-bytes", "image/png")
     svc = FileService(session, storage=store)
+    admin = session.execute(select(UserAccount).where(UserAccount.username == "admin")).scalar_one()
+    reviewer = CurrentUser(
+        id=admin.id,
+        username=admin.username,
+        display_name=admin.display_name,
+        status=admin.status,
+        roles=[RoleCode.SUPER_ADMIN.value],
+        permissions=["objection.final_review"],
+    )
+    access = svc.get_access(reviewer, f.id)
+    query = parse_qs(urlsplit(access.url).query)
+    content, content_type, _ = svc.download(f.id, int(query["expires"][0]), query["sig"][0])
+    assert (content, content_type) == (b"proof-bytes", "image/png")
     # 被未完成异议引用 → 排除于候选，scanned 0、不动。
     blocked = svc.purge_expired_files()
     assert blocked["scanned"] == 0

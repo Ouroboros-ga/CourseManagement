@@ -1,0 +1,29 @@
+<view class="container">
+  <view class="record-list">
+    <block wx:if="{{records.length > 0}}">
+      <view class="record-card" wx:for="{{records}}" wx:key="id">
+        <view class="card-header">
+          <view class="course-name">{{item.courseName}}</view>
+          <t-tag theme="{{item.statusTheme}}" variant="light">
+            {{item.statusName}}
+          </t-tag>
+        </view>
+        <view class="info-row">
+          <text class="label">时间：</text>
+          <text class="value">{{item.date}}</text>
+        </view>
+        <view class="info-row">
+          <text class="label">班级：</text>
+          <text class="value">{{item.className}}</text>
+        </view>
+        
+        <view class="action-bar">
+          <t-button size="small" theme="primary" bind:tap="goToAppeal" data-id="{{item.id}}">查看或提出异议</t-button>
+        </view>
+      </view>
+    </block>
+    <view wx:else class="empty-wrap">
+      <t-empty icon="info-circle" description="暂无查课记录" />
+    </view>
+  </view>
+</view>

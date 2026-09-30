@@ -255,6 +255,8 @@ class ObjectionService:
     ) -> dict:
         permissions = self._lock_actor(actor.id)
         scope, sid = self._read_scope(actor.id, permissions)
+        if scope is perms.ObjectionScope.NONE:
+            raise PermissionDeniedError("未绑定学生身份，无法读取异议")
         rows, total = self._repo.list_objections(
             params,
             student_id=None if perms.is_manage_scope(scope) else sid,

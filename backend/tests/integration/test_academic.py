@@ -80,9 +80,7 @@ def _make_bound_account(
 
 
 def _login(client: TestClient, username: str) -> dict[str, str]:
-    resp = client.post(
-        "/api/v1/auth/web/login", json={"username": username, "password": _PWD}
-    )
+    resp = client.post("/api/v1/auth/web/login", json={"username": username, "password": _PWD})
     assert resp.status_code == 200, resp.text
     return resp.json()["data"]
 
@@ -164,9 +162,7 @@ def test_unauthenticated_returns_401(client: TestClient, session: Session) -> No
     assert resp.status_code == 401
 
 
-def test_actor_without_academic_manage_forbidden(
-    client: TestClient, session: Session
-) -> None:
+def test_actor_without_academic_manage_forbidden(client: TestClient, session: Session) -> None:
     _bootstrap(session)
     _make_user(session, "admin", [RoleCode.SUPER_ADMIN.value])
     _make_user(session, "sam", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
@@ -187,9 +183,7 @@ def test_actor_without_academic_manage_forbidden(
     assert resp.json()["code"] == "FORBIDDEN"
 
 
-def test_actor_without_student_manage_forbidden(
-    client: TestClient, session: Session
-) -> None:
+def test_actor_without_student_manage_forbidden(client: TestClient, session: Session) -> None:
     _bootstrap(session)
     _make_user(session, "sam", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
     sam = _bearer(_login(client, "sam"))
@@ -202,9 +196,7 @@ def test_actor_without_student_manage_forbidden(
 # --------------------------------------------------------------------------- #
 # 学期
 # --------------------------------------------------------------------------- #
-def test_create_and_duplicate_semester(
-    client: TestClient, session: Session
-) -> None:
+def test_create_and_duplicate_semester(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-FALL")
     assert sem["status"] == "ACTIVE"
@@ -239,14 +231,10 @@ def test_semester_bad_date_range_422(client: TestClient, session: Session) -> No
     assert resp.status_code == 422
 
 
-def test_archived_semester_blocks_child_write(
-    client: TestClient, session: Session
-) -> None:
+def test_archived_semester_blocks_child_write(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-ARCH")
-    arch = client.patch(
-        f"{_AC}/semesters/{sem['id']}", headers=h, json={"status": "ARCHIVED"}
-    )
+    arch = client.patch(f"{_AC}/semesters/{sem['id']}", headers=h, json={"status": "ARCHIVED"})
     assert arch.status_code == 200, arch.text
     # 归档学期上写节次定义 → 409。
     resp = client.put(
@@ -260,18 +248,14 @@ def test_archived_semester_blocks_child_write(
 def test_semester_illegal_status_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-ST")
-    resp = client.patch(
-        f"{_AC}/semesters/{sem['id']}", headers=h, json={"status": "PAUSED"}
-    )
+    resp = client.patch(f"{_AC}/semesters/{sem['id']}", headers=h, json={"status": "PAUSED"})
     assert resp.status_code == 422
 
 
 # --------------------------------------------------------------------------- #
 # 节次定义
 # --------------------------------------------------------------------------- #
-def test_period_definition_upsert_list_delete(
-    client: TestClient, session: Session
-) -> None:
+def test_period_definition_upsert_list_delete(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-PD")
     up = client.put(
@@ -289,20 +273,14 @@ def test_period_definition_upsert_list_delete(
         json={"start_time": "08:10", "end_time": "08:55"},
     )
     assert up2.status_code == 200
-    lst = client.get(
-        f"{_AC}/semesters/{sem['id']}/period-definitions", headers=h
-    )
+    lst = client.get(f"{_AC}/semesters/{sem['id']}/period-definitions", headers=h)
     assert lst.status_code == 200
     assert len(lst.json()["data"]["items"]) == 1
-    dele = client.delete(
-        f"{_AC}/semesters/{sem['id']}/period-definitions/{pd['id']}", headers=h
-    )
+    dele = client.delete(f"{_AC}/semesters/{sem['id']}/period-definitions/{pd['id']}", headers=h)
     assert dele.status_code == 204
 
 
-def test_period_definition_out_of_range_path_422(
-    client: TestClient, session: Session
-) -> None:
+def test_period_definition_out_of_range_path_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-PD2")
     resp = client.put(
@@ -313,9 +291,7 @@ def test_period_definition_out_of_range_path_422(
     assert resp.status_code == 422
 
 
-def test_period_definition_bad_time_422(
-    client: TestClient, session: Session
-) -> None:
+def test_period_definition_bad_time_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-PD3")
     resp = client.put(
@@ -342,9 +318,7 @@ def test_calendar_override_makeup_requires_weekday_422(
     assert resp.status_code == 422
 
 
-def test_calendar_override_create_and_duplicate(
-    client: TestClient, session: Session
-) -> None:
+def test_calendar_override_create_and_duplicate(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-CO2")
     ok = client.post(
@@ -375,9 +349,7 @@ def test_admin_class_duplicate_409(client: TestClient, session: Session) -> None
     assert dup.status_code == 409
 
 
-def test_student_missing_admin_class_404(
-    client: TestClient, session: Session
-) -> None:
+def test_student_missing_admin_class_404(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     resp = client.post(
         f"{_AC}/students",
@@ -390,18 +362,14 @@ def test_student_missing_admin_class_404(
 def test_student_duplicate_409(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     _create_student(client, h, "S-DUP")
-    dup = client.post(
-        f"{_AC}/students", headers=h, json={"student_no": "S-DUP", "name": "重复"}
-    )
+    dup = client.post(f"{_AC}/students", headers=h, json={"student_no": "S-DUP", "name": "重复"})
     assert dup.status_code == 409
 
 
 def test_student_bad_status_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     stu = _create_student(client, h, "S-ST")
-    resp = client.patch(
-        f"{_AC}/students/{stu['id']}", headers=h, json={"status": "GONE"}
-    )
+    resp = client.patch(f"{_AC}/students/{stu['id']}", headers=h, json={"status": "GONE"})
     assert resp.status_code == 422
 
 
@@ -417,9 +385,7 @@ def test_course_duplicate_409(client: TestClient, session: Session) -> None:
 # --------------------------------------------------------------------------- #
 # 教学班
 # --------------------------------------------------------------------------- #
-def test_teaching_class_missing_course_404(
-    client: TestClient, session: Session
-) -> None:
+def test_teaching_class_missing_course_404(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-TC")
     resp = client.post(
@@ -435,9 +401,7 @@ def test_teaching_class_missing_course_404(
     assert resp.status_code == 404
 
 
-def test_teaching_class_duplicate_key_409(
-    client: TestClient, session: Session
-) -> None:
+def test_teaching_class_duplicate_key_409(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-TC2")
     course = _create_course(client, h, "C-TC2")
@@ -458,6 +422,44 @@ def test_teaching_class_duplicate_key_409(
 # --------------------------------------------------------------------------- #
 # 名单整体替换
 # --------------------------------------------------------------------------- #
+def test_teaching_class_filter_by_active_administrative_class_members(
+    client: TestClient, session: Session
+) -> None:
+    h = _admin_headers(client, session)
+    sem = _create_semester(client, h, "2026FA")
+    cls = _create_admin_class(client, h, "CS2401")
+    course = _create_course(client, h, "C001")
+    t1 = _create_teaching_class(client, h, sem["id"], course["id"], "T1")
+    t2 = _create_teaching_class(client, h, sem["id"], course["id"], "T2")
+    s1 = _create_student(client, h, "S001", cls["id"])
+    s2 = _create_student(client, h, "S002", cls["id"])
+    s3 = _create_student(client, h, "S003", cls["id"])
+    for tc, students in ((t1, [s1, s2]), (t2, [s3])):
+        r = client.put(
+            f"{_AC}/teaching-classes/{tc['id']}/students",
+            headers=h,
+            json={"student_ids": [int(s["id"]) for s in students]},
+        )
+        assert r.status_code == 200, r.text
+
+    params = {"administrative_class_id": cls["id"], "page_size": 1}
+    first = client.get(f"{_AC}/teaching-classes", headers=h, params=params)
+    second = client.get(f"{_AC}/teaching-classes", headers=h, params={**params, "page": 2})
+    assert first.status_code == second.status_code == 200
+    assert first.json()["data"]["total"] == 2
+    assert {
+        first.json()["data"]["items"][0]["id"],
+        second.json()["data"]["items"][0]["id"],
+    } == {t1["id"], t2["id"]}
+
+    disabled = client.patch(f"{_AC}/students/{s3['id']}", headers=h, json={"status": "DISABLED"})
+    assert disabled.status_code == 200, disabled.text
+    after = client.get(f"{_AC}/teaching-classes", headers=h, params=params)
+    assert after.status_code == 200, after.text
+    assert after.json()["data"]["total"] == 1
+    assert after.json()["data"]["items"][0]["id"] == t1["id"]
+
+
 def test_roster_replace_and_dedup(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-RS")
@@ -507,9 +509,7 @@ def _make_tc_for_schedule(client, h):
     return sem, tc
 
 
-def test_schedule_create_weeks_roundtrip(
-    client: TestClient, session: Session
-) -> None:
+def test_schedule_create_weeks_roundtrip(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem, tc = _make_tc_for_schedule(client, h)
     r = client.post(
@@ -532,9 +532,7 @@ def test_schedule_create_weeks_roundtrip(
     assert got.status_code == 200
 
 
-def test_schedule_week_out_of_range_422(
-    client: TestClient, session: Session
-) -> None:
+def test_schedule_week_out_of_range_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem, tc = _make_tc_for_schedule(client, h)  # total_weeks=20
     resp = client.post(
@@ -551,9 +549,7 @@ def test_schedule_week_out_of_range_422(
     assert resp.status_code == 422
 
 
-def test_schedule_end_before_start_422(
-    client: TestClient, session: Session
-) -> None:
+def test_schedule_end_before_start_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem, tc = _make_tc_for_schedule(client, h)
     resp = client.post(
@@ -570,9 +566,7 @@ def test_schedule_end_before_start_422(
     assert resp.status_code == 422
 
 
-def test_schedule_update_weeks_and_delete(
-    client: TestClient, session: Session
-) -> None:
+def test_schedule_update_weeks_and_delete(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem, tc = _make_tc_for_schedule(client, h)
     r = client.post(
@@ -587,9 +581,7 @@ def test_schedule_update_weeks_and_delete(
         },
     )
     sid = int(r.json()["data"]["id"])
-    upd = client.patch(
-        f"{_AC}/course-schedules/{sid}", headers=h, json={"weeks": [5, 6]}
-    )
+    upd = client.patch(f"{_AC}/course-schedules/{sid}", headers=h, json={"weeks": [5, 6]})
     assert upd.status_code == 200, upd.text
     assert sorted(upd.json()["data"]["weeks"]) == [5, 6]  # 整体替换
     dele = client.delete(f"{_AC}/course-schedules/{sid}", headers=h)
@@ -598,9 +590,7 @@ def test_schedule_update_weeks_and_delete(
     assert gone.status_code == 404
 
 
-def test_schedule_missing_teaching_class_404(
-    client: TestClient, session: Session
-) -> None:
+def test_schedule_missing_teaching_class_404(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     resp = client.post(
         f"{_AC}/course-schedules",
@@ -670,9 +660,7 @@ def test_volunteer_disable_keeps_role(client: TestClient, session: Session) -> N
     assert RoleCode.VOLUNTEER.value in [x.code for x in refreshed.roles]
 
 
-def test_volunteer_qualification_for_unbound_student(
-    client: TestClient, session: Session
-) -> None:
+def test_volunteer_qualification_for_unbound_student(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-VQ3")
     stu = _create_student(client, h, "VQ3-1")  # 未绑定账号
@@ -685,9 +673,7 @@ def test_volunteer_qualification_for_unbound_student(
     assert r.json()["data"]["student_id"] == stu["id"]
 
 
-def test_volunteer_qualification_missing_student_404(
-    client: TestClient, session: Session
-) -> None:
+def test_volunteer_qualification_missing_student_404(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-VQ4")
     resp = client.put(
@@ -739,8 +725,13 @@ def _actor(user: UserAccount) -> CurrentUser:
 
 
 def _roster_worker(
-    engine, actor_id: int, tc_id: int, student_ids: list[int],
-    barrier: threading.Barrier, out: dict[int, object], idx: int,
+    engine,
+    actor_id: int,
+    tc_id: int,
+    student_ids: list[int],
+    barrier: threading.Barrier,
+    out: dict[int, object],
+    idx: int,
     actor_obj_cache: dict[int, CurrentUser],
 ) -> None:
     s = _open_session(engine)
@@ -758,9 +749,7 @@ def _roster_worker(
         s.close()
 
 
-def test_concurrent_roster_replace_serialized(
-    engine, client: TestClient, session: Session
-) -> None:
+def test_concurrent_roster_replace_serialized(engine, client: TestClient, session: Session) -> None:
     """并发整体替换同一教学班名单：FOR UPDATE 串行化，最终恰为后写入的一侧，无残缺。"""
     h = _admin_headers(client, session)
     sem = _create_semester(client, h, "2026-CR")
@@ -768,9 +757,7 @@ def test_concurrent_roster_replace_serialized(
     tc = _create_teaching_class(client, h, sem["id"], course["id"])
     a = _create_student(client, h, "CR-A")
     b = _create_student(client, h, "CR-B")
-    admin = session.execute(
-        select(UserAccount).where(UserAccount.username == "admin")
-    ).scalar_one()
+    admin = session.execute(select(UserAccount).where(UserAccount.username == "admin")).scalar_one()
     actor_cache = {admin.id: _actor(admin)}
 
     barrier = threading.Barrier(2)
@@ -801,14 +788,21 @@ def test_concurrent_roster_replace_serialized(
             select(TeachingClassStudent.student_id).where(
                 TeachingClassStudent.teaching_class_id == int(tc["id"])
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     assert final_ids in ({int(a["id"])}, {int(b["id"])}), final_ids
 
 
 def _vq_worker(
-    engine, actor_cur: CurrentUser, semester_id: int, student_id: int,
-    barrier: threading.Barrier, out: dict[int, object], idx: int,
+    engine,
+    actor_cur: CurrentUser,
+    semester_id: int,
+    student_id: int,
+    barrier: threading.Barrier,
+    out: dict[int, object],
+    idx: int,
 ) -> None:
     s = _open_session(engine)
     try:
@@ -847,9 +841,7 @@ def test_concurrent_volunteer_qualification_upsert_single_row(
     threads = [
         threading.Thread(
             target=_vq_worker,
-            args=(
-                engine, actor_cur, int(sem["id"]), int(stu["id"]), barrier, out, i
-            ),
+            args=(engine, actor_cur, int(sem["id"]), int(stu["id"]), barrier, out, i),
         )
         for i in range(2)
     ]

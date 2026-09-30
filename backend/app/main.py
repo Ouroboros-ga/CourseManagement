@@ -17,13 +17,17 @@ from app.core.config import get_settings
 from app.core.exceptions import AppError
 from app.core.logging import get_logger, setup_logging
 from app.core.middleware import RequestIdMiddleware
+from app.modules.academic.export_router import router as course_export_router
 from app.modules.academic.router import router as academic_router
 from app.modules.attendance.router import router as attendance_router
+from app.modules.audit.router import router as audit_router
 from app.modules.file.router import router as file_router
+from app.modules.identity.account_router import router as account_router
 from app.modules.identity.router import router as identity_router
 from app.modules.importer.router import router as importer_router
 from app.modules.inspection.router import router as inspection_router
 from app.modules.objection.router import router as objection_router
+from app.modules.report.listing import router as report_listing_router
 from app.modules.report.router import router as report_router
 
 logger = get_logger(__name__)
@@ -80,9 +84,12 @@ def create_app() -> FastAPI:
 
     # 身份与权限路由（阶段 1）。
     app.include_router(identity_router, prefix="/api/v1")
+    app.include_router(account_router, prefix="/api/v1")
 
     # 基础数据路由（阶段 3）：学期/节次/校历/行政班/学生/课程/教学班/课表/志愿者资格。
     app.include_router(academic_router, prefix="/api/v1/academic")
+    app.include_router(course_export_router, prefix="/api/v1")
+    app.include_router(audit_router, prefix="/api/v1")
 
     # 导入路由（阶段 3）：名单/课表/志愿者资格的预览→确认两步原子导入。
     app.include_router(importer_router, prefix="/api/v1")
@@ -101,6 +108,7 @@ def create_app() -> FastAPI:
 
     # 统计路由（阶段 7 W7a）：只读考勤统计与未完成清单（技术方案 17）。周报生成归后续波次。
     app.include_router(report_router, prefix="/api/v1")
+    app.include_router(report_listing_router, prefix="/api/v1")
 
     return app
 

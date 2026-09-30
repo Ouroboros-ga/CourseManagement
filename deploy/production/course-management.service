@@ -1,0 +1,25 @@
+[Unit]
+Description=CourseManagement FastAPI backend
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=course-management
+Group=course-management
+WorkingDirectory=/opt/course-management/current/backend
+EnvironmentFile=/etc/course-management/backend.env
+ExecStart=/opt/course-management/current/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8011 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --limit-concurrency 64 --timeout-keep-alive 5 --no-access-log
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/course-management/files
+MemoryMax=384M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

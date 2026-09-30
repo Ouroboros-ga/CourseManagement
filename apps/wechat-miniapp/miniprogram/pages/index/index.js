@@ -13,7 +13,9 @@ Page({
   data: {
     userInfo: {},
     roleName: '',
-    isVolunteer: false
+    isVolunteer: false,
+    canViewRecords: false,
+    canReviewObjections: false
   },
 
   onShow() {
@@ -32,12 +34,15 @@ Page({
         return;
       }
       const roles = data.roles || [];
+      const permissions = data.permissions || [];
       const displayRole = ['VOLUNTEER', 'STUDENT_AFFAIRS_MANAGER', 'TEACHER_ADMIN', 'SUPER_ADMIN', 'STUDENT']
         .find(role => roles.includes(role));
       this.setData({
         userInfo: data,
         roleName: roleMap[displayRole] || '',
-        isVolunteer: roles.includes('VOLUNTEER')
+        isVolunteer: roles.includes('VOLUNTEER'),
+        canViewRecords: permissions.includes('attendance.read') && permissions.includes('objection.create'),
+        canReviewObjections: permissions.includes('objection.initial_review') || permissions.includes('objection.final_review')
       });
     } catch (err) {
       console.error('Failed to fetch user info', err);
@@ -46,5 +51,13 @@ Page({
 
   goToTaskList() {
     wx.navigateTo({ url: '/pages/task/list/index' });
+  },
+
+  goToRecordList() {
+    wx.navigateTo({ url: '/pages/record/list/index' });
+  },
+
+  goToAdminPanel() {
+    wx.navigateTo({ url: '/pages/admin/index' });
   }
 });

@@ -33,6 +33,7 @@ from app.core.security import (
     hash_token,
     verify_password,
 )
+from app.modules.academic.models import Student
 from app.modules.audit.models import AuditLog
 from app.modules.identity.models import (
     AuthSession,
@@ -370,8 +371,14 @@ class IdentityService:
         错误映射：未知角色 code 422；缺 role.assign 或越边界 403；目标不可见 404；
         版本不符 409。返回实际角色集合与新 lock_version。
         """
+        from app.modules.identity.account_service import lock_admin_registry, require_another_admin
+
+        self._session.rollback()
+        lock_admin_registry(self._session)
         locked = self._lock_accounts_ordered(actor_user_id, target_user_id)
         target = locked[target_user_id]
+        if not locked[actor_user_id].is_active:
+            raise UnauthenticatedError("操作者账号已停用")
 
         # 事务内重读有效身份：操作者角色、目标当前角色。
         actor_roles = frozenset(self._repo.list_role_codes(actor_user_id))
@@ -400,6 +407,26 @@ class IdentityService:
             )
 
         before_roles = sorted(current_roles)
+        if (
+            RoleCode.SUPER_ADMIN.value in current_roles - desired
+            and target.status == UserStatus.ACTIVE.value
+        ):
+            require_another_admin(self._session, target.id)
+        if RoleCode.STUDENT_AFFAIRS_MANAGER.value in desired - current_roles:
+            student = (
+                self._session.execute(
+                    select(Student).where(Student.id == target.student_id)
+                    .with_for_update().execution_options(populate_existing=True)
+                ).scalar_one_or_none()
+                if target.student_id is not None else None
+            )
+            if (
+                target.status != UserStatus.ACTIVE.value
+                or student is None or student.status != "ACTIVE"
+            ):
+                raise ConflictError(
+                    ErrorCode.STATE_CONFLICT, "负责人须使用已绑定有效学生的启用账号"
+                )
         # 应用：把 user_role 关联精确对齐 desired（SQLAlchemy 生成最小增删）。
         role_objs = [self._repo.get_or_create_role(code, code) for code in sorted(desired)]
         target.roles = role_objs
@@ -657,9 +684,13 @@ class IdentityService:
 
         new_student_id: int | None
         if new_student_no is not None:
-            student = self._repo.get_student_by_no(new_student_no)
+            student = self._session.execute(select(Student).where(
+                Student.student_no == new_student_no
+            ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
             if student is None:
                 raise NotFoundError("学号不存在")
+            if student.status != "ACTIVE":
+                raise ConflictError(ErrorCode.STATE_CONFLICT, "学生已停用，不可绑定")
             other = self._session.execute(
                 select(UserAccount).where(
                     UserAccount.student_id == student.id,
@@ -680,6 +711,12 @@ class IdentityService:
             existing_student_role = self._repo.get_role_by_code(RoleCode.STUDENT.value)
             if existing_student_role is not None:
                 self._repo.revoke_role(target_user_id, existing_student_role.id)
+
+        if before_student != new_student_id or new_student_id is None:
+            manager_role = self._repo.get_role_by_code(RoleCode.STUDENT_AFFAIRS_MANAGER.value)
+            if manager_role is not None:
+                self._repo.revoke_role(target_user_id, manager_role.id)
+            self._repo.clear_optional_grants(target_user_id)
 
         revoked = self._repo.revoke_active_sessions(target_user_id, utcnow())
         target.lock_version += 1
@@ -718,9 +755,14 @@ class IdentityService:
         *,
         request_id: str | None = None,
     ) -> tuple[int, str, str]:
-        user = self._repo.get_user_by_id(user_id)
+        # 与管理换绑、停用保持账号→学生→绑定码顺序；锁后读取最新绑定状态。
+        self._session.rollback()
+        self._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
+        user = self._repo.get_user_by_id_for_update(user_id)
         if user is None:
             raise NotFoundError("账号不存在")
+        if not user.is_active:
+            raise UnauthenticatedError("账号已停用")
         # 尽早给出友好错误：已绑定者应走管理端换绑，而非再次自助核销。
         # （并发的"同一码双花"由下方持码锁后的状态检查兜住，此处非竞争点。）
         if user.student_id is not None:
@@ -729,15 +771,17 @@ class IdentityService:
                 "该账号已绑定学生，如需换绑请走管理端流程",
             )
 
-        student = self._repo.get_student_by_no(student_no)
+        student = self._session.execute(select(Student).where(
+            Student.student_no == student_no
+        ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
         if student is None:
             raise NotFoundError("学号不存在")
+        if student.status != "ACTIVE":
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "学生已停用，不可绑定")
 
         # 一次性核销的串行点：对绑定码行加 FOR UPDATE 锁。并发核销同一码时，
         # 后到者持锁后读到先到者已提交的 USED 状态，从而被拒绝（保证不可双花）。
-        # 刻意不锁 user_account 行——避免与本方法"先锁码后判人"和其它写路径
-        # "先锁人后锁码"形成循环等待；对"本人/该学生是否已绑定"的判断放在持锁之后，
-        # 借助 READ COMMITTED 看到并发事务已提交的绑定结果。
+        # 账号与学生锁已在前面取得；RC 下可见其他账号刚提交的学生绑定。
         token = self._repo.get_binding_token_by_hash_for_update(hash_token(binding_code))
         if token is None:
             raise AppError(ErrorCode.VALIDATION_ERROR, "绑定码无效", http_status=422)

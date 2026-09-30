@@ -1,12 +1,12 @@
-# 后端 API 契约（身份与授权 + 基础数据 + 导入 + 查课 + 提交/审核/考勤/文件 + 异议，P1 + P2 + P3 + P4 + P5 + P6 已实现）
+# 后端 API 契约（身份、基础数据、导入、查课、提交、考勤、异议、统计与版本化周报）
 
 | 项目 | 内容 |
 |---|---|
-| 日期 | 2026-09-22 |
+| 日期 | 2026-09-27（按当前代码修订） |
 | 权限基线 | [PERMISSIONS.md V1.1](./PERMISSIONS.md)（第 12 节 API 映射为权威来源） |
 | 实施对照 | [PERMISSIONS_IMPLEMENTATION.md](./PERMISSIONS_IMPLEMENTATION.md) |
-| 范围 | 本文只描述 **已落地并纳入真实 MySQL 测试** 的端点可执行契约（身份/授权 P1+P2、基础数据与两步原子导入 P3、查课任务与排班/申请/截止 P4、文件/提交/审核/考勤/到期清理 P5、异议 P6）；未实现端点见 PERMISSIONS.md 第 12 节标注。 |
-| 代码 | `backend/app/modules/identity/{router,service,schemas,repository,wechat,deps}.py`、`backend/app/modules/audit/models.py`、`backend/app/modules/academic/{router,service,schemas,repository,models}.py`、`backend/app/modules/importer/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/inspection/*`、`backend/app/modules/attendance/*`、`backend/app/modules/file/*`、`backend/app/modules/objection/{router,service,schemas,repository,models,permissions}.py`、`backend/app/common/parsing/{time_slots,xlsx_tabular}.py` |
+| 范围 | 描述当前 `main.py` 已注册的 P1–P7 及管理补全 API；P7 统计与版本化周报见附录 F。实际完整路径及 112 个操作见 [API_INDEX.md](./API_INDEX.md)，机器可读 schema 见 [openapi.json](./openapi.json)。管理补全综合回归进行中；正式学校模板与真实微信前端联调仍待验收。 |
+| 代码 | `backend/app/modules/identity/{router,service,schemas,repository,wechat,deps}.py`、`backend/app/modules/audit/models.py`、`backend/app/modules/academic/{router,service,schemas,repository,models}.py`、`backend/app/modules/importer/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/inspection/*`、`backend/app/modules/attendance/*`、`backend/app/modules/file/*`、`backend/app/modules/objection/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/report/`、`backend/app/common/parsing/{time_slots,xlsx_tabular}.py` |
 
 ## 1. 通用约定
 
@@ -14,7 +14,7 @@
 - 成功响应信封：`{"data": <载荷>, "requestId": "<uuid>"}`。`requestId` 同时以响应头 `X-Request-Id` 返回，并写入审计与日志关联。
 - 错误响应信封：`{"code", "message", "fieldErrors", "requestId"}`。`code` 为稳定业务错误码；`fieldErrors` 为字段级补充（可空对象）。不返回堆栈或数据库内部信息。
 - ID 一律以字符串对外暴露（BIGINT 防 JS 精度丢失）。
-- 版本字段命名：请求体用驼峰 `lockVersion`（Pydantic alias），响应体用蛇形 `lock_version`。
+- 版本字段命名按各域 schema：身份授权的角色替换与个人可选授权请求用 `lockVersion`（Pydantic alias），对应响应为 `lock_version`；查课人工分配、取消、名单改版、日截止修改及应到人数调整请求均用 `lock_version`；考勤更正与异议终审请求用 `current_version`。前端须按对应接口模型传参，不能全局转换。
 - 访问令牌：`Authorization: Bearer <access_token>`，有效期 15 分钟（`ACCESS_TOKEN_EXPIRE_MINUTES`）。每次请求都回查会话有效性，不单纯信任 JWT 签名。
 - 刷新凭证传输分两条路径（技术方案 7.1）：
   - Web：`refresh` 经 `HttpOnly`、`SameSite=Lax`、`Path=/api/v1/auth` 的 Cookie 下发（`Secure` 生产必须开启）；响应体只含访问令牌，绝不含 `refresh_token`。`/auth/refresh` 走 Cookie 时叠加 CSRF 校验。
@@ -62,7 +62,7 @@
 
 成功 `200`：`data = {id, username|null, display_name, status, roles[], permissions[], binding_required}`。
 `binding_required=true` 即 PRE_BINDING 受限态（`student_id` 为空且无任何角色）。Web 管理员即使无 `student_id`，因持有角色而不进入该态。
-`permissions` 为「角色权限 ∪ 三项个人可选授权」的实时并集，每次现取不缓存。
+`permissions` 为「角色权限 ∪ 两项个人可选授权」的实时并集，每次现取不缓存。
 
 ### 3.6 `POST /me/student-binding` — 本人绑定学生（PRE_BINDING）
 
@@ -86,13 +86,13 @@
 
 ### 4.3 `GET /optional-permission-targets` — 可选权限目标选择器
 
-守卫：`optional_permission.manage`。成功 `200`：`data = {items:[{id, display_name, status, permissions:[{code, enabled}], lock_version}], configurable_codes[]}`。仅返回持有 `STUDENT_AFFAIRS_MANAGER` 的账号；三项默认关闭。
+守卫：`optional_permission.manage`。成功 `200`：`data = {items:[{id, display_name, status, permissions:[{code, enabled}], lock_version}], configurable_codes[]}`。仅返回持有 `STUDENT_AFFAIRS_MANAGER` 的账号；两项默认关闭。
 
 ### 4.4 `PUT /users/{user_id}/optional-permissions/{code}` — 逐人开关
 
-守卫：`optional_permission.manage` + 三项许可清单。请求：`{"enabled": bool, "lockVersion": int>=0, "reason"?: string}`。`code ∈ {statistics.read, report.read, objection.initial_review}`。
+守卫：`optional_permission.manage` + 两项许可清单。请求：`{"enabled": bool, "lockVersion": int>=0, "reason"?: string}`。`code ∈ {statistics.read, objection.initial_review}`。`report.read`/`report.generate` 属负责人默认权限。
 成功 `200`：`data = {code, enabled, lock_version}`。
-错误：`403 FORBIDDEN`（缺权限 / 自我提权）；`404 NOT_FOUND`；`422 VALIDATION_ERROR`（非三项 code / 目标非负责人）；`409 VERSION_CONFLICT`。
+错误：`403 FORBIDDEN`（缺权限 / 自我提权）；`404 NOT_FOUND`；`422 VALIDATION_ERROR`（非两项 code / 目标非负责人）；`409 VERSION_CONFLICT`。
 生效：下一次请求立即体现（不使用长期权限缓存）。
 
 ## 5. 端点明细（绑定码管理 / 换绑，P2）
@@ -130,7 +130,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 | code | HTTP | 语义 |
 |---|---|---|
-| `VALIDATION_ERROR` | 422 | 输入/业务规则不满足（未知角色、非三项 code、码无效等） |
+| `VALIDATION_ERROR` | 422 | 输入/业务规则不满足（未知角色、非两项 code、码无效等） |
 | `UNAUTHENTICATED` | 401 | 未登录、令牌/会话失效、凭证无效或重放 |
 | `FORBIDDEN` | 403 | 缺功能权限、越权边界、自我提权、功能未开放 |
 | `CSRF_FAILED` | 403 | Cookie 写接口跨站校验未通过 |
@@ -163,7 +163,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 真实 MySQL 集成测试（`backend/tests/integration/`）：
 - `test_identity.py`：Web 登录/Cookie/CSRF/刷新轮换重放/登出/锁定/本人绑定一次性。
-- `test_admin_rbac.py`：角色边界矩阵、可选权限三项、目标选择器、会话自洽、并发与审计回滚。
+- `test_admin_rbac.py`：角色边界矩阵、可选权限清单、目标选择器、会话自洽、并发与审计回滚。
 - `test_wechat_binding.py`：code2session 错误映射、首次登录建号与 PRE_BINDING、完整链路签发→绑定→自动授 STUDENT、同一码并发核销仅一人成功、作废与幂等、明文只回显一次且库中仅存摘要、换绑/解绑撤销旧会话、Web 管理员不受限、敏感字段不外泄。
 - `test_migrations.py` / `test_seed.py`：迁移升级/回滚零漂移、单 head、种子矩阵幂等。
 - `test_academic.py`：基础数据 CRUD 与错误码矩阵（学期/节次/校历/行政班/学生/课程/教学班/名单/课表/志愿者资格）、`FOR UPDATE` 真实并发（名单整体替换、志愿者资格核销恰一成功）、有效资格自动授 VOLUNTEER、审计。
@@ -223,29 +223,31 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 ### C.1 任务生成（预览 → 生成两步，`inspection.generate`）
 
-`POST /inspection-tasks/preview` 与 `POST /inspection-tasks/generate` 共用 `InspectionGenerateRequest`：`semester_id`、`inspection_type∈{COURSE,MORNING_STUDY}`、时段选择 `week_nos` **或** `date_from/date_to`（至少其一，越学期 422）、`COURSE` 需 `teaching_class_ids`、`MORNING_STUDY` 需 `administrative_class_ids`+`start_period`+`end_period`（`end>=start`）；`require_photo`、`reason`。
+体育课不作为被查课程：预览与生成跳过体育课；历史体育查课任务的人工/自动分配均拒绝，原因码为 `COURSE_NOT_INSPECTABLE`。体育课仍保存在学籍课表中，正常参与志愿者本人课程冲突判定。当前课程名称识别采用明确别名及序号变体（例如“体育板块”“大学体育1”），不以任意包含“体育”二字排除理论课程。
+
+`POST /inspection-tasks/preview` 与 `POST /inspection-tasks/generate` 共用 `InspectionGenerateRequest`：`semester_id`、`inspection_type∈{COURSE,MORNING_STUDY,EVENING_STUDY}`、时段选择 `week_nos` **或** `date_from/date_to`（至少其一，越学期 422）、`COURSE` 需 `teaching_class_ids`、`MORNING_STUDY` / `EVENING_STUDY` 需 `administrative_class_ids`+`start_period`+`end_period`（`end>=start`）；`require_photo`、`reason`。
 
 | 端点 | 守卫 | 说明 |
 |---|---|---|
-| `POST /inspection-tasks/preview` | `inspection.generate` | **只读**：返回 `{task_count,new_task_count,existing_task_count,date_count,student_total,within_limit,sample[]}`，`finally` 必 `rollback`，零写库。校历 `STOP` 日跳过、`MAKEUP` 取来源星期 |
+| `POST /inspection-tasks/preview` | `inspection.generate` | **只读**：返回 `{task_count,new_task_count,existing_task_count,date_count,student_total,within_limit,sample[]}`，`finally` 必 `rollback`，零写库。校历 `STOP` 日跳过、`MAKEUP` 取来源教学周及星期（`source_teaching_week` 可选，缺省兼容原实际周；`source_teaching_weekday` 必填） |
 | `POST /inspection-tasks/generate` | `inspection.generate` | 事务内锁学期（`FOR UPDATE`）串行化同学期并发；按 `task_key` 幂等物化新任务 + 名单版本 `v1` + 成员快照 + 缺失查课日的 `SubmissionDeadlineDay/Version v1`（默认时刻本地转 naive-UTC），**整批单事务单次提交**；计划任务数超 `INSPECTION_GENERATE_MAX_TASKS` 在写入前 422。归档学期 409。审计 `inspection.task.generate` |
 
 生成后读取：`GET /inspection-tasks`、`GET /inspection-tasks/{id}`、`GET /inspection-tasks/{id}/students`（名单，`inspection.roster.read`+可见性范围）、`GET /me/inspection-tasks`（强制本人受派范围）。数据范围：管理角色全部可见、志愿者仅本人受派（`resolve_scope`，管理范围优先）。
 
 ### C.2 排班与改派（Wave 3a，`assignment.manage`）
 
-硬约束（技术方案 11.2，人工与自动同判、不允许旁路）：账号为启用志愿者、本学期资格有效、避开本人行政班被查名单（本班回避）、与本人课表时段不冲突、与本人其他受派任务时段不冲突（按完整起止节次重叠比较）。软约束单日上限 `ASSIGNMENT_MAX_TASKS_PER_DAY`（默认 `0`=不限）。
+硬约束（技术方案 11.2，人工与自动同判、不允许旁路）：账号为启用志愿者、本学期资格有效、避开本人行政班被查名单（本班回避）、与本人课表时段不冲突、与本人其他受派任务时段不冲突（按完整起止节次重叠比较）。配置上限 `ASSIGNMENT_MAX_TASKS_PER_DAY` 和 `ASSIGNMENT_MAX_TASKS_PER_WEEK` 默认 `0`=不限，启用后均为不可绕过的硬约束；周上限按自然周一至周日累计有效受派，包含目标范围外的同周任务。学期公平负载不抵扣当前周名额。
 
 | 端点 | 守卫 | 说明 |
 |---|---|---|
 | `PUT /inspection-tasks/{task_id}/assignment` | `assignment.manage` | 人工分配/改派：`AssignmentSetRequest{volunteer_user_id,lock_version,reason?}`。锁层级先取 `(志愿者,日期)` 日期锚点（含换人时新旧双方），再锁任务行；已取消 409 `STATE_CONFLICT`、`lock_version` 不符 409 `VERSION_CONFLICT`、硬约束不过 422 `VALIDATION_ERROR`+`fieldErrors.reason_code`；受派 upsert（`assign_method=MANUAL`，改写则 `assignment.lock_version+=1`）、`task.lock_version+=1`；审计 `assignment.manual_set`（含 before/after 快照） |
-| `POST /assignments/auto` | `assignment.manage` | 自动排班：`AutoAssignRequest{semester_id, task_ids \| inspection_date \| date_from/date_to, candidate_user_ids?, reason?}`（三选一范围、`date_to>=date_from`）。Phase A 无锁贪心（任务按 `(date,id)`、候选按 id 升序，批内占用记 busy），Phase B 单事务按全局锁层级加锁后逐条**锁内重验**再落库（`assign_method=AUTO`）。全成全败，一任务一受派；审计 `assignment.auto_run`。返回 `{target_task_count,assigned_count,unassigned_count,assigned[],unassigned[{task_id,reason_code,message}]}` |
+| `POST /assignments/auto` | `assignment.manage` | 自动排班：`AutoAssignRequest{semester_id, task_ids \| inspection_date \| date_from/date_to, candidate_user_ids?, reason?}`（至少提供一项；同时提供时按 `task_ids` > `inspection_date` > `date_from/date_to` 选择，`date_to>=date_from`）。学期锁内使用新连接快照批量加载候选，按动态稀缺优先、公平容差、时间与楼簇增量成本生成计划，最多进行有界单步换位。Phase B 单事务批量加锁任务及当前资格输入，复核整份计划后一次 flush 落库（`assign_method=AUTO`）。全成全败，一任务一受派；审计 `assignment.auto_run`。返回 `{target_task_count,assigned_count,unassigned_count,assigned[],unassigned[{task_id,reason_code,message}]}` |
 
-排班拒绝原因码（`fieldErrors.reason_code` / `unassigned[].reason_code`）：`NOT_VOLUNTEER`、`NO_QUALIFICATION`、`OWN_CLASS_CONFLICT`、`SELF_CLASS_AVOID`、`TASK_TIME_CONFLICT`、`DAY_TASK_CAP`、`TASK_CANCELED`。判定优先级即按上序取首个命中。
+排班原因码分两条链：人工分配失败在 `fieldErrors.reason_code` 给出 `COURSE_NOT_INSPECTABLE`、`NOT_VOLUNTEER`、`NO_QUALIFICATION`、`OWN_CLASS_CONFLICT`、`SELF_CLASS_AVOID`、`TASK_TIME_CONFLICT`、`DAY_TASK_CAP`、`WEEK_CAP_EXCEEDED` 等当前检查首个命中原因；已取消任务在前置状态检查报 `409 STATE_CONFLICT`，不是常规候选拒绝项。自动排班 `unassigned[].reason_code` 在静态候选筛选阶段可给出 `COURSE_NOT_INSPECTABLE`、`NOT_VOLUNTEER`、`NO_QUALIFICATION`、`OWN_CLASS_CONFLICT`、`SELF_CLASS_AVOID`；候选存在但排不下时可给出 `TASK_TIME_CONFLICT`、`DAY_TASK_CAP`（规划器内部 `DAY_CAP_EXCEEDED` 在 API 转换）、`WEEK_CAP_EXCEEDED`。空候选池回退 `NO_QUALIFICATION`。同一任务可能有多个候选各自不同失败原因，返回值是确定性选出的一个解释，不能解读为全部候选的完整诊断。自动目标在查询时已过滤取消和已受派任务；提交前任务版本或候选输入变化时整批 `409 ASSIGNMENT_CONFLICT`，调用方须重试。
 
 ### C.3 并发不变式（技术方案 15）
 
-全局锁层级：`(志愿者, 日期)` 锚点 → 任务 → …，一律升序取得。人工改派先锁新旧志愿者当日锚点、自动排班 Phase B 先锁全部计划锚点再按 id 升序锁任务，杜绝交叉死锁。落库阶段的时段冲突重查用 `SELECT … FOR SHARE` 锁定读（`list_assignments_for_volunteer_on_date(for_update=True)`）——REPEATABLE READ 快照读会错过并发方刚提交的受派，锁定读绕过旧读视图，确保"同一志愿者同日重叠时段至多一条受派"。集成测试以独立连接 + `threading.Barrier` 双线程验证：恰好一条落库、另一方在锁内重验被拒（`VALIDATION_ERROR`/`VERSION_CONFLICT`/死锁回滚均可）。
+全局锁层级：`(志愿者, 日期)` 锚点 → 任务 → …，一律升序取得。人工改派先锁新旧志愿者当日锚点、自动排班 Phase B 先锁全部计划锚点再按 id 升序锁任务，减少交叉等待；仍需处理数据库死锁导致的事务回滚。周上限启用时扩展锁定新旧志愿者整周的七个日期锚点，防止异日并发分别通过周名额检查。落库阶段的时段冲突重查用 `SELECT … FOR SHARE` 锁定读（`list_assignments_for_volunteer_on_date(for_update=True)`）——REPEATABLE READ 快照读会错过并发方刚提交的受派，锁定读绕过旧读视图，确保"同一志愿者同日重叠时段至多一条受派"。集成测试以独立连接 + `threading.Barrier` 双线程验证：恰好一条落库、另一方在锁内重验被拒（`VALIDATION_ERROR`/`VERSION_CONFLICT`/死锁回滚均可）。
 
 ### C.4 调班申请（Wave 3b，志愿者发起 / 管理人员处理）
 
@@ -288,7 +290,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 ### D.1 文件域（Wave 5b，技术方案 16）
 
-文件无独立功能权限，访问按"业务资源归属"放行。存储后端可插拔（`FILE_STORAGE_BACKEND=local|object`，V1.0 dev/test 用 `LocalStorage`）。
+文件无独立功能权限，访问按"业务资源归属"放行。当前已实现的上传、按父资源授权签发短时链接及 HMAC 签名下载基于 `FILE_STORAGE_BACKEND=local` 的 `LocalStorage`。配置虽允许 `object`，但 `ObjectStorage.__init__` 直接抛出 `NotImplementedError`，COS/OSS 适配器仍为占位，不能将 `object` 视为可用后端；接入前不可切换该配置。
 
 | 端点 | 守卫 | 说明 |
 |---|---|---|
@@ -305,6 +307,8 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | `POST /inspection-tasks/{task_id}/submissions` | `submission.create` | `SubmissionCreateRequest{result∈{NORMAL,ABNORMAL},abnormal_items[{student_id,attendance_type,note?}],file_ids[]}`。守卫链：`_require` 锁操作者并重读权限 → PRE_BINDING 403 → 账号 `ACTIVE` → 持 `VOLUNTEER` 角色（仅持权限码无角色 403）→ 任务 `FOR UPDATE` 且未取消 → `assignment.volunteer_user_id==actor`（非本人受派 403）→ 本学期志愿者资格 → 无开放提交（否则 409 `STATE_CONFLICT`）→ 结论一致性（NORMAL 带明细 / ABNORMAL 无明细 → 422）→ 异常学生须在本任务当前名单版本且无重复（422 `fieldErrors{duplicate_student_ids,not_in_roster_student_ids}`）→ 附件校验（要求照片却空 / 超 `FILE_MAX_FILES_PER_SUBMISSION` / 非 `READY`/非本人/类别不符/已过期 → 422）。写前幂等结算锁"截止时"事实，冻结 `deadline_version_id`，`attempt_no=max+1`，插 `PENDING` 提交 + 异常明细 + 提交文件关联，`task.lock_version++`，审计 `submission.create` |
 | `GET /me/submissions` | `submission.read` | 强制 `volunteer_user_id=本人`（`OWN_SUBMISSION` 范围），分页 |
 | `GET /submissions/{id}` | `submission.read` | 读他人/越界提交统一 404 防枚举；本人可读 |
+| `GET /management/submissions` | `submission.review` + 管理角色 | 审核工作台列表；按 `semester_id`、`date_from/date_to`、`task_id`、`review_status` 筛选，`submitted_at DESC,id DESC` 稳定分页；返回任务摘要、提交结论/异常、名单版本和照片文件 ID |
+| `GET /management/submissions/{id}` | `submission.review` + 管理角色 | 管理详情；可读他人提交，返回任务快照、异常名单显示信息和照片文件 ID；不返回对象存储 key 或长期下载地址。照片仍经既有文件访问接口授权读取 |
 
 不变式"至多一个待审核/审核通过"：存在 `PENDING|APPROVED` 提交时再次提交 → 409；真实并发恰好一成一拒（任务 `FOR UPDATE` 串行化）。
 
@@ -312,7 +316,9 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 | 端点 | 守卫 | 说明 |
 |---|---|---|
-| `POST /submissions/{submission_id}/review` | `submission.review` | `SubmissionReviewRequest{decision∈{APPROVED,REJECTED},comment?(≤512)}`。锁序遵 §15：先探提交（不加锁，缺失 404）→ `get_task_for_update`（任务先于提交）→ 再 `FOR UPDATE` 提交行；非 `PENDING` → 409 `STATE_CONFLICT`（提交已处理），任务已取消 → 409（提交已处理）。`APPROVED`：先幂等结算锁截止事实，再**按名单当前版本逐生生成考勤**（命中异常明细者取 `attendance_type` + `source_submission_item_id`，未列者 `NORMAL`；`current_version=1`、写 `AttendanceRecordVersion v1 source=SUBMISSION`），`AttendanceRecord` 批量 `add→flush` 取 id 再补版本行。`REJECTED` 仅记审核痕迹、不生成考勤、不改事实（可再次提交 `attempt_no+1`）。`task.lock_version++`；审计 `submission.review.approved`/`.rejected` |
+| `POST /submissions/{submission_id}/review` | `submission.review` | `SubmissionReviewRequest{decision∈{APPROVED,REJECTED},comment?(≤512)}`。锁序遵 §15：先探提交（不加锁，缺失 404）→ `get_task_for_update`（任务先于提交）→ 再 `FOR UPDATE` 提交行；非 `PENDING` → 409 `STATE_CONFLICT`（提交已处理），任务已取消 → 409（提交已处理）。`APPROVED`：先幂等结算锁截止事实，再**按提交记录的 `roster_version` 对应名单逐生生成考勤**（命中异常明细者取 `attendance_type` + `source_submission_item_id`，未列者 `NORMAL`；`current_version=1`、写 `AttendanceRecordVersion v1 source=SUBMISSION`），`AttendanceRecord` 批量 `add→flush` 取 id 再补版本行。`REJECTED` 仅记审核痕迹、不生成考勤、不改事实（可再次提交 `attempt_no+1`）。`task.lock_version++`；审计 `submission.review.approved`/`.rejected` |
+
+管理读取与本人读取保持两条独立路径。学生工作负责人默认没有 `submission.review`；另一管理员已处理提交后，旧审核动作返回 409 `STATE_CONFLICT`。管理端前端联调仍待完成。
 
 考勤事实唯一约束 `unique(task_id, student_id)`；审核与取消互斥（都锁任务，恰一成功，绝不"既取消又生成考勤"，集成测试 `threading.Barrier` 断言 `canceled XOR has_attendance`）。已有 `APPROVED` 提交（考勤已成立）后取消任务 → 409 `STATE_CONFLICT`（技术方案 51）。
 
@@ -355,11 +361,11 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 **清理耦合（技术方案 16.3、538/713）**：被**未完成异议**（`final_status=PENDING`）引用的材料暂停到期清理——`FileRepository.list_purge_candidates` 以 `NOT IN` 未完成异议文件子查询排除之；异议关闭后自然重新纳入候选。新建异议关联材料用与清理相同的**文件行 `FOR UPDATE` + `READY` 核验**串行化，避免"校验后新增引用而误删"。
 
-**P6 挂账已偿（W7b）**：报表源修订号（`report_source_revision`）对影响考勤事实的四条写入路径（审核生成考勤、应到人数调整、人工更正、异议终审更正）已在各自 Service 末尾 `commit` 前、同事务内以 `INSERT … ON DUPLICATE KEY UPDATE` 统一递增（集中助手 `SourceRevisionService.bump`，Repository 约定 flush-only）。任务生成/取消、改期等非考勤源修订作为后续增量补齐（表已就绪，接一条不影响旧字段行为）。锁序遵技术方案 §15：考勤 → 异议 → 报表源修订（本递增处最内层）。详见附录 F。
+**周报考勤源修订**：`report_source_revision` 对影响考勤汇总的写路径（审核生成考勤、应到人数调整、人工更正、异议终审有效改判）在同一业务事务内递增。任务生成/取消、改期与逾期结算不改变周报考勤汇总，不作为修订触发条件。详见附录 F。
 
 ## 附录 F：P7 统计与版本化周报域（`/api/v1`）
 
-数据前缀 `/api/v1`。令牌双路径与错误字典同第 2、7 节；ID 一律字符串出入。三个相关权限 code：`statistics.read`、`report.read`（均属可选项 `OPTIONAL_PERMISSION_CODES`，默认关闭逐人开关）、`report.generate`（非可选，由 `_admin` 基线覆盖 SUPER_ADMIN / TEACHER_ADMIN；SAM / VOLUNTEER / STUDENT 不持）。**三权分立关键约束（PERMISSIONS.md 266）：周报下载含个人明细，`statistics.read` 不得隐式获得 `report.read`，二者独立开关。** 数据范围：统计/周报为聚合读数，沿用各模块既有「管理类全量、非管理拒 403」判定；学院行级隔离 V1.0 尚未落地账号↔学院归属，实现处注释标注「管理范围全量可见，待补齐后收敛为强制行级过滤」。
+数据前缀 `/api/v1`。令牌双路径与错误字典同第 2、7 节；ID 一律字符串出入。`statistics.read` 为负责人可选项；`report.read` 与 `report.generate` 为负责人默认权限，超管和教师亦具备。`statistics.read` 不由周报权限派生。统计和周报沿用管理范围门禁；学院行级隔离 V1.0 尚未落地账号↔学院归属，当前按单学院管理范围处理。
 
 无 worker/队列/Redis/MQ/集群（技术方案 §66、DEVELOPMENT_PLAN 66）——周报为**受限同步执行**，规模超限在写产物前拒绝。
 
@@ -374,15 +380,17 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 ### F.2 版本化周报（W7c）
 
-表：`report`（逻辑周报主记录，联合唯一 `(semester_id,week_no,scope)`，`scope∈{COLLEGE,CLASS}`，`latest_version_no`、`latest_updated_at`）；`report_version`（版本化不可覆盖，联合唯一 `(report_id,version_no)`，`source_revision`/`rule_version`/`template_version`、`snapshot_file_id`/`excel_file_id` 对 `file_object` SET NULL、`status∈{GENERATING,PUBLISHED,FAILED}`、`attempt_token`、`generated_by` 对 `user_account` SET NULL）。迁移单头 `2658519d48fa`（down=`9443750a1ff5`），零漂移可逆。
+表：`report`（逻辑周报主记录，联合唯一 `(semester_id,week_no,scope)`；数据库为后续预留 `CLASS` 枚举，但 V1 API 仅允许 `COLLEGE`；`latest_version_no`、`latest_updated_at`）；`report_version`（版本化不可覆盖，联合唯一 `(report_id,version_no)`，`source_revision`/`rule_version`/`template_version`、`snapshot_file_id`/`excel_file_id` 对 `file_object` SET NULL、`status∈{GENERATING,PUBLISHED,FAILED}`、`attempt_token`、`generated_by` 对 `user_account` SET NULL）。迁移单头 `2658519d48fa`（down=`9443750a1ff5`），零漂移可逆。
 
 | 端点 | 守卫 | 说明 |
 |---|---|---|
-| `POST /reports/weekly/versions` | `report.generate` | `WeeklyVersionCreateRequest{semester_id(ge1),week_no(ge1),scope∈{COLLEGE,CLASS}="COLLEGE",reason?(≤512)}`。**三阶段有界同步**：①短事务对 `report` 行 `SELECT … FOR UPDATE` 串行化 `version_no` 分配 + SAVEPOINT 保护 get-or-create + 登记 `GENERATING` 行（`attempt_token`）；陈旧 `GENERATING`（`created_at < now - REPORT_GENERATE_TAKEOVER_STALE_SECONDS`）可带 token 条件接管，否则冲突；`rule_version`/`template_version` 于此刻按当前 Settings 盖章。②一致性只读快照（先范围过滤再聚合），规模 `> REPORT_GENERATE_MAX_TASKS` → 422 `VALIDATION_ERROR` 并标 `FAILED`（版本号不被失败尝试占用）。③事务外产出 JSON 明细快照 + Excel（openpyxl，汇总/班级/任务/异常明细）。④**独立短事务条件发布** `(id,status=GENERATING,attempt_token=?)→PUBLISHED`，写两 `FileObject`（类别 `REPORT_FILE`、`uploader=NULL`、`expires_at` 按 `FILE_RETENTION_REPORT_FILE_DAYS` 固化）；晚到重复回滚并安全删孤儿。审计 `report.version.start` / `report.version.publish` |
-| `GET /reports/{report_id}/versions` | `report.read` | `report_id(Path ge1)`。返回逻辑周报全部版本 + 落后判定：`behind_source`（最新发布版 `source_revision < 当前 report_source_revision.revision`）、`rule_outdated`、`template_outdated`（版本快照值 vs 当前 Settings）；含 `latest_updated_at`、`current_source_revision/rule/template` |
+| `POST /reports/weekly/versions` | `report.generate` | `WeeklyVersionCreateRequest{semester_id(ge1),week_no(ge1),scope="COLLEGE",reason?(≤512)}`；`CLASS` 请求在进入版本分配前返回 422。**三阶段有界同步**：①短事务对 `report` 行 `SELECT … FOR UPDATE` 串行化 `version_no` 分配 + SAVEPOINT 保护 get-or-create + 登记 `GENERATING` 行（`attempt_token`）；陈旧 `GENERATING` 可带 token 条件接管，否则冲突。②一致性只读快照，仅汇总已审核通过任务的当前有效考勤；命中任务数超 `REPORT_GENERATE_MAX_TASKS` → 422，已有 `GENERATING` 版本转 `FAILED`。③事务外产出 JSON 明细快照 + Excel（考勤总览、班级考勤及考勤明细，不含任务总数、未完成或逾期统计）。④独立短事务条件发布，登记两个 `REPORT_FILE`，晚到重复回滚并安全删孤儿。审计 `report.version.start` / `report.version.publish` |
+| `GET /reports/{report_id}/versions` | `report.read` | `report_id(Path ge1)`。返回按版本号降序排列的逻辑周报全部版本；各 `items[].behind_source` 按该版本源修订号比较，顶层 `latest_behind_source` 取降序列表中第一个 `PUBLISHED` 版本比较（跳过更新的 `GENERATING`/`FAILED`）；`rule_outdated`、`template_outdated` 按各版本快照值与当前 Settings 比较。`latest_version_no` 是最新分配号，可能属于失败版本；`latest_updated_at` 是最近发布时刻。另含 `current_source_revision/rule/template` |
 | `GET /report-versions/{version_id}/download` | `report.read` | `version_id(Path ge1)`、`kind∈{EXCEL,SNAPSHOT}="EXCEL"`。仅 `PUBLISHED` 可下载（否则 409），底层已清理/超期 `FILE_EXPIRED`（410）。返回附件流（`Content-Disposition`），非统一 `success` 包裹 |
 
-**清理关系（W7d 确认）**：`REPORT_FILE` 走自有归档期限（默认 365 天，非临时件短周期），未到期不被清理误删、确到期者按 `READY→PURGE_PENDING→PURGED` 同一状态机清理；归档期过后对应 `report_version` 下载返回 `FILE_EXPIRED`，`snapshot_available`/`excel_available` 转 false，与数据侧一致。
+**源修订范围**：审核通过生成考勤、应到人数调整、考勤更正、异议终审有效改判，在业务事务内推进所属学期周次的源修订号。任务新建/取消、逾期结算及仅改截止时刻本身不改变周报考勤汇总，不推进周报源修订。`behind_source` 比较当前源与版本快照；旧周报版本不会被覆盖。固定格式 Word 文档属于后续交付，当前下载格式为 Excel 或 JSON 快照。
+
+**清理关系（W7d 确认）**：`REPORT_FILE` 走自有归档期限（默认 365 天，非临时件短周期），未到期不被清理误删、确到期者按 `READY→PURGE_PENDING→PURGED` 同一状态机清理；归档期过后对应 `report_version` 下载返回 `FILE_EXPIRED`（410）。列表中的 `snapshot_available`/`excel_available` 仅检查该版本为 `PUBLISHED` 且记录了相应 `file_id`，不查询文件实时状态或有效期；即使为 true，仍可能已经过期或清理，应以实际下载响应为准。
 
 ### F.3 运行交付（W7d）
 
@@ -397,3 +405,18 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | `REPORT_GENERATE_TAKEOVER_STALE_SECONDS` | 600 | `GENERATING` 可接管陈旧阈值 |
 | `FILE_RETENTION_REPORT_FILE_DAYS` | 365 | 报表产物独立归档期限 |
 | `OBJECTION_WINDOW_DAYS` / `OBJECTION_MAX_FILES` | 7 / 5 | （P6）异议窗口与附件上限 |
+
+
+## 2026-09-29 补充：人工原因统一选填
+
+取消任务、名单改版、日截止调整、应到人数调整、调班申请、考勤更正和学生异议的 `reason` 均可省略或传空字符串，最长 512 字符。上述原必填字段省略时规范化为空字符串，兼容现有非空数据库列；客户端不要传 `null`。其余原本可选的原因字段保持原契约。操作者、时间、版本和变更记录仍由服务端记录；业务必填项、权限检查及乐观锁不放宽。自动排班失败原因码属于系统诊断，不受人工原因选填规则影响。
+
+## 2026-09-29 补充：管理基础接口（本地代码已落地，待综合验收）
+
+- 负责人默认具备 `academic.read`、`volunteer.read`、`import.execute`、`course_schedule.import/export`、`inspection.generate/cancel`、`assignment.manage`、`report.read/generate`；个人可选项仅 `statistics.read` 与 `objection.initial_review`。授予 `STUDENT_AFFAIRS_MANAGER` 必须有有效学生绑定；解绑/停用学生撤销该身份、个人授权与旧会话。教师不能创建或停用教师账号。
+- `GET /academic/teaching-classes` 新增 `administrative_class_id` 筛选。`GET /inspection-course-occurrences` 以 `semester_id,date_from,date_to,teaching_class_ids,page,page_size` 查询，返回候选 `items`、`total`、全范围 `selection_revision` 和 `selection_scope`。精确模式的 preview/generate 请求须原样回传 `selection_scope`、`selection_revision`，并传最多 500 个 `occurrences[{course_schedule_id,inspection_date}]`；旧周次/日期范围模式与精确模式互斥。服务端重建并验证课次，范围过期返回 409 `SELECTION_STALE`。generate 结果增加 `tasks[{task_id,created,status,assignment_id}]` 和 `assignable_task_ids`；自动排班只传本次可排 ID。
+- `POST /inspection-tasks/{id}/restore` 用 `inspection.generate` 守卫和 `lock_version`；仅未开始、无提交/考勤/截止考核、课表与名单快照仍兼容的取消任务可恢复。恢复后为未分配，旧 assignment 标记 `revoked_at` 留历史。学生停用也只撤销未来尚未执行且无事实的受派，保留历史与截止事实。
+- `GET/POST /teacher-accounts`、`PATCH /teacher-accounts/{id}`、`POST /teacher-accounts/{id}/password-reset` 仅超管；创建同时赋教师角色，停用和重置口令撤销会话，不回显口令。`POST /me/password-change` 适用于本人密码账号。写入遵守版本冲突与最后超管保护。
+- `GET /course-schedules/export` 需要 `course_schedule.export`，按学期及可选教学班导出最多 10000 行 XLSX；列为教学班、课程、教师、周次、星期、开始节次、结束节次、教室。当前模型没有任课教师字段，教师列为空；文本列强制字符串以避免公式执行。
+- `GET /reports` 需要 `report.read`，仅列学院记录，支持学期/周次过滤与分页；`latest_version_id/no/created_at` 取最新已发布版本，`source_changed` 比较当前考勤源修订。周报内容只含考勤汇总，`CLASS` 请求 422，固定格式 Word 尚未实现。
+- `GET /audit-logs` 和详情仅 `audit.read`；列表时间窗最多 31 天、每页最多 100 条，按操作者、动作和资源筛选；详情 before/after 使用字段白名单，不返回密码、令牌或证明正文。

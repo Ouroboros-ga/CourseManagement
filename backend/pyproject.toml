@@ -71,6 +71,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
 markers = [
     "integration: 需连真实 MySQL 的集成测试（库不可用时自动跳过）",
 ]

@@ -91,5 +91,42 @@ class FileRepository:
         )
         return bool(self._session.execute(stmt).scalar_one())
 
+    def is_linked_to_readable_objection_for(
+        self, *, file_id: int, actor_user_id: int, may_manage: bool, may_read_own: bool
+    ) -> bool:
+        """仅异议已关联材料可按管理权限或有效学生绑定签发访问链接。"""
+        if not (may_manage or may_read_own):
+            return False
+
+        from app.modules.identity.models import UserAccount
+        from app.modules.objection.models import Objection, ObjectionFile
+
+        linked = (
+            select(1)
+            .select_from(ObjectionFile)
+            .join(Objection, Objection.id == ObjectionFile.objection_id)
+            .where(ObjectionFile.file_id == file_id)
+        )
+        if not may_manage:
+            linked = linked.join(
+                UserAccount, UserAccount.student_id == Objection.student_id
+            ).where(UserAccount.id == actor_user_id)
+        return bool(self._session.execute(select(exists(linked))).scalar_one())
+
+    def is_linked_to_pending_objection(self, file_id: int) -> bool:
+        """保留期已过时，未结案异议关联的证明材料仍可读取。"""
+        from app.modules.objection.models import Objection, ObjectionFile, ObjectionFinalStatus
+
+        linked = (
+            select(1)
+            .select_from(ObjectionFile)
+            .join(Objection, Objection.id == ObjectionFile.objection_id)
+            .where(
+                ObjectionFile.file_id == file_id,
+                Objection.final_status == ObjectionFinalStatus.PENDING.value,
+            )
+        )
+        return bool(self._session.execute(select(exists(linked))).scalar_one())
+
 
 __all__ = ["FileRepository"]

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy import JSON, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base, CreateTimeMixin, pk_column
@@ -30,7 +30,11 @@ class AuditLog(CreateTimeMixin, Base):
     """关键业务变更的追加型审计事实。"""
 
     __tablename__ = "audit_log"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
+    __table_args__ = (
+        # 管理审计以时间窗倒序分页，避免日志积累后全表扫描再排序。
+        Index("ix_audit_log_created_at_id", "created_at", "id"),
+        MYSQL_TABLE_ARGS,
+    )
 
     id: Mapped[int] = pk_column()
     actor_user_id: Mapped[int | None] = mapped_column(

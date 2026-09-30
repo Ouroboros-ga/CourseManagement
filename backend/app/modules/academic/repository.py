@@ -283,6 +283,7 @@ class AcademicRepository:
         semester_id: int | None,
         course_id: int | None,
         status: str | None,
+        administrative_class_id: int | None = None,
     ) -> tuple[list[TeachingClass], int]:
         stmt = select(TeachingClass)
         if semester_id is not None:
@@ -291,6 +292,18 @@ class AcademicRepository:
             stmt = stmt.where(TeachingClass.course_id == course_id)
         if status:
             stmt = stmt.where(TeachingClass.status == status)
+        if administrative_class_id is not None:
+            # 一个教学班可能含多个行政班，使用 EXISTS 避免名单连接导致分页重复。
+            stmt = stmt.where(
+                select(TeachingClassStudent.student_id)
+                .join(Student, Student.id == TeachingClassStudent.student_id)
+                .where(
+                    TeachingClassStudent.teaching_class_id == TeachingClass.id,
+                    Student.administrative_class_id == administrative_class_id,
+                    Student.status == "ACTIVE",
+                )
+                .exists()
+            )
         stmt = stmt.order_by(TeachingClass.id)
         return _paged(self._session, stmt, params)
 

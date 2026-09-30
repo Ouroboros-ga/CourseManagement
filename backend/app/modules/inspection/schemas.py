@@ -23,6 +23,26 @@ InspectionTypeLiteral = Literal["COURSE", "MORNING_STUDY", "EVENING_STUDY"]
 # --------------------------------------------------------------------------- #
 # 生成请求（预览 / 生成共用同一选择条件，两步无状态：确认即以前次预览结果为准）
 # --------------------------------------------------------------------------- #
+class CourseOccurrenceSelection(BaseModel):
+    course_schedule_id: int = Field(ge=1)
+    inspection_date: date
+
+
+class CourseOccurrenceScope(BaseModel):
+    date_from: date
+    date_to: date
+    teaching_class_ids: list[int] = Field(min_length=1, max_length=500)
+    require_photo: bool = False
+
+    @model_validator(mode="after")
+    def validate_range(self) -> CourseOccurrenceScope:
+        if not 0 <= (self.date_to - self.date_from).days < 31:
+            raise ValueError("日期范围须为 1 至 31 天")
+        if any(i < 1 for i in self.teaching_class_ids):
+            raise ValueError("教学班 ID 须为正整数")
+        return self
+
+
 class InspectionGenerateRequest(BaseModel):
     """任务生成/预览的选择条件。
 
@@ -42,9 +62,27 @@ class InspectionGenerateRequest(BaseModel):
     end_period: int | None = Field(default=None, ge=1, le=20)
     require_photo: bool = False
     reason: str | None = Field(default=None, max_length=512)
+    occurrences: list[CourseOccurrenceSelection] | None = Field(
+        default=None, min_length=1, max_length=500
+    )
+    selection_scope: CourseOccurrenceScope | None = None
+    selection_revision: str | None = Field(default=None, min_length=64, max_length=64)
 
     @model_validator(mode="after")
     def _check_selection(self) -> InspectionGenerateRequest:
+        if self.occurrences is not None:
+            if self.inspection_type != "COURSE" or any(x is not None for x in (
+                self.week_nos, self.date_from, self.date_to, self.teaching_class_ids,
+                self.administrative_class_ids, self.start_period, self.end_period,
+            )):
+                raise ValueError("精确课次模式仅支持 COURSE，且不能混用旧选择条件")
+            if self.selection_scope is None or self.selection_revision is None:
+                raise ValueError("精确课次模式需要 selection_scope 和 selection_revision")
+            if self.require_photo != self.selection_scope.require_photo:
+                raise ValueError("照片要求与预览范围不一致")
+            return self
+        if self.selection_scope is not None or self.selection_revision is not None:
+            raise ValueError("范围修订仅用于精确课次模式")
         has_weeks = bool(self.week_nos)
         has_dates = self.date_from is not None and self.date_to is not None
         if not has_weeks and not has_dates:
@@ -166,6 +204,13 @@ class GeneratePreviewResponse(BaseModel):
     sample_truncated: bool
 
 
+class GeneratedTaskBrief(BaseModel):
+    task_id: IdStr
+    created: bool
+    status: InspectionTaskStatus
+    assignment_id: OptIdStr
+
+
 class GenerateResultResponse(BaseModel):
     semester_id: IdStr
     inspection_type: str
@@ -173,6 +218,8 @@ class GenerateResultResponse(BaseModel):
     existed: int  # 幂等跳过的既有任务数
     total_planned: int
     deadline_days_seeded: int
+    tasks: list[GeneratedTaskBrief] = Field(default_factory=list)
+    assignable_task_ids: list[IdStr] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
@@ -244,10 +291,10 @@ ChangeDecisionLiteral = Literal["APPROVED", "REJECTED"]
 
 
 class ChangeRequestCreateRequest(BaseModel):
-    """志愿者对本人当前受派关系（assignment_id）发起调班申请，须写明原因。"""
+    """志愿者对本人当前受派关系（assignment_id）发起调班申请，原因选填。"""
 
     assignment_id: int = Field(ge=1)
-    reason: str = Field(min_length=1, max_length=512)
+    reason: str = Field(default="", max_length=512)
 
 
 class ChangeRequestReviewRequest(BaseModel):
@@ -275,9 +322,9 @@ class ChangeRequestResponse(BaseModel):
 # 取消 / 名单改版 / 截止时间配置 / 截止结算（Wave 3c）
 # --------------------------------------------------------------------------- #
 class TaskCancelRequest(BaseModel):
-    """取消某未取消任务：须写原因，lock_version 乐观锁防并发覆盖。"""
+    """取消某未取消任务：原因选填，lock_version 乐观锁防并发覆盖。"""
 
-    reason: str = Field(min_length=1, max_length=512)
+    reason: str = Field(default="", max_length=512)
     lock_version: int = Field(ge=0)
 
 
@@ -285,7 +332,7 @@ class RosterVersionCreateRequest(BaseModel):
     """执行前更正名单：给出更正后的完整学生集合，生成新版本并冻结成员快照。"""
 
     student_ids: list[int] = Field(default_factory=list, max_length=2000)
-    reason: str = Field(min_length=1, max_length=512)
+    reason: str = Field(default="", max_length=512)
     lock_version: int = Field(ge=0)
 
 
@@ -324,10 +371,10 @@ class SubmissionDeadlineVersionResponse(BaseModel):
 
 
 class DeadlineDayUpdateRequest(BaseModel):
-    """改指定查课日截止时间：给本地 HH:MM，须写原因，day_version 乐观锁（自 1 起）。"""
+    """改指定查课日截止时间：给本地 HH:MM，原因选填，day_version 乐观锁（自 1 起）。"""
 
     time: str = Field(min_length=5, max_length=5)  # HH:MM
-    reason: str = Field(min_length=1, max_length=512)
+    reason: str = Field(default="", max_length=512)
     lock_version: int = Field(ge=1)
 
 
@@ -428,6 +475,19 @@ class SubmissionResponse(BaseModel):
     updated_at: datetime
 
 
+class ManagementSubmissionTaskBrief(BaseModel):
+    id: IdStr
+    semester_id: IdStr
+    inspection_date: date
+    class_name_snapshot: str | None
+    course_name_snapshot: str | None
+    classroom_snapshot: str | None
+
+
+class ManagementSubmissionResponse(SubmissionResponse):
+    task: ManagementSubmissionTaskBrief
+
+
 # --------------------------------------------------------------------------- #
 # 审核（submission.review，Wave P5d）：管理人员通过 / 驳回某待审核提交。
 # --------------------------------------------------------------------------- #
@@ -445,10 +505,10 @@ class SubmissionReviewRequest(BaseModel):
 # 应到人数调整（attendance.expected_count_adjust，Wave P5d）：改当前应到人数，保留初始快照。
 # --------------------------------------------------------------------------- #
 class ExpectedCountUpdateRequest(BaseModel):
-    """人工调整任务当前应到人数：非负、须写原因、lock_version 乐观锁；不动名单与历史认定。"""
+    """人工调整任务当前应到人数：非负、原因选填、lock_version 乐观锁；不动名单与历史认定。"""
 
     expected_count_current: int = Field(ge=0)
-    reason: str = Field(min_length=1, max_length=512)
+    reason: str = Field(default="", max_length=512)
     lock_version: int = Field(ge=0)
 
 
@@ -462,6 +522,7 @@ REASON_TASK_CONFLICT = "TASK_TIME_CONFLICT"  # 与本人其他查课任务时段
 REASON_OWN_CLASS = "OWN_CLASS_CONFLICT"  # 与本人课表时段冲突
 REASON_DAY_CAP = "DAY_TASK_CAP"  # 超出单日受派上限（可配置软约束）
 REASON_TASK_CANCELED = "TASK_CANCELED"  # 目标任务已取消
+REASON_COURSE_NOT_INSPECTABLE = "COURSE_NOT_INSPECTABLE"  # 体育课不是被查目标
 REASON_DEADLINE_EARLY = "DEADLINE_BEFORE_TASK_END"  # 截止时间早于当日最晚任务结束时刻
 
 
@@ -502,6 +563,8 @@ __all__ = [
     "SubmissionCreateRequest",
     "SubmissionAbnormalItemResponse",
     "SubmissionResponse",
+    "ManagementSubmissionTaskBrief",
+    "ManagementSubmissionResponse",
     "SubmissionResultLiteral",
     "ReviewStatusLiteral",
     "AbnormalTypeLiteral",

@@ -165,7 +165,8 @@ class WeeklyVersionCreateRequest(BaseModel):
 
     semester_id: int = Field(ge=1)
     week_no: int = Field(ge=1)
-    scope: ReportScopeLiteral = "COLLEGE"
+    # V1 只生成学院周报；CLASS 尚无班级标识和隔离键，不能接受后输出全院数据。
+    scope: Literal["COLLEGE"] = "COLLEGE"
     reason: str | None = Field(default=None, max_length=512)
 
 

@@ -2,7 +2,7 @@
 
 覆盖技术方案 18 与 PERMISSIONS.md 5/6.2/7：
 - 鉴权与门禁：无令牌 401；无 report.generate 的账号生成 → 403；statistics.read 不隐式授予
-  report.read（读/下载周报均需 report.read）；report.read 可读不可生成。
+  report.read（读/下载周报均需 report.read）；负责人默认可读、可生成。
 - 版本递增不可覆盖：同 (学期,周,范围) 连续生成得 version_no 1→2，历史版本留存不原地改。
 - 下载不新增版本：重复下载同一版本，版本集合不变。
 - 落后判定：源数据修订号在生成后前进 → 最新版本 behind_source=true。
@@ -376,13 +376,13 @@ def test_generate_forbidden_without_generate_permission(
 ) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _make_user(session, "sam", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
+    _make_user(session, "sam", [RoleCode.STUDENT.value])
     sam_h = _bearer(_login(client, "sam"))
     r = client.post(_GEN_VER, headers=sam_h, json={"semester_id": sc["sem_id"], "week_no": 1})
     assert r.status_code == 403, r.text
 
 
-def test_statistics_read_does_not_grant_report_read(
+def test_statistics_optional_toggle_preserves_default_report_read(
     client: TestClient, session: Session, report_storage: LocalStorage
 ) -> None:
     h = _admin_headers(client, session)
@@ -399,17 +399,17 @@ def test_statistics_read_does_not_grant_report_read(
     sam = _make_user(session, "sam2", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
     _grant_optional(client, h, sam, "statistics.read")
     sam_h = _bearer(_login(client, "sam2"))
-    assert client.get(f"/api/v1/reports/{rid}/versions", headers=sam_h).status_code == 403
+    assert client.get(f"/api/v1/reports/{rid}/versions", headers=sam_h).status_code == 200
     vid = int(_list_versions(client, h, rid)["items"][0]["id"])
     assert (
         client.get(
             f"/api/v1/report-versions/{vid}/download", headers=sam_h, params={"kind": "EXCEL"}
         ).status_code
-        == 403
+        == 200
     )
 
 
-def test_report_read_can_read_but_not_generate(
+def test_student_affairs_manager_can_read_and_generate(
     client: TestClient, session: Session, report_storage: LocalStorage
 ) -> None:
     h = _admin_headers(client, session)
@@ -423,17 +423,16 @@ def test_report_read_can_read_but_not_generate(
         [{"student_id": sc["s1"], "attendance_type": "LATE", "note": "迟到"}],
     )
     rid = int(_generate(client, h, sc["sem_id"])["report_id"])
-    sam = _make_user(session, "sam3", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
-    _grant_optional(client, h, sam, "report.read")
+    _make_user(session, "sam3", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
     sam_h = _bearer(_login(client, "sam3"))
     # 可读：版本列表 200
     assert client.get(f"/api/v1/reports/{rid}/versions", headers=sam_h).status_code == 200
-    # 但不可生成：report.generate 非可选项，SAM 无从获得
+    # 负责人默认同时具有 report.read 和 report.generate。
     assert (
         client.post(
             _GEN_VER, headers=sam_h, json={"semester_id": sc["sem_id"], "week_no": 1}
         ).status_code
-        == 403
+        == 200
     )
 
 
@@ -637,6 +636,45 @@ def test_scale_limit_marks_failed_and_version_no_not_reused(
     assert by_no[2]["status"] == "PUBLISHED"
 
 
+def test_second_artifact_save_failure_marks_failed_and_removes_first(
+    client: TestClient,
+    session: Session,
+    report_storage: LocalStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    h = _admin_headers(client, session)
+    sem_id = _setup_sem(client, h)
+    saved_keys: list[str] = []
+    original_save = report_storage.save
+
+    def fail_second_save(key: str, data: bytes, content_type: str) -> None:
+        if saved_keys:
+            raise RuntimeError("second artifact storage failed")
+        original_save(key, data, content_type)
+        saved_keys.append(key)
+
+    monkeypatch.setattr(report_storage, "save", fail_second_save)
+    with pytest.raises(RuntimeError, match="second artifact storage failed"):
+        client.post(_GEN_VER, headers=h, json={"semester_id": sem_id, "week_no": 1})
+
+    session.rollback()
+    session.expire_all()
+    report = session.execute(
+        select(Report).where(Report.semester_id == sem_id, Report.week_no == 1)
+    ).scalar_one()
+    versions = (
+        session.execute(select(ReportVersion).where(ReportVersion.report_id == report.id))
+        .scalars()
+        .all()
+    )
+    assert len(versions) == 1
+    assert versions[0].status == ReportVersionStatus.FAILED.value
+    assert versions[0].snapshot_file_id is None
+    assert versions[0].excel_file_id is None
+    assert len(saved_keys) == 1
+    assert report_storage.exists(saved_keys[0]) is False
+
+
 # --------------------------------------------------------------------------- #
 # 独立发布：文件行为 REPORT_FILE 且未过期
 # --------------------------------------------------------------------------- #
@@ -750,8 +788,9 @@ def test_takeover_stale_generating_reuses_version_no(
 # --------------------------------------------------------------------------- #
 # 真实并发：不产生重复版本号、终态收敛、至少一份发布
 # --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("same_actor", [False, True], ids=["different-actors", "same-actor"])
 def test_concurrent_generation_no_duplicate_versions(
-    client: TestClient, engine: Engine, session: Session, tmp_path
+    client: TestClient, engine: Engine, session: Session, tmp_path, same_actor: bool
 ) -> None:
     # 用 HTTP 侧管理员夹具建数据 + 两个管理员账号，随后以独立会话并发调用服务。
     h = _admin_headers(client, session)
@@ -773,6 +812,7 @@ def test_concurrent_generation_no_duplicate_versions(
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, class_=Session)
     barrier = threading.Barrier(2)
     outcomes: list[str] = []
+    errors: list[str] = []
     lock = threading.Lock()
 
     def _actor(user_id: int) -> CurrentUser:
@@ -803,15 +843,32 @@ def test_concurrent_generation_no_duplicate_versions(
             except (ConflictError, AppError):
                 with lock:
                     outcomes.append("conflict")
+            except Exception as exc:
+                try:
+                    s.rollback()
+                except Exception as rollback_exc:
+                    with lock:
+                        errors.append(f"rollback after {exc!r}: {rollback_exc!r}")
+                with lock:
+                    outcomes.append("error")
+                    errors.append(repr(exc))
 
     threads = [
-        threading.Thread(target=_worker, args=(admin_a_id,)),
-        threading.Thread(target=_worker, args=(admin_b.id,)),
+        threading.Thread(target=_worker, args=(admin_a_id,), daemon=True),
+        threading.Thread(
+            target=_worker,
+            args=(admin_a_id if same_actor else admin_b.id,),
+            daemon=True,
+        ),
     ]
     for t in threads:
         t.start()
     for t in threads:
-        t.join()
+        t.join(timeout=30)
+
+    assert not any(t.is_alive() for t in threads), "并发生成线程未在 30 秒内结束"
+    assert len(outcomes) == 2, f"两个并发调用未全部返回：{outcomes}, errors={errors}"
+    assert not errors, f"并发生成出现未预期异常：{errors}"
 
     # 断言：版本号唯一（DB 唯一键兜底）、无悬挂 GENERATING、至少一份发布。
     session.commit()  # 结束旧快照，重开事务以看到工作线程会话已提交的版本行

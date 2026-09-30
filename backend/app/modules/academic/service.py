@@ -111,11 +111,16 @@ class AcademicService:
     def _require_actor_permission(self, actor_user_id: int, code: str) -> None:
         """事务内重读操作者有效权限并校验（纵深防御，PERMISSIONS.md 13.2）。"""
         actor = self._identity.get_user_by_id_for_update(actor_user_id)
-        if actor is None:
+        if actor is None or not actor.is_active:
             raise UnauthenticatedError("操作者账号不可用")
         effective = set(self._identity.list_effective_permissions(actor_user_id))
         if code not in effective:
             raise PermissionDeniedError()
+        # 学院规模较小：基础数据写入统一先锁学期，再锁课表/名单等子资源。
+        # 全局学生、课程、班级快照也可能影响多个学期，按 ID 顺序锁定避免反向锁序。
+        self._session.execute(
+            select(Semester.id).order_by(Semester.id).with_for_update()
+        ).all()
 
     def _record_audit(
         self,
@@ -362,12 +367,20 @@ class AcademicService:
                 http_status=422,
                 field_errors={"source_teaching_weekday": "required_for_makeup"},
             )
+        if body.source_teaching_week is not None and body.source_teaching_week > sem.total_weeks:
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                "来源教学周超出学期周数",
+                http_status=422,
+                field_errors={"source_teaching_week": "out_of_semester_range"},
+            )
         if self._repo.get_calendar_override_by_date(sem.id, body.date) is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "该日期已存在校历覆盖")
         co = CalendarOverride(
             semester_id=sem.id,
             date=body.date,
             override_type=body.override_type,
+            source_teaching_week=body.source_teaching_week,
             source_teaching_weekday=body.source_teaching_weekday,
             reason=body.reason,
         )
@@ -379,7 +392,12 @@ class AcademicService:
             resource_type="calendar_override",
             resource_id=str(co.id),
             before=None,
-            after={"date": co.date.isoformat(), "override_type": co.override_type},
+            after={
+                "date": co.date.isoformat(),
+                "override_type": co.override_type,
+                "source_teaching_week": co.source_teaching_week,
+                "source_teaching_weekday": co.source_teaching_weekday,
+            },
             reason=body.reason,
             request_id=request_id,
         )
@@ -411,7 +429,12 @@ class AcademicService:
             action="academic.calendar_override.delete",
             resource_type="calendar_override",
             resource_id=str(override_id),
-            before={"date": co.date.isoformat()},
+            before={
+                "date": co.date.isoformat(),
+                "override_type": co.override_type,
+                "source_teaching_week": co.source_teaching_week,
+                "source_teaching_weekday": co.source_teaching_weekday,
+            },
             after=None,
             reason=reason,
             request_id=request_id,
@@ -548,12 +571,30 @@ class AcademicService:
         body: StudentUpdateRequest,
         request_id,  # noqa: ANN001
     ) -> StudentResponse:
+        # 停用可能撤销负责人账号和未来受派。账号必须在学期之前按 ID 锁定，
+        # 否则会与该负责人正在排班的「账号→学期」锁序形成循环等待。
+        self._session.rollback()
+        self._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
+        bound_ids = set(self._session.scalars(
+            select(UserAccount.id).where(UserAccount.student_id == student_id)
+        ))
+        locked_ids = bound_ids | {actor.id}
+        for user_id in sorted(locked_ids):
+            self._identity.get_user_by_id_for_update(user_id)
         self._require_actor_permission(actor.id, PermissionCode.STUDENT_MANAGE.value)
         self._validate_status(body.status)
         stu = self._repo.get_student_for_update(student_id)
         if stu is None:
             raise NotFoundError("学生不存在")
+        # 预查到锁学生之间可能刚完成新绑定。不在持有学期锁时追加账号锁，
+        # 而是让调用者重试；学生锁阻止接下来的新绑定越过此复核点。
+        current_bound_ids = set(self._session.scalars(
+            select(UserAccount.id).where(UserAccount.student_id == student_id)
+        ))
+        if not current_bound_ids <= locked_ids:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "学生绑定已变化，请刷新后重试")
         before = {"name": stu.name, "class": stu.administrative_class_id, "status": stu.status}
+        unassigned_task_count = 0
         if body.name is not None:
             stu.name = body.name
         if body.administrative_class_id is not None:
@@ -562,18 +603,25 @@ class AcademicService:
             stu.administrative_class_id = body.administrative_class_id
         if body.status is not None:
             stu.status = body.status
+            if body.status != "ACTIVE":
+                from app.modules.academic.student_lifecycle import deactivate_student
+
+                unassigned_task_count = deactivate_student(self._session, stu.id)
         self._record_audit(
             actor_user_id=actor.id,
             action="academic.student.update",
             resource_type="student",
             resource_id=str(stu.id),
             before=before,
-            after={"name": stu.name, "class": stu.administrative_class_id, "status": stu.status},
+            after={"name": stu.name, "class": stu.administrative_class_id, "status": stu.status,
+                   "unassigned_task_count": unassigned_task_count},
             reason=body.reason,
             request_id=request_id,
         )
         self._session.commit()
-        return StudentResponse.model_validate(stu)
+        return StudentResponse.model_validate(stu).model_copy(
+            update={"unassigned_task_count": unassigned_task_count}
+        )
 
     def get_student(self, student_id: int) -> StudentResponse:
         stu = self._repo.get_student(student_id)
@@ -761,9 +809,14 @@ class AcademicService:
         semester_id: int | None,
         course_id: int | None,
         status: str | None,
+        administrative_class_id: int | None = None,
     ) -> dict:
         rows, total = self._repo.list_teaching_classes(
-            params, semester_id=semester_id, course_id=course_id, status=status
+            params,
+            semester_id=semester_id,
+            course_id=course_id,
+            status=status,
+            administrative_class_id=administrative_class_id,
         )
         return _page([TeachingClassResponse.model_validate(r) for r in rows], total, params)
 

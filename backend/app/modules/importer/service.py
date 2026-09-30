@@ -447,6 +447,9 @@ class ImporterService:
             raise AppError(ErrorCode.VALIDATION_ERROR, "存在错误项，无法确认导入", http_status=422)
 
         payload = batch.payload_json or {}
+        self._session.execute(
+            select(Semester.id).order_by(Semester.id).with_for_update()
+        ).all()
         if batch.target == ImportTarget.ROSTER.value:
             created = self._apply_roster(actor, batch, payload, request_id)
         elif batch.target == ImportTarget.VOLUNTEER.value:

@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from datetime import date as date_
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, Select, and_, case, func, select
+from sqlalchemy import ColumnElement, Select, and_, case, func, select, tuple_
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.orm import Session
 
@@ -61,6 +61,15 @@ class InspectionRepository:
     # ==================== 任务 ====================
     def get_task(self, task_id: int) -> InspectionTask | None:
         return self._session.get(InspectionTask, task_id)
+
+    def list_tasks_by_ids(self, task_ids: Sequence[int]) -> list[InspectionTask]:
+        if not task_ids:
+            return []
+        return list(
+            self._session.execute(
+                select(InspectionTask).where(InspectionTask.id.in_(set(task_ids)))
+            ).scalars().all()
+        )
 
     def get_task_for_update(self, task_id: int) -> InspectionTask | None:
         stmt = _for_update(select(InspectionTask).where(InspectionTask.id == task_id))
@@ -209,12 +218,18 @@ class InspectionRepository:
     # ==================== 受派关系 ====================
     def get_assignment_by_task(self, task_id: int) -> InspectionAssignment | None:
         return self._session.execute(
-            select(InspectionAssignment).where(InspectionAssignment.task_id == task_id)
+            select(InspectionAssignment).where(
+                InspectionAssignment.task_id == task_id,
+                InspectionAssignment.revoked_at.is_(None),
+            )
         ).scalar_one_or_none()
 
     def get_assignment_by_task_for_update(self, task_id: int) -> InspectionAssignment | None:
         stmt = _for_update(
-            select(InspectionAssignment).where(InspectionAssignment.task_id == task_id)
+            select(InspectionAssignment).where(
+                InspectionAssignment.task_id == task_id,
+                InspectionAssignment.revoked_at.is_(None),
+            )
         )
         return self._session.execute(stmt).scalar_one_or_none()
 
@@ -230,15 +245,15 @@ class InspectionRepository:
     def list_assignments_by_task_ids(
         self, task_ids: Sequence[int]
     ) -> dict[int, InspectionAssignment]:
-        """按任务 id 批量取受派关系，避免列表/详情逐行查询（技术方案 12：禁 N+1）。
-
-        一任务一受派（task_id 唯一），故映射为 task_id -> assignment；无受派的任务不入表。
-        """
+        """批量取每个任务当前受派，历史失效行不占用当前受派视图。"""
         ids = list(task_ids)
         if not ids:
             return {}
         rows = self._session.execute(
-            select(InspectionAssignment).where(InspectionAssignment.task_id.in_(ids))
+            select(InspectionAssignment).where(
+                InspectionAssignment.task_id.in_(ids),
+                InspectionAssignment.revoked_at.is_(None),
+            )
         ).scalars().all()
         return {a.task_id: a for a in rows}
 
@@ -257,6 +272,7 @@ class InspectionRepository:
             .join(InspectionTask, InspectionTask.id == InspectionAssignment.task_id)
             .where(
                 InspectionAssignment.volunteer_user_id == volunteer_user_id,
+                InspectionAssignment.revoked_at.is_(None),
                 InspectionTask.inspection_date == on_date,
                 InspectionTask.canceled_at.is_(None),
             )
@@ -464,7 +480,7 @@ class InspectionRepository:
         )
 
     def has_open_submission(self, task_id: int) -> bool:
-        """该任务是否已有待审核或审核通过提交（"至多一个"不变式判定，技术方案 12、15）。"""
+        """调用者先锁任务；当前读防止 RR 旧快照漏掉刚提交的审核/提交事实。"""
         return (
             self._session.execute(
                 select(InspectionSubmission.id)
@@ -475,6 +491,7 @@ class InspectionRepository:
                     ),
                 )
                 .limit(1)
+                .with_for_update(read=True)
             )
             .scalar_one_or_none()
             is not None
@@ -490,6 +507,7 @@ class InspectionRepository:
                     InspectionSubmission.review_status == ReviewStatus.APPROVED.value,
                 )
                 .limit(1)
+                .with_for_update(read=True)
             )
             .scalar_one_or_none()
             is not None
@@ -599,6 +617,49 @@ class InspectionRepository:
             InspectionSubmission.submitted_at.desc(), InspectionSubmission.id.desc()
         )
         return _paged(self._session, stmt, params)
+
+    def list_management_submissions(
+        self,
+        params: PageParams,
+        *,
+        semester_id: int | None = None,
+        date_from: date_ | None = None,
+        date_to: date_ | None = None,
+        task_id: int | None = None,
+        review_status: str | None = None,
+    ) -> tuple[list[InspectionSubmission], int]:
+        """管理审核列表；先在 SQL 中筛选、计数及分页，再装配提交明细。"""
+        stmt = select(InspectionSubmission).join(
+            InspectionTask, InspectionTask.id == InspectionSubmission.task_id
+        )
+        if semester_id is not None:
+            stmt = stmt.where(InspectionTask.semester_id == semester_id)
+        if date_from is not None:
+            stmt = stmt.where(InspectionTask.inspection_date >= date_from)
+        if date_to is not None:
+            stmt = stmt.where(InspectionTask.inspection_date <= date_to)
+        if task_id is not None:
+            stmt = stmt.where(InspectionSubmission.task_id == task_id)
+        if review_status is not None:
+            stmt = stmt.where(InspectionSubmission.review_status == review_status)
+        stmt = stmt.order_by(
+            InspectionSubmission.submitted_at.desc(), InspectionSubmission.id.desc()
+        )
+        return _paged(self._session, stmt, params)
+
+    def list_submission_roster_members(
+        self, keys: set[tuple[int, int]]
+    ) -> list[TaskRosterMember]:
+        """一次读取本页提交引用的所有历史名单版本。"""
+        if not keys:
+            return []
+        return list(
+            self._session.execute(
+                select(TaskRosterMember).where(
+                    tuple_(TaskRosterMember.task_id, TaskRosterMember.roster_version).in_(keys)
+                )
+            ).scalars().all()
+        )
 
     # ==================== 调班申请 ====================
     def get_change_request(self, request_id: int) -> AssignmentChangeRequest | None:

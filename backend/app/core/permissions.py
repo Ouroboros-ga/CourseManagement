@@ -37,6 +37,8 @@ class PermissionCode(StrEnum):
     VOLUNTEER_READ = "volunteer.read"
     VOLUNTEER_MANAGE = "volunteer.manage"
     IMPORT_EXECUTE = "import.execute"
+    COURSE_SCHEDULE_IMPORT = "course_schedule.import"
+    COURSE_SCHEDULE_EXPORT = "course_schedule.export"
 
     # 4.3 查课任务与排班
     INSPECTION_READ = "inspection.read"

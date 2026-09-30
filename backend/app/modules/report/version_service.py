@@ -97,6 +97,13 @@ class ReportService:
         request_id: str | None,
     ) -> GenerateReportResponse:
         self._guard(actor, perms.REPORT_GENERATE_PERMISSION)
+        if scope != "COLLEGE":
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                "V1 仅支持学院周报",
+                http_status=422,
+                field_errors={"scope": "仅支持 COLLEGE"},
+            )
 
         # ---- 阶段①：锁分配版本号 + 登记 GENERATING（独立提交，令并发者可见/可接管）----
         token = secrets.token_hex(16)
@@ -172,16 +179,26 @@ class ReportService:
         self._session.commit()  # 结束只读快照事务，释放一致性读
 
         # ---- 阶段③：事务外渲染产物并落存储（不占业务事务）----
-        json_bytes = artifacts.build_snapshot_json(payload)
-        excel_bytes = artifacts.build_excel(payload)
         json_key = self._build_object_key("json")
         excel_key = self._build_object_key("xlsx")
-        self._storage.save(json_key, json_bytes, artifacts.JSON_CONTENT_TYPE)
-        self._storage.save(excel_key, excel_bytes, artifacts.XLSX_CONTENT_TYPE)
+        try:
+            json_bytes = artifacts.build_snapshot_json(payload)
+            excel_bytes = artifacts.build_excel(payload)
+            self._storage.save(json_key, json_bytes, artifacts.JSON_CONTENT_TYPE)
+            self._storage.save(excel_key, excel_bytes, artifacts.XLSX_CONTENT_TYPE)
+        except Exception:
+            # 存储可能已写入部分对象；清理本次独占键，不碰其他版本产物。
+            # 失败状态沿用 attempt_token 校验，不能覆盖接管者的结果。
+            self._safe_delete(json_key)
+            self._safe_delete(excel_key)
+            self._session.rollback()
+            self._mark_failed(version_id=version.id, token=token, reason="周报产物生成失败")
+            raise
 
         # ---- 阶段④：条件更新锁定发布权（迟到者令牌不符即放弃）----
         published = self._publish(
             actor=actor,
+            report_id=report.id,
             version_id=version.id,
             token=token,
             source_revision=source_revision,
@@ -264,6 +281,7 @@ class ReportService:
         self,
         *,
         actor: CurrentUser,
+        report_id: int,
         version_id: int,
         token: str,
         source_revision: int,
@@ -272,13 +290,18 @@ class ReportService:
         reason: str | None,
         request_id: str | None,
     ) -> ReportVersion | None:
-        """阶段④：锁版本行、校验令牌仍匹配且为 GENERATING，登记文件行并置 PUBLISHED。
+        """阶段④：主记录→版本行锁，校验令牌后登记文件并置 PUBLISHED。
 
         返回发布后的版本行；若令牌/状态不符（已被接管发布）返回 None（调用方放弃 + 清孤儿）。
         """
-        version = self._repo.get_version_for_update(version_id)
+        # 审计 FK 也会锁操作者。与分配阶段统一为操作者→主记录→版本，
+        # 避免同一账号再次生成时与发布反向等待；发布前同时重验权限。
+        self._guard(actor, perms.REPORT_GENERATE_PERMISSION)
+        report = self._repo.get_report_for_update(report_id)
+        version = self._repo.get_version_for_update(version_id) if report is not None else None
         if (
             version is None
+            or version.report_id != report_id
             or version.status != ReportVersionStatus.GENERATING.value
             or version.attempt_token != token
         ):
@@ -292,7 +315,6 @@ class ReportService:
         version.source_revision = source_revision
         version.status = ReportVersionStatus.PUBLISHED.value
         version.generated_at = utcnow()
-        report = self._repo.get_report(version.report_id)
         if report is not None:
             report.latest_updated_at = version.generated_at
         self._audit(

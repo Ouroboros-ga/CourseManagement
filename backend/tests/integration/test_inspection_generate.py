@@ -43,6 +43,7 @@ pytestmark = pytest.mark.integration
 _PWD = "Passw0rd#1"
 _GEN = "/api/v1/inspection-tasks/generate"
 _PREV = "/api/v1/inspection-tasks/preview"
+_OCC = "/api/v1/inspection-course-occurrences"
 _TASKS = "/api/v1/inspection-tasks"
 _ACA = "/api/v1/academic"
 
@@ -96,9 +97,7 @@ def _make_perm_user(session: Session, username: str, perm_codes: list[str]) -> U
 
 
 def _login(client: TestClient, username: str) -> dict[str, str]:
-    resp = client.post(
-        "/api/v1/auth/web/login", json={"username": username, "password": _PWD}
-    )
+    resp = client.post("/api/v1/auth/web/login", json={"username": username, "password": _PWD})
     assert resp.status_code == 200, resp.text
     return resp.json()["data"]
 
@@ -224,9 +223,7 @@ def _defer_deadline(session: Session, sem_id: int, on_date: date) -> None:
 
 
 def _audit_actions(session: Session, action: str) -> int:
-    return len(
-        session.execute(select(AuditLog).where(AuditLog.action == action)).scalars().all()
-    )
+    return len(session.execute(select(AuditLog).where(AuditLog.action == action)).scalars().all())
 
 
 # --------------------------------------------------------------------------- #
@@ -238,14 +235,10 @@ def test_generate_requires_auth_401(client: TestClient, session: Session) -> Non
     assert client.post(_GEN, json={}).status_code == 401
 
 
-def test_read_only_user_cannot_generate_403(
-    client: TestClient, session: Session
-) -> None:
+def test_read_only_user_cannot_generate_403(client: TestClient, session: Session) -> None:
     # 持 inspection.read 但缺 inspection.generate → 预览 / 生成路由早拦 403。
     _bootstrap(session)
-    _make_perm_user(
-        session, "reader", [PermissionCode.INSPECTION_READ.value]
-    )
+    _make_perm_user(session, "reader", [PermissionCode.INSPECTION_READ.value])
     h = _bearer(_login(client, "reader"))
     body = {
         "semester_id": 1,
@@ -257,9 +250,188 @@ def test_read_only_user_cannot_generate_403(
     assert client.post(_GEN, headers=h, json=body).status_code == 403
 
 
+def test_exact_occurrence_selection_across_pages_and_idempotent_result(
+    client: TestClient, session: Session
+) -> None:
+    h = _admin_headers(client, session)
+    sc = _scene(client, h)
+    params = [
+        ("semester_id", sc["semester_id"]),
+        ("date_from", "2026-09-07"),
+        ("date_to", "2026-09-14"),
+        ("teaching_class_ids", sc["tc_id"]),
+        ("page_size", 1),
+    ]
+    first = client.get(_OCC, headers=h, params=params + [("page", 1)])
+    second = client.get(_OCC, headers=h, params=params + [("page", 2)])
+    assert first.status_code == second.status_code == 200
+    a, b = first.json()["data"], second.json()["data"]
+    assert a["total"] == b["total"] == 2
+    assert a["selection_revision"] == b["selection_revision"]
+    assert a["selection_scope"] == b["selection_scope"]
+    assert [a["items"][0]["inspection_date"], b["items"][0]["inspection_date"]] == [
+        "2026-09-07",
+        "2026-09-14",
+    ]
+    selected = [
+        {
+            "course_schedule_id": a["items"][0]["course_schedule_id"],
+            "inspection_date": a["items"][0]["inspection_date"],
+        }
+    ]
+    body = {
+        "semester_id": sc["semester_id"],
+        "inspection_type": "COURSE",
+        "occurrences": selected,
+        "selection_scope": a["selection_scope"],
+        "selection_revision": a["selection_revision"],
+        "require_photo": False,
+    }
+    preview = client.post(_PREV, headers=h, json=body)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["data"]["task_count"] == 1
+    created = client.post(_GEN, headers=h, json=body)
+    assert created.status_code == 200, created.text
+    result = created.json()["data"]
+    assert result["created"] == 1
+    assert len(result["tasks"]) == 1
+    task_id = result["tasks"][0]["task_id"]
+    assert result["tasks"][0]["created"] is True
+    assert result["assignable_task_ids"] == [task_id]
+    repeated = client.post(_GEN, headers=h, json=body)
+    assert repeated.status_code == 200, repeated.text
+    again = repeated.json()["data"]
+    assert again["created"] == 0
+    assert again["tasks"][0]["task_id"] == task_id
+
+
+def test_exact_occurrence_rejects_stale_roster_and_legacy_filter_mix(
+    client: TestClient, session: Session
+) -> None:
+    h = _admin_headers(client, session)
+    sc = _scene(client, h)
+    response = client.get(
+        _OCC,
+        headers=h,
+        params={
+            "semester_id": sc["semester_id"],
+            "date_from": "2026-09-07",
+            "date_to": "2026-09-07",
+            "teaching_class_ids": sc["tc_id"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    body = {
+        "semester_id": sc["semester_id"],
+        "inspection_type": "COURSE",
+        "occurrences": [{"course_schedule_id": sc["schedule_id"], "inspection_date": "2026-09-07"}],
+        "selection_scope": data["selection_scope"],
+        "selection_revision": data["selection_revision"],
+    }
+    mixed = client.post(_GEN, headers=h, json={**body, "week_nos": [1]})
+    assert mixed.status_code == 422
+    # 查询后名单变化，旧选择摘要不得继续落库。
+    changed = client.put(
+        f"{_ACA}/teaching-classes/{sc['tc_id']}/students",
+        headers=h,
+        json={"student_ids": [int(sc["students"]["S001"]["id"])]},
+    )
+    assert changed.status_code == 200, changed.text
+    stale = client.post(_GEN, headers=h, json=body)
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["code"] == "SELECTION_STALE"
+
+
+def test_exact_occurrence_revision_changes_when_enrolled_student_disabled(
+    client: TestClient, session: Session
+) -> None:
+    h = _admin_headers(client, session)
+    sc = _scene(client, h)
+    params = {
+        "semester_id": sc["semester_id"],
+        "date_from": "2026-09-07",
+        "date_to": "2026-09-07",
+        "teaching_class_ids": sc["tc_id"],
+    }
+    initial = client.get(_OCC, headers=h, params=params)
+    assert initial.status_code == 200, initial.text
+    revision = initial.json()["data"]["selection_revision"]
+    disabled = client.patch(
+        f"{_ACA}/students/{sc['students']['S002']['id']}",
+        headers=h,
+        json={"status": "DISABLED", "reason": "停用"},
+    )
+    assert disabled.status_code == 200, disabled.text
+    updated = client.get(_OCC, headers=h, params=params)
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["data"]["selection_revision"] != revision
+    body = {
+        "semester_id": sc["semester_id"],
+        "inspection_type": "COURSE",
+        "occurrences": [{"course_schedule_id": sc["schedule_id"], "inspection_date": "2026-09-07"}],
+        "selection_scope": initial.json()["data"]["selection_scope"],
+        "selection_revision": revision,
+    }
+    stale = client.post(_GEN, headers=h, json=body)
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["code"] == "SELECTION_STALE"
+
+
 # --------------------------------------------------------------------------- #
 # 预览：只读零写库
 # --------------------------------------------------------------------------- #
+def test_cancel_then_restore_future_task_without_reusing_assignment(
+    client: TestClient, session: Session
+) -> None:
+    h = _admin_headers(client, session)
+    sc = _scene(client, h)
+    for period_no, times in ((1, ("08:00", "08:45")), (2, ("08:55", "09:40"))):
+        response = client.put(
+            f"{_ACA}/semesters/{sc['semester_id']}/period-definitions/{period_no}",
+            headers=h,
+            json={"start_time": times[0], "end_time": times[1]},
+        )
+        assert response.status_code == 200, response.text
+    generated = client.post(
+        _GEN,
+        headers=h,
+        json={
+            "semester_id": sc["semester_id"],
+            "inspection_type": "COURSE",
+            "week_nos": [5],
+            "teaching_class_ids": [sc["tc_id"]],
+        },
+    )
+    assert generated.status_code == 200, generated.text
+    task_id = generated.json()["data"]["tasks"][0]["task_id"]
+    task = client.get(f"{_TASKS}/{task_id}", headers=h).json()["data"]
+    canceled = client.post(
+        f"{_TASKS}/{task_id}/cancel",
+        headers=h,
+        json={"lock_version": task["lock_version"], "reason": "计划调整"},
+    )
+    assert canceled.status_code == 200, canceled.text
+    canceled_data = canceled.json()["data"]
+    canceled_status = canceled_data["status"]
+    restored = client.post(
+        f"{_TASKS}/{task_id}/restore",
+        headers=h,
+        json={"lock_version": canceled_data["lock_version"], "reason": "恢复计划"},
+    )
+    assert restored.status_code == 200, restored.text
+    restored_data = restored.json()["data"]
+    assert restored_data["id"] == task_id
+    assert restored_data["assignment"] is None
+    assert restored_data["status"] != canceled_status
+    repeat = client.post(
+        f"{_TASKS}/{task_id}/restore",
+        headers=h,
+        json={"lock_version": restored_data["lock_version"]},
+    )
+    assert repeat.status_code == 409, repeat.text
+
+
 def test_preview_is_read_only(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
@@ -328,14 +500,18 @@ def test_course_generate_full_wave2(client: TestClient, session: Session) -> Non
     assert task.lock_version == 0
 
     # 名单版本 v1 + 成员快照。
-    rv = session.execute(
-        select(TaskRosterVersion).where(TaskRosterVersion.task_id == task.id)
-    ).scalars().all()
+    rv = (
+        session.execute(select(TaskRosterVersion).where(TaskRosterVersion.task_id == task.id))
+        .scalars()
+        .all()
+    )
     assert len(rv) == 1
     assert rv[0].version_no == 1
-    members = session.execute(
-        select(TaskRosterMember).where(TaskRosterMember.task_id == task.id)
-    ).scalars().all()
+    members = (
+        session.execute(select(TaskRosterMember).where(TaskRosterMember.task_id == task.id))
+        .scalars()
+        .all()
+    )
     assert {m.student_no for m in members} == {"S001", "S002"}
     assert all(m.class_name_snapshot == "计算机2401" for m in members)
     assert all(m.grade_year_snapshot == 2024 for m in members)
@@ -345,11 +521,15 @@ def test_course_generate_full_wave2(client: TestClient, session: Session) -> Non
     assert day.inspection_date == date(2026, 9, 7)
     assert day.version == 1
     assert day.deadline_at == datetime(2026, 9, 7, 14, 0, 0)
-    ver = session.execute(
-        select(SubmissionDeadlineVersion).where(
-            SubmissionDeadlineVersion.deadline_day_id == day.id
+    ver = (
+        session.execute(
+            select(SubmissionDeadlineVersion).where(
+                SubmissionDeadlineVersion.deadline_day_id == day.id
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(ver) == 1
     assert ver[0].version_no == 1
     assert ver[0].deadline_at == day.deadline_at
@@ -407,11 +587,13 @@ def test_study_generate_per_day(client: TestClient, session: Session) -> None:
     assert d["deadline_days_seeded"] == 2
 
     session.expire_all()
-    tasks = session.execute(
-        select(InspectionTask).where(
-            InspectionTask.inspection_type == "MORNING_STUDY"
+    tasks = (
+        session.execute(
+            select(InspectionTask).where(InspectionTask.inspection_type == "MORNING_STUDY")
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert {t.inspection_date for t in tasks} == {date(2026, 9, 7), date(2026, 9, 8)}
     assert all(t.administrative_class_id == sc["class_id"] for t in tasks)
     assert all(t.expected_count_snapshot == 2 for t in tasks)
@@ -492,9 +674,7 @@ def test_week_out_of_range_422(client: TestClient, session: Session) -> None:
     assert client.post(_PREV, headers=h, json=body).status_code == 422
 
 
-def test_selection_missing_both_date_and_week_422(
-    client: TestClient, session: Session
-) -> None:
+def test_selection_missing_both_date_and_week_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     body = {
@@ -505,9 +685,7 @@ def test_selection_missing_both_date_and_week_422(
     assert client.post(_PREV, headers=h, json=body).status_code == 422
 
 
-def test_teaching_class_wrong_semester_422(
-    client: TestClient, session: Session
-) -> None:
+def test_teaching_class_wrong_semester_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     # 造第二个学期（ACTIVE），但教学班仍属第一个学期 → 422。
@@ -545,9 +723,7 @@ def test_teaching_class_not_found_404(client: TestClient, session: Session) -> N
     assert client.post(_PREV, headers=h, json=body).status_code == 404
 
 
-def test_generate_on_archived_semester_409(
-    client: TestClient, session: Session
-) -> None:
+def test_generate_on_archived_semester_409(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     arch = client.patch(
@@ -598,9 +774,7 @@ def test_list_and_get_task(client: TestClient, session: Session) -> None:
     assert {m["student_no"] for m in rd["items"]} == {"S001", "S002"}
 
 
-def test_me_tasks_empty_without_assignment(
-    client: TestClient, session: Session
-) -> None:
+def test_me_tasks_empty_without_assignment(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     body = {
@@ -616,9 +790,7 @@ def test_me_tasks_empty_without_assignment(
     assert me.json()["data"]["items"] == []
 
 
-def test_volunteer_scope_only_assigned(
-    client: TestClient, session: Session
-) -> None:
+def test_volunteer_scope_only_assigned(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     body = {

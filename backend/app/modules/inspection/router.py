@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.common.pagination import PageParams, page_params
 from app.common.responses import success
 from app.core.database import get_db
+from app.core.exceptions import AppError, ErrorCode
 from app.core.permissions import PermissionCode
 from app.modules.identity.deps import CurrentUserDep, require_permission
 from app.modules.inspection.schemas import (
@@ -25,10 +26,12 @@ from app.modules.inspection.schemas import (
     AutoAssignRequest,
     ChangeRequestCreateRequest,
     ChangeRequestReviewRequest,
+    CourseOccurrenceScope,
     DeadlineDayUpdateRequest,
     DeadlineSettleRequest,
     ExpectedCountUpdateRequest,
     InspectionGenerateRequest,
+    ReviewStatusLiteral,
     RosterVersionCreateRequest,
     SubmissionCreateRequest,
     SubmissionReviewRequest,
@@ -106,6 +109,37 @@ def _rid(request: Request) -> str | None:
 
 
 # ---- 生成预览 / 生成 ----
+@router.get("/inspection-course-occurrences")
+def get_course_occurrences(
+    actor: InspectionGenerateDep,
+    service: ServiceDep,
+    request: Request,
+    semester_id: Annotated[int, Query(ge=1)],
+    date_from: date_,
+    date_to: date_,
+    teaching_class_ids: Annotated[list[int], Query(min_length=1, max_length=500)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    require_photo: bool = False,
+) -> dict[str, object]:
+    from app.modules.inspection.course_occurrences import list_occurrences
+
+    if not 0 <= (date_to - date_from).days < 31 or any(i < 1 for i in teaching_class_ids):
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR, "日期范围须为1至31天，教学班ID须为正数", http_status=422,
+        )
+    service._require(actor.id, PermissionCode.INSPECTION_GENERATE.value)
+    semester = service._get_active_semester_read(semester_id)
+    scope = CourseOccurrenceScope(
+        date_from=date_from, date_to=date_to,
+        teaching_class_ids=teaching_class_ids, require_photo=require_photo,
+    )
+    return success(
+        list_occurrences(service, semester, scope, page=page, page_size=page_size),
+        _rid(request),
+    )
+
+
 @router.post("/inspection-tasks/preview")
 def preview_inspection_tasks(
     body: InspectionGenerateRequest,
@@ -126,6 +160,16 @@ def generate_inspection_tasks(
 ) -> dict[str, object]:
     result = service.generate(actor, body, _rid(request))
     return success(result.model_dump(), _rid(request))
+
+
+@router.post("/inspection-tasks/{task_id}/restore")
+def restore_inspection_task(task_id: int, body: TaskCancelRequest,
+                            actor: InspectionGenerateDep, service: ServiceDep,
+                            request: Request) -> dict[str, object]:
+    from app.modules.inspection.restore_service import restore_task
+
+    return success(restore_task(service, actor, task_id, body, _rid(request)).model_dump(),
+                   _rid(request))
 
 
 # ---- 本人受派任务（须在 /{task_id} 之前声明，避免 me 被当作 id 路径吞掉）----
@@ -425,6 +469,41 @@ def get_my_submission(
 # ================================================================== #
 # Wave P5d：提交审核（通过据名单版本生成考勤 / 驳回保留原事实）+ 应到人数调整
 # ================================================================== #
+@router.get("/management/submissions")
+def list_management_submissions(
+    actor: SubmissionReviewDep,
+    service: ServiceDep,
+    request: Request,
+    params: Annotated[PageParams, Depends(page_params)],
+    semester_id: Annotated[int | None, Query(ge=1)] = None,
+    date_from: date_ | None = None,
+    date_to: date_ | None = None,
+    task_id: Annotated[int | None, Query(ge=1)] = None,
+    review_status: ReviewStatusLiteral | None = None,
+) -> dict[str, object]:
+    data = service.list_management_submissions(
+        actor,
+        params,
+        semester_id=semester_id,
+        date_from=date_from,
+        date_to=date_to,
+        task_id=task_id,
+        review_status=review_status,
+    )
+    return success(data, _rid(request))
+
+
+@router.get("/management/submissions/{submission_id}")
+def get_management_submission(
+    submission_id: int,
+    actor: SubmissionReviewDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    result = service.get_management_submission(actor, submission_id)
+    return success(result.model_dump(), _rid(request))
+
+
 # ---- 审核待审核提交（submission.review，管理人员）----
 @router.post("/submissions/{submission_id}/review")
 def review_submission(

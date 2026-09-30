@@ -375,10 +375,15 @@ def list_teaching_classes(
     semester_id: Annotated[int | None, Query(ge=1)] = None,
     course_id: Annotated[int | None, Query(ge=1)] = None,
     status: Annotated[str | None, Query(max_length=16)] = None,
+    administrative_class_id: Annotated[int | None, Query(ge=1)] = None,
 ) -> dict[str, object]:
     return success(
         service.list_teaching_classes(
-            params, semester_id=semester_id, course_id=course_id, status=status
+            params,
+            semester_id=semester_id,
+            course_id=course_id,
+            status=status,
+            administrative_class_id=administrative_class_id,
         ),
         _rid(request),
     )

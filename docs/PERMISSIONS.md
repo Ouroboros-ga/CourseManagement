@@ -113,7 +113,6 @@ V1.0 默认可配置项：
 
 ```text
 statistics.read
-report.read
 objection.initial_review
 ```
 
@@ -124,8 +123,11 @@ objection.initial_review
 - 可查看完整提交截止时间配置及历史版本。
 - 可签发绑定码、作废绑定码、协助学生换绑。
 - 具有 `objection.initial_review` 时，可读取全学院全部异议及历史记录，并执行初核。
-- 统计和周报权限按个人配置决定。
-- 不具有终审、更正最终考勤、生成周报、任务生成、自动排班、全局角色管理等管理权限，除非未来版本另行明确。
+- 默认可查询全年级课表、导入和导出课程课表、精确选择课次并生成/取消/恢复任务、自动排班和人工改派；也可生成、读取、下载学院考勤周报。
+- 统计读取和异议初核按个人配置决定。
+- 不具有终审、更正最终考勤、提交审核、教师账号管理或学生维护权限。
+
+负责人必须绑定有效学生身份。授予负责人时校验绑定，解绑或停用学生时撤销该角色及个人可选授权；旧会话随绑定/停用联动撤销。
 
 学生工作负责人的权限改变后，下一次 API 请求立即按最新权限生效。
 
@@ -363,19 +365,21 @@ POST /auth/logout
 | role.assign | 是 | 是 | 否 | 否 | 否 |
 | optional_permission.manage | 是 | 是 | 否 | 否 | 否 |
 | identity.binding.manage | 是 | 是 | 是 | 否 | 否 |
-| academic.read | 是 | 是 | 否 | 否 | 否 |
+| academic.read | 是 | 是 | 是 | 否 | 否 |
 | academic.manage | 是 | 是 | 否 | 否 | 否 |
 | student.read | 是 | 是 | 是 | 否 | 否 |
 | student.manage | 是 | 是 | 否 | 否 | 否 |
-| volunteer.read | 是 | 是 | 否 | 否 | 否 |
+| volunteer.read | 是 | 是 | 是 | 否 | 否 |
 | volunteer.manage | 是 | 是 | 否 | 否 | 否 |
-| import.execute | 是 | 是 | 否 | 否 | 否 |
+| import.execute | 是 | 是 | 是 | 否 | 否 |
+| course_schedule.import | 是 | 是 | 是 | 否 | 否 |
+| course_schedule.export | 是 | 是 | 是 | 否 | 否 |
 | inspection.read | 是 | 是 | 是 | 是 | 否 |
-| inspection.generate | 是 | 是 | 否 | 否 | 否 |
-| inspection.cancel | 是 | 是 | 否 | 否 | 否 |
+| inspection.generate | 是 | 是 | 是 | 否 | 否 |
+| inspection.cancel | 是 | 是 | 是 | 否 | 否 |
 | inspection.roster.read | 是 | 是 | 是 | 是 | 否 |
 | inspection.roster.manage | 是 | 是 | 否 | 否 | 否 |
-| assignment.manage | 是 | 是 | 否 | 否 | 否 |
+| assignment.manage | 是 | 是 | 是 | 否 | 否 |
 | assignment.change_request | 否 | 否 | 否 | 是 | 否 |
 | assignment.change_review | 是 | 是 | 否 | 否 | 否 |
 | submission_deadline.read | 是 | 是 | 是 | 否 | 否 |
@@ -387,8 +391,8 @@ POST /auth/logout
 | attendance.read | 是 | 是 | 是 | 是（继承，仅本人） | 是 |
 | attendance.correct | 是 | 是 | 否 | 否 | 否 |
 | statistics.read | 是 | 是 | 可选 | 否 | 否 |
-| report.read | 是 | 是 | 可选 | 否 | 否 |
-| report.generate | 是 | 是 | 否 | 否 | 否 |
+| report.read | 是 | 是 | 是 | 否 | 否 |
+| report.generate | 是 | 是 | 是 | 否 | 否 |
 | objection.create | 否 | 否 | 否 | 是（继承，仅本人） | 是 |
 | objection.read | 是 | 是 | 条件派生 | 是（继承，仅本人） | 是 |
 | objection.initial_review | 是 | 是 | 可选 | 否 | 否 |
@@ -434,11 +438,10 @@ V1.0 可配置清单固定为：
 
 ```text
 statistics.read
-report.read
 objection.initial_review
 ```
 
-只有这三个 code 可以通过个人权限配置接口授予或撤销。
+只有这两个 code 可以通过个人权限配置接口授予或撤销。`report.read` 和 `report.generate` 属负责人默认权限；`statistics.read` 不随周报权限附带。
 
 教师管理员：
 
@@ -750,11 +753,11 @@ submission_deadline.manage
 | 业务操作 | 必须满足 |
 |---|---|
 | 导入学生/教学班名单 | `import.execute` AND `student.manage` |
-| 导入课表/教学班基础信息 | `import.execute` AND `academic.manage` |
+| 导入课表 | `import.execute` AND (`course_schedule.import` 或 `academic.manage`)；负责人仅限课表目标 |
 | 导入志愿者资格 | `import.execute` AND `volunteer.manage` |
-| 审核查课提交 | `submission.review` AND `submission.read` + 合法状态 |
+| 审核查课提交 | `submission.review` + 管理角色及合法状态 |
 | 自动或人工排班 | `assignment.manage` + 时间冲突/本班回避/资格检查 |
-| 周报生成 | `report.generate` AND `report.read` |
+| 周报生成 | `report.generate`；范围限 `COLLEGE`，只汇总考勤 |
 | 异议终审并更正考勤 | `objection.final_review` AND `attendance.correct` + 版本一致 |
 | 读取异议证明 | 合法管理异议读取路径 OR 本人异议路径 |
 | 获取文件短时链接 | 父资源读取权 + FILE_PARENT + 文件状态有效 |
@@ -786,13 +789,14 @@ submission_deadline.manage
 |---|---|
 | `GET /users` | `account.read` |
 | `GET /users/{id}` | `account.read` |
-| `POST /users` | `account.manage` |
-| `PATCH /users/{id}` | `account.manage` |
+| `GET /teacher-accounts` | `account.read`（默认仅超管持有） |
+| `POST /teacher-accounts` | `account.manage` + 超管角色 |
+| `PATCH /teacher-accounts/{id}` | `account.manage` + 超管角色 |
 | `PUT /users/{id}/roles` | `role.assign` + 角色边界 |
-| `POST /users/{id}/password-reset` | `account.manage` |
-| `POST /users/{id}/session-revocations` | `account.manage` |
+| `POST /teacher-accounts/{id}/password-reset` | `account.manage` + 超管角色 |
+| `POST /me/password-change` | 有效密码账号，仅本人 |
 | `GET /users/{id}/optional-permissions` | `optional_permission.manage` |
-| `PUT /users/{id}/optional-permissions/{code}` | `optional_permission.manage` + 三项许可清单 |
+| `PUT /users/{id}/optional-permissions/{code}` | `optional_permission.manage` + 两项许可清单 |
 
 ---
 
@@ -817,6 +821,7 @@ submission_deadline.manage
 | `/courses` | `academic.read/manage` |
 | `/teaching-classes` | `academic.read/manage` |
 | `/course-schedules` | `academic.read/manage` |
+| `GET /course-schedules/export` | `course_schedule.export`；当前教师列为空，基础数据无该字段 |
 | `/students` | `student.read/manage` |
 | `/volunteer-qualifications` | `volunteer.read/manage` |
 
@@ -826,11 +831,11 @@ submission_deadline.manage
 
 | API | 权限 |
 |---|---|
-| `GET /import-templates/{type}` | 对应目标资源 manage |
-| `POST /imports` | `import.execute` + 对应资源 manage |
-| `GET /imports/{id}` | `import.execute` + 对应资源 manage |
-| `POST /imports/{id}/confirm` | `import.execute` + 对应资源 manage |
-| `GET /imports/{id}/errors` | `import.execute` + 对应资源 manage |
+| `GET /import-templates/{type}` | 对应目标资源 manage；课表可用 `course_schedule.import` |
+| `POST /imports` | `import.execute` + 对应目标权限 |
+| `GET /imports/{id}` | `import.execute` + 对应目标权限 |
+| `POST /imports/{id}/confirm` | `import.execute` + 对应目标权限 |
+| `GET /imports/{id}/errors` | `import.execute` + 对应目标权限 |
 
 ---
 
@@ -842,8 +847,10 @@ submission_deadline.manage
 | `GET /inspection-tasks/{id}` | 同上 |
 | `GET /me/inspection-tasks` | 强制 ASSIGNED_TASK |
 | `POST /inspection-tasks/preview` | `inspection.generate` |
+| `GET /inspection-course-occurrences` | `inspection.generate` |
 | `POST /inspection-tasks/generate` | `inspection.generate` |
 | `POST /inspection-tasks/{id}/cancel` | `inspection.cancel` |
+| `POST /inspection-tasks/{id}/restore` | `inspection.generate` + 安全恢复条件 |
 | `GET /inspection-tasks/{id}/students` | `inspection.roster.read` + 任务范围 |
 | `POST /inspection-tasks/{id}/roster-versions` | `inspection.roster.manage` |
 | `POST /assignments/auto` | `assignment.manage` |
@@ -872,6 +879,8 @@ submission_deadline.manage
 | `POST /inspection-tasks/{id}/submissions` | `submission.create` + ASSIGNED_TASK + 当前学期资格 |
 | `GET /submissions` | `submission.read` + SYSTEM_WIDE / OWN_SUBMISSION |
 | `GET /submissions/{id}` | 同上 |
+| `GET /management/submissions` | `submission.review` + 管理范围 |
+| `GET /management/submissions/{id}` | `submission.review` + 管理范围 |
 | `POST /submissions/{id}/review` | `submission.review` + 合法状态 |
 | `PATCH /inspection-tasks/{id}/expected-count` | `attendance.expected_count_adjust` |
 | `GET /attendance` | `attendance.read` + 管理范围 |
@@ -902,7 +911,7 @@ submission_deadline.manage
 | `GET /statistics/incomplete-tasks` | `statistics.read` |
 | `GET /reports` | `report.read` |
 | `GET /reports/{id}/versions` | `report.read` |
-| `POST /reports/weekly/versions` | `report.generate` + `report.read` |
+| `POST /reports/weekly/versions` | `report.generate` |
 | `GET /report-versions/{id}/download` | `report.read` |
 
 ---

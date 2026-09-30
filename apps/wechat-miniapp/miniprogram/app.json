@@ -5,6 +5,9 @@
     "pages/task/list/index",
     "pages/task/detail/index",
     "pages/task/abnormal/index",
+    "pages/record/list/index",
+    "pages/record/appeal/index",
+    "pages/admin/index",
     "pages/profile/index"
   ],
   "window": {

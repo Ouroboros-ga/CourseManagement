@@ -65,11 +65,11 @@ class AttendanceCorrectionRequest(BaseModel):
     """更正最终考勤：改当前认定并追加版本，不重写原提交与既往版本（技术方案 14）。
 
     current_version 为客户端所见版本，服务端以条件更新校验；不符即 409 VERSION_CONFLICT，
-    提示刷新后重看，绝不覆盖他人的新认定（技术方案 15）。reason 必填、可审计。
+    提示刷新后重看，绝不覆盖他人的新认定（技术方案 15）。reason 选填、可审计。
     """
 
     attendance_type: AttendanceTypeLiteral
-    reason: str = Field(min_length=1, max_length=512)
+    reason: str = Field(default="", max_length=512)
     current_version: int = Field(ge=1)
 
 

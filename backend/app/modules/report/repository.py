@@ -16,8 +16,8 @@ from datetime import datetime
 from typing import Any, cast
 
 from sqlalchemy import ColumnElement, Select, and_, case, func, select, update
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.attendance.models import AttendanceRecord, AttendanceType
@@ -435,58 +435,38 @@ class ReportVersionRepository:
     def get_report(self, report_id: int) -> Report | None:
         return self._session.get(Report, report_id)
 
+    def get_report_for_update(self, report_id: int) -> Report | None:
+        return self._session.execute(
+            select(Report).where(Report.id == report_id).with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+
     def get_or_create_report_for_update(
         self, *, semester_id: int, week_no: int, scope: str
     ) -> Report:
-        """取（并锁）指定 (学期,周,范围) 的周报主记录，缺则建。行锁串行化版本号分配。
+        """原子建立唯一键对应的主记录，再取当前行锁，串行分配版本号。
 
-        首次生成时两并发会话可能同时查不到主记录而双双尝试 INSERT，撞 uq_report_sem_week_scope
-        唯一键。故把插入放入 SAVEPOINT：败者仅回滚该保存点，再以锁定读取得胜者已提交的行
-        （FOR UPDATE 读总见最新已提交版本，不受本会话快照所限），从而安全串行到同一 report 行。
+        不先锁定查询空键：RR 下并发查空可各持间隙锁，随后 INSERT 升级形成死锁。
+        MySQL 死锁会回滚整个事务，SAVEPOINT 无法只回滚失败的 INSERT。
+        重复键只做 id 自赋值，不覆盖既有版本指针或更新时间。
         """
-
-        def _lock_existing() -> Report | None:
-            return self._session.execute(
-                select(Report)
-                .where(
-                    Report.semester_id == semester_id,
-                    Report.week_no == week_no,
-                    Report.scope == scope,
-                )
-                .with_for_update()
-            ).scalar_one_or_none()
-
-        row = _lock_existing()
-        if row is not None:
-            return row
-        try:
-            with self._session.begin_nested():
-                self._session.add(
-                    Report(
-                        semester_id=semester_id,
-                        week_no=week_no,
-                        scope=scope,
-                        latest_version_no=0,
-                    )
-                )
-        except IntegrityError:
-            # 并发对手已建：仅保存点回滚，锁定读取其行。
-            self._session.expire_all()
-            row = _lock_existing()
-            if row is None:  # pragma: no cover - 理论上对手已提交必可见
-                raise
-            return row
-        # 新建成功：保存点已提交，INSERT 自持该行排他锁至外层事务提交；再锁定读取得规范锁句柄。
-        created = _lock_existing()
-        assert created is not None
-        return created
+        statement = mysql_insert(Report).values(
+            semester_id=semester_id, week_no=week_no, scope=scope, latest_version_no=0,
+        )
+        self._session.execute(statement.on_duplicate_key_update(id=Report.id))
+        return self._session.execute(
+            select(Report).where(Report.semester_id == semester_id,
+                                 Report.week_no == week_no, Report.scope == scope)
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalar_one()
 
     def latest_version(self, report_id: int) -> ReportVersion | None:
+        # 鉴权可能已建立 RR 快照；必须看见等待主记录锁期间提交的 GENERATING。
         return self._session.execute(
             select(ReportVersion)
             .where(ReportVersion.report_id == report_id)
             .order_by(ReportVersion.version_no.desc())
-            .limit(1)
+            .limit(1).with_for_update().execution_options(populate_existing=True)
         ).scalar_one_or_none()
 
     def list_versions(self, report_id: int) -> list[ReportVersion]:

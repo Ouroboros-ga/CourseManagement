@@ -140,3 +140,7 @@ backend/*.json
 /docs/PERMISSIONS_IMPLEMENTATION.md
 /docs/P7_REPORT_PLAN.md
 /docs/superpowers/plans/
+
+# 用户授权的真实课表/名单测试数据与临时解析依赖，禁止提交个人数据。
+/tmp/real-scheduling-test/
+/tmp/wechat-integration-mysql/

@@ -1,7 +1,7 @@
-## 压测与运行验收手册（RUNBOOK · 本地工作文档，不入 git）
+## 压测与运行验收手册（W7d 待执行）
 
 适用范围：查课管理系统后端 P7 运行交付（W7d）。给出负载测试方法、可配置的规模/并发护栏、
-以及"真实 MySQL 并发 + 双端"验收清单。**所有与学院真实规模相关的数字均为占位，须业务/
+以及"真实 MySQL 并发 + 双端"验收清单。本手册是步骤与判据，尚未执行学院真实规模压测、恢复演练或双端验收；结果统一登记在 [发布验收记录](./RELEASE_ACCEPTANCE.md)。**所有与学院真实规模相关的数字均为占位，须业务/
 学院确认后设定，本文档不臆造**（依据 DEVELOPMENT_PLAN 第 70 条：P7 前用实际学生数、任务数、
 峰值同时提交数确定压测目标）。
 
@@ -43,8 +43,7 @@ docs/PERMISSIONS.md §2 / §5 / §6.2；技术方案 §17 统计口径、§18 �
 | `FILE_MAX_FILES_PER_SUBMISSION` | 单次提交附件数上限 | 5 | 影响提交事务体量 |
 
 > 周报生成刻意**不引入 worker/队列/Redis/MQ/集群**（技术方案 §66、DEVELOPMENT_PLAN 第 66 条），
-> 为受限同步执行；因此"规模超限写入前拒绝"是主保护，压测须验证拒绝路径干净（无悬挂 GENERATING、
-> 版本号不被失败尝试占用）。
+> 为受限同步执行。周报生成先持久化 `GENERATING` 并分配版本号，再在只读快照阶段检查任务规模；超限返回 422，把该版本置为 `FAILED`，失败版本号保留且下次生成不复用。压测须验证无悬挂 `GENERATING`、未产出报表文件，并记录失败版本。
 
 ---
 
@@ -70,14 +69,13 @@ MySQL（禁 SQLite），并预留隔离压测库。
    - 目标值：P95 ______ ms，慢查询占比 ______。
 
 4. **周报同步生成（POST /reports/weekly/versions）**
-   - 指标：单周生成端到端耗时（三阶段：锁分配版本 / 一致性读快照 / 事务外产 JSON+Excel / 发布）、
+   - 指标：单周生成端到端耗时（四阶段：锁分配版本 / 一致性读快照 / 事务外产 JSON+Excel / 发布）、
      内存峰值、Excel 生成用时；并发多次生成的版本唯一性。
-   - 判据：耗时 < `REPORT_GENERATE_TAKEOVER_STALE_SECONDS`；规模超限即时 422 且不产出孤儿文件、
-     不留悬挂 GENERATING；并发唯一发布无重复 `version_no`。
+   - 判据：耗时 < `REPORT_GENERATE_TAKEOVER_STALE_SECONDS`；规模超限返回 422，已登记版本转 `FAILED`、占用版本号，不产出报表文件；并发唯一发布无重复 `version_no`。
    - 目标值：单周生成 P95 ______ s，可接受并发 ______。
 
-5. **下载（GET /report-versions/{id}/download、/files/{id}/download）**
-   - 指标：签名链接申请时延、直连下载吞吐（大 Excel）。
+5. **下载（GET /report-versions/{id}/download、/files/{id}/access 与签名下载）**
+   - 指标：周报鉴权下载吞吐（大 Excel）；普通文件的签名链接申请时延与下载吞吐。
    - 目标值：______
 
 连接池与 MySQL 容量核对：`进程数 × (DB_POOL_SIZE + 峰值用到 DB_MAX_OVERFLOW)` 之和应 < MySQL
@@ -91,7 +89,7 @@ MySQL（禁 SQLite），并预留隔离压测库。
 1. 专用压测库（勿用开发/生产/测试库）：
    ```bash
    docker exec cm_mysql sh -c \
-     'mysql -h127.0.0.1 -P3306 -u"$MYSQL_ROOT_USER_NAME" -p"$MYSQL_ROOT_PASSWORD" \
+     'mysql -h127.0.0.1 -P3306 -uroot -p"$MYSQL_ROOT_PASSWORD" \
       -e "CREATE DATABASE course_management_load CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"'
    cd backend
    DATABASE_URL="mysql+pymysql://cm_app:change_me_app@127.0.0.1:13306/course_management_load?charset=utf8mb4" \
@@ -113,8 +111,8 @@ pytest 以免抢占同一 `_test` 库）：
 - 同一目标并发授权/撤销：恰好一成功，另一 409 或 422（`test_admin_rbac`）。
 - 绑定码并发核销：同一码仅一人成功（行锁串行化，`test_wechat_binding`）。
 - 提交与截止结算并发：唯一提交、逾期补交保留未执行考核快照（`inspection`/`attendance`）。
-- 周报并发生成：版本号唯一、无悬挂 GENERATING、至少一份 PUBLISHED、接管复用版本号、
-  规模超限不占用版本号（`test_report_version`）。
+- 周报并发生成：版本号唯一、无悬挂 GENERATING、至少一份 PUBLISHED、接管复用未完成版本号；
+  规模超限标记 FAILED 且占用版本号（`test_report_version`）。
 - 审计失败整笔回滚；源修订并发单调无丢失（`report_source_revision`）。
 
 命令：
@@ -132,16 +130,15 @@ uv run pytest -q --basetemp="<干净临时目录>" -p no:cacheprovider   # 单�
 | 1 | 统计先过滤再聚合 | 无 N+1；聚合先累加分子分母再相除，非班级百分比平均；分母≤0→rate=null 且 `statistics_available=false` | ______ |
 | 2 | 「当前未完成」与「截止时未完成」分别命名输出 | 两轴独立、不混用同名指标；CANCELED 不计入未完成 | ______ |
 | 3 | 周报保留版本、最终版本修改时间可见 | `report.latest_version_no` / `latest_updated_at`；版本列表含每版 `generated_at`、不可覆盖递增 | ______ |
-| 4 | 落后源 / 公式 / 模板 陈旧提示 | `behind_source`、`rule_outdated`、`template_outdated` 计算正确 | ______ |
+| 4 | 落后源 / 公式 / 模板 陈旧提示 | `behind_source` 只反映当前已接入的四条考勤事实写路径：审核通过、应到人数调整、考勤更正、异议终审改判；任务生成、取消、截止配置等变化未统一递增源修订号，不能把 `behind_source=false` 当作周内所有业务数据未变的证明；公式与模板标记按版本比较 | ______ |
 | 5 | 照片/证明/报表分别配置保留期限 | 各自 env；落库固化 `expires_at`+`retention_policy_version`；报表自有归档期不被清理误删 | ______ |
-| 6 | 同步生成有规模/并发限制 | `REPORT_GENERATE_MAX_TASKS` 超限写前 422；并发唯一发布；接管陈旧 GENERATING | ______ |
-| 7 | 下载鉴权与明细可见性 | 生成需 `report.generate`（管理范围），读取需 `report.read`；`statistics.read` 不隐式获得 `report.read`；已清理/到期 `FILE_EXPIRED` | ______ |
+| 6 | 同步生成有规模/并发限制 | `REPORT_GENERATE_MAX_TASKS` 超限在产物写入前返回 422，已登记版本置 FAILED 并占号；并发唯一发布；接管陈旧 GENERATING | ______ |
+| 7 | 下载鉴权与明细可见性 | 生成需 `report.generate`（管理范围），读取需 `report.read`；`statistics.read` 不隐式获得 `report.read`；数据库文件行标为已清理/到期时返回 `FILE_EXPIRED`，底层对象单独丢失须在恢复演练中核查 | ______ |
 | 8 | 清理脚本部署可跑 | `cleanup_expired_files.py` 退出码 0、逐文件独立事务、可重跑幂等（`test_cleanup_script` 端到端） | ______ |
 | 9 | 恢复演练 | RUNBOOK_BACKUP_RESTORE 第三节 3.4 核对 1–6 全绿 | ______ |
 | 10 | 真实 MySQL 并发与双端验收 | 第五节不变量全绿；Web 管理端 + 微信小程序端到端（前端波次另验收） | ______ |
 
-双端（管理后台 + 小程序）为前端波次交付项，本手册仅登记后端契约就绪度；前端接入后补端到端
-签字。
+仓库尚无 `apps/` 前端。双端（管理后台 + 小程序）仍需建设与端到端验收，本手册只登记后端契约和待执行判据。
 
 ---
 

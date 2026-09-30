@@ -12,7 +12,6 @@ from app.core.permissions import PermissionCode, RoleCode
 # 逐人开关的可选项，默认不随任何角色授予（PERMISSIONS.md 6.2）。
 OPTIONAL_PERMISSION_CODES: frozenset[str] = frozenset({
     "statistics.read",
-    "report.read",
     "objection.initial_review",
 })
 
@@ -46,6 +45,16 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "system.config.manage",
     },
     RoleCode.STUDENT_AFFAIRS_MANAGER.value: frozenset({
+        "academic.read",
+        "volunteer.read",
+        "import.execute",
+        "course_schedule.import",
+        "course_schedule.export",
+        "inspection.generate",
+        "inspection.cancel",
+        "assignment.manage",
+        "report.generate",
+        "report.read",
         "identity.binding.manage",
         "student.read",
         "inspection.read",

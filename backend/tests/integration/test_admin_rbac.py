@@ -24,6 +24,7 @@ from app.core.exceptions import (
 )
 from app.core.permissions import PermissionCode, RoleCode
 from app.core.security import hash_password
+from app.modules.academic.models import Student
 from app.modules.identity.models import (
     AuthSession,
     Role,
@@ -56,13 +57,20 @@ def _role(session: Session, code: str) -> Role:
 
 
 def _make_user(
-    session: Session, username: str, role_codes: list[str]
+    session: Session, username: str, role_codes: list[str], *, bound_student: bool = False
 ) -> UserAccount:
+    student_id = None
+    if bound_student or RoleCode.STUDENT_AFFAIRS_MANAGER.value in role_codes:
+        student = Student(student_no=f"RBAC_{username}", name=username, status="ACTIVE")
+        session.add(student)
+        session.flush()
+        student_id = student.id
     user = UserAccount(
         username=username,
         password_hash=hash_password(_PWD),
         display_name=username,
         status=UserStatus.ACTIVE.value,
+        student_id=student_id,
     )
     user.roles = [_role(session, c) for c in role_codes]
     session.add(user)
@@ -160,7 +168,7 @@ def test_teacher_can_assign_student_affairs_manager(
     _bootstrap(session)
     _make_user(session, "admin", [RoleCode.SUPER_ADMIN.value])
     _make_user(session, "teacher", [RoleCode.TEACHER_ADMIN.value])
-    target = _make_user(session, "t1", [])
+    target = _make_user(session, "t1", [], bound_student=True)
 
     data = _login(client, "teacher")
     resp = client.put(
@@ -230,7 +238,7 @@ def test_version_conflict_returns_409(
 ) -> None:
     _bootstrap(session)
     _make_user(session, "admin", [RoleCode.SUPER_ADMIN.value])
-    target = _make_user(session, "t1", [])
+    target = _make_user(session, "t1", [], bound_student=True)
 
     data = _login(client, "admin")
     # 先成功一次把版本推进到 1。
@@ -462,12 +470,27 @@ def test_optional_permission_targets_only_managers(
     assert names == {"sam"}
     assert set(data["configurable_codes"]) == {
         PermissionCode.STATISTICS_READ.value,
-        PermissionCode.REPORT_READ.value,
         PermissionCode.OBJECTION_INITIAL_REVIEW.value,
     }
     sam = data["items"][0]
-    # 三项默认关闭。
+    # 两项可选权限默认关闭；周报已是负责人默认权限。
     assert all(p["enabled"] is False for p in sam["permissions"])
+
+
+def test_unbound_account_cannot_become_student_affairs_manager(
+    client: TestClient, session: Session
+) -> None:
+    _bootstrap(session)
+    _make_user(session, "admin", [RoleCode.SUPER_ADMIN.value])
+    target = _make_user(session, "unbound", [])
+    admin = _bearer(_login(client, "admin"))
+    response = client.put(
+        f"/api/v1/users/{target.id}/roles",
+        headers=admin,
+        json={"roles": [RoleCode.STUDENT_AFFAIRS_MANAGER.value], "lockVersion": 0},
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "STATE_CONFLICT"
 
 
 # --------------------------------------------------------------------------- #
@@ -545,7 +568,7 @@ def test_concurrent_same_target_one_wins_other_conflicts(
 ) -> None:
     _bootstrap(session)
     admin = _make_user(session, "admin", [RoleCode.SUPER_ADMIN.value])
-    target = _make_user(session, "t1", [])
+    target = _make_user(session, "t1", [], bound_student=True)
     expected = _ver(session, target.id)  # 0
 
     barrier = threading.Barrier(2)
@@ -654,7 +677,7 @@ def test_audit_failure_rolls_back_whole_change(
 ) -> None:
     _bootstrap(session)
     admin = _make_user(session, "admin", [RoleCode.SUPER_ADMIN.value])
-    target = _make_user(session, "t1", [])
+    target = _make_user(session, "t1", [], bound_student=True)
     target_id = target.id
 
     def _boom(self, **kwargs):  # noqa: ANN001

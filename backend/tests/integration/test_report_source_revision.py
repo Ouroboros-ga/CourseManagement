@@ -242,7 +242,11 @@ def _shift_deadline(session: Session, sem_id: int, on_date: date_, *, hours: int
 
 def _submit_abnormal(client, h, session, sem_id, task_id, s1, *, s2_type=None) -> int:
     """志愿者提交 ABNORMAL（s1=LATE[+可选 s2]）→ sub_id。截止回拨到未来保证按时。"""
-    _shift_deadline(session, sem_id, _MON1_D, hours=+48)
+    session.commit()
+    session.expire_all()
+    task = session.get(InspectionTask, task_id)
+    assert task is not None
+    _shift_deadline(session, sem_id, task.inspection_date, hours=+48)
     vh = _make_volunteer_for_task(client, h, session, sem_id, task_id, f"vol{task_id}")
     items: list[dict] = [{"student_id": s1, "attendance_type": "LATE", "note": "迟到"}]
     body = {"result": "ABNORMAL", "abnormal_items": items, "file_ids": []}

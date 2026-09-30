@@ -1,6 +1,6 @@
 """权限注册表与默认角色矩阵单元测试。
 
-期望值独立录入自 docs/PERMISSIONS.md 第 4 节（38 项 code）与第 5 节（五列矩阵），
+期望值独立录入自 docs/PERMISSIONS.md 第 4 节（40 项 code）与第 5 节（五列矩阵），
 不从被测映射复制，避免"自我相等"式伪验证。本批只测纯策略，不触库。
 """
 
@@ -20,6 +20,7 @@ _EXPECTED_SUPER_ADMIN = frozenset({
     "optional_permission.manage", "identity.binding.manage",
     "academic.read", "academic.manage", "student.read", "student.manage",
     "volunteer.read", "volunteer.manage", "import.execute",
+    "course_schedule.import", "course_schedule.export",
     "inspection.read", "inspection.generate", "inspection.cancel",
     "inspection.roster.read", "inspection.roster.manage",
     "assignment.manage", "assignment.change_review",
@@ -34,6 +35,7 @@ _EXPECTED_TEACHER_ADMIN = frozenset({
     "role.assign", "optional_permission.manage", "identity.binding.manage",
     "academic.read", "academic.manage", "student.read", "student.manage",
     "volunteer.read", "volunteer.manage", "import.execute",
+    "course_schedule.import", "course_schedule.export",
     "inspection.read", "inspection.generate", "inspection.cancel",
     "inspection.roster.read", "inspection.roster.manage",
     "assignment.manage", "assignment.change_review",
@@ -44,8 +46,11 @@ _EXPECTED_TEACHER_ADMIN = frozenset({
     "objection.read", "objection.initial_review", "objection.final_review",
 })
 _EXPECTED_STUDENT_AFFAIRS_MANAGER = frozenset({
-    "identity.binding.manage", "student.read", "inspection.read",
-    "inspection.roster.read", "submission_deadline.read", "attendance.read",
+    "academic.read", "volunteer.read", "import.execute",
+    "course_schedule.import", "course_schedule.export",
+    "inspection.generate", "inspection.cancel", "assignment.manage",
+    "report.generate", "report.read", "identity.binding.manage", "student.read",
+    "inspection.read", "inspection.roster.read", "submission_deadline.read", "attendance.read",
 })
 _EXPECTED_VOLUNTEER = frozenset({
     "inspection.read", "inspection.roster.read", "assignment.change_request",
@@ -58,8 +63,8 @@ _EXPECTED_STUDENT = frozenset({
 _ALL_CODES = {p.value for p in PermissionCode}
 
 
-def test_registry_is_exactly_38_and_excludes_assignment_read() -> None:
-    assert len(PermissionCode) == 38
+def test_registry_is_exactly_40_and_excludes_assignment_read() -> None:
+    assert len(PermissionCode) == 40
     assert "assignment.read" not in _ALL_CODES
 
 
@@ -81,11 +86,14 @@ def test_registry_member_values_match_baseline() -> None:
 def test_registry_and_manager_defaults() -> None:
     assert set(DEFAULT_ROLE_PERMISSIONS) == {r.value for r in RoleCode}
     assert DEFAULT_ROLE_PERMISSIONS["STUDENT_AFFAIRS_MANAGER"] == frozenset({
-        "identity.binding.manage", "student.read", "inspection.read",
-        "inspection.roster.read", "submission_deadline.read", "attendance.read",
+        "academic.read", "volunteer.read", "import.execute",
+        "course_schedule.import", "course_schedule.export",
+        "inspection.generate", "inspection.cancel", "assignment.manage",
+        "report.generate", "report.read", "identity.binding.manage", "student.read",
+        "inspection.read", "inspection.roster.read", "submission_deadline.read", "attendance.read",
     })
     assert frozenset({
-        "statistics.read", "report.read", "objection.initial_review",
+        "statistics.read", "objection.initial_review",
     }) == OPTIONAL_PERMISSION_CODES
     for codes in DEFAULT_ROLE_PERMISSIONS.values():
         assert codes <= _ALL_CODES

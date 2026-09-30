@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import date, time
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 
 def _id_to_str(value: object) -> str:
@@ -96,8 +96,17 @@ class PeriodDefinitionResponse(BaseModel):
 class CalendarOverrideCreateRequest(BaseModel):
     date: date
     override_type: str = Field(min_length=1, max_length=16)  # STOP / MAKEUP
+    source_teaching_week: int | None = Field(default=None, ge=1)
     source_teaching_weekday: int | None = Field(default=None, ge=1, le=7)
     reason: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def validate_stop_source(self) -> CalendarOverrideCreateRequest:
+        if self.override_type == "STOP" and (
+            self.source_teaching_week is not None or self.source_teaching_weekday is not None
+        ):
+            raise ValueError("停课日不能指定来源教学周或星期")
+        return self
 
 
 class CalendarOverrideResponse(BaseModel):
@@ -107,6 +116,7 @@ class CalendarOverrideResponse(BaseModel):
     semester_id: IdStr
     date: date
     override_type: str
+    source_teaching_week: int | None
     source_teaching_weekday: int | None
     reason: str | None
 
@@ -170,6 +180,7 @@ class StudentResponse(BaseModel):
     name: str
     administrative_class_id: OptIdStr
     status: str
+    unassigned_task_count: int = 0
 
 
 # --------------------------------------------------------------------------- #

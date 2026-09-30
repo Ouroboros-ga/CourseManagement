@@ -1,14 +1,16 @@
 """身份种子：注册表同步与账号创建分离，可重复执行且默认值单一真相源。
 
 设计（开发路线 P1 第 2 步）：
-- `sync_registry` 只负责"字典数据"：把 38 项 Permission、5 类 Role 落库，并将
+- `sync_registry` 将 Permission 枚举、5 类 Role 落库，并将
   role_permission 精确对齐 policy.DEFAULT_ROLE_PERMISSIONS。幂等——二次执行不重复写；
-  移除过期的默认角色-权限关联前先输出差异日志。绝不触碰 user_permission（个人授权）。
+  移除过期角色关联前输出差异日志；仅清理已转为角色默认项的 report.read 个人授权并留审计。
 - `ensure_admin_account` 只负责创建超级管理员账号：仅当账号不存在时创建，
   已存在则跳过，绝不重置既有口令、不改动其角色，避免覆盖运维已设置的密码。
 - 演示数据（行政班/学生/绑定码）为可选联调辅助，与上述两者独立。
 
 用法（工程根 backend/ 目录）：
+    # 只查看权限差异与需要人工核对的遗留负责人：
+    uv run python -m app.modules.identity.seed --dry-run
     # 仅同步注册表（不需要口令，可用于任何环境）：
     uv run python -m app.modules.identity.seed --skip-admin
     # 同步注册表并创建超管（口令经环境变量注入，绝不写入仓库）：
@@ -21,6 +23,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -33,12 +36,15 @@ from app.core.logging import get_logger, setup_logging
 from app.core.permissions import PermissionCode, RoleCode
 from app.core.security import generate_secure_token, hash_password, hash_token
 from app.modules.academic.models import AdministrativeClass, Student
+from app.modules.audit.models import AuditLog
 from app.modules.identity.models import (
     BindingTokenStatus,
     IdentityBindingToken,
     Permission,
     Role,
     UserAccount,
+    UserPermission,
+    UserRole,
     UserStatus,
 )
 from app.modules.identity.policy import DEFAULT_ROLE_PERMISSIONS
@@ -74,6 +80,7 @@ class RegistrySyncReport:
     created_roles: list[str] = field(default_factory=list)
     added_links: list[tuple[str, str]] = field(default_factory=list)
     removed_links: list[tuple[str, str]] = field(default_factory=list)
+    removed_report_grants: list[int] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
@@ -82,6 +89,7 @@ class RegistrySyncReport:
             or self.created_roles
             or self.added_links
             or self.removed_links
+            or self.removed_report_grants
         )
 
 
@@ -116,10 +124,42 @@ def _upsert_permissions(session: Session, report: RegistrySyncReport) -> dict[st
     return perms
 
 
+def preview_registry(session: Session) -> dict[str, object]:
+    """仅读差异；遗留未绑定负责人只列出，交由管理者核对，不静默撤角色。"""
+    roles = {r.code: r for r in session.execute(select(Role)).scalars()}
+    known = set(session.execute(select(Permission.code)).scalars())
+    added: list[tuple[str, str]] = []
+    removed: list[tuple[str, str]] = []
+    for code, desired in DEFAULT_ROLE_PERMISSIONS.items():
+        current = {p.code for p in roles[code].permissions} if code in roles else set()
+        added.extend((code, p) for p in sorted(desired - current))
+        removed.extend((code, p) for p in sorted(current - desired))
+    invalid = session.execute(
+        select(UserAccount.id).join(UserRole).join(Role)
+        .outerjoin(Student, Student.id == UserAccount.student_id)
+        .where(
+            Role.code == RoleCode.STUDENT_AFFAIRS_MANAGER.value,
+            (Student.id.is_(None)) | (Student.status != "ACTIVE")
+            | (UserAccount.status != UserStatus.ACTIVE.value),
+        )
+    ).scalars().all()
+    grants = session.execute(
+        select(UserPermission.user_id).join(Permission)
+        .where(Permission.code == "report.read")
+    ).scalars().all()
+    return {
+        "created_permissions": sorted({p.value for p in PermissionCode} - known),
+        "created_roles": sorted(set(DEFAULT_ROLE_PERMISSIONS) - set(roles)),
+        "added_links": added, "removed_links": removed,
+        "removed_report_grants": [str(uid) for uid in grants],
+        "invalid_manager_user_ids": [str(uid) for uid in invalid],
+    }
+
+
 def sync_registry(session: Session) -> RegistrySyncReport:
     """把注册表（角色、权限、默认角色-权限关联）同步为 DEFAULT_ROLE_PERMISSIONS。
 
-    幂等；不删除任何 user_permission 个人授权；不重置任何账号口令。
+    幂等；仅清理退出可选集合的 report.read 个人授权，不重置任何账号口令。
     """
     report = RegistrySyncReport()
     roles = _upsert_roles(session, report)
@@ -144,6 +184,20 @@ def sync_registry(session: Session) -> RegistrySyncReport:
                 report.added_links.append((role_code, code))
         role.permissions = kept
 
+    # report.read 已成为负责人默认权限；旧个人开关由重复可执行的迁移清理并留痕。
+    grants = session.execute(
+        select(UserPermission).join(Permission).where(Permission.code == "report.read")
+    ).scalars().all()
+    for grant in grants:
+        report.removed_report_grants.append(grant.user_id)
+        session.add(AuditLog(
+            action="permission.registry.migrate", resource_type="user_permission",
+            resource_id=str(grant.id),
+            before_json={"user_id": str(grant.user_id), "code": "report.read"},
+            after_json={"source": "role_default"},
+            reason="负责人周报读取改为角色默认能力",
+        ))
+        session.delete(grant)
     session.flush()
     if report.changed:
         logger.info(
@@ -275,7 +329,13 @@ def main() -> None:
         help="仅为指定学号生成一次性绑定码（不执行完整种子）",
     )
     parser.add_argument("--token-valid-minutes", type=int, default=60)
+    parser.add_argument("--dry-run", action="store_true", help="仅读取注册表差异，不执行同步")
     args = parser.parse_args()
+
+    if args.dry_run:
+        with session_scope() as session:
+            print(json.dumps(preview_registry(session), ensure_ascii=False, indent=2))
+        return
 
     if args.issue_binding_token:
         issue_binding_token(args.issue_binding_token, args.token_valid_minutes)

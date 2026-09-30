@@ -94,7 +94,15 @@ class Settings(BaseSettings):
     # 排班软约束：单个志愿者单个查课日的最大受派任务数，0 表示不限（默认）。
     # 属可配置运行参数而非学校制度，硬约束（时间冲突/本班回避/资格）始终强制。
     assignment_max_tasks_per_day: int = Field(
-        default=0, alias="ASSIGNMENT_MAX_TASKS_PER_DAY"
+        default=0, ge=0, alias="ASSIGNMENT_MAX_TASKS_PER_DAY"
+    )
+    # 自然周（周一至周日）的硬上限；学期历史公平负载不抵扣本周名额。
+    assignment_max_tasks_per_week: int = Field(
+        default=0, ge=0, alias="ASSIGNMENT_MAX_TASKS_PER_WEEK"
+    )
+    assignment_building_clusters: list[list[int]] = Field(
+        default=[[13, 14, 15], [7, 8, 9], [1, 2], [3, 4], [5, 6], [10]],
+        alias="ASSIGNMENT_BUILDING_CLUSTERS",
     )
 
     # ---- 文件上传、访问与保留（P5，技术方案 16）----

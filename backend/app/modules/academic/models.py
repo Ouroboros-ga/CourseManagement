@@ -107,13 +107,17 @@ class PeriodDefinition(TimestampMixin, Base):
 # 校历覆盖（技术方案 9.1：处理停课、调休与补课）
 # --------------------------------------------------------------------------- #
 class CalendarOverride(TimestampMixin, Base):
-    """校历覆盖：把某个日历日期标注为停课或调休补课，可指向被替代的教学日星期。"""
+    """校历覆盖：停课或调休补课；来源周缺省时沿用实际日期所在周。"""
 
     __tablename__ = "calendar_override"
     __table_args__ = (
         CheckConstraint(
             "override_type IN ('STOP','MAKEUP')",
             name="ck_calendar_override_type",
+        ),
+        CheckConstraint(
+            "source_teaching_week IS NULL OR source_teaching_week >= 1",
+            name="ck_calendar_override_source_week_positive",
         ),
         UniqueConstraint("semester_id", "date", name="uq_calendar_override_sem_date"),
         MYSQL_TABLE_ARGS,
@@ -125,6 +129,7 @@ class CalendarOverride(TimestampMixin, Base):
     )
     date: Mapped[date_] = mapped_column(DATE_COL, nullable=False)
     override_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_teaching_week: Mapped[int | None] = mapped_column(Integer)
     source_teaching_weekday: Mapped[int | None] = mapped_column(Integer)
     reason: Mapped[str | None] = mapped_column(String(255))
 

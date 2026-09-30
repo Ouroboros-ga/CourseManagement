@@ -1,14 +1,14 @@
 import { getBaseURL } from '../utils/env.js';
 import { getAccessToken } from '../utils/session.js';
-import { refreshSession } from '../utils/request.js';
+import { refreshSession, request } from '../utils/request.js';
 
-function upload(path, accessToken) {
+function upload(path, accessToken, category) {
   return new Promise((resolve, reject) => {
     wx.uploadFile({
       url: `${getBaseURL()}/api/v1/files`,
       filePath: path,
       name: 'file',
-      formData: { category: 'SUBMISSION_PHOTO' },
+      formData: { category },
       header: { Authorization: `Bearer ${accessToken}` },
       success: (response) => {
         let body;
@@ -32,12 +32,28 @@ function upload(path, accessToken) {
   });
 }
 
-export async function uploadSubmissionPhoto(path) {
+async function uploadByCategory(path, category) {
   const token = getAccessToken() || await refreshSession();
   try {
-    return await upload(path, token);
+    return await upload(path, token, category);
   } catch (error) {
     if (error.status !== 401) throw error;
-    return upload(path, await refreshSession());
+    return upload(path, await refreshSession(), category);
   }
+}
+
+export function uploadSubmissionPhoto(path) {
+  return uploadByCategory(path, 'SUBMISSION_PHOTO');
+}
+
+export function uploadObjectionProof(path) {
+  return uploadByCategory(path, 'OBJECTION_PROOF');
+}
+
+export async function getFileAccess(fileId) {
+  const access = await request({ url: `/api/v1/files/${fileId}/access`, method: 'GET' });
+  return {
+    ...access,
+    url: access.url.startsWith('/') ? `${getBaseURL()}${access.url}` : access.url,
+  };
 }

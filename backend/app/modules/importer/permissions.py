@@ -13,7 +13,7 @@ from app.modules.importer.models import ImportTarget
 # 目标类型 → 对应的资源 manage 权限（组合上再要求 import.execute）。
 TARGET_MANAGE_PERMISSION: dict[str, str] = {
     ImportTarget.ROSTER.value: PermissionCode.STUDENT_MANAGE.value,
-    ImportTarget.TIMETABLE.value: PermissionCode.ACADEMIC_MANAGE.value,
+    ImportTarget.TIMETABLE.value: PermissionCode.COURSE_SCHEDULE_IMPORT.value,
     ImportTarget.VOLUNTEER.value: PermissionCode.VOLUNTEER_MANAGE.value,
 }
 

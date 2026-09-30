@@ -14,4 +14,22 @@
     <t-icon name="chevron-right" size="48rpx" color="#CBD5E1" />
   </view>
 
+  <view class="action-card" wx:if="{{canViewRecords}}" bind:tap="goToRecordList">
+    <t-icon name="time" size="48rpx" color="#3B82F6" />
+    <view class="card-content">
+      <view class="card-title">我的考勤</view>
+      <view class="card-desc">查看本人记录与提交异议</view>
+    </view>
+    <t-icon name="chevron-right" size="48rpx" color="#CBD5E1" />
+  </view>
+
+  <view class="action-card" wx:if="{{canReviewObjections}}" bind:tap="goToAdminPanel">
+    <t-icon name="task" size="48rpx" color="#3B82F6" />
+    <view class="card-content">
+      <view class="card-title">异议审核</view>
+      <view class="card-desc">按授予的权限进行初核或终审</view>
+    </view>
+    <t-icon name="chevron-right" size="48rpx" color="#CBD5E1" />
+  </view>
+
 </view>

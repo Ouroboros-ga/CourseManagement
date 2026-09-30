@@ -118,9 +118,7 @@ def _make_perm_user(session: Session, username: str, perm_codes: list[str]) -> U
 
 
 def _login(client: TestClient, username: str) -> dict[str, str]:
-    resp = client.post(
-        "/api/v1/auth/web/login", json={"username": username, "password": _PWD}
-    )
+    resp = client.post("/api/v1/auth/web/login", json={"username": username, "password": _PWD})
     assert resp.status_code == 200, resp.text
     return resp.json()["data"]
 
@@ -229,11 +227,7 @@ def _roster(client: TestClient, headers: dict[str, str], tc_id: int) -> list:
 
 
 def _audit_actions(session: Session, action: str) -> int:
-    return len(
-        session.execute(
-            select(AuditLog).where(AuditLog.action == action)
-        ).scalars().all()
-    )
+    return len(session.execute(select(AuditLog).where(AuditLog.action == action)).scalars().all())
 
 
 # --------------------------------------------------------------------------- #
@@ -246,9 +240,7 @@ def test_import_requires_auth_401(client: TestClient, session: Session) -> None:
     assert resp.status_code == 401
 
 
-def test_missing_import_execute_forbidden_403(
-    client: TestClient, session: Session
-) -> None:
+def test_missing_import_execute_forbidden_403(client: TestClient, session: Session) -> None:
     # 仅有目标 manage（student.manage），缺 import.execute → 路由 ImportExecuteDep 403。
     _bootstrap(session)
     _make_perm_user(session, "manageonly", [STU_M])
@@ -257,9 +249,7 @@ def test_missing_import_execute_forbidden_403(
     assert resp.status_code == 403
 
 
-def test_missing_target_manage_forbidden_403(
-    client: TestClient, session: Session
-) -> None:
+def test_missing_target_manage_forbidden_403(client: TestClient, session: Session) -> None:
     # 仅有 import.execute，缺目标 manage → 路由放行，服务事务内组合校验 403。
     _bootstrap(session)
     _make_perm_user(session, "exonly", [EXEC])
@@ -291,17 +281,13 @@ def test_unknown_target_422(client: TestClient, session: Session) -> None:
     assert resp.status_code == 422
 
 
-def test_roster_missing_teaching_class_422(
-    client: TestClient, session: Session
-) -> None:
+def test_roster_missing_teaching_class_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     resp = _post_import(client, h, target="roster", content=_xlsx(["学号"], []))
     assert resp.status_code == 422
 
 
-def test_roster_unknown_teaching_class_404(
-    client: TestClient, session: Session
-) -> None:
+def test_roster_unknown_teaching_class_404(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     resp = _post_import(
         client, h, target="roster", content=_xlsx(["学号"], []), teaching_class_id=999999
@@ -312,8 +298,7 @@ def test_roster_unknown_teaching_class_404(
 def test_volunteer_missing_semester_scope(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     assert (
-        _post_import(client, h, target="volunteer", content=_xlsx(["学号"], [])).status_code
-        == 422
+        _post_import(client, h, target="volunteer", content=_xlsx(["学号"], [])).status_code == 422
     )
     assert (
         _post_import(
@@ -326,16 +311,12 @@ def test_volunteer_missing_semester_scope(client: TestClient, session: Session) 
 # --------------------------------------------------------------------------- #
 # 名单：两步原子
 # --------------------------------------------------------------------------- #
-def test_roster_preview_confirm_two_step(
-    client: TestClient, session: Session
-) -> None:
+def test_roster_preview_confirm_two_step(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     content = _xlsx(["学号", "姓名"], [{"学号": "S001", "姓名": "学生S001"}, {"学号": "S002"}])
 
-    prev = _post_import(
-        client, h, target="roster", content=content, teaching_class_id=sc["tc_id"]
-    )
+    prev = _post_import(client, h, target="roster", content=content, teaching_class_id=sc["tc_id"])
     assert prev.status_code == 200, prev.text
     pdata = prev.json()["data"]
     assert pdata["status"] == "PREVIEW"
@@ -417,20 +398,24 @@ def test_roster_atomicity_reference_removed_before_confirm(
     assert _roster(client, h, sc["tc_id"]) == []
 
 
-def test_roster_replace_overwrites_existing(
-    client: TestClient, session: Session
-) -> None:
+def test_roster_replace_overwrites_existing(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     # 先导 S001。
     p1 = _post_import(
-        client, h, target="roster", content=_xlsx(["学号"], [{"学号": "S001"}]),
+        client,
+        h,
+        target="roster",
+        content=_xlsx(["学号"], [{"学号": "S001"}]),
         teaching_class_id=sc["tc_id"],
     ).json()["data"]
     client.post(f"{_IM}/{int(p1['id'])}/confirm", headers=h)
     # 再整体替换为 S002。
     p2 = _post_import(
-        client, h, target="roster", content=_xlsx(["学号"], [{"学号": "S002"}]),
+        client,
+        h,
+        target="roster",
+        content=_xlsx(["学号"], [{"学号": "S002"}]),
         teaching_class_id=sc["tc_id"],
     ).json()["data"]
     conf = client.post(f"{_IM}/{int(p2['id'])}/confirm", headers=h).json()["data"]
@@ -442,23 +427,91 @@ def test_roster_replace_overwrites_existing(
 # --------------------------------------------------------------------------- #
 # 课表
 # --------------------------------------------------------------------------- #
+def test_bound_manager_can_import_only_timetable(client: TestClient, session: Session) -> None:
+    admin = _admin_headers(client, session)
+    sc = _scene(client, admin)
+    _make_bound_account(
+        session,
+        "manager",
+        int(sc["students"]["S001"]["id"]),
+        [RoleCode.STUDENT.value, RoleCode.STUDENT_AFFAIRS_MANAGER.value],
+    )
+    manager = _bearer(_login(client, "manager"))
+    timetable = _xlsx(
+        ["教学班码", "课程代码", "课程名称", "星期", "开始大节", "结束大节", "周次", "上课地点"],
+        [
+            {
+                "教学班码": "MGR-A",
+                "课程代码": "CMGR",
+                "课程名称": "管理导入课表",
+                "星期": "周一",
+                "开始大节": 1,
+                "结束大节": 2,
+                "周次": "1周",
+                "上课地点": "A101",
+            }
+        ],
+    )
+    preview = _post_import(
+        client, manager, target="timetable", content=timetable, semester_id=sc["semester_id"]
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["data"]["can_confirm"] is True
+    confirmed = client.post(f"{_IM}/{preview.json()['data']['id']}/confirm", headers=manager)
+    assert confirmed.status_code == 200, confirmed.text
+    assert int(confirmed.json()["data"]["summary"]["schedule_created"]) == 1
+
+    roster = _post_import(
+        client,
+        manager,
+        target="roster",
+        content=_xlsx(["学号"], [{"学号": "S001"}]),
+        teaching_class_id=sc["tc_id"],
+    )
+    volunteer = _post_import(
+        client,
+        manager,
+        target="volunteer",
+        content=_xlsx(["学号", "启用"], [{"学号": "S001", "启用": "是"}]),
+        semester_id=sc["semester_id"],
+    )
+    assert roster.status_code == volunteer.status_code == 403
+
+
 def test_timetable_preview_confirm_creates_graph(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     headers_row = [
-        "教学班码", "课程代码", "课程名称", "星期", "开始大节", "结束大节", "周次", "上课地点"
+        "教学班码",
+        "课程代码",
+        "课程名称",
+        "星期",
+        "开始大节",
+        "结束大节",
+        "周次",
+        "上课地点",
     ]
     content = _xlsx(
         headers_row,
         [
             {
-                "教学班码": "NEW-A", "课程代码": "CNEW", "课程名称": "线性代数",
-                "星期": "周一", "开始大节": "1", "结束大节": "2", "周次": "1-16周",
+                "教学班码": "NEW-A",
+                "课程代码": "CNEW",
+                "课程名称": "线性代数",
+                "星期": "周一",
+                "开始大节": "1",
+                "结束大节": "2",
+                "周次": "1-16周",
                 "上课地点": "A101",
             },
             {
-                "教学班码": "NEW-A", "课程代码": "CNEW", "课程名称": "线性代数",
-                "星期": "周三", "开始大节": "3", "结束大节": "4", "周次": "2-15双周",
+                "教学班码": "NEW-A",
+                "课程代码": "CNEW",
+                "课程名称": "线性代数",
+                "星期": "周三",
+                "开始大节": "3",
+                "结束大节": "4",
+                "周次": "2-15双周",
                 "上课地点": "A102",
             },
         ],
@@ -478,15 +531,23 @@ def test_timetable_preview_confirm_creates_graph(client: TestClient, session: Se
 
     # 周次落库校验：第一条 1..16，第二条 2..15 偶数。
     session.expire_all()
-    scheds = session.execute(
-        select(CourseSchedule).where(CourseSchedule.semester_id == sc["semester_id"])
-    ).scalars().all()
+    scheds = (
+        session.execute(
+            select(CourseSchedule).where(CourseSchedule.semester_id == sc["semester_id"])
+        )
+        .scalars()
+        .all()
+    )
     assert len(scheds) == 2
     weeks_map = {}
     for s in scheds:
-        ws = session.execute(
-            select(CourseScheduleWeek.week_no).where(CourseScheduleWeek.schedule_id == s.id)
-        ).scalars().all()
+        ws = (
+            session.execute(
+                select(CourseScheduleWeek.week_no).where(CourseScheduleWeek.schedule_id == s.id)
+            )
+            .scalars()
+            .all()
+        )
         weeks_map[s.weekday] = list(ws)
     assert weeks_map[1] == list(range(1, 17))  # 周一
     assert weeks_map[3] == list(range(2, 16, 2))  # 周三双周
@@ -496,14 +557,25 @@ def test_timetable_weeks_out_of_range_422(client: TestClient, session: Session) 
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     headers_row = [
-        "教学班码", "课程代码", "课程名称", "星期", "开始大节", "结束大节", "周次", "上课地点"
+        "教学班码",
+        "课程代码",
+        "课程名称",
+        "星期",
+        "开始大节",
+        "结束大节",
+        "周次",
+        "上课地点",
     ]
     content = _xlsx(
         headers_row,
         [
             {
-                "教学班码": "X", "课程代码": "CX", "星期": "周一",
-                "开始大节": "1", "结束大节": "2", "周次": "1-30周",
+                "教学班码": "X",
+                "课程代码": "CX",
+                "星期": "周一",
+                "开始大节": "1",
+                "结束大节": "2",
+                "周次": "1-30周",
             }
         ],
     )
@@ -517,15 +589,17 @@ def test_timetable_weeks_out_of_range_422(client: TestClient, session: Session) 
 def test_timetable_period_inverted_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
-    headers_row = [
-        "教学班码", "课程代码", "星期", "开始大节", "结束大节", "周次"
-    ]
+    headers_row = ["教学班码", "课程代码", "星期", "开始大节", "结束大节", "周次"]
     content = _xlsx(
         headers_row,
         [
             {
-                "教学班码": "Y", "课程代码": "CY", "星期": "周二",
-                "开始大节": "5", "结束大节": "3", "周次": "1-8周",
+                "教学班码": "Y",
+                "课程代码": "CY",
+                "星期": "周二",
+                "开始大节": "5",
+                "结束大节": "3",
+                "周次": "1-8周",
             }
         ],
     )
@@ -569,9 +643,7 @@ def test_volunteer_bound_student_grants_role(client: TestClient, session: Sessio
     assert vq.enabled is True
 
 
-def test_volunteer_unbound_creates_qualification_only(
-    client: TestClient, session: Session
-) -> None:
+def test_volunteer_unbound_creates_qualification_only(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     content = _xlsx(["学号", "是否启用"], [{"学号": "S002", "是否启用": "1"}])
@@ -582,11 +654,14 @@ def test_volunteer_unbound_creates_qualification_only(
     assert conf.status_code == 200
     assert int(conf.json()["data"]["summary"]["volunteer_role_granted"]) == 0
     session.expire_all()
-    assert session.execute(
-        select(VolunteerQualification).where(
-            VolunteerQualification.student_id == int(sc["students"]["S002"]["id"])
-        )
-    ).scalar_one() is not None
+    assert (
+        session.execute(
+            select(VolunteerQualification).where(
+                VolunteerQualification.student_id == int(sc["students"]["S002"]["id"])
+            )
+        ).scalar_one()
+        is not None
+    )
 
 
 def test_volunteer_disable_does_not_grant(client: TestClient, session: Session) -> None:
@@ -636,9 +711,7 @@ def test_qualification_imported_before_binding_grants_on_bind(
     # 3) 绑定：bind_student 应反向补授 VOLUNTEER。
     IdentityService(session).bind_student(user.id, "S002", code)
     session.expire_all()
-    acct = session.execute(
-        select(UserAccount).where(UserAccount.id == user.id)
-    ).scalar_one()
+    acct = session.execute(select(UserAccount).where(UserAccount.id == user.id)).scalar_one()
     role_codes = {r.code for r in acct.roles}
     assert RoleCode.STUDENT.value in role_codes
     assert RoleCode.VOLUNTEER.value in role_codes
