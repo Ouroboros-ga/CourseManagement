@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>查课管理系统 — 设计原型</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700;900&family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #FAF8F5;
+      --paper-deep: #F3F0EB;
+      --ink: #1C1B1A;
+      --ink-soft: #4A4845;
+      --ink-mute: #8A8680;
+      --line: #E3DFD7;
+      --line-strong: #C9C3B8;
+      --accent: #A63D2A;
+      --accent-soft: #F5E6E0;
+      --green: #2D5A3D;
+      --green-soft: #E4EDE5;
+      --amber: #B07D2B;
+      --amber-soft: #F7EEDC;
+      --blue: #3A5A8C;
+      --blue-soft: #E3EAF3;
+      --radius: 3px;
+      --shadow: 0 1px 3px rgba(28,27,26,0.04);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html {
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      font-family: 'Noto Sans SC', system-ui, sans-serif;
+      background: var(--paper);
+      color: var(--ink);
+      line-height: 1.6;
+    }
+
+    .font-serif { font-family: 'Noto Serif SC', serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+    /* ========== 导航切换器（仅原型演示用） ========== */
+    .proto-nav {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
+      display: flex;
+      gap: 4px;
+      background: var(--ink);
+      padding: 6px;
+      border-radius: 40px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .proto-nav button {
+      padding: 8px 16px;
+      border: none;
+      background: transparent;
+      color: rgba(255,255,255,0.55);
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 24px;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+      font-family: 'Noto Sans SC', sans-serif;
+    }
+    .proto-nav button:hover { color: rgba(255,255,255,0.85); }
+    .proto-nav button.active {
+      background: var(--paper);
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ========== 登录页 ========== */
+    .login-wrap {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    .login-left {
+      background: var(--ink);
+      color: var(--paper);
+      padding: 64px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+    .login-left::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(250,248,245,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(250,248,245,0.02) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+    }
+    .login-brand {
+      font-size: 13px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      opacity: 0.5;
+      font-weight: 500;
+    }
+    .login-hero { position: relative; z-index: 1; }
+    .login-hero .issue {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--accent);
+      letter-spacing: 0.1em;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .login-hero .issue::before {
+      content: '';
+      width: 32px;
+      height: 1px;
+      background: var(--accent);
+    }
+    .login-hero h1 {
+      font-family: 'Noto Serif SC', serif;
+      font-size: clamp(36px, 4vw, 52px);
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: 0.02em;
+      margin-bottom: 24px;
+    }
+    .login-hero p {
+      font-size: 15px;
+      line-height: 1.9;
+      opacity: 0.55;
+      max-width: 400px;
+      font-weight: 300;
+    }
+    .login-meta {
+      display: flex;
+      gap: 48px;
+      font-size: 12px;
+      opacity: 0.4;
+      position: relative;
+      z-index: 1;
+    }
+    .login-meta span { display: block; }
+    .login-meta .num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 24px;
+      font-weight: 600;
+      opacity: 1;
+      color: var(--paper);
+      margin-bottom: 4px;
+    }
+    .login-right {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 64px;
+    }
+    .login-form {
+      width: 100%;
+      max-width: 380px;
+    }
+    .login-form .form-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--ink-mute);
+      letter-spacing: 0.1em;
+      margin-bottom: 8px;
+    }
+    .login-form h2 {
+      font-family: 'Noto Serif SC', serif;
+      font-size: 28px;
+      font-weight: 600;
+      margin-bottom: 40px;
+    }
+    .field { margin-bottom: 24px; }
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-soft);
+      margin-bottom: 8px;
+      letter-spacing: 0.03em;
+    }
+    .field input {
+      width: 100%;
+      padding: 12px 0;
+      border: none;
+      border-bottom: 1px solid var(--line-strong);
+      background: transparent;
+      font-size: 15px;
+      color: var(--ink);
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: 'Noto Sans SC', sans-serif;
+    }
+    .field input:focus { border-bottom-color: var(--ink); }
+    .field input::placeholder { color: var(--ink-mute); font-weight: 300; }
+    .btn-primary {
+      width: 100%;
+      padding: 14px;
+      background: var(--ink);
+      color: var(--paper);
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.25s;
+      border-radius: var(--radius);
+      margin-top: 8px;
+    }
+    .btn-primary:hover { background: var(--accent); }
+    .login-foot {
+      margin-top: 40px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line);
+      font-size: 11px;
+      color: var(--ink-mute);
+      line-height: 1.8;
+    }
+
+    /* ========== 主框架 ========== */
+    .shell {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      min-height: 100vh;
+    }
+
+    /* 侧边栏 */
+    .sidebar {
+      border-right: 1px solid var(--line);
+      padding: 32px 0;
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      background: var(--paper);
+    }
+    .side-brand {
+      padding: 0 28px 28px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 24px;
+    }
+    .side-brand .zh {
+      font-family: 'Noto Serif SC', serif;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .side-brand .en {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--ink-mute);
+      letter-spacing: 0.12em;
+      margin-top: 4px;
+      text-transform: uppercase;
+    }
+    .side-nav { flex: 1; }
+    .side-link {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      padding: 11px 28px;
+      color: var(--ink-mute);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s;
+      position: relative;
+      cursor: pointer;
+    }
+    .side-link .idx {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      opacity: 0.6;
+    }
+    .side-link:hover { color: var(--ink); background: var(--paper-deep); }
+    .side-link.on {
+      color: var(--ink);
+      font-weight: 600;
+    }
+    .side-link.on::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--accent);
+    }
+    .side-link .badge {
+      margin-left: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 20px;
+    }
+    .badge-red { background: var(--accent-soft); color: var(--accent); }
+    .badge-amber { background: var(--amber-soft); color: var(--amber); }
+    .side-foot {
+      padding: 24px 28px 0;
+      border-top: 1px solid var(--line);
+      font-size: 11px;
+      color: var(--ink-mute);
+      line-height: 1.7;
+    }
+    .side-foot .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .side-foot .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    /* 主内容区 */
+    .main {
+      padding: 40px 48px 120px;
+      max-width: 1200px;
+    }
+
+    /* 页头 */
+    .page-head {
+      margin-bottom: 40px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--line-strong);
+    }
+    .page-head .crumb {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--ink-mute);
+      letter-spacing: 0.08em;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .page-head .crumb em {
+      font-style: normal;
+      color: var(--accent);
+    }
+    .page-head h1 {
+      font-family: 'Noto Serif SC', serif;
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-bottom: 10px;
+    }
+    .page-head .sub {
+      font-size: 13px;
+      color: var(--ink-mute);
+      max-width: 560px;
+      line-height: 1.7;
+    }
+    .page-head .head-actions {
+      margin-top: 24px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    /* 按钮 */
+    .btn {
+      padding: 10px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid var(--line-strong);
+      background: var(--paper);
+      color: var(--ink);
+      cursor: pointer;
+      transition: all 0.2s;
+      border-radius: var(--radius);
+      font-family: 'Noto Sans SC', sans-serif;
+    }
+    .btn:hover { border-color: var(--ink); }
+    .btn-dark {
+      background: var(--ink);
+      color: var(--paper);
+      border-color: var(--ink);
+    }
+    .btn-dark:hover { background: var(--accent); border-color: var(--accent); }
+    .btn-accent {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .btn-accent:hover { background: #8f3423; border-color: #8f3423; }
+    .btn-ghost {
+      border-color: transparent;
+      color: var(--ink-mute);
+    }
+    .btn-ghost:hover { color: var(--ink); border-color: var(--line-strong); }
+    .btn-sm { padding: 6px 14px; font-size: 12px; }
+
+    /* 统计卡片 */
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--line);
+      border: 1px solid var(--line);
+      margin-bottom: 40px;
+    }
+    .stat-cell {
+      background: var(--paper);
+      padding: 24px;
+    }
+    .stat-cell .label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-mute);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .stat-cell .value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 32px;
+      font-weight: 600;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+    .stat-cell .note { font-size: 12px; color: var(--ink-mute); }
+    .stat-cell .trend {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .up { color: var(--green); }
+    .down { color: var(--accent); }
+
+    /* 表格 */
+    .tbl-wrap {
+      border: 1px solid var(--line);
+      background: var(--paper);
+    }
+    .tbl-head {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .tbl-head h3 {
+      font-family: 'Noto Serif SC', serif;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .tbl-head .meta {
+      font-size: 12px;
+      color: var(--ink-mute);
+      margin-top: 2px;
+    }
+    .tbl-tools { display: flex; gap: 10px; align-items: center; }
+    .tbl-tools input[type="text"] {
+      padding: 8px 12px;
+      border: 1px solid var(--line-strong);
+      background: var(--paper);
+      font-size: 12px;
+      width: 220px;
+      outline: none;
+      border-radius: var(--radius);
+      font-family: 'Noto Sans SC', sans-serif;
+    }
+    .tbl-tools input[type="text"]:focus { border-color: var(--ink); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead th {
+      text-align: left;
+      padding: 14px 24px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-mute);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--line-strong);
+      background: var(--paper-deep);
+    }
+    tbody td {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr { transition: background 0.15s; }
+    tbody tr:hover { background: var(--paper-deep); }
+
+    .cell-main { font-weight: 600; color: var(--ink); }
+    .cell-sub { font-size: 12px; color: var(--ink-mute); margin-top: 2px; }
+    .cell-mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+    /* 标签 */
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 20px;
+      letter-spacing: 0.02em;
+    }
+    .tag::before {
+      content: '';
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .tag-green { background: var(--green-soft); color: var(--green); }
+    .tag-red { background: var(--accent-soft); color: var(--accent); }
+    .tag-amber { background: var(--amber-soft); color: var(--amber); }
+    .tag-blue { background: var(--blue-soft); color: var(--blue); }
+    .tag-gray { background: var(--paper-deep); color: var(--ink-mute); }
+
+    /* 复选框样式 */
+    .chk {
+      width: 16px;
+      height: 16px;
+      border: 1px solid var(--line-strong);
+      border-radius: 2px;
+      cursor: pointer;
+      appearance: none;
+      position: relative;
+      transition: all 0.2s;
+    }
+    .chk:checked {
+      background: var(--ink);
+      border-color: var(--ink);
+    }
+    .chk:checked::after {
+      content: '✓';
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--paper);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    /* 筛选条 */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 24px;
+      background: var(--paper-deep);
+      border: 1px solid var(--line);
+      border-top: none;
+      font-size: 12px;
+      flex-wrap: wrap;
+    }
+    .filter-bar .fgroup {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .filter-bar label { color: var(--ink-mute); font-weight: 500; }
+    .filter-bar select, .filter-bar input[type="date"] {
+      padding: 6px 10px;
+      border: 1px solid var(--line-strong);
+      background: var(--paper);
+      font-size: 12px;
+      border-radius: var(--radius);
+      outline: none;
+      font-family: 'Noto Sans SC', sans-serif;
+    }
+    .filter-sep { width: 1px; height: 16px; background: var(--line-strong); }
+
+    /* 审核工作台 */
+    .review-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+    }
+    .review-card {
+      border: 1px solid var(--line);
+      padding: 28px;
+      background: var(--paper);
+    }
+    .review-card h4 {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-mute);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .review-card h4 .link {
+      font-size: 12px;
+      color: var(--blue);
+      cursor: pointer;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .mini-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--line);
+      border: 1px solid var(--line);
+      margin-bottom: 24px;
+    }
+    .mini-stat {
+      background: var(--paper);
+      padding: 16px 12px;
+      text-align: center;
+    }
+    .mini-stat .l { font-size: 11px; color: var(--ink-mute); margin-bottom: 6px; }
+    .mini-stat .v { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 600; }
+    .mini-stat.bad .v { color: var(--accent); }
+    .mini-stat.good .v { color: var(--green); }
+
+    .photo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .photo-item {
+      border: 1px solid var(--line);
+      padding: 12px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .photo-item:hover { border-color: var(--ink); }
+    .photo-ph {
+      height: 140px;
+      background: var(--paper-deep);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--ink-mute);
+      font-size: 24px;
+      margin-bottom: 10px;
+      gap: 8px;
+    }
+    .photo-ph span:last-child { font-size: 11px; }
+    .photo-name { font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+
+    .review-actions {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .review-actions .hint {
+      font-size: 12px;
+      color: var(--ink-mute);
+      max-width: 400px;
+      line-height: 1.6;
+    }
+
+    /* 报告横幅 */
+    .banner {
+      border: 1px solid var(--amber);
+      background: var(--amber-soft);
+      padding: 20px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 32px;
+      gap: 24px;
+    }
+    .banner .b-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--amber);
+      margin-bottom: 4px;
+    }
+    .banner .b-desc {
+      font-size: 12px;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    /* 进度条 */
+    .prog {
+      width: 80px;
+      height: 3px;
+      background: var(--line);
+      border-radius: 2px;
+      overflow: hidden;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    .prog i {
+      display: block;
+      height: 100%;
+      background: var(--ink);
+      border-radius: 2px;
+    }
+
+    /* 时间轴（异议处理） */
+    .timeline {
+      position: relative;
+      padding-left: 24px;
+    }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 5px;
+      top: 6px;
+      bottom: 6px;
+      width: 1px;
+      background: var(--line-strong);
+    }
+    .tl-item {
+      position: relative;
+      padding-bottom: 24px;
+    }
+    .tl-item:last-child { padding-bottom: 0; }
+    .tl-item::before {
+      content: '';
+      position: absolute;
+      left: -22px;
+      top: 6px;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--paper);
+      border: 2px solid var(--line-strong);
+    }
+    .tl-item.done::before { background: var(--green); border-color: var(--green); }
+    .tl-item.now::before { background: var(--accent); border-color: var(--accent); }
+    .tl-item .tl-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .tl-item .tl-title { font-weight: 600; font-size: 13px; }
+    .tl-item .tl-time { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-mute); }
+    .tl-item .tl-body { font-size: 12px; color: var(--ink-soft); line-height: 1.7; }
+
+    /* 响应式 */
+    @media (max-width: 900px) {
+      .login-wrap { grid-template-columns: 1fr; }
+      .login-left { display: none; }
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .main { padding: 24px; }
+      .stat-row { grid-template-columns: repeat(2, 1fr); }
+      .review-grid { grid-template-columns: 1fr; }
+      .proto-nav { max-width: 90vw; overflow-x: auto; }
+    }
+
+    /* 动效 */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .page.active > * {
+      animation: fadeUp 0.5s ease both;
+    }
+    .page.active > *:nth-child(2) { animation-delay: 0.06s; }
+    .page.active > *:nth-child(3) { animation-delay: 0.12s; }
+    .page.active > *:nth-child(4) { animation-delay: 0.18s; }
+  </style>
+</head>
+<body>
+
+<!-- 原型导航 -->
+<nav class="proto-nav">
+  <button class="active" onclick="showPage('login', this)">登录页</button>
+  <button onclick="showPage('schedule', this)">课次下发</button>
+  <button onclick="showPage('tasks', this)">任务排班</button>
+  <button onclick="showPage('review', this)">审核工作台</button>
+  <button onclick="showPage('objection', this)">异议处理</button>
+  <button onclick="showPage('report', this)">周报中心</button>
+</nav>
+
+<!-- ========== 页面：登录 ========== -->
+<div class="page active" id="page-login">
+  <div class="login-wrap">
+    <div class="login-left">
+      <div class="login-brand">CourseCheck · Admin Console</div>
+      <div class="login-hero">
+        <div class="issue">VOL.04 — 2026 秋季学期</div>
+        <h1>查课管理<br>工作台</h1>
+        <p>面向高校教学管理的线下查课排班、现场留痕与考勤闭环平台。以编辑级的信息密度，呈现每一堂课的真实状态。</p>
+      </div>
+      <div class="login-meta">
+        <div><span class="num">112</span><span>API 接口契约</span></div>
+        <div><span class="num">18</span><span>覆盖教学班</span></div>
+        <div><span class="num">97.4%</span><span>本周到课率</span></div>
+      </div>
+    </div>
+    <div class="login-right">
+      <div class="login-form">
+        <div class="form-tag">SIGN IN / 身份验证</div>
+        <h2>欢迎回来</h2>
+        <form onsubmit="event.preventDefault(); showPage('schedule', document.querySelectorAll('.proto-nav button')[1]);">
+          <div class="field">
+            <label>管理账号</label>
+            <input type="text" placeholder="工号 / 学号" value="teacher01">
+          </div>
+          <div class="field">
+            <label>登录密码</label>
+            <input type="password" placeholder="请输入密码" value="password123">
+          </div>
+          <button type="submit" class="btn-primary">进入工作台 →</button>
+        </form>
+        <div class="login-foot">
+          Web 访问令牌仅留存于内存，会话安全由 HttpOnly Cookie 保障。<br>
+          登录即代表同意《教学数据管理规范》与《隐私保护协议》。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 主框架页面（共用侧边栏） ========== -->
+<!-- 课次勾选与下发 -->
+<div class="page" id="page-schedule">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <div class="zh">查课管理后台</div>
+        <div class="en">CourseCheck Admin</div>
+      </div>
+      <nav class="side-nav">
+        <a class="side-link on"><span class="idx">01</span>课次勾选与下发</a>
+        <a class="side-link" onclick="showPage('tasks', document.querySelectorAll('.proto-nav button')[2])"><span class="idx">02</span>查课任务与排班</a>
+        <a class="side-link" onclick="showPage('review', document.querySelectorAll('.proto-nav button')[3])"><span class="idx">03</span>提交管理审核<span class="badge badge-amber">3</span></a>
+        <a class="side-link" onclick="showPage('objection', document.querySelectorAll('.proto-nav button')[4])"><span class="idx">04</span>考勤异议处理<span class="badge badge-red">1</span></a>
+        <a class="side-link" onclick="showPage('report', document.querySelectorAll('.proto-nav button')[5])"><span class="idx">05</span>学院考勤周报</a>
+      </nav>
+      <div class="side-foot">
+        <div class="status"><span class="dot"></span>系统运行正常</div>
+        <div>API 契约 112 Ops · FastAPI</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-head">
+        <div class="crumb">第 4 周 <em>●</em> 09月28日 — 10月04日 <em>●</em> 名单已锁定 rev_9a3c</div>
+        <h1>课次勾选与下发</h1>
+        <p class="sub">勾选需要查课的课次，系统将原子生成查课任务并自动调用排班求解器。已排除校历调休与体育课。</p>
+        <div class="head-actions">
+          <span style="font-size:13px;color:var(--ink-mute)">已选 <strong style="color:var(--ink);font-family:'JetBrains Mono'">3</strong> / 4 个课次</span>
+          <button class="btn">预览名单快照</button>
+          <button class="btn btn-dark">⚡ 一键下发并自动排班</button>
+        </div>
+      </header>
+
+      <div class="tbl-wrap">
+        <div class="filter-bar">
+          <div class="fgroup">
+            <label>日期范围</label>
+            <input type="date" value="2026-09-28">
+            <span style="color:var(--ink-mute)">至</span>
+            <input type="date" value="2026-09-30">
+          </div>
+          <div class="filter-sep"></div>
+          <div class="fgroup">
+            <label>教学班</label>
+            <select><option>全部教学班（本院 18 班级）</option></select>
+          </div>
+          <div class="filter-sep"></div>
+          <span class="tag tag-green">体育课自动排除已启用</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:40px"></th>
+              <th>课次时间</th>
+              <th>课程信息</th>
+              <th>教学班与规模</th>
+              <th>上课地点</th>
+              <th>排班状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><input type="checkbox" class="chk" checked></td>
+              <td>
+                <div class="cell-main">09-28（周一）</div>
+                <div class="cell-sub cell-mono">第 1-2 节 · 08:00-09:35</div>
+              </td>
+              <td>
+                <div class="cell-main"><span class="cell-mono" style="color:var(--blue)">CS201</span> 数据结构与算法</div>
+                <div class="cell-sub">任课教师：陈教授</div>
+              </td>
+              <td>
+                <div class="cell-main">计科2301-2302合班</div>
+                <div class="cell-sub"><span class="prog"><i style="width:100%"></i></span>应到 68 人</div>
+              </td>
+              <td>
+                <div class="cell-main">13号楼 302多媒体</div>
+                <div class="cell-sub">楼簇A（13/14/15号楼）</div>
+              </td>
+              <td><span class="tag tag-gray">待下发</span></td>
+            </tr>
+            <tr>
+              <td><input type="checkbox" class="chk" checked></td>
+              <td>
+                <div class="cell-main">09-28（周一）</div>
+                <div class="cell-sub cell-mono">第 3-4 节 · 10:00-11:35</div>
+              </td>
+              <td>
+                <div class="cell-main"><span class="cell-mono" style="color:var(--blue)">CS204</span> 操作系统原理</div>
+                <div class="cell-sub">任课教师：王副教授</div>
+              </td>
+              <td>
+                <div class="cell-main">软工2401班</div>
+                <div class="cell-sub"><span class="prog"><i style="width:100%"></i></span>应到 34 人</div>
+              </td>
+              <td>
+                <div class="cell-main">14号楼 205教室</div>
+                <div class="cell-sub">楼簇A（13/14/15号楼）</div>
+              </td>
+              <td><span class="tag tag-gray">待下发</span></td>
+            </tr>
+            <tr style="opacity:0.45">
+              <td><input type="checkbox" class="chk" disabled></td>
+              <td>
+                <div class="cell-main">09-28（周一）</div>
+                <div class="cell-sub cell-mono">第 5-6 节 · 14:00-15:35</div>
+              </td>
+              <td>
+                <div class="cell-main"><span class="cell-mono" style="color:var(--amber)">PE103</span> 大学体育(三) - 篮球</div>
+                <div class="cell-sub">任课教师：赵教练</div>
+              </td>
+              <td>
+                <div class="cell-main">计科2301班</div>
+                <div class="cell-sub">应到 32 人</div>
+              </td>
+              <td>
+                <div class="cell-main">风雨操场篮球A区</div>
+                <div class="cell-sub">体育场地</div>
+              </td>
+              <td><span class="tag tag-amber">规则排除：体育课不可查</span></td>
+            </tr>
+            <tr>
+              <td><input type="checkbox" class="chk" checked></td>
+              <td>
+                <div class="cell-main">09-29（周二）</div>
+                <div class="cell-sub cell-mono">第 1-2 节 · 08:00-09:35</div>
+              </td>
+              <td>
+                <div class="cell-main"><span class="cell-mono" style="color:var(--blue)">CS301</span> 计算机网络</div>
+                <div class="cell-sub">任课教师：孙讲师</div>
+              </td>
+              <td>
+                <div class="cell-main">计科2201-2202合班</div>
+                <div class="cell-sub"><span class="prog"><i style="width:100%"></i></span>应到 72 人</div>
+              </td>
+              <td>
+                <div class="cell-main">13号楼 108梯教</div>
+                <div class="cell-sub">楼簇A（13/14/15号楼）</div>
+              </td>
+              <td><span class="tag tag-green">已排班：刘晨（志愿）</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 查课任务与排班 -->
+<div class="page" id="page-tasks">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <div class="zh">查课管理后台</div>
+        <div class="en">CourseCheck Admin</div>
+      </div>
+      <nav class="side-nav">
+        <a class="side-link" onclick="showPage('schedule', document.querySelectorAll('.proto-nav button')[1])"><span class="idx">01</span>课次勾选与下发</a>
+        <a class="side-link on"><span class="idx">02</span>查课任务与排班</a>
+        <a class="side-link" onclick="showPage('review', document.querySelectorAll('.proto-nav button')[3])"><span class="idx">03</span>提交管理审核<span class="badge badge-amber">3</span></a>
+        <a class="side-link" onclick="showPage('objection', document.querySelectorAll('.proto-nav button')[4])"><span class="idx">04</span>考勤异议处理<span class="badge badge-red">1</span></a>
+        <a class="side-link" onclick="showPage('report', document.querySelectorAll('.proto-nav button')[5])"><span class="idx">05</span>学院考勤周报</a>
+      </nav>
+      <div class="side-foot">
+        <div class="status"><span class="dot"></span>系统运行正常</div>
+        <div>API 契约 112 Ops · FastAPI</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-head">
+        <div class="crumb">TASKS <em>●</em> 第 4 周 <em>●</em> 09月28日 — 10月04日</div>
+        <h1>查课任务与排班</h1>
+        <p class="sub">本周全部查课任务总览，保留任务唯一分配与失效历史。未分配任务附带标准原因码，支持人工指定。</p>
+      </header>
+
+      <div class="stat-row">
+        <div class="stat-cell">
+          <div class="label">本周计划总任务</div>
+          <div class="value">115</div>
+          <div class="note">覆盖 6 个专业年级</div>
+        </div>
+        <div class="stat-cell">
+          <div class="label">自动排班成功</div>
+          <div class="value" style="color:var(--green)">75</div>
+          <div class="note"><span class="trend up">65.2%</span> 自动分配率</div>
+        </div>
+        <div class="stat-cell">
+          <div class="label">待人工微调</div>
+          <div class="value" style="color:var(--amber)">40</div>
+          <div class="note">已附带标准原因码</div>
+        </div>
+        <div class="stat-cell">
+          <div class="label">已审核完成</div>
+          <div class="value" style="color:var(--blue)">18</div>
+          <div class="note"><span class="trend up">97.4%</span> 平均到课率</div>
+        </div>
+      </div>
+
+      <div class="tbl-wrap">
+        <div class="tbl-head">
+          <div>
+            <h3>任务总览</h3>
+            <div class="meta">按检查日期与节次排序</div>
+          </div>
+          <div class="tbl-tools">
+            <input type="text" placeholder="搜索课程 / 志愿者 / 教室…">
+            <button class="btn btn-sm">筛选</button>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>任务 ID</th>
+              <th>时间与地点</th>
+              <th>课程与教学班</th>
+              <th>受派志愿者</th>
+              <th>状态</th>
+              <th style="text-align:right">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="cell-mono" style="font-weight:600;color:var(--blue)">TASK-042</td>
+              <td>
+                <div class="cell-main">2026-09-28 第 1-2 节</div>
+                <div class="cell-sub">13号楼 302教室</div>
+              </td>
+              <td>
+                <div class="cell-main">数据结构与算法</div>
+                <div class="cell-sub">计科2301-2302合班（68人）</div>
+              </td>
+              <td>
+                <div class="cell-main">刘晨</div>
+                <div class="cell-sub cell-mono">2023001</div>
+              </td>
+              <td><span class="tag tag-green">已审核</span></td>
+              <td style="text-align:right"><button class="btn btn-ghost btn-sm">详情</button></td>
+            </tr>
+            <tr>
+              <td class="cell-mono" style="font-weight:600;color:var(--blue)">TASK-045</td>
+              <td>
+                <div class="cell-main">2026-09-28 第 3-4 节</div>
+                <div class="cell-sub">14号楼 205教室</div>
+              </td>
+              <td>
+                <div class="cell-main">操作系统原理</div>
+                <div class="cell-sub">软工2401班（34人）</div>
+              </td>
+              <td>
+                <div style="color:var(--amber);font-weight:600">未分配（可指定）</div>
+                <div class="cell-sub cell-mono">SELF_CLASS_AVOID</div>
+              </td>
+              <td><span class="tag tag-amber">待执行</span></td>
+              <td style="text-align:right"><button class="btn btn-sm">人工改派</button></td>
+            </tr>
+            <tr>
+              <td class="cell-mono" style="font-weight:600;color:var(--blue)">TASK-039</td>
+              <td>
+                <div class="cell-main">2026-09-27 第 7-8 节</div>
+                <div class="cell-sub">15号楼 401教室</div>
+              </td>
+              <td>
+                <div class="cell-main">软件工程导论</div>
+                <div class="cell-sub">软工2301班（35人）</div>
+              </td>
+              <td>
+                <div class="cell-main">周亮</div>
+                <div class="cell-sub cell-mono">2023045</div>
+              </td>
+              <td><span class="tag tag-red">逾期未执行</span></td>
+              <td style="text-align:right"><button class="btn btn-ghost btn-sm">详情</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 审核工作台 -->
+<div class="page" id="page-review">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <div class="zh">查课管理后台</div>
+        <div class="en">CourseCheck Admin</div>
+      </div>
+      <nav class="side-nav">
+        <a class="side-link" onclick="showPage('schedule', document.querySelectorAll('.proto-nav button')[1])"><span class="idx">01</span>课次勾选与下发</a>
+        <a class="side-link" onclick="showPage('tasks', document.querySelectorAll('.proto-nav button')[2])"><span class="idx">02</span>查课任务与排班</a>
+        <a class="side-link on"><span class="idx">03</span>提交管理审核<span class="badge badge-amber">3</span></a>
+        <a class="side-link" onclick="showPage('objection', document.querySelectorAll('.proto-nav button')[4])"><span class="idx">04</span>考勤异议处理<span class="badge badge-red">1</span></a>
+        <a class="side-link" onclick="showPage('report', document.querySelectorAll('.proto-nav button')[5])"><span class="idx">05</span>学院考勤周报</a>
+      </nav>
+      <div class="side-foot">
+        <div class="status"><span class="dot"></span>系统运行正常</div>
+        <div>API 契约 112 Ops · FastAPI</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-head">
+        <div class="crumb">REVIEW <em>●</em> 待审核 3 笔 <em>●</em> 今日已审 12 笔</div>
+        <h1>查课提交管理审核</h1>
+        <p class="sub">审核志愿者提交的现场考勤记录。审核通过后自动生成有效考勤事实，入库不可篡改并留痕审计。</p>
+      </header>
+
+      <div style="border:1px solid var(--line);padding:32px;background:var(--paper)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--line)">
+          <div>
+            <span class="tag tag-amber" style="margin-bottom:10px">待审核 SUBMISSION-108</span>
+            <div style="font-family:'Noto Serif SC';font-size:20px;font-weight:600;margin-top:8px">计科2301-2302合班 · 数据结构与算法</div>
+          </div>
+          <div style="text-align:right;font-size:12px;color:var(--ink-mute);line-height:1.8">
+            提交人：<strong style="color:var(--ink)">刘晨（志愿者）</strong><br>
+            提交时间：<span class="font-mono" style="color:var(--ink)">09-28 09:40</span>
+          </div>
+        </div>
+
+        <div class="review-grid">
+          <div>
+            <div class="review-card" style="border:none;padding:0">
+              <h4>现场清点考勤事实 <span class="link">调整应到人数</span></h4>
+              <div class="mini-stats">
+                <div class="mini-stat"><div class="l">应到人数</div><div class="v">68</div></div>
+                <div class="mini-stat good"><div class="l">实到人数</div><div class="v">66</div></div>
+                <div class="mini-stat"><div class="l">请假人数</div><div class="v">0</div></div>
+                <div class="mini-stat bad"><div class="l">缺勤人数</div><div class="v">2</div></div>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>学号</th>
+                    <th>姓名</th>
+                    <th>行政班</th>
+                    <th>异常类型</th>
+                    <th>现场说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="cell-mono">20230101</td>
+                    <td class="cell-main">赵子龙</td>
+                    <td class="cell-sub">计科2301</td>
+                    <td><span class="tag tag-red">旷课</span></td>
+                    <td class="cell-sub">点名未到且无请假条</td>
+                  </tr>
+                  <tr>
+                    <td class="cell-mono">20230115</td>
+                    <td class="cell-main">马超</td>
+                    <td class="cell-sub">计科2302</td>
+                    <td><span class="tag tag-amber">迟到</span></td>
+                    <td class="cell-sub">开课15分钟后进入</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <div class="review-card" style="border:none;padding:0">
+              <h4>现场拍照留痕 <span class="cell-mono" style="color:var(--accent);font-size:11px">凭证剩余 13:40</span></h4>
+              <div class="photo-grid">
+                <div class="photo-item">
+                  <div class="photo-ph"><span>▣</span><span>纸质点名册核验拍照.jpg</span></div>
+                  <div class="photo-name">点名册照片.jpg</div>
+                </div>
+                <div class="photo-item">
+                  <div class="photo-ph"><span>▣</span><span>讲台与黑板全景.jpg</span></div>
+                  <div class="photo-name">现场全景.jpg</div>
+                </div>
+              </div>
+              <div style="margin-top:16px;font-size:12px;color:var(--ink-mute);line-height:1.7">
+                照片通过 HMAC 短时签名凭证访问，过期后需重新申请。所有查看行为均计入审计日志。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="review-actions">
+          <div class="hint">审核通过后自动推进考勤源修订号（rev_41 → rev_42），并提示周报生成最新版本。</div>
+          <div style="display:flex;gap:12px">
+            <button class="btn" style="color:var(--accent);border-color:var(--accent)">驳回提交</button>
+            <button class="btn btn-dark">审核通过，生成正式考勤</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 异议处理 -->
+<div class="page" id="page-objection">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <div class="zh">查课管理后台</div>
+        <div class="en">CourseCheck Admin</div>
+      </div>
+      <nav class="side-nav">
+        <a class="side-link" onclick="showPage('schedule', document.querySelectorAll('.proto-nav button')[1])"><span class="idx">01</span>课次勾选与下发</a>
+        <a class="side-link" onclick="showPage('tasks', document.querySelectorAll('.proto-nav button')[2])"><span class="idx">02</span>查课任务与排班</a>
+        <a class="side-link" onclick="showPage('review', document.querySelectorAll('.proto-nav button')[3])"><span class="idx">03</span>提交管理审核<span class="badge badge-amber">3</span></a>
+        <a class="side-link on"><span class="idx">04</span>考勤异议处理<span class="badge badge-red">1</span></a>
+        <a class="side-link" onclick="showPage('report', document.querySelectorAll('.proto-nav button')[5])"><span class="idx">05</span>学院考勤周报</a>
+      </nav>
+      <div class="side-foot">
+        <div class="status"><span class="dot"></span>系统运行正常</div>
+        <div>API 契约 112 Ops · FastAPI</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-head">
+        <div class="crumb">OBJECTION <em>●</em> 终审权限 <em>●</em> 1 笔待终审</div>
+        <h1>学生考勤异议处理</h1>
+        <p class="sub">处理学生对考勤结果提出的异议申诉。终审改判将直接修订考勤事实，并触发周报重新生成。</p>
+      </header>
+
+      <div style="display:grid;grid-template-columns:1fr 380px;gap:32px">
+        <div style="border:1px solid var(--line);padding:32px;background:var(--paper)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px">
+            <div>
+              <span class="tag tag-red" style="margin-bottom:10px">待终审 OBJ-2026-0047</span>
+              <div style="font-family:'Noto Serif SC';font-size:20px;font-weight:600;margin-top:8px">赵子龙 · 计科2301</div>
+              <div class="cell-sub" style="margin-top:4px">针对 09-28《数据结构与算法》旷课认定提出异议</div>
+            </div>
+            <div style="text-align:right;font-size:12px;color:var(--ink-mute)">
+              申诉时间<br><span class="font-mono" style="color:var(--ink)">2026-09-29 14:22</span>
+            </div>
+          </div>
+
+          <h4 style="font-size:12px;font-weight:600;color:var(--ink-mute);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:16px">申诉理由</h4>
+          <div style="padding:20px;background:var(--paper-deep);border-left:2px solid var(--ink);font-size:13px;line-height:1.9;color:var(--ink-soft);margin-bottom:32px">
+            当日因参加校医院急诊（急性肠胃炎）未能到课，已附上就诊证明。因事发突然未能提前请假，恳请撤销旷课认定，更正为事假。
+          </div>
+
+          <h4 style="font-size:12px;font-weight:600;color:var(--ink-mute);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:16px">附件材料</h4>
+          <div style="display:flex;gap:12px;margin-bottom:32px">
+            <div class="photo-item" style="flex:1">
+              <div class="photo-ph" style="height:100px"><span>▣</span><span>校医院就诊证明.jpg</span></div>
+              <div class="photo-name">就诊证明.jpg</div>
+            </div>
+            <div class="photo-item" style="flex:1">
+              <div class="photo-ph" style="height:100px"><span>▣</span><span>急诊挂号单.jpg</span></div>
+              <div class="photo-name">挂号单.jpg</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:12px;padding-top:24px;border-top:1px solid var(--line)">
+            <button class="btn" style="color:var(--accent);border-color:var(--accent)">驳回异议，维持原认定</button>
+            <button class="btn btn-dark">终审通过，更正为事假</button>
+          </div>
+        </div>
+
+        <div style="border:1px solid var(--line);padding:32px;background:var(--paper)">
+          <h4 style="font-size:12px;font-weight:600;color:var(--ink-mute);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:24px">处理流程</h4>
+          <div class="timeline">
+            <div class="tl-item done">
+              <div class="tl-head"><span class="tl-title">学生提交申诉</span><span class="tl-time">09-29 14:22</span></div>
+              <div class="tl-body">赵子龙提交异议申请与就诊证明材料</div>
+            </div>
+            <div class="tl-item done">
+              <div class="tl-head"><span class="tl-title">辅导员初审</span><span class="tl-time">09-29 17:05</span></div>
+              <div class="tl-body">材料齐全，情况属实，建议更正为事假</div>
+            </div>
+            <div class="tl-item now">
+              <div class="tl-head"><span class="tl-title">管理员终审</span><span class="tl-time">进行中</span></div>
+              <div class="tl-body">等待 TEACHER_ADMIN 角色终审裁定</div>
+            </div>
+            <div class="tl-item">
+              <div class="tl-head"><span class="tl-title">考勤事实修订</span></div>
+              <div class="tl-body">终审通过后自动修订并触发周报更新</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 周报中心 -->
+<div class="page" id="page-report">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <div class="zh">查课管理后台</div>
+        <div class="en">CourseCheck Admin</div>
+      </div>
+      <nav class="side-nav">
+        <a class="side-link" onclick="showPage('schedule', document.querySelectorAll('.proto-nav button')[1])"><span class="idx">01</span>课次勾选与下发</a>
+        <a class="side-link" onclick="showPage('tasks', document.querySelectorAll('.proto-nav button')[2])"><span class="idx">02</span>查课任务与排班</a>
+        <a class="side-link" onclick="showPage('review', document.querySelectorAll('.proto-nav button')[3])"><span class="idx">03</span>提交管理审核<span class="badge badge-amber">3</span></a>
+        <a class="side-link" onclick="showPage('objection', document.querySelectorAll('.proto-nav button')[4])"><span class="idx">04</span>考勤异议处理<span class="badge badge-red">1</span></a>
+        <a class="side-link on"><span class="idx">05</span>学院考勤周报</a>
+      </nav>
+      <div class="side-foot">
+        <div class="status"><span class="dot"></span>系统运行正常</div>
+        <div>API 契约 112 Ops · FastAPI</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-head">
+        <div class="crumb">REPORT <em>●</em> 第 4 周 <em>●</em> 版本归档</div>
+        <h1>学院考勤周报中心</h1>
+        <p class="sub">周报版本不可物理篡改或覆盖，每次生成均永久归档并保留完整考勤汇总快照。</p>
+      </header>
+
+      <div class="banner">
+        <div>
+          <div class="b-title">周报源考勤数据已发生更新（behind_source: true）</div>
+          <div class="b-desc">检测到本周有 1 笔异议考勤发生了有效终审改判，当前第 4 周周报（Version 1.0）已落后于最新考勤事实。</div>
+        </div>
+        <button class="btn btn-accent" style="flex-shrink:0">重新生成 Version 2.0</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <div class="tbl-head">
+          <div>
+            <h3>第 4 周 · 历史归档</h3>
+            <div class="meta">共 1 个版本，按生成时间倒序</div>
+          </div>
+          <button class="btn btn-sm">下载最新 XLSX 周报</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>版本号</th>
+              <th>生成时间戳</th>
+              <th>操作人</th>
+              <th>源修订号</th>
+              <th>出勤率 / 缺勤率</th>
+              <th>新鲜度状态</th>
+              <th style="text-align:right">快照下载</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="cell-mono" style="font-weight:600">Version 1.0</td>
+              <td class="cell-mono cell-sub">2026-09-28 12:00:22</td>
+              <td class="cell-main">张老师 <span class="cell-sub" style="display:inline">TEACHER_ADMIN</span></td>
+              <td class="cell-mono cell-sub">rev_41</td>
+              <td class="cell-mono">96.8% / 3.2%</td>
+              <td><span class="tag tag-amber">已落后于考勤事实</span></td>
+              <td style="text-align:right">
+                <button class="btn btn-ghost btn-sm" style="color:var(--blue)">JSON</button>
+                <button class="btn btn-ghost btn-sm" style="color:var(--green)">XLSX</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+  function showPage(id, btn) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + id).classList.add('active');
+    document.querySelectorAll('.proto-nav button').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    window.scrollTo(0, 0);
+  }
+</script>
+
+</body>
+</html>

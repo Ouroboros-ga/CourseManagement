@@ -1,0 +1,145 @@
+import { request } from './http'
+
+export interface InspectionTaskItem {
+  id: string
+  task_key: string
+  semester_id: string
+  inspection_type: 'COURSE' | 'MORNING_SELF_STUDY' | 'EVENING_SELF_STUDY'
+  inspection_date: string
+  start_period: number
+  end_period: number
+  status: 'NOT_STARTED' | 'ASSIGNED' | 'SUBMITTED' | 'REVIEWED' | 'CANCELLED'
+  deadline_assessment?: string | null
+  course_name?: string | null
+  course_code?: string | null
+  classroom_name?: string | null
+  teaching_class_name?: string | null
+  teaching_class_id?: string | null
+  assigned_volunteer_id?: string | null
+  assigned_volunteer_name?: string | null
+  lock_version: number
+  created_at: string
+}
+
+export interface TaskListQuery {
+  page?: number
+  page_size?: number
+  semester_id?: string
+  week_no?: number
+  inspection_date?: string
+  status?: string
+  teaching_class_id?: string
+  include_canceled?: boolean
+}
+
+export interface PaginatedResult<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface CourseOccurrence {
+  course_schedule_id: string
+  inspection_date: string
+  start_period: number
+  end_period: number
+  course_name: string
+  course_code?: string
+  teacher_name?: string
+  teaching_class_id: string
+  teaching_class_name: string
+  student_count: number
+  classroom_name?: string
+  existing_task_id?: string | null
+  existing_task_status?: string | null
+  selectable: boolean
+  disabled_reason?: string | null
+}
+
+export interface OccurrencesQueryResult {
+  items: CourseOccurrence[]
+  page: number
+  page_size: number
+  total: number
+  selection_revision: string
+  selection_scope: {
+    semester_id?: string
+    date_from?: string
+    date_to?: string
+    teaching_class_ids?: number[]
+  }
+}
+
+export async function listTasks(query: TaskListQuery): Promise<PaginatedResult<InspectionTaskItem>> {
+  const params = new URLSearchParams()
+  if (query.page) params.set('page', String(query.page))
+  if (query.page_size) params.set('page_size', String(query.page_size))
+  if (query.semester_id) params.set('semester_id', query.semester_id)
+  if (query.week_no) params.set('week_no', String(query.week_no))
+  if (query.inspection_date) params.set('inspection_date', query.inspection_date)
+  if (query.status) params.set('status', query.status)
+  if (query.teaching_class_id) params.set('teaching_class_id', query.teaching_class_id)
+  if (query.include_canceled !== undefined) params.set('include_canceled', String(query.include_canceled))
+
+  return request<PaginatedResult<InspectionTaskItem>>(`/api/v1/inspection-tasks?${params.toString()}`)
+}
+
+export async function getTask(id: string): Promise<InspectionTaskItem> {
+  return request<InspectionTaskItem>(`/api/v1/inspection-tasks/${id}`)
+}
+
+export async function queryCourseOccurrences(params: {
+  semester_id: string
+  date_from: string
+  date_to: string
+  teaching_class_ids?: number[]
+  page?: number
+  page_size?: number
+}): Promise<OccurrencesQueryResult> {
+  const searchParams = new URLSearchParams({
+    semester_id: params.semester_id,
+    date_from: params.date_from,
+    date_to: params.date_to,
+    page: String(params.page || 1),
+    page_size: String(params.page_size || 50)
+  })
+  if (params.teaching_class_ids?.length) {
+    params.teaching_class_ids.forEach(id => searchParams.append('teaching_class_ids', String(id)))
+  }
+  return request<OccurrencesQueryResult>(`/api/v1/inspection-course-occurrences?${searchParams.toString()}`)
+}
+
+export async function generateExactTasks(body: {
+  semester_id: string
+  inspection_type: string
+  selection_revision: string
+  selection_scope: Record<string, unknown>
+  occurrences: Array<{ course_schedule_id: string; inspection_date: string }>
+}): Promise<{
+  created: number
+  existed: number
+  tasks: Array<{ task_id: string; status: string }>
+  assignable_task_ids: string[]
+}> {
+  return request('/api/v1/inspection-tasks/generate', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })
+}
+
+export async function triggerAutoAssign(body: {
+  task_ids: string[]
+  candidate_user_ids?: string[]
+}): Promise<{
+  target_task_count: number
+  assigned_count: number
+  unassigned_count: number
+  assigned_assignments: Array<{ task_id: string; volunteer_user_id: string }>
+  unassigned_tasks: Array<{ task_id: string; reason_code: string; message: string }>
+}> {
+  return request('/api/v1/assignments/auto', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })
+}
