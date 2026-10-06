@@ -701,6 +701,7 @@ class IdentityService:
                 raise ConflictError(ErrorCode.STATE_CONFLICT, "该学生已被其他账号绑定")
             new_student_id = student.id
             target.student_id = student.id
+            target.display_name = student.name
             student_role = self._repo.get_or_create_role(
                 RoleCode.STUDENT.value, RoleCode.STUDENT.value
             )
@@ -734,6 +735,7 @@ class IdentityService:
             },
             after={
                 "student_id": new_student_id,
+                "display_name": target.display_name,
                 "roles": after_roles,
                 "lock_version": target.lock_version,
                 "revoked_sessions": revoked,
@@ -816,6 +818,7 @@ class IdentityService:
 
         before_roles = self._repo.list_role_codes(user.id)
         user.student_id = student.id
+        user.display_name = student.name
         token.status = BindingTokenStatus.USED.value
         token.used_at = now
 
@@ -839,6 +842,7 @@ class IdentityService:
             before={"student_id": None, "roles": before_roles},
             after={
                 "student_id": student.id,
+                "display_name": student.name,
                 "roles": after_roles,
                 "lock_version": user.lock_version,
             },
