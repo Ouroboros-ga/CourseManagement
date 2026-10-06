@@ -554,6 +554,7 @@ class IdentityService:
                 status=user.status,
                 roles=sorted(r.code for r in user.roles),
                 lock_version=user.lock_version,
+                student_id=str(user.student_id) if user.student_id is not None else None,
             )
             for user in self._repo.list_all_users()
         ]

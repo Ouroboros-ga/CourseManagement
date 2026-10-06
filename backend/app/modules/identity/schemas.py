@@ -166,6 +166,7 @@ class RoleAssignmentTargetItem(BaseModel):
     status: str
     roles: list[str]
     lock_version: int
+    student_id: str | None = None
 
 
 class RoleAssignmentTargetsResponse(BaseModel):

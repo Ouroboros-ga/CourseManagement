@@ -19,6 +19,15 @@ const currentUser = computed(() => sessionStore.currentUser)
 const menuItems = computed(() => {
   const list = [
     {
+      id: 'volunteers',
+      idx: '00',
+      path: '/dashboard/volunteers',
+      name: '人员资质与绑定码',
+      badge: null as string | null,
+      badgeClass: '',
+      permission: 'volunteer.read'
+    },
+    {
       id: 'schedule',
       idx: '01',
       path: '/dashboard/schedule',
