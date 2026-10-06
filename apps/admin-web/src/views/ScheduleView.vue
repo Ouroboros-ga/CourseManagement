@@ -1,146 +1,182 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useSessionStore } from '../stores/session'
+import {
+  listTasks,
+  queryCourseOccurrences,
+  generateExactTasks,
+  triggerAutoAssign,
+  type CourseOccurrence,
+  type InspectionTaskItem
+} from '../api/tasks'
+import { listTeachingClasses, type TeachingClassItem } from '../api/academic'
+import TaskStatusTag from '../components/TaskStatusTag.vue'
 
-interface MockOccurrence {
-  id: string
-  date: string
-  period: string
-  courseCode: string
-  courseName: string
-  teacher: string
-  className: string
-  studentCount: number
-  location: string
-  cluster: string
-  statusText: string
-  statusTag: 'gray' | 'green' | 'amber'
-  selectable: boolean
-  disabledReason?: string
+const sessionStore = useSessionStore()
+
+const loading = ref(false)
+const dispatchLoading = ref(false)
+const teachingClasses = ref<TeachingClassItem[]>([])
+const selectedClassId = ref<string>('')
+
+// 课次列表 (从后端加载)
+const occurrences = ref<CourseOccurrence[]>([])
+const weekTasks = ref<InspectionTaskItem[]>([])
+const selectedKeys = ref<string[]>([])
+const selectionRevision = ref<string>('')
+const selectionScope = ref<Record<string, unknown>>({})
+
+const hasData = computed(() => occurrences.value.length > 0 || weekTasks.value.length > 0)
+
+async function loadData() {
+  if (!sessionStore.currentSemesterId) return
+  loading.value = true
+  selectedKeys.value = []
+  try {
+    // 1. 加载本周已有的查课任务
+    const taskRes = await listTasks({
+      semester_id: sessionStore.currentSemesterId,
+      week_no: sessionStore.currentWeekNo,
+      page_size: 50
+    })
+    weekTasks.value = taskRes.items || []
+
+    // 2. 加载当前学期的教学班
+    if (teachingClasses.value.length === 0) {
+      const clsRes = await listTeachingClasses(sessionStore.currentSemesterId)
+      teachingClasses.value = clsRes.items || []
+    }
+
+    // 3. 查询当周排课课次 (如果有配置日期范围和教学班)
+    if (sessionStore.weekDateRange.start && sessionStore.weekDateRange.end && teachingClasses.value.length > 0) {
+      const classIds = selectedClassId.value 
+        ? [Number(selectedClassId.value)] 
+        : teachingClasses.value.map(c => Number(c.id)).slice(0, 50)
+
+      try {
+        const occRes = await queryCourseOccurrences({
+          semester_id: sessionStore.currentSemesterId,
+          date_from: sessionStore.weekDateRange.start,
+          date_to: sessionStore.weekDateRange.end,
+          teaching_class_ids: classIds
+        })
+        occurrences.value = occRes.items || []
+        selectionRevision.value = occRes.selection_revision
+        selectionScope.value = occRes.selection_scope || {}
+      } catch {
+        occurrences.value = []
+      }
+    } else {
+      occurrences.value = []
+    }
+  } catch (err: unknown) {
+    console.error('加载排班数据失败:', err)
+  } finally {
+    loading.value = false
+  }
 }
 
-const selectedIds = ref<string[]>(['occ-101', 'occ-102', 'occ-104'])
-const dispatchLoading = ref(false)
-
-const occurrences = reactive<MockOccurrence[]>([
-  {
-    id: 'occ-101',
-    date: '09-28（周一）',
-    period: '第 1-2 节 · 08:00-09:35',
-    courseCode: 'CS201',
-    courseName: '数据结构与算法',
-    teacher: '陈教授',
-    className: '计科2301-2302合班',
-    studentCount: 68,
-    location: '13号楼 302多媒体',
-    cluster: '楼簇A（13/14/15号楼）',
-    statusText: '待下发',
-    statusTag: 'gray',
-    selectable: true
-  },
-  {
-    id: 'occ-102',
-    date: '09-28（周一）',
-    period: '第 3-4 节 · 10:00-11:35',
-    courseCode: 'CS204',
-    courseName: '操作系统原理',
-    teacher: '王副教授',
-    className: '软工2401班',
-    studentCount: 34,
-    location: '14号楼 205教室',
-    cluster: '楼簇A（13/14/15号楼）',
-    statusText: '待下发',
-    statusTag: 'gray',
-    selectable: true
-  },
-  {
-    id: 'occ-103',
-    date: '09-28（周一）',
-    period: '第 5-6 节 · 14:00-15:35',
-    courseCode: 'PE103',
-    courseName: '大学体育(三) - 篮球',
-    teacher: '赵教练',
-    className: '计科2301班',
-    studentCount: 32,
-    location: '风雨操场篮球A区',
-    cluster: '体育场地',
-    statusText: '规则排除：体育课不可查',
-    statusTag: 'amber',
-    selectable: false,
-    disabledReason: '根据系统排班规则，体育课不作为被查目标。'
-  },
-  {
-    id: 'occ-104',
-    date: '09-29（周二）',
-    period: '第 1-2 节 · 08:00-09:35',
-    courseCode: 'CS301',
-    courseName: '计算机网络',
-    teacher: '孙讲师',
-    className: '计科2201-2202合班',
-    studentCount: 72,
-    location: '13号楼 108梯教',
-    cluster: '楼簇A（13/14/15号楼）',
-    statusText: '已排班：刘晨（志愿）',
-    statusTag: 'green',
-    selectable: true
+watch(
+  () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo, selectedClassId.value],
+  () => {
+    loadData()
   }
-])
+)
 
-function toggleSelect(id: string) {
-  const index = selectedIds.value.indexOf(id)
+onMounted(() => {
+  loadData()
+})
+
+function toggleSelect(key: string) {
+  const index = selectedKeys.value.indexOf(key)
   if (index > -1) {
-    selectedIds.value.splice(index, 1)
+    selectedKeys.value.splice(index, 1)
   } else {
-    selectedIds.value.push(id)
+    selectedKeys.value.push(key)
   }
 }
 
 async function triggerDispatch() {
-  if (selectedIds.value.length === 0) {
-    ElMessage.warning('请至少选择一个待下发课次')
+  if (selectedKeys.value.length === 0) {
+    ElMessage.warning('请勾选需要下发的课次')
     return
   }
 
   dispatchLoading.value = true
-  setTimeout(() => {
-    dispatchLoading.value = false
+  try {
+    const selectedItems = occurrences.value.filter(o => 
+      selectedKeys.value.includes(`${o.course_schedule_id}_${o.inspection_date}`)
+    )
+
+    // 调用后端生成查课任务接口
+    const genRes = await generateExactTasks({
+      semester_id: sessionStore.currentSemesterId,
+      inspection_type: 'COURSE',
+      selection_revision: selectionRevision.value || 'rev_1',
+      selection_scope: selectionScope.value,
+      occurrences: selectedItems.map(o => ({
+        course_schedule_id: o.course_schedule_id,
+        inspection_date: o.inspection_date
+      }))
+    })
+
+    // 如果生成了新任务，尝试触发自动排班求解器
+    let assignMsg = ''
+    if (genRes.assignable_task_ids && genRes.assignable_task_ids.length > 0) {
+      try {
+        const assignRes = await triggerAutoAssign({
+          task_ids: genRes.assignable_task_ids
+        })
+        assignMsg = `<br/>3. <b>求解器自动排班</b>：已排定 ${assignRes.assigned_count} 个任务，待人工处理 ${assignRes.unassigned_count} 个。`
+      } catch {
+        assignMsg = '<br/>3. <b>自动排班</b>：暂无可用志愿者或无需自动分配。'
+      }
+    }
+
     ElMessageBox.alert(
       `下发完成！<br/><br/>
-      1. <b>任务生成</b>：成功生成 ${selectedIds.value.length} 个任务<br/>
-      2. <b>自动排班</b>：已成功分配 2 个任务，未分配 1 个任务<br/>
-      3. <b>未分配原因</b>：TASK-102 因候选人本班回避 (<code>SELF_CLASS_AVOID</code>) 无法排入，请在任务列表进行人工指定。`,
-      '一键下发与排班结果',
+      1. <b>任务生成</b>：成功生成 ${genRes.created} 个新查课任务<br/>
+      2. <b>已有任务</b>：跳过 ${genRes.existed} 个已存在的重复任务
+      ${assignMsg}`,
+      '下发与排班完成',
       {
         dangerouslyUseHTMLString: true,
-        confirmButtonText: '确定并查看任务'
+        confirmButtonText: '确定'
       }
     )
-  }, 800)
+
+    // 重新加载数据
+    await loadData()
+  } catch (err: unknown) {
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '下发失败'
+    ElMessage.error(msg)
+  } finally {
+    dispatchLoading.value = false
+  }
 }
 </script>
 
 <template>
-  <div>
+  <div v-loading="loading">
     <header class="page-head">
-      <div class="crumb">
-        <span>第 4 周</span><em>●</em><span>09月28日 — 10月04日</span><em>●</em><span>名单已锁定 rev_9a3c</span>
+      <div class="crumb font-mono">
+        <span>{{ sessionStore.currentSemesterName }}</span>
+        <em>●</em>
+        <span>第 {{ sessionStore.currentWeekNo }} 周</span>
+        <em>●</em>
+        <span>{{ sessionStore.weekDateRange.text }}</span>
       </div>
       <h1>课次勾选与下发</h1>
       <p class="sub">
-        勾选需要查课的课次，系统将原子生成查课任务并自动调用排班求解器。已排除校历调休与体育课。
+        按当前自然周调取课程课次，真实原子下发至后端数据库并触发排班求解器分配志愿者。已下发任务可直接在任务列表中查看。
       </p>
       <div class="head-actions">
         <span class="sel-info">
-          已选 <strong class="font-mono">{{ selectedIds.length }}</strong> / {{ occurrences.length }} 个课次
+          已选 <strong class="font-mono">{{ selectedKeys.length }}</strong> 个待下发课次
         </span>
-        <button
-          class="btn"
-          @click="ElMessage.info('名单快照已基于学期当前有效学生名单生成，总人数无变动。')"
-        >
-          预览名单快照
-        </button>
-        <button class="btn btn-dark" :disabled="dispatchLoading" @click="triggerDispatch">
-          {{ dispatchLoading ? '正在下发…' : '⚡ 一键下发并自动排班' }}
+        <button class="btn btn-dark" :disabled="dispatchLoading || selectedKeys.length === 0" @click="triggerDispatch">
+          {{ dispatchLoading ? '正在下发…' : '⚡ 确认下发并排班' }}
         </button>
       </div>
     </header>
@@ -149,83 +185,119 @@ async function triggerDispatch() {
       <!-- 筛选条 -->
       <div class="filter-bar">
         <div class="fgroup">
-          <label>日期范围</label>
-          <input type="date" class="input" value="2026-09-28" />
-          <span class="muted">至</span>
-          <input type="date" class="input" value="2026-09-30" />
+          <label>当前周次日期范围</label>
+          <span class="cell-mono font-bold">{{ sessionStore.weekDateRange.start }} 至 {{ sessionStore.weekDateRange.end }}</span>
         </div>
         <div class="fsep"></div>
         <div class="fgroup">
-          <label>教学班</label>
-          <select class="input">
-            <option>全部教学班（本院 18 班级）</option>
-            <option>计科2301-2302合班</option>
-            <option>软工2401班</option>
+          <label>教学班过滤</label>
+          <select v-model="selectedClassId" class="input">
+            <option value="">全部教学班（{{ teachingClasses.length }} 个）</option>
+            <option v-for="c in teachingClasses" :key="c.id" :value="c.id">
+              {{ c.class_name }}
+            </option>
           </select>
         </div>
         <div class="fsep"></div>
-        <span class="tag tag-green">体育课自动排除已启用</span>
+        <button class="btn btn-ghost btn-sm" @click="loadData">⟳ 刷新数据</button>
       </div>
 
-      <!-- 课次表 -->
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th style="width: 48px"></th>
-            <th>课次时间</th>
-            <th>课程信息</th>
-            <th>教学班与规模</th>
-            <th>上课地点</th>
-            <th>排班状态</th>
-            <th style="text-align: right">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="item in occurrences"
-            :key="item.id"
-            :class="{ 'row-disabled': !item.selectable }"
-          >
-            <td>
-              <input
-                type="checkbox"
-                class="chk"
-                :checked="selectedIds.includes(item.id)"
-                :disabled="!item.selectable"
-                @change="toggleSelect(item.id)"
-              />
-            </td>
-            <td>
-              <div class="cell-main">{{ item.date }}</div>
-              <div class="cell-sub cell-mono">{{ item.period }}</div>
-            </td>
-            <td>
-              <div class="cell-main">
-                <span class="cell-mono code">{{ item.courseCode }}</span>
-                {{ item.courseName }}
-              </div>
-              <div class="cell-sub">任课教师：{{ item.teacher }}</div>
-            </td>
-            <td>
-              <div class="cell-main">{{ item.className }}</div>
-              <div class="cell-sub">
-                <span v-if="item.selectable" class="prog"><i style="width: 100%"></i></span>应到 {{ item.studentCount }} 人
-              </div>
-            </td>
-            <td>
-              <div class="cell-main">{{ item.location }}</div>
-              <div class="cell-sub">{{ item.cluster }}</div>
-            </td>
-            <td>
-              <span class="tag" :class="'tag-' + item.statusTag" :title="item.disabledReason">{{ item.statusText }}</span>
-            </td>
-            <td style="text-align: right">
-              <span v-if="!item.selectable" class="cell-sub">系统排除</span>
-              <button v-else class="btn btn-ghost btn-sm">详情</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <!-- 课次列表 (待下发课次) -->
+      <div v-if="occurrences.length > 0">
+        <div class="section-title">本周待下发排课课次</div>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="width: 48px"></th>
+              <th>课次时间</th>
+              <th>课程信息</th>
+              <th>教学班与规模</th>
+              <th>上课地点</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="item in occurrences"
+              :key="`${item.course_schedule_id}_${item.inspection_date}`"
+              :class="{ 'row-disabled': !item.selectable }"
+            >
+              <td>
+                <input
+                  type="checkbox"
+                  class="chk"
+                  :checked="selectedKeys.includes(`${item.course_schedule_id}_${item.inspection_date}`)"
+                  :disabled="!item.selectable"
+                  @change="toggleSelect(`${item.course_schedule_id}_${item.inspection_date}`)"
+                />
+              </td>
+              <td>
+                <div class="cell-main">{{ item.inspection_date }}</div>
+                <div class="cell-sub cell-mono">第 {{ item.start_period }}-{{ item.end_period }} 节</div>
+              </td>
+              <td>
+                <div class="cell-main">
+                  <span v-if="item.course_code" class="cell-mono code">{{ item.course_code }}</span>
+                  {{ item.course_name }}
+                </div>
+                <div class="cell-sub">{{ item.teacher_name ? '任课教师：' + item.teacher_name : '未填任课教师' }}</div>
+              </td>
+              <td>
+                <div class="cell-main">{{ item.teaching_class_name }}</div>
+                <div class="cell-sub">应到 {{ item.student_count }} 人</div>
+              </td>
+              <td>
+                <div class="cell-main">{{ item.classroom_name || '未指定教室' }}</div>
+              </td>
+              <td>
+                <span v-if="item.existing_task_id" class="tag tag-green">已下发任务</span>
+                <span v-else-if="!item.selectable" class="tag tag-amber" :title="item.disabled_reason || ''">
+                  {{ item.disabled_reason || '不可下发' }}
+                </span>
+                <span v-else class="tag tag-gray">待下发</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 本周已生成的任务清单 -->
+      <div v-if="weekTasks.length > 0" style="margin-top: 24px;">
+        <div class="section-title">本周数据库中已有查课任务（共 {{ weekTasks.length }} 条）</div>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>任务编号</th>
+              <th>查课日期</th>
+              <th>节次</th>
+              <th>课程</th>
+              <th>教学班</th>
+              <th>教室</th>
+              <th>任务状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in weekTasks" :key="t.id">
+              <td class="cell-mono code">#{{ t.id }}</td>
+              <td>{{ t.inspection_date }}</td>
+              <td class="cell-mono">第 {{ t.start_period }}-{{ t.end_period }} 节</td>
+              <td>{{ t.course_name_snapshot || '—' }}</td>
+              <td>{{ t.class_name_snapshot || '—' }}</td>
+              <td>{{ t.classroom_snapshot || '—' }}</td>
+              <td>
+                <TaskStatusTag :status="t.status" :deadline-assessment="t.deadline_assessment" />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 空状态 -->
+      <div v-if="!loading && !hasData" class="empty-box">
+        <div class="empty-icon">📂</div>
+        <div class="empty-text">当前周次（第 {{ sessionStore.currentWeekNo }} 周）暂无可下发课次及已有任务</div>
+        <div class="empty-sub">您可以切换顶栏周次或学期查看其他教学周</div>
+      </div>
     </div>
   </div>
 </template>
@@ -233,6 +305,14 @@ async function triggerDispatch() {
 <style scoped>
 .sel-info { font-size: 13px; color: var(--ink-mute); }
 .sel-info strong { color: var(--ink); font-size: 15px; }
+
+.section-title {
+  padding: 14px 24px 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--paper);
+}
 
 .filter-bar {
   display: flex;
@@ -246,9 +326,17 @@ async function triggerDispatch() {
 }
 .fgroup { display: flex; align-items: center; gap: 8px; }
 .fgroup label { color: var(--ink-mute); font-weight: 500; }
-.muted { color: var(--ink-mute); }
 .fsep { width: 1px; height: 16px; background: var(--line-strong); }
 
 .code { color: var(--blue); font-weight: 600; }
 .row-disabled { opacity: 0.45; }
+
+.empty-box {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--ink-mute);
+}
+.empty-icon { font-size: 32px; margin-bottom: 8px; }
+.empty-text { font-size: 14px; font-weight: 600; color: var(--ink-soft); margin-bottom: 4px; }
+.empty-sub { font-size: 12px; }
 </style>

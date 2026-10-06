@@ -4,21 +4,34 @@ export interface InspectionTaskItem {
   id: string
   task_key: string
   semester_id: string
-  inspection_type: 'COURSE' | 'MORNING_SELF_STUDY' | 'EVENING_SELF_STUDY'
+  inspection_type: string
   inspection_date: string
   start_period: number
   end_period: number
-  status: 'NOT_STARTED' | 'ASSIGNED' | 'SUBMITTED' | 'REVIEWED' | 'CANCELLED'
+  status: string
   deadline_assessment?: string | null
+  deadline_at?: string | null
   course_name?: string | null
   course_code?: string | null
   classroom_name?: string | null
   teaching_class_name?: string | null
   teaching_class_id?: string | null
+  course_name_snapshot?: string | null
+  class_name_snapshot?: string | null
+  classroom_snapshot?: string | null
+  require_photo_snapshot?: boolean
+  expected_count_snapshot?: number
+  expected_count_current?: number
+  roster_version?: number
   assigned_volunteer_id?: string | null
   assigned_volunteer_name?: string | null
-  lock_version: number
-  created_at: string
+  assignment?: {
+    volunteer_user_id: string
+    volunteer_name?: string
+    assigned_at?: string
+  } | null
+  lock_version?: number
+  created_at?: string
 }
 
 export interface TaskListQuery {

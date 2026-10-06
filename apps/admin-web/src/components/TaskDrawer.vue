@@ -1,16 +1,47 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import type { InspectionTaskItem } from '../api/tasks'
+import { getTaskRoster, type RosterStudentItem } from '../api/submissions'
 import TaskStatusTag from './TaskStatusTag.vue'
 
-defineProps<{
+interface Props {
   visible: boolean
   task: InspectionTaskItem | null
-}>()
+}
+const props = defineProps<Props>()
 
 const emit = defineEmits<{
-  (e: 'update:visible', val: boolean): void
-  (e: 'reassign', task: InspectionTaskItem): void
+  'update:visible': [val: boolean]
+  reassign: [task: InspectionTaskItem]
 }>()
+
+const loadingRoster = ref(false)
+const students = ref<RosterStudentItem[]>([])
+const rosterVersion = ref<number>(1)
+const totalStudents = ref<number>(0)
+
+watch(
+  () => props.task,
+  async (newTask) => {
+    if (!newTask) {
+      students.value = []
+      return
+    }
+    loadingRoster.value = true
+    try {
+      const res = await getTaskRoster(newTask.id)
+      students.value = res.students || []
+      rosterVersion.value = res.roster_version || 1
+      totalStudents.value = res.total_students || students.value.length
+    } catch {
+      students.value = []
+      totalStudents.value = 0
+    } finally {
+      loadingRoster.value = false
+    }
+  },
+  { immediate: true }
+)
 
 const close = () => {
   emit('update:visible', false)
@@ -20,17 +51,17 @@ const close = () => {
 <template>
   <el-drawer
     :model-value="visible"
-    title="查课任务详情"
+    title="查课任务详情与点名册"
     direction="rtl"
-    size="480px"
+    size="520px"
     destroy-on-close
     @close="close"
   >
     <div v-if="task" class="drawer-body">
       <!-- 任务概览 -->
       <section class="d-section">
-        <div class="d-id font-mono">任务 ID：{{ task.id }} · lock_version: {{ task.lock_version }}</div>
-        <div class="d-course font-serif">{{ task.course_name || '未命名课程' }}</div>
+        <div class="d-id font-mono">任务 ID：#{{ task.id }} · lock_version: {{ task.lock_version }}</div>
+        <div class="d-course font-serif">{{ task.course_name_snapshot || task.course_name || '未命名课程' }}</div>
         <TaskStatusTag :status="task.status" :deadline-assessment="task.deadline_assessment" />
       </section>
 
@@ -48,11 +79,11 @@ const close = () => {
           </div>
           <div>
             <span class="d-label">上课教室</span>
-            <p class="d-value">{{ task.classroom_name || '未指定教室' }}</p>
+            <p class="d-value">{{ task.classroom_snapshot || task.classroom_name || '未指定教室' }}</p>
           </div>
           <div>
             <span class="d-label">教学班级</span>
-            <p class="d-value">{{ task.teaching_class_name || '未指定教学班' }}</p>
+            <p class="d-value">{{ task.class_name_snapshot || task.teaching_class_name || '未指定教学班' }}</p>
           </div>
         </div>
       </section>
@@ -60,13 +91,17 @@ const close = () => {
       <!-- 受派志愿者 -->
       <section class="d-section">
         <div class="d-heading-row">
-          <h4 class="d-heading">当前受派志愿者</h4>
+          <h4 class="d-heading">受派志愿者</h4>
           <button class="btn btn-ghost btn-sm" @click="emit('reassign', task)">调整 / 改派</button>
         </div>
-        <div v-if="task.assigned_volunteer_id" class="d-volunteer">
+        <div v-if="(task as any).assignment || task.assigned_volunteer_id" class="d-volunteer">
           <div>
-            <div class="d-value">{{ task.assigned_volunteer_name || '志愿者' }}</div>
-            <div class="d-label font-mono">用户 ID：{{ task.assigned_volunteer_id }}</div>
+            <div class="d-value">
+              {{ (task as any).assignment?.volunteer_name || task.assigned_volunteer_name || '志愿者已分配' }}
+            </div>
+            <div class="d-label font-mono">
+              用户 UID：{{ (task as any).assignment?.volunteer_user_id || task.assigned_volunteer_id }}
+            </div>
           </div>
           <span class="tag tag-green">有效受派</span>
         </div>
@@ -75,15 +110,34 @@ const close = () => {
         </div>
       </section>
 
-      <!-- 截止考核事实 -->
+      <!-- 任务点名名单 -->
       <section class="d-section">
-        <h4 class="d-heading">截止与考核审计事实</h4>
-        <p class="d-fact">
-          截止考核结果：<strong class="font-mono">{{ task.deadline_assessment || '未截止 / 正常完成' }}</strong>
-        </p>
-        <p class="d-note">
-          根据业务规则：允许截止后补交，但截止时「逾期未执行」事实不可被补交或更正覆盖。
-        </p>
+        <div class="d-heading-row">
+          <h4 class="d-heading">任务点名学生名单（应到 {{ totalStudents }} 人 · 名单版本 v{{ rosterVersion }}）</h4>
+        </div>
+        <div v-loading="loadingRoster">
+          <div v-if="students.length > 0" class="roster-table-wrap">
+            <table class="tbl tbl-compact">
+              <thead>
+                <tr>
+                  <th>学号</th>
+                  <th>姓名</th>
+                  <th>行政班</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="stu in students" :key="stu.student_id">
+                  <td class="cell-mono">{{ stu.student_no }}</td>
+                  <td class="font-bold">{{ stu.name }}</td>
+                  <td class="cell-sub">{{ stu.administrative_class_name || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="d-empty" style="background: var(--paper-deep); color: var(--ink-mute);">
+            点名册学生数据暂未导入或名单为空
+          </div>
+        </div>
       </section>
     </div>
 
@@ -97,16 +151,16 @@ const close = () => {
 </template>
 
 <style scoped>
-.drawer-body { display: flex; flex-direction: column; gap: 28px; }
+.drawer-body { display: flex; flex-direction: column; gap: 24px; }
 
 .d-section {
-  padding-bottom: 24px;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--line);
 }
 .d-section:last-child { border-bottom: none; padding-bottom: 0; }
 
 .d-id { font-size: 11px; color: var(--ink-mute); margin-bottom: 8px; }
-.d-course { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
+.d-course { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
 
 .d-heading {
   font-size: 11px;
@@ -114,20 +168,20 @@ const close = () => {
   color: var(--ink-mute);
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 .d-heading-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 .d-heading-row .d-heading { margin-bottom: 0; }
 
 .d-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px 12px;
+  gap: 14px 12px;
 }
 .d-label { font-size: 11px; color: var(--ink-mute); display: block; margin-bottom: 4px; }
 .d-value { font-size: 13px; font-weight: 600; color: var(--ink); }
@@ -136,21 +190,24 @@ const close = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: var(--green-soft);
   border-left: 2px solid var(--green);
 }
 .d-empty {
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: var(--amber-soft);
   border-left: 2px solid var(--amber);
   font-size: 12px;
   color: var(--amber);
 }
 
-.d-fact { font-size: 12px; color: var(--ink-soft); margin-bottom: 8px; }
-.d-fact strong { color: var(--ink); }
-.d-note { font-size: 11px; color: var(--ink-mute); line-height: 1.7; }
+.roster-table-wrap {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+}
+.tbl-compact th, .tbl-compact td { padding: 6px 12px; font-size: 12px; }
 
 .d-footer { display: flex; justify-content: flex-end; gap: 10px; }
 </style>

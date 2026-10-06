@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSessionStore } from '../stores/session'
 
 const router = useRouter()
 const route = useRoute()
 const sessionStore = useSessionStore()
+
+onMounted(async () => {
+  if (sessionStore.semesters.length === 0) {
+    await sessionStore.fetchAcademicContext()
+  }
+})
 
 const currentUser = computed(() => sessionStore.currentUser)
 
@@ -122,10 +128,60 @@ async function handleLogout() {
       <!-- 顶部学期周次栏 -->
       <header class="topbar">
         <div class="term font-mono">
-          <span class="t-sem">{{ sessionStore.currentSemesterName }}</span>
+          <!-- 学期选择器 -->
+          <div class="sem-picker">
+            <select
+              class="t-sem-select font-mono"
+              :value="sessionStore.currentSemesterId"
+              @change="e => sessionStore.setSemester((e.target as HTMLSelectElement).value)"
+            >
+              <option v-if="!sessionStore.semesters.length" value="">加载学期中...</option>
+              <option
+                v-for="s in sessionStore.semesters"
+                :key="s.id"
+                :value="s.id"
+              >
+                {{ s.name }}
+              </option>
+            </select>
+          </div>
+
           <span class="t-sep"></span>
-          <span class="t-week">第 {{ sessionStore.currentWeekNo }} 周</span>
-          <span class="t-range">09月28日 — 10月04日</span>
+
+          <!-- 周次选择器 -->
+          <div class="week-picker">
+            <button
+              class="week-nav-btn"
+              :disabled="sessionStore.currentWeekNo <= 1"
+              title="上一周"
+              @click="sessionStore.setWeekNo(sessionStore.currentWeekNo - 1)"
+            >
+              ‹
+            </button>
+            <select
+              class="t-week-select font-mono"
+              :value="sessionStore.currentWeekNo"
+              @change="e => sessionStore.setWeekNo(Number((e.target as HTMLSelectElement).value))"
+            >
+              <option
+                v-for="w in sessionStore.totalWeeks"
+                :key="w"
+                :value="w"
+              >
+                第 {{ w }} 周
+              </option>
+            </select>
+            <button
+              class="week-nav-btn"
+              :disabled="sessionStore.currentWeekNo >= sessionStore.totalWeeks"
+              title="下一周"
+              @click="sessionStore.setWeekNo(sessionStore.currentWeekNo + 1)"
+            >
+              ›
+            </button>
+          </div>
+
+          <span class="t-range font-mono">{{ sessionStore.weekDateRange.text || '计算日期中' }}</span>
         </div>
         <div class="deadline">
           <span class="d-label">今日 22:00 提交截止</span>
@@ -272,20 +328,56 @@ async function handleLogout() {
 .term {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   font-size: 12px;
   color: var(--ink-soft);
 }
-.term .t-sem { font-weight: 600; }
-.term .t-sep { width: 1px; height: 14px; background: var(--line-strong); }
-.term .t-week {
-  font-weight: 700;
-  color: var(--paper);
-  background: var(--ink);
-  padding: 2px 10px;
+.sem-picker { display: flex; align-items: center; }
+.t-sem-select {
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
   border-radius: 2px;
-  font-size: 11px;
+  cursor: pointer;
+  outline: none;
 }
+.t-sem-select:hover { border-color: var(--line-strong); }
+.term .t-sep { width: 1px; height: 14px; background: var(--line-strong); }
+
+.week-picker {
+  display: flex;
+  align-items: center;
+  background: var(--ink);
+  border-radius: 2px;
+  padding: 1px;
+}
+.week-nav-btn {
+  background: none;
+  border: none;
+  color: var(--paper);
+  font-size: 13px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 2px 6px;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+.week-nav-btn:hover:not(:disabled) { opacity: 1; }
+.week-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.t-week-select {
+  background: transparent;
+  border: none;
+  color: var(--paper);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 4px;
+  cursor: pointer;
+  outline: none;
+}
+.t-week-select option { background: var(--paper); color: var(--ink); }
 .term .t-range { color: var(--ink-mute); font-size: 11px; }
 
 .deadline {
