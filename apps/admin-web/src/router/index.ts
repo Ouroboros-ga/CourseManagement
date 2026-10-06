@@ -67,8 +67,9 @@ router.beforeEach(async (to, _from, next) => {
 
   // Allow direct view in dev/preview mode, or redirect to login if required
   if (to.name !== 'login' && !sessionStore.isAuthenticated) {
-    // In dev prototype mode, allow access for testing UI components directly
-    next()
+    // 开发环境保留原型预览；生产页面必须先完成登录，API 同时独立鉴权。
+    if (import.meta.env.DEV) next()
+    else next('/login')
     return
   }
 

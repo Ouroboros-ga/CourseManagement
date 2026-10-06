@@ -7,8 +7,8 @@ import { ElMessage } from 'element-plus'
 const router = useRouter()
 const sessionStore = useSessionStore()
 
-const username = ref('teacher01')
-const password = ref('password123')
+const username = ref('')
+const password = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 

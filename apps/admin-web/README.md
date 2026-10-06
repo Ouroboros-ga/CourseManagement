@@ -1,5 +1,7 @@
 # 管理端开发
 
+当前线上入口：`https://course.zsitai.xyz/`。生产构建由 Nginx 提供，页面和 API 同源；部分工作台业务页面仍为原型，不能将演示操作当作真实提交。发布记录见 `docs/ADMIN_WEB_DEPLOYMENT_20260930.md`。
+
 ```powershell
 cd "D:/My project/CourseManagement/apps/admin-web"
 npm.cmd run dev
