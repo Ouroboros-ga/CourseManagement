@@ -1,41 +1,18 @@
-import { getObjections, getRecord, submitAppeal } from '../../../api/record';
-import { uploadObjectionProof } from '../../../api/file';
+import { submitAppeal } from '../../../api/record';
+import { uploadFile } from '../../../utils/upload';
 import Toast from 'tdesign-miniprogram/toast/index';
-
-const typeNames = { NORMAL: '正常', LEAVE: '请假', LATE: '迟到', ABSENT: '旷课' };
 
 Page({
   data: {
-    recordId: '', currentType: '', currentTypeName: '', desiredType: '',
-    latestStatusName: '', latestReason: '',
-    reason: '', fileList: [], uploading: false, submitting: false, blocked: false,
+    recordId: '',
+    reason: '',
+    fileList: []
   },
 
-  async onLoad(options) {
-    if (!options.id) return;
-    this.setData({ recordId: options.id });
-    try {
-      const record = await getRecord(options.id);
-      const history = await getObjections({ attendance_record_id: options.id, page: 1, page_size: 1 });
-      const latest = (history.items || [])[0];
-      const latestStatusName = !latest ? '' : latest.final_status === 'APPROVED' ? '已通过'
-        : latest.final_status === 'REJECTED' ? '已驳回'
-        : latest.initial_status === 'PENDING' ? '待初核' : '待终审';
-      this.setData({
-        currentType: record.effective_type,
-        currentTypeName: typeNames[record.effective_type] || record.effective_type,
-        latestStatusName,
-        latestReason: latest?.reason || '',
-        blocked: latest?.final_status === 'PENDING',
-      });
-    } catch (error) {
-      this.setData({ blocked: true });
-      Toast({ context: this, selector: '#t-toast', message: error.message || '考勤记录不可读取' });
+  onLoad(options) {
+    if (options.id) {
+      this.setData({ recordId: options.id });
     }
-  },
-
-  onDesiredTypeChange(e) {
-    this.setData({ desiredType: e.detail.value });
   },
 
   onReasonChange(e) {
@@ -43,53 +20,56 @@ Page({
   },
 
   async onAddPhoto(e) {
-    if (this.data.uploading) return;
-    const files = e.detail.files || [];
-    if (this.data.fileList.length + files.length > 3) {
-      Toast({ context: this, selector: '#t-toast', message: '证明材料最多 3 张' });
-      return;
-    }
-    this.setData({ uploading: true });
+    const { files } = e.detail;
+    wx.showLoading({ title: '上传中...' });
+    
     try {
-      for (const file of files) {
-        const path = file.url || file.tempFilePath;
-        const uploaded = await uploadObjectionProof(path);
-        this.setData({ fileList: this.data.fileList.concat({ id: uploaded.id, url: path, name: file.name || '证明', type: 'image' }) });
-      }
-    } catch (error) {
-      Toast({ context: this, selector: '#t-toast', message: error.message || '材料上传失败' });
+      const uploadPromises = files.map(file => uploadFile(file.url, 'OBJECTION_PROOF'));
+      const uploadResults = await Promise.all(uploadPromises);
+      
+      const newFiles = files.map((file, index) => ({
+        url: file.url,
+        name: 'photo',
+        type: 'image',
+        file_id: uploadResults[index].id
+      }));
+      
+      const currentFiles = this.data.fileList;
+      this.setData({ fileList: currentFiles.concat(newFiles) });
+    } catch (err) {
+      Toast({ context: this, selector: '#t-toast', message: '图片上传失败' });
     } finally {
-      this.setData({ uploading: false });
+      wx.hideLoading();
     }
   },
 
   onRemovePhoto(e) {
-    const list = [...this.data.fileList];
-    list.splice(e.detail.index, 1);
-    this.setData({ fileList: list });
+    const { index } = e.detail;
+    const { fileList } = this.data;
+    fileList.splice(index, 1);
+    this.setData({ fileList });
   },
 
   async handleSubmit() {
-    const { recordId, currentType, desiredType, reason, fileList, blocked, uploading, submitting } = this.data;
-    if (blocked || uploading || submitting) return;
-    if (!recordId || !currentType || !desiredType || desiredType === currentType) {
-      Toast({ context: this, selector: '#t-toast', message: '请选择不同的期望认定' });
+    const { recordId, reason, fileList } = this.data;
+    if (!reason.trim()) {
+      Toast({ context: this, selector: '#t-toast', message: '请填写异议理由' });
       return;
     }
-    this.setData({ submitting: true });
+
     try {
       wx.showLoading({ title: '提交中' });
-      await submitAppeal(recordId, {
-        desired_type: desiredType, reason: reason.trim(), file_ids: fileList.map(file => file.id),
-      });
-      this.setData({ blocked: true });
-      Toast({ context: this, selector: '#t-toast', message: '提交成功', theme: 'success' });
-      setTimeout(() => wx.navigateBack(), 1500);
-    } catch (error) {
-      Toast({ context: this, selector: '#t-toast', message: error.message || '提交失败' });
-    } finally {
+      const fileIds = fileList.map(f => f.file_id).filter(id => id != null).map(Number);
+      await submitAppeal(recordId, { reason, file_ids: fileIds });
+      
       wx.hideLoading();
-      this.setData({ submitting: false });
+      Toast({ context: this, selector: '#t-toast', message: '提交成功', theme: 'success' });
+      setTimeout(() => {
+        wx.navigateBack();
+      }, 1500);
+    } catch (err) {
+      wx.hideLoading();
+      Toast({ context: this, selector: '#t-toast', message: err.msg || err.message || '提交失败' });
     }
-  },
+  }
 });

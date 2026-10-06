@@ -1,11 +1,10 @@
 {
   "name": "wxsign",
   "version": "1.0.0",
-  "description": "查课管理系统微信小程序",
+  "description": "查课管理系统V1.0",
   "main": "app.js",
-  "type": "module",
   "scripts": {
-    "test": "node --test ../tests/*.test.mjs"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",

@@ -1,21 +1,7 @@
 <view class="container">
-  <view class="form-card" wx:if="{{latestStatusName}}">
-    <view class="section-title">最近一次异议：{{latestStatusName}}</view>
-    <view>{{latestReason}}</view>
-  </view>
   <view class="form-card">
-    <view class="section-title">当前认定：{{currentTypeName}}</view>
-    <view class="section-title">期望认定</view>
-    <t-radio-group value="{{desiredType}}" bind:change="onDesiredTypeChange">
-      <t-radio value="NORMAL" label="正常" />
-      <t-radio value="LEAVE" label="请假" />
-      <t-radio value="LATE" label="迟到" />
-      <t-radio value="ABSENT" label="旷课" />
-    </t-radio-group>
-  </view>
-  <view class="form-card">
-    <view class="section-title">异议理由（选填）</view>
-    <t-textarea value="{{reason}}" bind:change="onReasonChange" placeholder="可补充异议理由（选填）" maxlength="512" disableDefaultPadding="{{true}}" />
+    <view class="section-title">异议理由</view>
+    <t-textarea value="{{reason}}" bind:change="onReasonChange" placeholder="请详细说明您的异议理由" maxlength="200" disableDefaultPadding="{{true}}" />
   </view>
 
   <view class="form-card">
@@ -33,7 +19,7 @@
   </view>
 
   <view class="footer-btn">
-    <t-button theme="primary" size="large" block disabled="{{blocked || uploading || submitting}}" bind:tap="handleSubmit">提交异议</t-button>
+    <t-button theme="primary" size="large" block bind:tap="handleSubmit">提交异议</t-button>
   </view>
   <t-toast id="t-toast" />
 </view>

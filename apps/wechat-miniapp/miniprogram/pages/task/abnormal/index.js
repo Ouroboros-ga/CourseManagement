@@ -1,65 +1,72 @@
-import { getTaskRoster } from '../../../api/task';
+import { searchStudents } from '../../../api/task';
 import Toast from 'tdesign-miniprogram/toast/index';
 
 Page({
   data: {
     taskId: '',
     keyword: '',
+    allStudents: [],
     searchResults: [],
-    roster: [],
-    selectedList: [] // studentId is the internal ID; studentNo is displayed.
+    selectedList: [] // { studentId, name, type }
   },
 
   onLoad(options) {
     if (options.taskId) {
       this.setData({ taskId: options.taskId });
-      this.loadRoster(options.taskId);
+      this.fetchAllStudents();
     }
     const current = wx.getStorageSync('currentAbnormal');
-    if (current) {
+    if (current && Array.isArray(current)) {
+      this.setData({ selectedList: current });
       wx.removeStorageSync('currentAbnormal');
-      if (current.taskId === options.taskId && Array.isArray(current.items)) {
-        this.setData({ selectedList: current.items });
-      }
     }
   },
-
-  onKeywordChange(e) {
-    this.setData({ keyword: e.detail.value });
-  },
-
-  async loadRoster(taskId) {
+  
+  async fetchAllStudents() {
     try {
-      wx.showLoading({ title: '加载名单中' });
-      const response = await getTaskRoster(taskId);
-      const roster = (response.items || []).map(student => ({
-        studentId: student.student_id,
-        studentNo: student.student_no,
-        name: student.name
+      wx.showLoading({ title: '加载名单...' });
+      const res = await searchStudents(this.data.taskId, '');
+      const results = (res?.items || res || []).map(item => ({
+        ...item,
+        studentId: item.student_id || item.studentId,
+        studentNo: item.student_no || item.studentNo,
+        name: item.name
       }));
-      this.setData({ roster });
+      this.setData({ allStudents: results, searchResults: results });
     } catch (err) {
-      Toast({ context: this, selector: '#t-toast', message: err.message || '名单加载失败' });
+      Toast({ context: this, selector: '#t-toast', message: '加载名单失败' });
     } finally {
       wx.hideLoading();
     }
   },
 
-  async handleSearch() {
-    const keyword = this.data.keyword.trim().toLowerCase();
-    if (!keyword) {
-      Toast({ context: this, selector: '#t-toast', message: '请输入搜索词' });
+  onKeywordChange(e) {
+    const keyword = e.detail.value || '';
+    this.setData({ keyword });
+    this.filterStudents(keyword);
+  },
+  
+  filterStudents(keyword) {
+    if (!keyword.trim()) {
+      this.setData({ searchResults: this.data.allStudents });
       return;
     }
-    const results = this.data.roster.filter(student =>
-      student.name.toLowerCase().includes(keyword) || student.studentNo.toLowerCase().includes(keyword));
-    this.setData({ searchResults: results });
+    const lowerKey = keyword.trim().toLowerCase();
+    const filtered = this.data.allStudents.filter(s => 
+      (s.name && s.name.toLowerCase().includes(lowerKey)) || 
+      (s.studentNo && s.studentNo.toLowerCase().includes(lowerKey))
+    );
+    this.setData({ searchResults: filtered });
+  },
+
+  handleSearch() {
+    this.filterStudents(this.data.keyword);
   },
 
   addStudent(e) {
     const student = e.currentTarget.dataset.item;
-    const selectedList = [...this.data.selectedList];
-
+    const { selectedList } = this.data;
+    
     // 判断是否已存在
     const exists = selectedList.some(s => s.studentId === student.studentId);
     if (exists) {
@@ -69,20 +76,19 @@ Page({
 
     selectedList.push({
       ...student,
-      type: 'ABSENT',
-      typeName: '旷课'
+      type: '旷课' // 默认类型
     });
 
-    this.setData({
+    this.setData({ 
       selectedList,
       keyword: '',
-      searchResults: []
+      searchResults: [] 
     });
   },
 
   removeStudent(e) {
     const { index } = e.currentTarget.dataset;
-    const selectedList = [...this.data.selectedList];
+    const { selectedList } = this.data;
     selectedList.splice(index, 1);
     this.setData({ selectedList });
   },
@@ -90,18 +96,14 @@ Page({
   onTypeChange(e) {
     const { index } = e.currentTarget.dataset;
     const { value } = e.detail;
-    const selectedList = [...this.data.selectedList];
+    const { selectedList } = this.data;
     selectedList[index].type = value;
-    selectedList[index].typeName = { LATE: '迟到', ABSENT: '旷课', LEAVE: '请假' }[value];
     this.setData({ selectedList });
   },
 
   handleConfirm() {
     const { selectedList } = this.data;
-    wx.setStorageSync('selectedAbnormal', {
-      taskId: this.data.taskId,
-      items: selectedList
-    });
+    wx.setStorageSync('selectedAbnormal', selectedList);
     wx.navigateBack();
   }
 });

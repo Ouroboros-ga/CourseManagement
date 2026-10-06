@@ -99,3 +99,13 @@
   box-shadow: 0 -4rpx 16rpx rgba(0,0,0,0.05);
   z-index: 100;
 }
+
+.readonly-mode {
+  margin-top: 20rpx;
+}
+
+.result-text {
+  font-size: 30rpx;
+  color: #334155;
+  padding: 16rpx 32rpx;
+}

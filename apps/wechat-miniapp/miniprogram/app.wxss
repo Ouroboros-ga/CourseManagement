@@ -2,7 +2,7 @@
 .container {
   box-sizing: border-box;
   width: 100%;
-}
+} 
 
 button {
   background: initial;
@@ -18,4 +18,11 @@ button::after {
 
 page {
   background: #F8FAFC;
+  /* Modern Minimalist Light Blue - Tech Style */
+  --primary-color: #60A5FA;
+  --td-brand-color: var(--primary-color);
+  --td-brand-color-light: #aeb4bd;
+  --td-brand-color-focus: #3B82F6;
+  --td-brand-color-active: #2563EB;
+  --td-brand-color-disabled: #BFDBFE;
 }

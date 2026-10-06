@@ -1,5 +1,5 @@
 {
-  "navigationBarTitleText": "查课记录",
+  "navigationBarTitleText": "考勤记录",
   "usingComponents": {
     "t-tag": "tdesign-miniprogram/tag/tag",
     "t-button": "tdesign-miniprogram/button/button",

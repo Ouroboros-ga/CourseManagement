@@ -1,6 +1,6 @@
 <view class="container">
   <view class="header-section">
-    <view class="welcome-text">你好，{{userInfo.display_name || '同学'}}</view>
+    <view class="welcome-text">{{greetingText}}</view>
     <view class="role-tag" wx:if="{{roleName}}">{{roleName}}</view>
   </view>
 
@@ -14,22 +14,23 @@
     <t-icon name="chevron-right" size="48rpx" color="#CBD5E1" />
   </view>
 
-  <view class="action-card" wx:if="{{canViewRecords}}" bind:tap="goToRecordList">
+  <!-- 管理员入口 -->
+  <view class="action-card" wx:if="{{isAdmin}}" bind:tap="goToAdminPanel">
+    <t-icon name="setting" size="48rpx" color="#3B82F6" />
+    <view class="card-content">
+      <view class="card-title">管理专区</view>
+      <view class="card-desc">考勤审核与排班调整</view>
+    </view>
+    <t-icon name="chevron-right" size="48rpx" color="#CBD5E1" />
+  </view>
+
+  <!-- 学生记录入口 (任何角色都可以查看自己的考勤记录) -->
+  <view class="action-card" bind:tap="goToRecordList">
     <t-icon name="time" size="48rpx" color="#3B82F6" />
     <view class="card-content">
-      <view class="card-title">我的考勤</view>
-      <view class="card-desc">查看本人记录与提交异议</view>
+      <view class="card-title">考勤记录</view>
+      <view class="card-desc">查看考勤状态与提出异议</view>
     </view>
     <t-icon name="chevron-right" size="48rpx" color="#CBD5E1" />
   </view>
-
-  <view class="action-card" wx:if="{{canReviewObjections}}" bind:tap="goToAdminPanel">
-    <t-icon name="task" size="48rpx" color="#3B82F6" />
-    <view class="card-content">
-      <view class="card-title">异议审核</view>
-      <view class="card-desc">按授予的权限进行初核或终审</view>
-    </view>
-    <t-icon name="chevron-right" size="48rpx" color="#CBD5E1" />
-  </view>
-
 </view>

@@ -19,7 +19,7 @@
   <view class="selected-list">
     <view class="section-title">已选名单 ({{selectedList.length}}人)</view>
     <view class="empty-hint" wx:if="{{selectedList.length === 0}}">暂无选择</view>
-
+    
     <view class="selected-item" wx:for="{{selectedList}}" wx:key="studentId">
       <view class="selected-header">
         <view class="stu-info">
@@ -30,9 +30,9 @@
       </view>
       <view class="type-selector">
         <t-radio-group value="{{item.type}}" bind:change="onTypeChange" data-index="{{index}}" borderless placement="horizontal">
-          <t-radio value="LATE" label="迟到" />
-          <t-radio value="ABSENT" label="旷课" />
-          <t-radio value="LEAVE" label="请假" />
+          <t-radio value="迟到" label="迟到" />
+          <t-radio value="旷课" label="旷课" />
+          <t-radio value="请假" label="请假" />
         </t-radio-group>
       </view>
     </view>
@@ -41,6 +41,6 @@
   <view class="footer-btn">
     <t-button theme="primary" size="large" block bind:tap="handleConfirm">确定添加</t-button>
   </view>
-
+  
   <t-toast id="t-toast" />
 </view>

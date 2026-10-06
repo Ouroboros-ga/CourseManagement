@@ -1,12 +1,13 @@
 <view class="container">
   <view class="user-info">
     <view class="avatar">
-      <image src="/images/avatar.png" mode="aspectFill" style="width: 100%; height: 100%;" />
+      <open-data type="userAvatarUrl"></open-data>
     </view>
-    <view class="name">{{displayName || '加载中'}}</view>
-    <view wx:for="{{roleNames}}" wx:key="*this">{{item}}</view>
+    <view class="name">
+      <open-data type="userNickName"></open-data>
+    </view>
   </view>
-
+  
   <view class="action-list">
     <t-button theme="danger" block size="large" bind:tap="handleLogout">退出登录</t-button>
   </view>

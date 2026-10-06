@@ -4,21 +4,24 @@
       <view class="record-card" wx:for="{{records}}" wx:key="id">
         <view class="card-header">
           <view class="course-name">{{item.courseName}}</view>
-          <t-tag theme="{{item.statusTheme}}" variant="light">
-            {{item.statusName}}
+          <t-tag theme="{{item.status === '正常' ? 'success' : (item.status === '已撤销' ? 'default' : 'danger')}}" variant="light">
+            {{item.type || item.status}}
           </t-tag>
         </view>
         <view class="info-row">
           <text class="label">时间：</text>
-          <text class="value">{{item.date}}</text>
+          <text class="value">{{item.date}} 第{{item.period}}节</text>
         </view>
         <view class="info-row">
-          <text class="label">班级：</text>
-          <text class="value">{{item.className}}</text>
+          <text class="label">教室：</text>
+          <text class="value">{{item.classroom}}</text>
         </view>
         
-        <view class="action-bar">
-          <t-button size="small" theme="primary" bind:tap="goToAppeal" data-id="{{item.id}}">查看或提出异议</t-button>
+        <view class="action-bar" wx:if="{{item.status !== '正常' && item.status !== '已撤销' && !item.hasAppealed}}">
+          <t-button size="small" theme="primary" bind:tap="goToAppeal" data-id="{{item.id}}">提出异议</t-button>
+        </view>
+        <view class="action-bar" wx:elif="{{item.hasAppealed}}">
+          <t-tag theme="primary" variant="light-outline">异议处理中</t-tag>
         </view>
       </view>
     </block>

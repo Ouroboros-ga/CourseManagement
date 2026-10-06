@@ -1,13 +1,50 @@
 import { request } from '../utils/request.js';
 
-export function getApprovalList(params) {
-  return request({ url: '/api/v1/objections', method: 'GET', data: params });
-}
+export const getApprovalList = () => {
+  return request({ 
+    url: '/api/v1/objections?final_status=PENDING', 
+    method: 'GET' 
+  });
+};
 
-export function initialReview(objectionId, data) {
-  return request({ url: `/api/v1/objections/${objectionId}/initial-review`, method: 'POST', data });
-}
+export const approveAppeal = (appealId, version) => {
+  return request({ 
+    url: `/api/v1/objections/${appealId}/final-review`, 
+    method: 'POST',
+    data: {
+      decision: 'APPROVED',
+      final_type: 'NORMAL',
+      current_version: version
+    }
+  });
+};
 
-export function finalReview(objectionId, data) {
-  return request({ url: `/api/v1/objections/${objectionId}/final-review`, method: 'POST', data });
-}
+export const rejectAppeal = (appealId, version, comment = '') => {
+  return request({ 
+    url: `/api/v1/objections/${appealId}/final-review`, 
+    method: 'POST',
+    data: {
+      decision: 'REJECTED',
+      current_version: version,
+      ...(comment ? { comment } : {})
+    }
+  });
+};
+
+export const getSubmissionList = () => {
+  return request({
+    url: '/api/v1/management/submissions?review_status=PENDING',
+    method: 'GET'
+  });
+};
+
+export const reviewSubmission = (submissionId, decision, comment = '') => {
+  return request({
+    url: `/api/v1/submissions/${submissionId}/review`,
+    method: 'POST',
+    data: {
+      decision: decision,
+      ...(comment ? { comment } : {})
+    }
+  });
+};

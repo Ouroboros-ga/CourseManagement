@@ -2,6 +2,7 @@
   <t-tabs defaultValue="TODO" bind:change="onTabChange" sticky theme="card">
     <t-tab-panel label="待执行" value="TODO" />
     <t-tab-panel label="已提交" value="DONE" />
+    <t-tab-panel label="已结束" value="CLOSED" />
   </t-tabs>
 
   <view class="task-list">
@@ -9,7 +10,7 @@
       <view class="task-card" wx:for="{{tasks}}" wx:key="id" bind:tap="goToDetail" data-id="{{item.id}}">
         <view class="task-header">
           <view class="task-title">{{item.courseName}}</view>
-          <t-tag theme="{{item.status === '待执行' ? 'primary' : (item.status === '已逾期' ? 'warning' : 'success')}}" variant="light-outline">
+          <t-tag theme="{{item.status === '待执行' ? 'primary' : (item.status === '已逾期' ? 'danger' : 'success')}}">
             {{item.status}}
           </t-tag>
         </view>
@@ -30,7 +31,7 @@
       </view>
     </block>
     <view wx:else class="empty-wrap">
-      <t-empty wx:if="{{!loading}}" icon="info-circle" description="暂无任务" />
+      <t-empty icon="info-circle" description="暂无任务" />
     </view>
   </view>
 </view>
