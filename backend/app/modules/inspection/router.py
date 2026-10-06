@@ -31,6 +31,8 @@ from app.modules.inspection.schemas import (
     DeadlineSettleRequest,
     ExpectedCountUpdateRequest,
     InspectionGenerateRequest,
+    InspectionTaskUpdateRequest,
+    SmartSampleRequest,
     ReviewStatusLiteral,
     RosterVersionCreateRequest,
     SubmissionCreateRequest,
@@ -138,6 +140,21 @@ def get_course_occurrences(
         list_occurrences(service, semester, scope, page=page, page_size=page_size),
         _rid(request),
     )
+
+
+@router.post("/inspection-course-occurrences/smart-sample")
+def smart_sample_course_occurrences(
+    body: SmartSampleRequest,
+    actor: InspectionGenerateDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    from app.modules.inspection.course_occurrences import smart_sample_occurrences
+
+    service._require(actor.id, PermissionCode.INSPECTION_GENERATE.value)
+    semester = service._get_active_semester_read(body.semester_id)
+    result = smart_sample_occurrences(service, semester, body)
+    return success(result, _rid(request))
 
 
 @router.post("/inspection-tasks/preview")
@@ -527,4 +544,17 @@ def update_expected_count(
     request: Request,
 ) -> dict[str, object]:
     result = service.update_expected_count(actor, task_id, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+
+
+@router.patch("/inspection-tasks/{task_id}")
+def update_inspection_task(
+    task_id: int,
+    body: InspectionTaskUpdateRequest,
+    actor: InspectionGenerateDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    """修改查课任务（教室地点/节次/课程名）（方式 A）。"""
+    result = service.update_task_schedule_info(actor, task_id, body, _rid(request))
     return success(result.model_dump(), _rid(request))

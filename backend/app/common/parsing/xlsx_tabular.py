@@ -31,6 +31,48 @@ def normalize_header(cell: str) -> str:
     return _clean(cell).replace(" ", "").lower()
 
 
+def _read_xls_tabular_rows(
+    data: bytes,
+    *,
+    sheet_index: int = 0,
+    header_row: int = 1,
+    required_headers: Iterable[str] | None = None,
+) -> list[dict[str, str]]:
+    import xlrd
+
+    wb = xlrd.open_workbook(file_contents=data)
+    ws = wb.sheet_by_index(sheet_index)
+    h_idx = header_row - 1
+    if h_idx >= ws.nrows:
+        raise ValueError("表头行超出工作表行数")
+    headers = [_clean(ws.cell_value(h_idx, c)) for c in range(ws.ncols)]
+    if not any(headers):
+        raise ValueError("表头行为空")
+    normalized = [normalize_header(h) for h in headers]
+    if required_headers is not None:
+        missing = [
+            req
+            for req in required_headers
+            if normalize_header(req) not in normalized
+        ]
+        if missing:
+            raise ValueError(f"缺少必需列：{', '.join(missing)}")
+    rows: list[dict[str, str]] = []
+    for r in range(h_idx + 1, ws.nrows):
+        record: dict[str, str] = {}
+        non_empty = False
+        for c, h in enumerate(headers):
+            if not h:
+                continue
+            v = _clean(ws.cell_value(r, c))
+            record[h] = v
+            if v:
+                non_empty = True
+        if non_empty:
+            rows.append(record)
+    return rows
+
+
 def read_tabular_rows(
     data: bytes,
     *,
@@ -38,47 +80,68 @@ def read_tabular_rows(
     header_row: int = 1,
     required_headers: Iterable[str] | None = None,
 ) -> list[dict[str, str]]:
-    """读取 xlsx 指定工作表，返回以**原始表头文本**为键的行字典列表。
+    """读取 xlsx/xls 指定工作表，返回以**原始表头文本**为键的行字典列表。
 
     跳过全空行；数值型单元格整数值去尾零。找不到表头行或表头为空抛 ValueError，
     由上层导入服务捕获为 error 级 Issue。
     """
-    from openpyxl import load_workbook
+    # 检查是否为老旧的 .xls 复合文档格式 (OLE2 标识符)
+    if data.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        return _read_xls_tabular_rows(
+            data,
+            sheet_index=sheet_index,
+            header_row=header_row,
+            required_headers=required_headers,
+        )
 
-    wb = load_workbook(filename=io.BytesIO(bytes(data)), data_only=True)
     try:
-        ws = wb.worksheets[sheet_index]
-        headers: list[str] = [
-            _clean(ws.cell(row=header_row, column=c).value)
-            for c in range(1, ws.max_column + 1)
-        ]
-        if not any(headers):
-            raise ValueError("表头行为空")
-        normalized = [normalize_header(h) for h in headers]
-        if required_headers is not None:
-            missing = [
-                req
-                for req in required_headers
-                if normalize_header(req) not in normalized
+        from openpyxl import load_workbook
+
+        wb = load_workbook(filename=io.BytesIO(bytes(data)), data_only=True)
+        try:
+            ws = wb.worksheets[sheet_index]
+            headers: list[str] = [
+                _clean(ws.cell(row=header_row, column=c).value)
+                for c in range(1, ws.max_column + 1)
             ]
-            if missing:
-                raise ValueError(f"缺少必需列：{', '.join(missing)}")
-        rows: list[dict[str, str]] = []
-        for r in range(header_row + 1, ws.max_row + 1):
-            record: dict[str, str] = {}
-            non_empty = False
-            for c, h in enumerate(headers, start=1):
-                if not h:
-                    continue
-                v = _clean(ws.cell(row=r, column=c).value)
-                record[h] = v
-                if v:
-                    non_empty = True
-            if non_empty:
-                rows.append(record)
-        return rows
-    finally:
-        wb.close()
+            if not any(headers):
+                raise ValueError("表头行为空")
+            normalized = [normalize_header(h) for h in headers]
+            if required_headers is not None:
+                missing = [
+                    req
+                    for req in required_headers
+                    if normalize_header(req) not in normalized
+                ]
+                if missing:
+                    raise ValueError(f"缺少必需列：{', '.join(missing)}")
+            rows: list[dict[str, str]] = []
+            for r in range(header_row + 1, ws.max_row + 1):
+                record: dict[str, str] = {}
+                non_empty = False
+                for c, h in enumerate(headers, start=1):
+                    if not h:
+                        continue
+                    v = _clean(ws.cell(row=r, column=c).value)
+                    record[h] = v
+                    if v:
+                        non_empty = True
+                if non_empty:
+                    rows.append(record)
+            return rows
+        finally:
+            wb.close()
+    except Exception:
+        # 若 openpyxl 无法解析（例如文件为改名的 .xls），兜底尝试 xlrd
+        try:
+            return _read_xls_tabular_rows(
+                data,
+                sheet_index=sheet_index,
+                header_row=header_row,
+                required_headers=required_headers,
+            )
+        except Exception:
+            raise
 
 
 def pick(row: dict[str, str], *names: str) -> str:

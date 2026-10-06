@@ -12,6 +12,8 @@
 """
 
 from __future__ import annotations
+import hashlib
+import re
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -64,7 +66,7 @@ from app.modules.identity.models import Role, UserAccount, UserRole, UserStatus
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
 from app.modules.inspection import permissions as perms
-from app.modules.inspection.course_policy import is_physical_education
+from app.modules.inspection.course_policy import is_course_exempt, is_physical_education
 from app.modules.inspection.models import (
     AssignmentChangeRequest,
     AssignMethod,
@@ -112,6 +114,7 @@ from app.modules.inspection.schemas import (
     GenerateResultResponse,
     InspectionGenerateRequest,
     InspectionTaskResponse,
+    InspectionTaskUpdateRequest,
     ManagementSubmissionResponse,
     ManagementSubmissionTaskBrief,
     PlannedAssignment,
@@ -156,6 +159,7 @@ class PlanItem:
     require_photo_snapshot: bool
     student_ids: list[int] = field(default_factory=list)
     roster: list[TaskRosterMember] = field(default_factory=list)
+    constituent_schedule_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -861,36 +865,85 @@ class InspectionService:
             eff_week, eff_wd = teaching
             if eff_week < 1 or eff_week > sem.total_weeks:
                 continue
+            day_schedules = []
             for s in schedules:
-                if is_physical_education(tc_course_name.get(s.teaching_class_id)):
+                cname = tc_course_name.get(s.teaching_class_id)
+                if is_course_exempt(cname, s.classroom):
                     continue
                 if s.weekday != eff_wd:
                     continue
                 if not any(w.week_no == eff_week for w in s.weeks):
                     continue
-                key = self._task_key(
-                    sem.id, date_key, InspectionType.COURSE.value,
-                    s.start_period, s.end_period, f"cs{s.id}",
-                )
+                day_schedules.append(s)
+
+            groups: dict[tuple, list[CourseSchedule]] = {}
+            for s in day_schedules:
+                norm_room = re.sub(r"\s+", "", (s.classroom or "")).upper()
+                cname = tc_course_name.get(s.teaching_class_id) or ""
+                norm_course = re.sub(r"\s+", "", cname).upper()
+                if norm_room:
+                    grp_key = (s.start_period, s.end_period, norm_room, norm_course)
+                else:
+                    grp_key = (s.start_period, s.end_period, f"single:{s.id}", norm_course)
+                groups.setdefault(grp_key, []).append(s)
+
+            for grp_key, sched_list in groups.items():
+                rep_s = min(sched_list, key=lambda x: x.id)
+                c_sched_ids = sorted(x.id for x in sched_list)
+
+                merged_students = []
+                seen_sids = set()
+                class_names_set = set()
+                for sc in sched_list:
+                    cl_name = tc_class_name.get(sc.teaching_class_id)
+                    if cl_name:
+                        class_names_set.add(cl_name)
+                    for st in tc_roster.get(sc.teaching_class_id, []):
+                        if st.id not in seen_sids:
+                            seen_sids.add(st.id)
+                            merged_students.append(st)
+
+                class_names_list = sorted(class_names_set)
+                if len(class_names_list) > 1:
+                    merged_class_name = ", ".join(class_names_list) + " (合班)"
+                elif class_names_list:
+                    merged_class_name = class_names_list[0]
+                else:
+                    merged_class_name = tc_class_name.get(rep_s.teaching_class_id)
+
+                if len(sched_list) > 1:
+                    norm_room, norm_course = grp_key[2], grp_key[3]
+                    target_hash = hashlib.md5(f"{norm_room}:{norm_course}".encode("utf-8")).hexdigest()[:10]
+                    key = self._task_key(
+                        sem.id, date_key, InspectionType.COURSE.value,
+                        rep_s.start_period, rep_s.end_period, f"grp{target_hash}",
+                    )
+                else:
+                    key = self._task_key(
+                        sem.id, date_key, InspectionType.COURSE.value,
+                        rep_s.start_period, rep_s.end_period, f"cs{rep_s.id}",
+                    )
+
                 if key in items:
                     continue
-                students = tc_roster.get(s.teaching_class_id, [])
+
                 items[key] = PlanItem(
                     task_key=key,
                     semester_id=sem.id,
                     inspection_date=date_key,
                     week_no=eff_week,
                     inspection_type=InspectionType.COURSE.value,
-                    start_period=s.start_period,
-                    end_period=s.end_period,
-                    course_schedule_id=s.id,
-                    teaching_class_id=s.teaching_class_id,
+                    start_period=rep_s.start_period,
+                    end_period=rep_s.end_period,
+                    course_schedule_id=rep_s.id,
+                    teaching_class_id=rep_s.teaching_class_id,
                     administrative_class_id=None,
-                    course_name_snapshot=tc_course_name.get(s.teaching_class_id),
-                    class_name_snapshot=tc_class_name.get(s.teaching_class_id),
-                    classroom_snapshot=s.classroom,
+                    course_name_snapshot=tc_course_name.get(rep_s.teaching_class_id),
+                    class_name_snapshot=merged_class_name,
+                    classroom_snapshot=rep_s.classroom,
                     require_photo_snapshot=body.require_photo,
-                    student_ids=[st.id for st in students],
+                    student_ids=[st.id for st in merged_students],
+                    constituent_schedule_ids=c_sched_ids,
                 )
         return self._attach_rosters(list(items.values()))
 
@@ -1678,6 +1731,65 @@ class InspectionService:
             resource_id=f"{task.id}",
             before={"canceled_at": None, "lock_version": prev_lock},
             after={"canceled_by": actor.id, "lock_version": task.lock_version},
+            reason=body.reason,
+            request_id=request_id,
+        )
+        self._session.commit()
+        return self._assemble_tasks([task])[0]
+
+    def update_task_schedule_info(
+        self,
+        actor: CurrentUser,
+        task_id: int,
+        body: InspectionTaskUpdateRequest,
+        request_id: str | None,
+    ) -> InspectionTaskResponse:
+        self._require(actor.id, perms.GENERATE_PERMISSION)
+        task = self._repo.get_task_for_update(task_id)
+        if task is None:
+            raise NotFoundError("查课任务不存在")
+        if task.canceled_at is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "已取消任务不可修改")
+        if self._repo.has_approved_submission(task.id):
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已有审核通过提交并生成考勤，不可修改")
+
+        before = {
+            "classroom": task.classroom_snapshot,
+            "start_period": task.start_period,
+            "end_period": task.end_period,
+            "course_name": task.course_name_snapshot,
+            "lock_version": task.lock_version,
+        }
+
+        if body.classroom is not None:
+            task.classroom_snapshot = body.classroom.strip() or None
+        if body.course_name is not None:
+            task.course_name_snapshot = body.course_name.strip() or None
+        if body.start_period is not None:
+            task.start_period = body.start_period
+        if body.end_period is not None:
+            task.end_period = body.end_period
+        if task.end_period < task.start_period:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "结束节次不能小于起始节次", http_status=422)
+
+        task.lock_version += 1
+        self._repo.flush()
+
+        after = {
+            "classroom": task.classroom_snapshot,
+            "start_period": task.start_period,
+            "end_period": task.end_period,
+            "course_name": task.course_name_snapshot,
+            "lock_version": task.lock_version,
+        }
+
+        self._audit(
+            actor_user_id=actor.id,
+            action="inspection.task.update",
+            resource_type="inspection_task",
+            resource_id=f"{task.id}",
+            before=before,
+            after=after,
             reason=body.reason,
             request_id=request_id,
         )

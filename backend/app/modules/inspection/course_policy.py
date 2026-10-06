@@ -22,3 +22,34 @@ def is_physical_education(name: str | None) -> bool:
         or _COLLEGE_PE.fullmatch(normalized)
         or _SPORTS_OPTIONS.fullmatch(normalized)
     )
+
+
+DEFAULT_EXEMPT_KEYWORDS = [
+    "实验", "机房", "上机", "金工实习", "实训",
+    "形势与政策", "慕课", "MOOC", "网络课程",
+]
+
+DEFAULT_EXEMPT_ROOM_KEYWORDS = [
+    "操场", "田径场", "体育馆", "机房", "实验室", "实训中心"
+]
+
+
+def is_course_exempt(
+    course_name: str | None,
+    classroom: str | None = None,
+    custom_keywords: list[str] | None = None,
+) -> bool:
+    """判定课程是否属于免查范围（体育、实验机房、网络公共选修等）。"""
+    if is_physical_education(course_name):
+        return True
+    name = (course_name or "").strip()
+    room = (classroom or "").strip()
+    keywords = custom_keywords if custom_keywords is not None else DEFAULT_EXEMPT_KEYWORDS
+    for kw in keywords:
+        if kw and kw in name:
+            return True
+    for rkw in DEFAULT_EXEMPT_ROOM_KEYWORDS:
+        if rkw and rkw in room:
+            return True
+    return False
+

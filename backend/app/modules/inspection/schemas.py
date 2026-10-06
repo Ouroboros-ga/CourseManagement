@@ -513,6 +513,54 @@ class ExpectedCountUpdateRequest(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# 查课任务修改（方式 A）：编辑教室与时段等快照信息
+# --------------------------------------------------------------------------- #
+class InspectionTaskUpdateRequest(BaseModel):
+    """PATCH /inspection-tasks/{task_id} 请求体：修改未执行/未审核任务的教室或节次。"""
+
+    classroom: str | None = Field(default=None, max_length=128)
+    start_period: int | None = Field(default=None, ge=1, le=20)
+    end_period: int | None = Field(default=None, ge=1, le=20)
+    course_name: str | None = Field(default=None, max_length=128)
+    reason: str | None = Field(default=None, max_length=512)
+
+
+# --------------------------------------------------------------------------- #
+# 智能抽查生成器
+# --------------------------------------------------------------------------- #
+class SmartSampleRequest(BaseModel):
+    """POST /inspection-course-occurrences/smart-sample 请求体：智能推荐下发课次。"""
+
+    semester_id: int = Field(ge=1)
+    week_no: int = Field(ge=1, le=30)
+    morning_only: bool = False
+    max_tasks_per_class: int = Field(default=1, ge=1, le=10)
+    sample_ratio: float | None = Field(default=None, ge=0.05, le=1.0)
+    exclude_already_generated: bool = True
+
+
+class SmartSampleItemBrief(BaseModel):
+    course_schedule_id: str
+    inspection_date: date
+    start_period: int
+    end_period: int
+    teaching_class_id: str
+    class_name: str | None
+    course_name: str | None
+    classroom: str | None
+    expected_count: int = 0
+
+
+class SmartSampleResponse(BaseModel):
+    semester_id: int
+    week_no: int
+    total_candidates: int
+    sampled_count: int
+    occurrences: list[CourseOccurrenceSelection]
+    items: list[SmartSampleItemBrief]
+
+
+# --------------------------------------------------------------------------- #
 # 排班冲突原因码（Wave 3a 硬约束）——集中定义，服务与测试共用字面量。
 # --------------------------------------------------------------------------- #
 REASON_NOT_VOLUNTEER = "NOT_VOLUNTEER"  # 账号停用或非志愿者身份
@@ -524,6 +572,7 @@ REASON_DAY_CAP = "DAY_TASK_CAP"  # 超出单日受派上限（可配置软约束
 REASON_TASK_CANCELED = "TASK_CANCELED"  # 目标任务已取消
 REASON_COURSE_NOT_INSPECTABLE = "COURSE_NOT_INSPECTABLE"  # 体育课不是被查目标
 REASON_DEADLINE_EARLY = "DEADLINE_BEFORE_TASK_END"  # 截止时间早于当日最晚任务结束时刻
+
 
 
 __all__ = [

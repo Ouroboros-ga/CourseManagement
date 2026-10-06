@@ -18,11 +18,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import timedelta
+import hashlib
+import io
+import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.common.parsing.time_slots import parse_weekday, parse_weeks
+from app.common.parsing.grid import (
+    SCHOOL_SLOT_MAPPING,
+    load_grid,
+    normalize_class_name,
+)
+from app.common.parsing.time_slots import parse_period, parse_weekday, parse_weeks
 from app.common.parsing.xlsx_tabular import pick, read_tabular_rows
 from app.core.config import get_settings
 from app.core.database import utcnow
@@ -36,11 +44,13 @@ from app.core.exceptions import (
 )
 from app.core.permissions import PermissionCode, RoleCode
 from app.modules.academic.models import (
+    AdministrativeClass,
     Course,
     CourseSchedule,
     Semester,
     Student,
     TeachingClass,
+    TeachingClassStudent,
     VolunteerQualification,
 )
 from app.modules.academic.repository import AcademicRepository
@@ -160,33 +170,40 @@ class ImporterService:
         self._require_composite(actor.id, target)
         self._validate_scope(target, semester_id=semester_id, teaching_class_id=teaching_class_id)
 
-        try:
-            rows = read_tabular_rows(
-                content, required_headers=iperm.required_headers(target)
-            )
-        except ValueError as exc:
-            raise AppError(
-                ErrorCode.VALIDATION_ERROR, f"文件解析失败：{exc}", http_status=422
-            ) from exc
-        except Exception as exc:  # noqa: BLE001 - 非法/损坏 xlsx 统一归为 422
-            raise AppError(
-                ErrorCode.VALIDATION_ERROR, "文件不是有效的 .xlsx，无法解析", http_status=422
-            ) from exc
-
         settings = get_settings()
-        if len(rows) > settings.import_max_rows:
-            raise AppError(
-                ErrorCode.VALIDATION_ERROR,
-                f"行数超过上限 {settings.import_max_rows}",
-                http_status=422,
-            )
-
-        if target == ImportTarget.ROSTER.value:
-            payload, issues, summary = self._parse_roster(rows, teaching_class_id)
-        elif target == ImportTarget.VOLUNTEER.value:
-            payload, issues, summary = self._parse_volunteer(rows, semester_id)
+        if target == ImportTarget.GRID_TIMETABLE.value:
+            payload, issues, summary = self._parse_grid_timetable(content, semester_id, filename)
+        elif target == ImportTarget.ADMIN_ROSTER.value:
+            payload, issues, summary = self._parse_admin_roster(content, filename)
         else:
-            payload, issues, summary = self._parse_timetable(rows, semester_id)
+            try:
+                rows = read_tabular_rows(
+                    content, required_headers=iperm.required_headers(target)
+                )
+            except ValueError as exc:
+                raise AppError(
+                    ErrorCode.VALIDATION_ERROR, f"文件解析失败：{exc}", http_status=422
+                ) from exc
+            except Exception as exc:  # noqa: BLE001 - 非法/损坏 xlsx 统一归为 422
+                raise AppError(
+                    ErrorCode.VALIDATION_ERROR, "文件不是有效的 Excel 表格，无法解析", http_status=422
+                ) from exc
+
+            if len(rows) > settings.import_max_rows:
+                raise AppError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"行数超过上限 {settings.import_max_rows}",
+                    http_status=422,
+                )
+
+            if target == ImportTarget.ROSTER.value:
+                payload, issues, summary = self._parse_roster(rows, teaching_class_id)
+            elif target == ImportTarget.VOLUNTEER.value:
+                payload, issues, summary = self._parse_volunteer(rows, semester_id)
+            elif target == ImportTarget.ELECTIVE_COURSE.value:
+                payload, issues, summary = self._parse_elective_course(rows, semester_id)
+            else:
+                payload, issues, summary = self._parse_timetable(rows, semester_id)
 
         error_count = sum(1 for i in issues if i["severity"] == "error")
         summary = {**summary, "error_count": error_count}
@@ -454,6 +471,12 @@ class ImporterService:
             created = self._apply_roster(actor, batch, payload, request_id)
         elif batch.target == ImportTarget.VOLUNTEER.value:
             created = self._apply_volunteer(actor, batch, payload, request_id)
+        elif batch.target == ImportTarget.ADMIN_ROSTER.value:
+            created = self._apply_admin_roster(actor, batch, payload, request_id)
+        elif batch.target == ImportTarget.GRID_TIMETABLE.value:
+            created = self._apply_grid_timetable(actor, batch, payload, request_id)
+        elif batch.target == ImportTarget.ELECTIVE_COURSE.value:
+            created = self._apply_elective_course(actor, batch, payload, request_id)
         else:
             created = self._apply_timetable(actor, batch, payload, request_id)
 
@@ -630,12 +653,748 @@ class ImporterService:
             )
             self._academic.add(schedule)
             self._academic.flush()
-            self._academic.set_schedule_weeks(schedule, e["weeks"])
-            schedules_created += 1
+            # 若教学班码对应行政班，自动将行政班学生关联入教学班名单
+            ac = self._academic.get_admin_class_by_code(e["class_code"])
+            if ac is None:
+                ac = self._session.execute(
+                    select(AdministrativeClass).where(
+                        AdministrativeClass.class_name == e["class_code"]
+                    )
+                ).scalar_one_or_none()
+            if ac is not None:
+                stus = list(
+                    self._session.execute(
+                        select(Student).where(
+                            Student.administrative_class_id == ac.id,
+                            Student.status == "ACTIVE",
+                        )
+                    ).scalars().all()
+                )
+                if stus:
+                    existing_sids = set(
+                        self._session.execute(
+                            select(TeachingClassStudent.student_id).where(
+                                TeachingClassStudent.teaching_class_id == tc.id
+                            )
+                        ).scalars().all()
+                    )
+                    for st in stus:
+                        if st.id not in existing_sids:
+                            self._session.add(
+                                TeachingClassStudent(teaching_class_id=tc.id, student_id=st.id)
+                            )
+                            existing_sids.add(st.id)
+                    self._academic.flush()
+
         return {
             "course_created": courses_created,
             "teaching_class_created": tcs_created,
             "schedule_created": schedules_created,
             "resource_type": "semester",
             "resource_id": str(sem.id),
+        }
+
+    # ================================================================== #
+    # 行政班花名册导入 (ADMIN_ROSTER)
+    # ================================================================== #
+    def _parse_admin_roster(
+        self, content: bytes, filename: str | None
+    ) -> tuple[dict, list[dict], dict]:
+        issues: list[dict] = []
+        students: list[dict] = []
+        seen_nos: dict[str, int] = {}
+
+        default_class_name = ""
+        default_college = ""
+        default_grade = None
+
+        if filename:
+            clean_fn = re.sub(r"\.(xlsx|xls)$", "", filename, flags=re.IGNORECASE).strip()
+            default_class_name = re.sub(r"(考勤表|课表|名单).*$", "", clean_fn).strip()
+
+        parsed_rows: list[dict[str, str]] = []
+
+        # 1. 尝试以带标题格式（例如学校考勤表格式：第一行可能包含 "学院 班级 年"）
+        try:
+            from openpyxl import load_workbook
+
+            wb = load_workbook(io.BytesIO(content), data_only=True)
+            ws = wb.active
+            r1_val = str(ws.cell(1, 1).value or "").strip()
+            m = re.search(r"([\u4e00-\u9fa5]+学院)\s+([\u4e00-\u9fa5\w]+)\s+班级(\d+)年", r1_val)
+            if m:
+                default_college = m.group(1).strip()
+                default_class_name = m.group(2).strip()
+                default_grade = int(m.group(3))
+            else:
+                m2 = re.search(r"([^\s]+学院)\s+([^\s]+)\s+.*?考勤表", r1_val)
+                if m2:
+                    default_college = m2.group(1).strip()
+                    default_class_name = m2.group(2).strip()
+
+            header_row = -1
+            sno_col, name_col, class_col, college_col, grade_col = -1, -1, -1, -1, -1
+            for r in range(1, 10):
+                for c in range(1, 15):
+                    val = str(ws.cell(r, c).value or "").strip()
+                    if val in ("学号", "student_no", "no"):
+                        header_row = r
+                        sno_col = c
+                    elif val in ("姓名", "name"):
+                        name_col = c
+                    elif val in ("班级", "班级名称", "行政班", "class_name", "class"):
+                        class_col = c
+                    elif val in ("学院", "所属学院", "college"):
+                        college_col = c
+                    elif val in ("年级", "grade_year", "grade"):
+                        grade_col = c
+                if header_row > 0:
+                    break
+
+            if header_row > 0 and sno_col > 0:
+                for r in range(header_row + 1, ws.max_row + 1):
+                    sno = str(ws.cell(r, sno_col).value or "").strip()
+                    if sno.endswith(".0"):
+                        sno = sno[:-2]
+                    name = str(ws.cell(r, name_col).value or "").strip() if name_col > 0 else ""
+                    cname = str(ws.cell(r, class_col).value or "").strip() if class_col > 0 else default_class_name
+                    college = str(ws.cell(r, college_col).value or "").strip() if college_col > 0 else default_college
+                    grade_val = ws.cell(r, grade_col).value if grade_col > 0 else default_grade
+                    grade_year = int(grade_val) if grade_val and str(grade_val).isdigit() else default_grade
+                    if sno and re.match(r"^\d{6,20}$", sno):
+                        parsed_rows.append({
+                            "student_no": sno,
+                            "name": name,
+                            "class_name": cname or default_class_name,
+                            "college": college,
+                            "grade_year": str(grade_year or ""),
+                        })
+        except Exception:
+            pass
+
+        # 2. 若上面未能提取，则通过通用表格式解析
+        if not parsed_rows:
+            try:
+                raw_rows = read_tabular_rows(content)
+                for raw in raw_rows:
+                    sno = pick(raw, "学号", "student_no", "studentno", "no")
+                    name = pick(raw, "姓名", "name", "student_name")
+                    cname = pick(raw, "班级", "班级名称", "行政班", "class_name", "class") or default_class_name
+                    college = pick(raw, "学院", "所属学院", "college") or default_college
+                    grade = pick(raw, "年级", "grade_year", "grade") or (str(default_grade) if default_grade else "")
+                    if sno:
+                        parsed_rows.append({
+                            "student_no": sno,
+                            "name": name,
+                            "class_name": cname,
+                            "college": college,
+                            "grade_year": grade,
+                        })
+            except Exception as exc:
+                issues.append(_issue("parse_failed", f"花名册解析失败：{exc}"))
+                return {"students": []}, issues, {"row_total": 0, "student_count": 0}
+
+        class_names: set[str] = set()
+        for idx, row in enumerate(parsed_rows, start=2):
+            sno = row["student_no"]
+            name = row["name"]
+            cname = row["class_name"]
+            if not sno:
+                issues.append(_issue("missing_student_no", "学号为空", field="学号", row=idx))
+                continue
+            if not re.match(r"^\d{6,20}$", sno):
+                issues.append(_issue("invalid_student_no", f"学号格式不合规：{sno}", field="学号", row=idx))
+                continue
+            if not name:
+                issues.append(_issue("missing_student_name", f"学生 {sno} 姓名为空", field="姓名", row=idx))
+                continue
+            if not cname:
+                issues.append(_issue("missing_class_name", f"学生 {sno} 缺少班级名称", field="班级", row=idx))
+                continue
+            if sno in seen_nos:
+                issues.append(
+                    _issue("duplicate_student", f"学号 {sno} 在文件第 {seen_nos[sno]} 行已出现，本次跳过",
+                           field="学号", row=idx, severity="warning")
+                )
+                continue
+            seen_nos[sno] = idx
+            class_names.add(cname)
+            grade_y = int(row["grade_year"]) if row.get("grade_year") and row["grade_year"].isdigit() else None
+            students.append({
+                "student_no": sno,
+                "name": name,
+                "class_name": cname,
+                "college": row.get("college") or None,
+                "grade_year": grade_y,
+            })
+
+        payload = {"students": students}
+        summary = {
+            "row_total": len(parsed_rows),
+            "student_count": len(students),
+            "classes_count": len(class_names),
+            "class_names": sorted(class_names),
+        }
+        return payload, issues, summary
+
+    def _apply_admin_roster(
+        self, actor: CurrentUser, batch: ImportBatch, payload: dict, request_id: str | None
+    ) -> dict:
+        students_data: list[dict] = payload.get("students") or []
+        if not students_data:
+            return {"students_created": 0, "students_updated": 0, "classes_created": 0}
+
+        ac_map: dict[str, AdministrativeClass] = {}
+        classes_created = 0
+
+        existing_acs = list(self._session.execute(select(AdministrativeClass)).scalars().all())
+        ac_by_exact = {ac.class_name: ac for ac in existing_acs}
+        ac_by_code = {ac.class_code: ac for ac in existing_acs}
+        ac_by_norm = {normalize_class_name(ac.class_name): ac for ac in existing_acs}
+
+        for item in students_data:
+            cname = item["class_name"]
+            if cname in ac_map:
+                continue
+            target_ac = (
+                ac_by_exact.get(cname)
+                or ac_by_code.get(cname)
+                or ac_by_norm.get(normalize_class_name(cname))
+            )
+            if target_ac is None:
+                target_ac = AdministrativeClass(
+                    class_code=cname,
+                    class_name=cname,
+                    college=item.get("college"),
+                    grade_year=item.get("grade_year"),
+                    status="ACTIVE",
+                )
+                self._academic.add(target_ac)
+                self._academic.flush()
+                classes_created += 1
+                ac_by_exact[cname] = target_ac
+                ac_by_code[cname] = target_ac
+                ac_by_norm[normalize_class_name(cname)] = target_ac
+            else:
+                if not target_ac.college and item.get("college"):
+                    target_ac.college = item.get("college")
+                if not target_ac.grade_year and item.get("grade_year"):
+                    target_ac.grade_year = item.get("grade_year")
+                self._academic.flush()
+            ac_map[cname] = target_ac
+
+        students_created = 0
+        students_updated = 0
+        students_transferred = 0
+
+        for item in students_data:
+            sno = item["student_no"]
+            ac = ac_map[item["class_name"]]
+            stu = self._academic.get_student_by_no(sno)
+            if stu is None:
+                stu = Student(
+                    student_no=sno,
+                    name=item["name"],
+                    administrative_class_id=ac.id,
+                    status="ACTIVE",
+                )
+                self._academic.add(stu)
+                students_created += 1
+            else:
+                stu.name = item["name"]
+                if stu.administrative_class_id is not None and stu.administrative_class_id != ac.id:
+                    students_transferred += 1
+                stu.administrative_class_id = ac.id
+                stu.status = "ACTIVE"
+                students_updated += 1
+        self._academic.flush()
+
+        return {
+            "classes_created": classes_created,
+            "students_created": students_created,
+            "students_updated": students_updated,
+            "students_transferred": students_transferred,
+            "total_students": len(students_data),
+            "resource_type": "administrative_class",
+            "resource_id": str(batch.id),
+        }
+
+    # ================================================================== #
+    # 学校网格课表导入 (GRID_TIMETABLE)
+    # ================================================================== #
+    def _parse_grid_timetable(
+        self, content: bytes, semester_id: int | None, filename: str | None
+    ) -> tuple[dict, list[dict], dict]:
+        issues: list[dict] = []
+        sem = self._academic.get_semester(semester_id) if semester_id else None
+        if sem is None:
+            issues.append(_issue("missing_semester", "必须指定有效学期"))
+            return {"class_name": "", "courses": []}, issues, {"course_count": 0}
+
+        try:
+            class_id, raw_rows = load_grid(content)
+        except Exception as exc:
+            issues.append(_issue("grid_parse_error", f"网格课表解析失败：{exc}"))
+            return {"class_name": "", "courses": []}, issues, {"course_count": 0}
+
+        if not class_id and filename:
+            clean_fn = re.sub(r"\.(xlsx|xls)$", "", filename, flags=re.IGNORECASE).strip()
+            class_id = re.sub(r"课表.*$", "", clean_fn).strip()
+
+        if not class_id:
+            issues.append(_issue("missing_class_name", "无法从课表文件提取行政班名称"))
+            return {"class_name": "", "courses": []}, issues, {"course_count": 0}
+
+        parsed_courses: list[dict] = []
+        for idx, row in enumerate(raw_rows, start=1):
+            course_name = row.get("course_name", "").strip()
+            if not course_name:
+                continue
+            try:
+                wd = parse_weekday(row.get("weekday", ""))
+                weeks = parse_weeks(row.get("weeks", ""), sem.total_weeks)
+                slots = parse_period(row.get("period", ""), slot_mapping=SCHOOL_SLOT_MAPPING)
+                start_p = min(slots)
+                end_p = max(slots)
+            except Exception as exc:
+                issues.append(_issue("bad_time_slot", f"课程【{course_name}】时间段解析异常：{exc}", row=idx))
+                continue
+
+            parsed_courses.append({
+                "course_name": course_name,
+                "weekday": wd,
+                "start_period": start_p,
+                "end_period": end_p,
+                "weeks": weeks,
+                "classroom": row.get("location", "").strip(),
+                "teacher": row.get("teacher", "").strip(),
+                "student_count": row.get("count", ""),
+            })
+
+        payload = {
+            "semester_id": sem.id,
+            "class_name": class_id,
+            "courses": parsed_courses,
+        }
+        summary = {
+            "class_name": class_id,
+            "course_count": len(parsed_courses),
+            "total_occurrences": sum(len(c["weeks"]) for c in parsed_courses),
+        }
+        return payload, issues, summary
+
+    def _apply_grid_timetable(
+        self, actor: CurrentUser, batch: ImportBatch, payload: dict, request_id: str | None
+    ) -> dict:
+        sem = self._require_active_semester_for_confirm(batch.semester_id)
+        class_name = payload.get("class_name") or ""
+        courses_data: list[dict] = payload.get("courses") or []
+
+        existing_acs = list(self._session.execute(select(AdministrativeClass)).scalars().all())
+        target_ac = None
+        for ac in existing_acs:
+            if ac.class_name == class_name or ac.class_code == class_name:
+                target_ac = ac
+                break
+            if normalize_class_name(ac.class_name) == normalize_class_name(class_name):
+                target_ac = ac
+                break
+
+        if target_ac is None:
+            target_ac = AdministrativeClass(
+                class_code=class_name,
+                class_name=class_name,
+                status="ACTIVE",
+            )
+            self._academic.add(target_ac)
+            self._academic.flush()
+
+        students = list(
+            self._session.execute(
+                select(Student).where(
+                    Student.administrative_class_id == target_ac.id,
+                    Student.status == "ACTIVE",
+                )
+            ).scalars().all()
+        )
+
+        courses_created = 0
+        tcs_created = 0
+        schedules_created = 0
+        students_linked = 0
+
+        for item in courses_data:
+            cname = item["course_name"]
+            course = self._session.execute(
+                select(Course).where(Course.course_name == cname)
+            ).scalar_one_or_none()
+            if course is None:
+                code_hash = hashlib.md5(cname.encode("utf-8")).hexdigest()[:8].upper()
+                course = Course(
+                    course_code=f"C_{code_hash}",
+                    course_name=cname,
+                    status="ACTIVE",
+                )
+                self._academic.add(course)
+                self._academic.flush()
+                courses_created += 1
+
+            tc_code = f"{target_ac.class_code}_{course.course_code}"
+            tc = self._academic.get_teaching_class_by_key(sem.id, course.id, tc_code)
+            if tc is None:
+                tc = TeachingClass(
+                    semester_id=sem.id,
+                    course_id=course.id,
+                    class_code=tc_code,
+                    class_name=f"{target_ac.class_name}-{cname}",
+                    status="ACTIVE",
+                )
+                self._academic.add(tc)
+                self._academic.flush()
+                tcs_created += 1
+
+            schedule = CourseSchedule(
+                semester_id=sem.id,
+                teaching_class_id=tc.id,
+                weekday=item["weekday"],
+                start_period=item["start_period"],
+                end_period=item["end_period"],
+                classroom=item["classroom"] or None,
+                status="ACTIVE",
+            )
+            self._academic.add(schedule)
+            self._academic.flush()
+            self._academic.set_schedule_weeks(schedule, item["weeks"])
+            schedules_created += 1
+
+            if students:
+                existing_sids = set(
+                    self._session.execute(
+                        select(TeachingClassStudent.student_id).where(
+                            TeachingClassStudent.teaching_class_id == tc.id
+                        )
+                    ).scalars().all()
+                )
+                for st in students:
+                    if st.id not in existing_sids:
+                        self._session.add(
+                            TeachingClassStudent(teaching_class_id=tc.id, student_id=st.id)
+                        )
+                        existing_sids.add(st.id)
+                        students_linked += 1
+                self._academic.flush()
+
+        return {
+            "administrative_class": target_ac.class_name,
+            "courses_created": courses_created,
+            "teaching_classes_created": tcs_created,
+            "schedules_created": schedules_created,
+            "students_linked": students_linked,
+            "enrolled_student_count": len(students),
+            "resource_type": "teaching_class",
+            "resource_id": str(target_ac.id),
+        }
+
+    # ================================================================== #
+    # 选修课/分班课精确名单导入 (ELECTIVE_COURSE)
+    # ================================================================== #
+    def _parse_elective_course(
+        self, rows: list[dict[str, str]], semester_id: int | None
+    ) -> tuple[dict, list[dict], dict]:
+        issues: list[dict] = []
+        sem = self._academic.get_semester(semester_id) if semester_id else None
+        if sem is None:
+            issues.append(_issue("missing_semester", "必须指定有效学期"))
+            return {"groups": []}, issues, {"teaching_classes_count": 0}
+
+        groups_map: dict[tuple, list[str]] = {}
+        unique_students = set()
+
+        for idx, raw in enumerate(rows, start=2):
+            cname = pick(raw, "课程名称", "课程", "course_name")
+            code = pick(raw, "教学班码", "教学班", "class_code")
+            tname = pick(raw, "教学班名", "教学班名称", "class_name") or f"{cname}-{code}"
+            weekday_raw = pick(raw, "星期", "weekday", "周")
+            start_raw = pick(raw, "开始大节", "start_period", "起节")
+            end_raw = pick(raw, "结束大节", "end_period", "止节")
+            weeks_raw = pick(raw, "周次", "weeks", "上课周")
+            classroom = pick(raw, "上课地点", "地点", "教室", "classroom")
+            sno = pick(raw, "学号", "选课学生学号", "student_no", "no")
+
+            if not cname:
+                issues.append(_issue("missing_course_name", "课程名称为空", field="课程名称", row=idx))
+                continue
+            if not code:
+                issues.append(_issue("missing_class_code", "教学班码为空", field="教学班码", row=idx))
+                continue
+            if not sno:
+                issues.append(_issue("missing_student_no", "学生学号为空", field="学号", row=idx))
+                continue
+
+            try:
+                wd = parse_weekday(weekday_raw)
+                start = int(start_raw)
+                end = int(end_raw)
+                weeks = parse_weeks(weeks_raw, sem.total_weeks)
+            except Exception as exc:
+                issues.append(_issue("bad_time_field", f"时段解析失败：{exc}", row=idx))
+                continue
+
+            stu = self._academic.get_student_by_no(sno)
+            if stu is None:
+                issues.append(_issue("unknown_student", f"学号 {sno} 不存在于学生档案", field="学号", row=idx))
+                continue
+
+            key = (cname, code, tname, wd, start, end, tuple(sorted(weeks)), classroom)
+            if key not in groups_map:
+                groups_map[key] = []
+            if sno not in groups_map[key]:
+                groups_map[key].append(sno)
+            unique_students.add(sno)
+
+        groups = []
+        for (cname, code, tname, wd, start, end, weeks, classroom), snos in groups_map.items():
+            groups.append({
+                "course_name": cname,
+                "class_code": code,
+                "class_name": tname,
+                "weekday": wd,
+                "start_period": start,
+                "end_period": end,
+                "weeks": list(weeks),
+                "classroom": classroom,
+                "student_nos": snos,
+            })
+
+        payload = {"semester_id": sem.id, "groups": groups}
+        summary = {
+            "row_total": len(rows),
+            "teaching_classes_count": len(groups),
+            "unique_students": len(unique_students),
+        }
+        return payload, issues, summary
+
+    def _apply_elective_course(
+        self, actor: CurrentUser, batch: ImportBatch, payload: dict, request_id: str | None
+    ) -> dict:
+        sem = self._require_active_semester_for_confirm(batch.semester_id)
+        groups = payload.get("groups") or []
+
+        courses_created = 0
+        tcs_created = 0
+        schedules_created = 0
+        students_linked = 0
+
+        for g in groups:
+            cname = g["course_name"]
+            course = self._session.execute(
+                select(Course).where(Course.course_name == cname)
+            ).scalar_one_or_none()
+            if course is None:
+                code_hash = hashlib.md5(cname.encode("utf-8")).hexdigest()[:8].upper()
+                course = Course(
+                    course_code=f"C_{code_hash}",
+                    course_name=cname,
+                    status="ACTIVE",
+                )
+                self._academic.add(course)
+                self._academic.flush()
+                courses_created += 1
+
+            tc = self._academic.get_teaching_class_by_key(sem.id, course.id, g["class_code"])
+            if tc is None:
+                tc = TeachingClass(
+                    semester_id=sem.id,
+                    course_id=course.id,
+                    class_code=g["class_code"],
+                    class_name=g["class_name"],
+                    status="ACTIVE",
+                )
+                self._academic.add(tc)
+                self._academic.flush()
+                tcs_created += 1
+
+            schedule = CourseSchedule(
+                semester_id=sem.id,
+                teaching_class_id=tc.id,
+                weekday=g["weekday"],
+                start_period=g["start_period"],
+                end_period=g["end_period"],
+                classroom=g["classroom"] or None,
+                status="ACTIVE",
+            )
+            self._academic.add(schedule)
+            self._academic.flush()
+            self._academic.set_schedule_weeks(schedule, g["weeks"])
+            schedules_created += 1
+
+            nos = g.get("student_nos") or []
+            sids = [
+                self._academic.get_student_by_no(no).id
+                for no in nos
+                if self._academic.get_student_by_no(no) is not None
+            ]
+            self._academic.set_roster(tc.id, sids)
+            students_linked += len(sids)
+
+        return {
+            "courses_created": courses_created,
+            "teaching_classes_created": tcs_created,
+            "schedules_created": schedules_created,
+            "students_linked": students_linked,
+            "resource_type": "teaching_class",
+            "resource_id": str(batch.id),
+        }
+
+    def import_bulk_files(
+        self,
+        actor: CurrentUser,
+        semester_id: int,
+        files: list[tuple[str, bytes]],
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        """批量导入多个名单和课表文件，支持 ZIP 压缩包自动解压并按顺序执行。"""
+        import io
+        import zipfile
+        from app.modules.importer.models import ImportTarget
+
+        # 1. 展开 ZIP 压缩包
+        expanded_files: list[tuple[str, bytes]] = []
+        for filename, data in files:
+            if filename.lower().endswith(".zip") or data.startswith(b"PK\x03\x04"):
+                try:
+                    with zipfile.ZipFile(io.BytesIO(data)) as z:
+                        for info in z.infolist():
+                            if info.is_dir():
+                                continue
+                            fname = info.filename
+                            if any(p in fname for p in ["__MACOSX", "._", ".DS_Store", "desktop.ini", "Thumbs.db"]):
+                                continue
+                            try:
+                                clean_name = info.filename.encode("cp437").decode("gbk")
+                            except Exception:
+                                try:
+                                    clean_name = info.filename.encode("cp437").decode("utf-8")
+                                except Exception:
+                                    clean_name = info.filename
+                            base_name = clean_name.replace("\\", "/").split("/")[-1]
+                            if base_name and base_name.lower().endswith((".xlsx", ".xls")):
+                                expanded_files.append((base_name, z.read(info)))
+                except Exception as exc:
+                    raise AppError(ErrorCode.VALIDATION_ERROR, f"ZIP压缩包解析失败：{exc}", http_status=422)
+            elif filename.lower().endswith((".xlsx", ".xls")):
+                base_name = filename.replace("\\", "/").split("/")[-1]
+                expanded_files.append((base_name, data))
+
+        if not expanded_files:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "未找到任何有效的 Excel 表格文件", http_status=422)
+
+        # 2. 分类：名单类文件 vs 课表类文件
+        roster_files: list[tuple[str, bytes]] = []
+        timetable_files: list[tuple[str, bytes]] = []
+        for fn, data in expanded_files:
+            if "课表" in fn or "排课" in fn:
+                timetable_files.append((fn, data))
+            else:
+                roster_files.append((fn, data))
+
+        total_classes_created = 0
+        total_students_created = 0
+        total_students_updated = 0
+        total_transferred = 0
+        total_courses_created = 0
+        total_schedules_created = 0
+        file_results: list[dict] = []
+
+        # 3. 先执行所有花名册 (ADMIN_ROSTER)
+        for fn, data in roster_files:
+            try:
+                preview = self.create_preview(
+                    actor,
+                    target=ImportTarget.ADMIN_ROSTER.value,
+                    content=data,
+                    semester_id=semester_id,
+                    teaching_class_id=None,
+                    filename=fn,
+                    replace=False,
+                    request_id=request_id,
+                )
+                if not preview.can_confirm:
+                    file_results.append({
+                        "filename": fn,
+                        "type": "roster",
+                        "status": "error",
+                        "error": "存在格式错误",
+                    })
+                    continue
+                confirmed = self.confirm(actor, batch_id=int(preview.id), request_id=request_id)
+                summary = confirmed.summary or {}
+                total_classes_created += summary.get("classes_created", 0)
+                total_students_created += summary.get("students_created", 0)
+                total_students_updated += summary.get("students_updated", 0)
+                total_transferred += summary.get("students_transferred", 0)
+                file_results.append({
+                    "filename": fn,
+                    "type": "roster",
+                    "status": "success",
+                    "summary": summary,
+                })
+            except Exception as exc:
+                file_results.append({
+                    "filename": fn,
+                    "type": "roster",
+                    "status": "failed",
+                    "error": str(exc),
+                })
+
+        # 4. 后执行所有课表 (GRID_TIMETABLE)
+        for fn, data in timetable_files:
+            try:
+                preview = self.create_preview(
+                    actor,
+                    target=ImportTarget.GRID_TIMETABLE.value,
+                    content=data,
+                    semester_id=semester_id,
+                    teaching_class_id=None,
+                    filename=fn,
+                    replace=False,
+                    request_id=request_id,
+                )
+                if not preview.can_confirm:
+                    file_results.append({
+                        "filename": fn,
+                        "type": "timetable",
+                        "status": "error",
+                        "error": "存在排课错误",
+                    })
+                    continue
+                confirmed = self.confirm(actor, batch_id=int(preview.id), request_id=request_id)
+                summary = confirmed.summary or {}
+                total_courses_created += summary.get("courses_created", 0)
+                total_schedules_created += summary.get("schedules_created", 0)
+                file_results.append({
+                    "filename": fn,
+                    "type": "timetable",
+                    "status": "success",
+                    "summary": summary,
+                })
+            except Exception as exc:
+                file_results.append({
+                    "filename": fn,
+                    "type": "timetable",
+                    "status": "failed",
+                    "error": str(exc),
+                })
+
+        return {
+            "total_files": len(expanded_files),
+            "rosters_count": len(roster_files),
+            "timetables_count": len(timetable_files),
+            "classes_created": total_classes_created,
+            "students_created": total_students_created,
+            "students_updated": total_students_updated,
+            "students_transferred": total_transferred,
+            "courses_created": total_courses_created,
+            "schedules_created": total_schedules_created,
+            "file_results": file_results,
         }

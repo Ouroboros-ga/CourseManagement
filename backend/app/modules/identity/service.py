@@ -29,6 +29,7 @@ from app.core.exceptions import (
 from app.core.permissions import PermissionCode, RoleCode
 from app.core.security import (
     create_access_token,
+    generate_friendly_binding_code,
     generate_secure_token,
     hash_token,
     verify_password,
@@ -594,7 +595,7 @@ class IdentityService:
         reason: str | None,
         request_id: str | None,
     ) -> tuple[int, str, datetime]:
-        """为指定学生签发一次性绑定码；明文仅此返回一次，库中只存摘要。"""
+        """为指定学生签发一次性 6 位绑定码；明文仅此返回一次，库中只存摘要。"""
         self._require_actor_permission(
             actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value
         )
@@ -602,7 +603,7 @@ class IdentityService:
         if student is None:
             raise NotFoundError("学生不存在")
 
-        code = generate_secure_token(24)
+        code = generate_friendly_binding_code(6)
         expires_at = utcnow() + timedelta(
             minutes=self._settings.binding_token_valid_minutes
         )
@@ -623,6 +624,162 @@ class IdentityService:
         )
         self._session.commit()
         return token.id, code, expires_at
+
+    def batch_issue_binding_tokens(
+        self,
+        *,
+        actor_user_id: int,
+        student_ids: list[int] | None = None,
+        class_id: int | None = None,
+        days_valid: int = 30,
+        reason: str | None = None,
+        request_id: str | None = None,
+    ) -> list[dict]:
+        """批量为学生签发 6 位绑定码。"""
+        self._require_actor_permission(
+            actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value
+        )
+        from app.modules.academic.models import AdministrativeClass, Student
+
+        stmt = select(Student).where(Student.status == "ACTIVE")
+        if student_ids:
+            stmt = stmt.where(Student.id.in_(student_ids))
+        elif class_id:
+            stmt = stmt.where(Student.administrative_class_id == class_id)
+        students = list(self._session.execute(stmt.order_by(Student.student_no)).scalars().all())
+
+        bound_student_ids = {
+            u.student_id
+            for u in self._session.execute(
+                select(UserAccount).where(UserAccount.student_id.is_not(None))
+            ).scalars().all()
+        }
+
+        ac_ids = {s.administrative_class_id for s in students if s.administrative_class_id}
+        acs = {
+            ac.id: ac
+            for ac in self._session.execute(
+                select(AdministrativeClass).where(AdministrativeClass.id.in_(list(ac_ids)))
+            ).scalars().all()
+        } if ac_ids else {}
+
+        results = []
+        expires_at = utcnow() + timedelta(days=days_valid)
+
+        for s in students:
+            code = generate_friendly_binding_code(6)
+            token = self._repo.create_binding_token(s.id, hash_token(code), expires_at)
+            ac = acs.get(s.administrative_class_id)
+            results.append({
+                "student_id": s.id,
+                "student_no": s.student_no,
+                "name": s.name,
+                "class_name": ac.class_name if ac else None,
+                "college": ac.college if ac else None,
+                "binding_code": code,
+                "expires_at": expires_at.isoformat(),
+                "is_bound": s.id in bound_student_ids,
+            })
+
+        self._record_audit(
+            actor_user_id=actor_user_id,
+            action="binding_token.batch_issue",
+            resource_type="identity_binding_token",
+            resource_id=f"batch:{len(results)}",
+            before=None,
+            after={"count": len(results), "expires_at": expires_at.isoformat()},
+            reason=reason,
+            request_id=request_id,
+        )
+        self._session.commit()
+        return results
+
+    def export_binding_tokens_excel(
+        self,
+        *,
+        actor_user_id: int,
+        student_ids: list[int] | None = None,
+        class_id: int | None = None,
+        days_valid: int = 30,
+        reason: str | None = None,
+        request_id: str | None = None,
+    ):
+        """批量生成并导出绑定码 Excel。"""
+        import io
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+        tokens_data = self.batch_issue_binding_tokens(
+            actor_user_id=actor_user_id,
+            student_ids=student_ids,
+            class_id=class_id,
+            days_valid=days_valid,
+            reason=reason,
+            request_id=request_id,
+        )
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "学生绑定码"
+
+        headers = ["学号", "姓名", "行政班级", "所属学院", "6位绑定码", "有效期截止", "绑定状态"]
+        ws.append(headers)
+
+        header_font = Font(name="微软雅黑", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1890FF", end_color="1890FF", fill_type="solid")
+        cell_font = Font(name="微软雅黑", size=10)
+        code_font = Font(name="Consolas", size=12, bold=True, color="D4380D")
+        center_align = Alignment(horizontal="center", vertical="center")
+        left_align = Alignment(horizontal="left", vertical="center")
+        thin_border = Border(
+            left=Side(style="thin", color="D9D9D9"),
+            right=Side(style="thin", color="D9D9D9"),
+            top=Side(style="thin", color="D9D9D9"),
+            bottom=Side(style="thin", color="D9D9D9"),
+        )
+
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center_align
+
+        ws.row_dimensions[1].height = 28
+
+        for row_idx, item in enumerate(tokens_data, start=2):
+            status_text = "已绑定" if item["is_bound"] else "未绑定"
+            ws.append([
+                item["student_no"],
+                item["name"],
+                item["class_name"] or "",
+                item["college"] or "",
+                item["binding_code"],
+                item["expires_at"][:19].replace("T", " "),
+                status_text,
+            ])
+            ws.row_dimensions[row_idx].height = 22
+            for col_idx in range(1, len(headers) + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.border = thin_border
+                if col_idx == 5:
+                    cell.font = code_font
+                    cell.alignment = center_align
+                elif col_idx in (1, 6, 7):
+                    cell.font = cell_font
+                    cell.alignment = center_align
+                else:
+                    cell.font = cell_font
+                    cell.alignment = left_align
+
+        col_widths = [16, 12, 18, 18, 14, 22, 12]
+        for idx, width in enumerate(col_widths, start=1):
+            col_letter = chr(64 + idx)
+            ws.column_dimensions[col_letter].width = width
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output
 
     def revoke_binding_token(
         self,

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import time
 
 from sqlalchemy import select
 
@@ -35,12 +36,14 @@ from app.modules.academic.models import (
     CalendarOverride,
     Course,
     CourseSchedule,
+    CourseScheduleWeek,
     OverrideType,
     PeriodDefinition,
     Semester,
     SemesterStatus,
     Student,
     TeachingClass,
+    TeachingClassStudent,
     VolunteerQualification,
 )
 from app.modules.academic.repository import AcademicRepository
@@ -48,6 +51,8 @@ from app.modules.academic.schemas import (
     AdministrativeClassCreateRequest,
     AdministrativeClassResponse,
     AdministrativeClassUpdateRequest,
+    BatchElectiveCourseRequest,
+    BatchElectiveCourseResponse,
     CalendarOverrideCreateRequest,
     CalendarOverrideResponse,
     CourseCreateRequest,
@@ -56,6 +61,7 @@ from app.modules.academic.schemas import (
     CourseScheduleResponse,
     CourseScheduleUpdateRequest,
     CourseUpdateRequest,
+    MasterTimetableItemResponse,
     PeriodDefinitionResponse,
     PeriodDefinitionUpsertRequest,
     SemesterCreateRequest,
@@ -73,6 +79,7 @@ from app.modules.academic.schemas import (
 from app.modules.audit.models import AuditLog
 from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import IdentityRepository
+from app.modules.inspection.course_policy import is_physical_education
 from app.modules.identity.service import CurrentUser
 
 
@@ -187,6 +194,25 @@ class AcademicService:
         )
         self._repo.add(sem)
         self._repo.flush()
+        if getattr(body, "init_default_periods", True):
+            default_periods = [
+                (1, time(8, 0), time(9, 35)),
+                (2, time(10, 5), time(11, 40)),
+                (3, time(13, 30), time(15, 5)),
+                (4, time(15, 25), time(17, 0)),
+                (5, time(18, 30), time(20, 5)),
+                (6, time(20, 15), time(21, 50)),
+            ]
+            for p_no, st, et in default_periods:
+                self._repo.add(
+                    PeriodDefinition(
+                        semester_id=sem.id,
+                        period_no=p_no,
+                        start_time=st,
+                        end_time=et,
+                    )
+                )
+            self._repo.flush()
         self._record_audit(
             actor_user_id=actor.id,
             action="academic.semester.create",
@@ -1106,4 +1132,222 @@ class AcademicService:
         )
         return _page(
             [VolunteerQualificationResponse.model_validate(r) for r in rows], total, params
+        )
+
+    # ================================================================== #
+    # 全校总课表查询 (Master Timetable)
+    # ================================================================== #
+    def get_master_timetable(
+        self,
+        semester_id: int,
+        *,
+        week_no: int | None = None,
+        weekday: int | None = None,
+        administrative_class_id: int | None = None,
+        keyword: str | None = None,
+    ) -> list[MasterTimetableItemResponse]:
+        """查询学期全校总课表，并计算每节课应到考勤人数、关联行政班及是否查课目标。"""
+        sem = self._repo.get_semester(semester_id)
+        if sem is None:
+            raise NotFoundError("学期不存在")
+
+        stmt = (
+            select(CourseSchedule, TeachingClass, Course)
+            .join(TeachingClass, TeachingClass.id == CourseSchedule.teaching_class_id)
+            .join(Course, Course.id == TeachingClass.course_id)
+            .where(
+                CourseSchedule.semester_id == semester_id,
+                CourseSchedule.status == "ACTIVE",
+                TeachingClass.status == "ACTIVE",
+                Course.status == "ACTIVE",
+            )
+        )
+        if weekday is not None:
+            stmt = stmt.where(CourseSchedule.weekday == weekday)
+        if administrative_class_id is not None:
+            stmt = stmt.where(
+                select(TeachingClassStudent.student_id)
+                .join(Student, Student.id == TeachingClassStudent.student_id)
+                .where(
+                    TeachingClassStudent.teaching_class_id == TeachingClass.id,
+                    Student.administrative_class_id == administrative_class_id,
+                    Student.status == "ACTIVE",
+                )
+                .exists()
+            )
+
+        schedules_raw = list(self._session.execute(stmt).all())
+        out: list[MasterTimetableItemResponse] = []
+
+        tc_ids = [tc.id for _cs, tc, _c in schedules_raw]
+        roster_counts: dict[int, int] = {tid: 0 for tid in tc_ids}
+        roster_admin_classes: dict[int, set[str]] = {tid: set() for tid in tc_ids}
+
+        if tc_ids:
+            stu_rows = self._session.execute(
+                select(
+                    TeachingClassStudent.teaching_class_id,
+                    AdministrativeClass.class_name,
+                )
+                .join(Student, Student.id == TeachingClassStudent.student_id)
+                .outerjoin(
+                    AdministrativeClass,
+                    AdministrativeClass.id == Student.administrative_class_id,
+                )
+                .where(
+                    TeachingClassStudent.teaching_class_id.in_(tc_ids),
+                    Student.status == "ACTIVE",
+                )
+            ).all()
+            for tid, ac_name in stu_rows:
+                roster_counts[tid] = roster_counts.get(tid, 0) + 1
+                if ac_name:
+                    roster_admin_classes[tid].add(ac_name)
+
+        for cs, tc, c in schedules_raw:
+            weeks = [w.week_no for w in cs.weeks]
+            if week_no is not None and week_no not in weeks:
+                continue
+
+            if keyword:
+                kw = keyword.strip().lower()
+                matches_kw = (
+                    kw in (c.course_name or "").lower()
+                    or kw in (c.course_code or "").lower()
+                    or kw in (tc.class_name or "").lower()
+                    or kw in (cs.classroom or "").lower()
+                )
+                if not matches_kw:
+                    continue
+
+            is_pe = is_physical_education(c.course_name)
+            enrolled_cnt = roster_counts.get(tc.id, 0)
+            is_insp = (not is_pe) and (enrolled_cnt > 0)
+
+            out.append(
+                MasterTimetableItemResponse(
+                    id=str(cs.id),
+                    semester_id=str(cs.semester_id),
+                    course_id=str(c.id),
+                    course_code=c.course_code,
+                    course_name=c.course_name,
+                    teaching_class_id=str(tc.id),
+                    teaching_class_code=tc.class_code,
+                    teaching_class_name=tc.class_name,
+                    weekday=cs.weekday,
+                    start_period=cs.start_period,
+                    end_period=cs.end_period,
+                    classroom=cs.classroom,
+                    weeks=weeks,
+                    status=cs.status,
+                    enrolled_student_count=enrolled_cnt,
+                    is_physical_education=is_pe,
+                    is_inspectable=is_insp,
+                    administrative_classes=sorted(roster_admin_classes.get(tc.id, set())),
+                )
+            )
+
+        out.sort(key=lambda x: (x.weekday, x.start_period, x.course_name))
+        return out
+
+    # ================================================================== #
+    # 选修课/分班课批量录入 API
+    # ================================================================== #
+    def batch_create_elective_course(
+        self,
+        actor: CurrentUser,
+        body: BatchElectiveCourseRequest,
+        request_id: str | None,
+    ) -> BatchElectiveCourseResponse:
+        """批量创建选修课/分班课的教学班、排课及学生名单关联。"""
+        self._require_actor_permission(actor.id, PermissionCode.ACADEMIC_MANAGE.value)
+        sem = self._require_active_semester(body.semester_id)
+
+        import hashlib
+
+        cname = body.course_name.strip()
+        course = self._session.execute(
+            select(Course).where(Course.course_name == cname)
+        ).scalar_one_or_none()
+        if course is None:
+            ccode = (
+                body.course_code.strip()
+                if body.course_code
+                else f"C_{hashlib.md5(cname.encode('utf-8')).hexdigest()[:8].upper()}"
+            )
+            course = Course(course_code=ccode, course_name=cname, status="ACTIVE")
+            self._repo.add(course)
+            self._repo.flush()
+
+        tcs_created = 0
+        schedules_created = 0
+        total_students_enrolled = 0
+
+        for tc_item in body.teaching_classes:
+            tc_code = tc_item.class_code.strip()
+            tc_name = (tc_item.class_name or f"{cname}-{tc_code}").strip()
+            tc = self._repo.get_teaching_class_by_key(sem.id, course.id, tc_code)
+            if tc is None:
+                tc = TeachingClass(
+                    semester_id=sem.id,
+                    course_id=course.id,
+                    class_code=tc_code,
+                    class_name=tc_name,
+                    status="ACTIVE",
+                )
+                self._repo.add(tc)
+                self._repo.flush()
+                tcs_created += 1
+            else:
+                tc.class_name = tc_name
+                tc.status = "ACTIVE"
+                self._repo.flush()
+
+            schedule = CourseSchedule(
+                semester_id=sem.id,
+                teaching_class_id=tc.id,
+                weekday=tc_item.weekday,
+                start_period=tc_item.start_period,
+                end_period=tc_item.end_period,
+                classroom=tc_item.classroom or None,
+                status="ACTIVE",
+            )
+            self._repo.add(schedule)
+            self._repo.flush()
+            self._repo.set_schedule_weeks(schedule, tc_item.weeks)
+            schedules_created += 1
+
+            if tc_item.student_nos:
+                sids: list[int] = []
+                for sno in tc_item.student_nos:
+                    stu = self._repo.get_student_by_no(sno.strip())
+                    if stu is not None:
+                        sids.append(stu.id)
+                self._repo.set_roster(tc.id, sids)
+                total_students_enrolled += len(sids)
+
+        self._record_audit(
+            actor_user_id=actor.id,
+            action="academic.course.batch_elective_create",
+            resource_type="course",
+            resource_id=str(course.id),
+            before=None,
+            after={
+                "course_name": course.course_name,
+                "teaching_classes_created": tcs_created,
+                "schedules_created": schedules_created,
+                "students_enrolled": total_students_enrolled,
+            },
+            reason=body.reason,
+            request_id=request_id,
+        )
+        self._session.commit()
+
+        return BatchElectiveCourseResponse(
+            course_id=str(course.id),
+            course_name=course.course_name,
+            course_code=course.course_code,
+            teaching_classes_created=tcs_created,
+            schedules_created=schedules_created,
+            students_enrolled=total_students_enrolled,
         )

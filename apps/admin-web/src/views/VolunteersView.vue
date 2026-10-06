@@ -16,6 +16,7 @@ import {
 } from '../api/academic'
 import { listTasks, type InspectionTaskItem } from '../api/tasks'
 import { request } from '../api/http'
+import { exportBindingTokensExcel } from '../api/auth'
 
 const sessionStore = useSessionStore()
 
@@ -56,6 +57,42 @@ const newStudentForm = ref({
   issue_token_now: true
 })
 const adding = ref(false)
+
+// 批量导出绑定码弹窗状态
+const batchExportDialogVisible = ref(false)
+const batchExportDays = ref(30)
+const batchExportScope = ref<'all' | 'volunteers'>('all')
+const batchExporting = ref(false)
+
+async function handleBatchExport() {
+  batchExporting.value = true
+  try {
+    let studentIds: number[] | undefined = undefined
+    if (batchExportScope.value === 'volunteers') {
+      const volStudentIds = volunteerQuals.value.filter(q => q.enabled).map(q => Number(q.student_id))
+      studentIds = volStudentIds
+    }
+    const blob = await exportBindingTokensExcel({
+      days_valid: batchExportDays.value,
+      student_ids: studentIds,
+      reason: `管理员批量生成${batchExportScope.value === 'volunteers' ? '志愿者' : '在校学生'}绑定码`
+    })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `学生6位绑定码_${new Date().toISOString().slice(0, 10)}.xlsx`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('批量生成 6 位绑定码并导出 Excel 成功！')
+    batchExportDialogVisible.value = false
+  } catch (err: any) {
+    ElMessage.error(err.message || '导出绑定码失败')
+  } finally {
+    batchExporting.value = false
+  }
+}
 
 async function loadData() {
   if (!sessionStore.currentSemesterId) return
@@ -347,6 +384,7 @@ async function handleAutoAssign() {
         </div>
         <div class="head-actions">
           <button class="btn btn-ghost" @click="handleAutoAssign">⚡ 智能自动排班</button>
+          <button class="btn btn-primary" @click="batchExportDialogVisible = true">📤 批量生成绑定码并导出 Excel</button>
           <button class="btn btn-dark" @click="openAddDialog">➕ 添加志愿者 / 学生</button>
         </div>
       </div>
@@ -453,7 +491,54 @@ async function handleAutoAssign() {
                 <span class="tag tag-green">
                   🟢 已绑定 (UID: {{ boundUserMap.get(stu.id)?.id }})
                 </span>
-              </template>
+              
+    <!-- 弹窗 4：批量生成绑定码并导出 Excel -->
+    <el-dialog
+      v-model="batchExportDialogVisible"
+      title="批量生成学生 6 位绑定码并导出 Excel"
+      width="540px"
+      destroy-on-close
+    >
+      <div v-loading="batchExporting" class="export-dialog-body">
+        <p class="dialog-tip">
+          为学生一键批量签发 6 位大写英文字母与数字组成的友好绑定码（已剔除易混淆字符）。
+          导出的 Excel 包含：学号、姓名、行政班级、所属学院、6位绑定码、有效期截止时间、当前绑定状态。
+        </p>
+
+        <div class="form-item">
+          <label class="form-label">绑定码有效期：</label>
+          <el-radio-group v-model="batchExportDays">
+            <el-radio :value="14">14 天</el-radio>
+            <el-radio :value="30">30 天 (推荐)</el-radio>
+            <el-radio :value="60">60 天</el-radio>
+            <el-radio :value="90">90 天 (本学期有效)</el-radio>
+          </el-radio-group>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">签发范围：</label>
+          <el-radio-group v-model="batchExportScope">
+            <el-radio value="all">全校在籍学生 (共 {{ stats.total }} 人)</el-radio>
+            <el-radio value="volunteers">仅当前学期志愿者 (共 {{ stats.volunteers }} 人)</el-radio>
+          </el-radio-group>
+        </div>
+
+        <div style="background: #e6f7ff; border: 1px solid #91d5ff; padding: 12px; border-radius: 4px; font-size: 12px; color: #0050b3; margin-top: 16px;">
+          📌 <b>说明</b>：微信小程序端仅供学生绑定；获得志愿者资格的学生登录后将自动叠加查课工作台权限。
+          导出的 Excel 表格可直接发送至各班级大群或由辅导员分发。
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <button class="btn btn-ghost" @click="batchExportDialogVisible = false">取消</button>
+          <button class="btn btn-primary" :disabled="batchExporting" @click="handleBatchExport">
+            {{ batchExporting ? '正在生成导出…' : '立即生成并下载 Excel' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
+</template>
               <template v-else>
                 <span class="tag tag-gray">⚪ 未绑定小程序</span>
               </template>

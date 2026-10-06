@@ -10,7 +10,11 @@ from sqlalchemy import select
 
 from app.core.exceptions import AppError, ConflictError, ErrorCode
 from app.modules.inspection.models import InspectionTask
-from app.modules.inspection.schemas import CourseOccurrenceScope, InspectionGenerateRequest
+from app.modules.inspection.schemas import (
+    CourseOccurrenceScope,
+    InspectionGenerateRequest,
+    SmartSampleRequest,
+)
 
 if TYPE_CHECKING:
     from app.modules.academic.models import Semester
@@ -84,15 +88,23 @@ def select_occurrences(
     items, revision = build_scope(service, semester, body.selection_scope)
     if revision != body.selection_revision:
         raise ConflictError(ErrorCode.SELECTION_STALE, "课表、名单或生成条件已变化，请刷新预览")
-    by_key = {(i.course_schedule_id, i.inspection_date): i for i in items}
     requested = {(x.course_schedule_id, x.inspection_date) for x in body.occurrences}
-    if not requested <= by_key.keys():
+    selected = []
+    matched_req = set()
+    for item in items:
+        sched_ids = item.constituent_schedule_ids or ([item.course_schedule_id] if item.course_schedule_id else [])
+        for sid in sched_ids:
+            if (sid, item.inspection_date) in requested:
+                selected.append(item)
+                matched_req.add((sid, item.inspection_date))
+                break
+    if not requested <= matched_req:
         raise AppError(
             ErrorCode.VALIDATION_ERROR,
             "包含范围外、停课或不可查的课次",
             http_status=422,
         )
-    return [i for i in items if (i.course_schedule_id, i.inspection_date) in requested]
+    return selected
 
 
 def list_occurrences(
@@ -131,6 +143,7 @@ def list_occurrences(
                 "class_name": item.class_name_snapshot,
                 "course_name": item.course_name_snapshot,
                 "classroom": item.classroom_snapshot,
+                "expected_count": len(item.student_ids),
                 "existing_task_id": existing.id if existing else None,
                 "existing_task_status": existing.status if existing else None,
                 "selectable": not canceled,
@@ -147,4 +160,95 @@ def list_occurrences(
             **scope.model_dump(),
             "teaching_class_ids": [str(i) for i in scope.teaching_class_ids],
         },
+    }
+
+
+def smart_sample_occurrences(
+    service: InspectionService,
+    semester: Semester,
+    body: SmartSampleRequest,
+) -> dict[str, object]:
+    """智能抽查推荐：根据早八优先、每班限额、排除已生成等规则推荐课次。"""
+    from app.modules.academic.models import TeachingClass
+
+    tcs = list(
+        service._session.execute(
+            select(TeachingClass).where(
+                TeachingClass.semester_id == semester.id,
+                TeachingClass.status == "ACTIVE",
+            )
+        ).scalars().all()
+    )
+    if not tcs:
+        return {
+            "semester_id": semester.id,
+            "week_no": body.week_no,
+            "total_candidates": 0,
+            "sampled_count": 0,
+            "occurrences": [],
+            "items": [],
+        }
+
+    gen_req = InspectionGenerateRequest(
+        semester_id=semester.id,
+        inspection_type="COURSE",
+        week_nos=[body.week_no],
+        teaching_class_ids=[t.id for t in tcs],
+    )
+    all_plan_items = service._build_course_plan_core(semester, gen_req)
+
+    if body.exclude_already_generated and all_plan_items:
+        existing = service._repo.find_task_ids_by_keys([it.task_key for it in all_plan_items])
+        candidates = [it for it in all_plan_items if it.task_key not in existing]
+    else:
+        candidates = list(all_plan_items)
+
+    if body.morning_only:
+        candidates = [it for it in candidates if it.start_period <= 2]
+
+    by_class: dict[str, list[PlanItem]] = {}
+    for it in candidates:
+        c_name = it.class_name_snapshot or "默认"
+        by_class.setdefault(c_name, []).append(it)
+
+    sampled: list[PlanItem] = []
+    for _c_name, class_items in by_class.items():
+        class_items.sort(key=lambda x: (x.start_period, x.inspection_date))
+        picked = class_items[: body.max_tasks_per_class]
+        sampled.extend(picked)
+
+    if body.sample_ratio is not None and 0.0 < body.sample_ratio < 1.0:
+        target_cnt = max(1, int(len(sampled) * body.sample_ratio))
+        sampled = sampled[:target_cnt]
+
+    sampled.sort(key=lambda x: (x.inspection_date, x.start_period))
+
+    out_occurrences = [
+        {"course_schedule_id": it.course_schedule_id, "inspection_date": it.inspection_date}
+        for it in sampled
+        if it.course_schedule_id is not None
+    ]
+    out_items = [
+        {
+            "course_schedule_id": str(it.course_schedule_id),
+            "inspection_date": it.inspection_date,
+            "start_period": it.start_period,
+            "end_period": it.end_period,
+            "teaching_class_id": str(it.teaching_class_id),
+            "class_name": it.class_name_snapshot,
+            "course_name": it.course_name_snapshot,
+            "classroom": it.classroom_snapshot,
+            "expected_count": len(it.student_ids),
+        }
+        for it in sampled
+        if it.course_schedule_id is not None
+    ]
+
+    return {
+        "semester_id": semester.id,
+        "week_no": body.week_no,
+        "total_candidates": len(candidates),
+        "sampled_count": len(sampled),
+        "occurrences": out_occurrences,
+        "items": out_items,
     }

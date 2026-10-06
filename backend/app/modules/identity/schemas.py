@@ -246,3 +246,28 @@ class StudentBindingResetResult(BaseModel):
     student_id: str | None
     revoked_sessions: int
     lock_version: int
+
+
+class BatchBindingTokenRequest(BaseModel):
+    """POST /students/batch-binding-tokens 请求体。"""
+
+    class_id: int | None = None
+    student_ids: list[int] | None = None
+    days_valid: int = Field(default=30, ge=1, le=180)
+    reason: str | None = Field(default=None, max_length=512)
+
+
+class StudentBindingTokenItem(BaseModel):
+    student_id: int
+    student_no: str
+    name: str
+    class_name: str | None = None
+    college: str | None = None
+    binding_code: str
+    expires_at: str
+    is_bound: bool = False
+
+
+class BatchBindingTokenResponse(BaseModel):
+    total_issued: int
+    items: list[StudentBindingTokenItem]

@@ -18,6 +18,7 @@ from app.core.permissions import PermissionCode
 from app.modules.academic.schemas import (
     AdministrativeClassCreateRequest,
     AdministrativeClassUpdateRequest,
+    BatchElectiveCourseRequest,
     CalendarOverrideCreateRequest,
     CourseCreateRequest,
     CourseScheduleCreateRequest,
@@ -502,3 +503,45 @@ def list_volunteer_qualifications(
         service.list_volunteer_qualifications(params, semester_id=semester_id, enabled=enabled),
         _rid(request),
     )
+
+
+# =========================================================================== #
+# 全校教务总课表 (Master Timetable)
+# =========================================================================== #
+@router.get("/master-timetable")
+def get_master_timetable(
+    actor: AcademicReadDep,
+    service: ServiceDep,
+    request: Request,
+    semester_id: Annotated[int, Query(ge=1)],
+    week_no: Annotated[int | None, Query(ge=1, le=60)] = None,
+    weekday: Annotated[int | None, Query(ge=1, le=7)] = None,
+    administrative_class_id: Annotated[int | None, Query(ge=1)] = None,
+    keyword: Annotated[str | None, Query(max_length=128)] = None,
+) -> dict[str, object]:
+    items = [
+        r.model_dump()
+        for r in service.get_master_timetable(
+            semester_id,
+            week_no=week_no,
+            weekday=weekday,
+            administrative_class_id=administrative_class_id,
+            keyword=keyword,
+        )
+    ]
+    return success({"items": items, "total": len(items)}, _rid(request))
+
+
+# =========================================================================== #
+# 选修课/分班课批量录入 API
+# =========================================================================== #
+@router.post("/teaching-classes/batch-elective")
+def batch_create_elective_course(
+    body: BatchElectiveCourseRequest,
+    actor: AcademicManageDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    result = service.batch_create_elective_course(actor, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+

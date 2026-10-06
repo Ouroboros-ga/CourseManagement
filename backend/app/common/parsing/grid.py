@@ -190,6 +190,72 @@ def expand_grid_rows(
     return sorted(occurrences, key=lambda c: (c.course_key, c.week_no, c.start_period))
 
 
+CLASS_NAME_ALIASES: tuple[tuple[str, str], ...] = (
+    ("数据科学", "数科"),
+    ("计算机类", "计算机"),
+    ("机械设计制造及其自动化", "机自"),
+    ("机械电子工程", "机电"),
+    ("电气工程及其自动化", "电气"),
+    ("智能制造工程", "智能制造"),
+)
+
+
+def normalize_class_name(name: str) -> str:
+    """归一化行政班名称（处理简称与全称互转匹配，去除空格）。"""
+    s = (name or "").strip().replace(" ", "").replace("　", "")
+    for full, short in CLASS_NAME_ALIASES:
+        s = s.replace(full, short)
+    return s
+
+
+def load_xls_grid(data: bytes, sheet_index: int = 0) -> tuple[str, list[dict[str, str]]]:
+    """读取 xls 方格字节（利用 xlrd），返回 (class_id, 标准行列表含 course_id)。"""
+    import xlrd
+
+    wb = xlrd.open_workbook(file_contents=data)
+    ws = wb.sheet_by_index(sheet_index)
+    header_row = -1
+    col_of_weekday: dict[int, str] = {}
+    for r in range(min(ws.nrows, 6)):
+        vals = [str(ws.cell_value(r, c) or "") for c in range(ws.ncols)]
+        if "星期一" in vals:
+            header_row = r
+            for c, v in enumerate(vals):
+                short = _short_weekday(v)
+                if short:
+                    col_of_weekday[c] = short
+            break
+    if header_row < 0:
+        raise ValueError("找不到星期头行（星期一..星期日）")
+    header_texts = [
+        str(ws.cell_value(r, c) or "")
+        for r in range(min(ws.nrows, 3))
+        for c in range(ws.ncols)
+    ]
+    class_id = extract_class_id(header_texts)
+    cells: list[tuple[str, str]] = []
+    for r in range(header_row + 1, ws.nrows):
+        for c, wd in col_of_weekday.items():
+            v = ws.cell_value(r, c)
+            if isinstance(v, str) and v.strip():
+                cells.append((wd, v))
+    return class_id, _number_rows(grid_to_rows(cells), class_id)
+
+
+def load_grid(data: bytes, sheet_index: int = 0) -> tuple[str, list[dict[str, str]]]:
+    """读取 xlsx 或 xls 方格字节，自动检测格式并返回 (class_id, 标准行列表含 course_id)。"""
+    if data.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        return load_xls_grid(data, sheet_index=sheet_index)
+
+    try:
+        return load_xlsx_grid(data, sheet_index=sheet_index)
+    except Exception:
+        try:
+            return load_xls_grid(data, sheet_index=sheet_index)
+        except Exception:
+            raise
+
+
 def load_xlsx_grid(data: bytes, sheet_index: int = 0) -> tuple[str, list[dict[str, str]]]:
     """读取 xlsx 方格字节，返回 (class_id, 标准行列表含 course_id)。"""
     from openpyxl import load_workbook

@@ -25,6 +25,9 @@ class ImportTarget(enum.StrEnum):
     ROSTER = "roster"  # 教学班名单（受 student.manage 守卫）
     TIMETABLE = "timetable"  # 课表 / 教学班基础（受 academic.manage 守卫）
     VOLUNTEER = "volunteer"  # 志愿者学期资格（受 volunteer.manage 守卫）
+    ADMIN_ROSTER = "admin_roster"  # 行政班学生花名册（受 student.manage 守卫）
+    GRID_TIMETABLE = "grid_timetable"  # 网格课表批量导入（受 academic.manage 守卫）
+    ELECTIVE_COURSE = "elective_course"  # 选修课/分层课/多教学班导入（受 academic.manage 守卫）
 
 
 class ImportBatchStatus(enum.StrEnum):
@@ -34,7 +37,9 @@ class ImportBatchStatus(enum.StrEnum):
     EXPIRED = "EXPIRED"  # 预览暂存超时作废
 
 
-_ALLOWED_TARGET = "('roster','timetable','volunteer')"
+_ALLOWED_TARGET = (
+    "('roster','timetable','volunteer','admin_roster','grid_timetable','elective_course')"
+)
 _ALLOWED_STATUS = "('PREVIEW','CONFIRMED','FAILED','EXPIRED')"
 
 
@@ -49,7 +54,7 @@ class ImportBatch(TimestampMixin, Base):
     )
 
     id: Mapped[int] = pk_column()
-    target: Mapped[str] = mapped_column(String(16), nullable=False)
+    target: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(
         String(16),
         nullable=False,

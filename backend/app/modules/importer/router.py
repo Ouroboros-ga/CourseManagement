@@ -97,3 +97,25 @@ def import_errors(
 ) -> dict[str, object]:
     result = service.get_errors(actor, batch_id)
     return success(result, _rid(request))
+
+
+@router.post("/imports/bulk")
+async def bulk_import(
+    request: Request,
+    actor: ImportExecuteDep,
+    service: ServiceDep,
+    semester_id: Annotated[int, Form()],
+    files: Annotated[list[UploadFile], File()],
+) -> dict[str, object]:
+    """批量上传多个名单/课表文件或一个 ZIP 压缩包，自动化流水线解析并原子入库。"""
+    raw_files: list[tuple[str, bytes]] = []
+    for f in files:
+        data = await f.read()
+        raw_files.append((f.filename or "file", data))
+    result = service.import_bulk_files(
+        actor,
+        semester_id=semester_id,
+        files=raw_files,
+        request_id=_rid(request),
+    )
+    return success(result, _rid(request))

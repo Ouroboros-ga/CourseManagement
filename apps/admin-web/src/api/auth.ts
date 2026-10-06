@@ -52,3 +52,50 @@ export async function logout(): Promise<void> {
     clearAccessToken()
   }
 }
+
+export async function batchIssueBindingTokens(body: {
+  class_id?: number
+  student_ids?: number[]
+  days_valid?: number
+  reason?: string
+}): Promise<{
+  total_issued: number
+  items: Array<{
+    student_id: number
+    student_no: string
+    name: string
+    class_name?: string
+    college?: string
+    binding_code: string
+    expires_at: string
+    is_bound: boolean
+  }>
+}> {
+  return request('/api/v1/students/batch-binding-tokens', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })
+}
+
+export async function exportBindingTokensExcel(body: {
+  class_id?: number
+  student_ids?: number[]
+  days_valid?: number
+  reason?: string
+}): Promise<Blob> {
+  const { getAccessToken } = await import('./http')
+  const token = getAccessToken()
+  const res = await fetch('/api/v1/students/export-binding-tokens', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify(body)
+  })
+  if (!res.ok) {
+    throw new Error('导出学生绑定码失败')
+  }
+  return res.blob()
+}
+

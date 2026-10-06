@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import TaskStatusTag from '../components/TaskStatusTag.vue'
 import TaskDrawer from '../components/TaskDrawer.vue'
-import { listTasks, type InspectionTaskItem } from '../api/tasks'
+import { listTasks, updateTask, type InspectionTaskItem } from '../api/tasks'
 import { useSessionStore } from '../stores/session'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { request } from '../api/http'
@@ -104,6 +104,52 @@ async function handleReassign(task: InspectionTaskItem) {
     // cancelled
   }
 }
+
+// 编辑任务弹窗（方式 A）
+const editDialogVisible = ref(false)
+const editingTask = ref<InspectionTaskItem | null>(null)
+const editForm = ref({
+  classroom: '',
+  start_period: 1,
+  end_period: 2,
+  course_name: '',
+  reason: ''
+})
+const editSubmitting = ref(false)
+
+function openEditTask(task: InspectionTaskItem) {
+  editingTask.value = task
+  editForm.value = {
+    classroom: task.classroom_snapshot || '',
+    start_period: task.start_period || 1,
+    end_period: task.end_period || 2,
+    course_name: task.course_name_snapshot || '',
+    reason: ''
+  }
+  editDialogVisible.value = true
+}
+
+async function handleUpdateTask() {
+  if (!editingTask.value) return
+  editSubmitting.value = true
+  try {
+    await updateTask(editingTask.value.id, {
+      classroom: editForm.value.classroom,
+      start_period: editForm.value.start_period,
+      end_period: editForm.value.end_period,
+      course_name: editForm.value.course_name,
+      reason: editForm.value.reason || '管理端直接修改任务信息'
+    })
+    ElMessage.success('查课任务信息修改成功！')
+    editDialogVisible.value = false
+    fetchTasks()
+  } catch (err: any) {
+    ElMessage.error(err.message || '修改任务失败')
+  } finally {
+    editSubmitting.value = false
+  }
+}
+
 </script>
 
 <template>
@@ -198,7 +244,74 @@ async function handleReassign(task: InspectionTaskItem) {
               <template v-if="(task as any).assignment">
                 <div class="cell-main">{{ (task as any).assignment.volunteer_name || '志愿者' }}</div>
                 <div class="cell-sub cell-mono">UID: {{ (task as any).assignment.volunteer_user_id }}</div>
-              </template>
+              
+    <!-- 编辑查课任务弹窗（方式 A） -->
+    <el-dialog
+      v-model="editDialogVisible"
+      :title="`编辑查课任务 #${editingTask?.id || ''}`"
+      width="480px"
+      destroy-on-close
+    >
+      <div v-loading="editSubmitting" class="edit-dialog-body">
+        <p style="font-size: 12px; color: var(--ink-mute); margin-bottom: 16px;">
+          直接调整当天的查课任务信息（如任课老师临时调换教室或节次变更）。修改后将实时同步至志愿者的查课小程序端。
+        </p>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">教室地点：</label>
+          <input
+            v-model="editForm.classroom"
+            type="text"
+            class="input"
+            style="width: 100%; box-sizing: border-box;"
+            placeholder="例如：教学楼 3-203"
+          />
+        </div>
+
+        <div style="display: flex; gap: 12px; margin-bottom: 14px;">
+          <div style="flex: 1;">
+            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">开始大节：</label>
+            <el-input-number v-model="editForm.start_period" :min="1" :max="12" style="width: 100%;" />
+          </div>
+          <div style="flex: 1;">
+            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">结束大节：</label>
+            <el-input-number v-model="editForm.end_period" :min="editForm.start_period" :max="12" style="width: 100%;" />
+          </div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">课程名称（快照）：</label>
+          <input
+            v-model="editForm.course_name"
+            type="text"
+            class="input"
+            style="width: 100%; box-sizing: border-box;"
+            placeholder="例如：高等数学A"
+          />
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">修改原因（审计备查）：</label>
+          <input
+            v-model="editForm.reason"
+            type="text"
+            class="input"
+            style="width: 100%; box-sizing: border-box;"
+            placeholder="例如：任课教师申请临时调换教室"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button class="btn btn-ghost" @click="editDialogVisible = false">取消</button>
+          <button class="btn btn-primary" :disabled="editSubmitting" @click="handleUpdateTask">
+            {{ editSubmitting ? '保存中…' : '保存修改' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
+</template>
               <template v-else-if="task.assigned_volunteer_name">
                 <div class="cell-main">{{ task.assigned_volunteer_name }}</div>
                 <div class="cell-sub cell-mono">{{ task.assigned_volunteer_id }}</div>
@@ -219,6 +332,7 @@ async function handleReassign(task: InspectionTaskItem) {
               >
                 人工指派
               </button>
+              <button v-if="task.status !== '已取消' && task.status !== '已完成'" class="btn btn-ghost btn-sm" @click="openEditTask(task)">✏️ 编辑</button>
               <button class="btn btn-ghost btn-sm" @click="openTaskDetail(task)">详情与名单</button>
             </td>
           </tr>

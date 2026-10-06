@@ -156,3 +156,53 @@ export async function triggerAutoAssign(body: {
     body: JSON.stringify(body)
   })
 }
+
+export async function updateTask(
+  id: string,
+  body: {
+    classroom?: string
+    start_period?: number
+    end_period?: number
+    course_name?: string
+    reason?: string
+  }
+): Promise<InspectionTaskItem> {
+  return request<InspectionTaskItem>(`/api/v1/inspection-tasks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body)
+  })
+}
+
+export interface SmartSampleResult {
+  semester_id: number
+  week_no: number
+  total_candidates: number
+  sampled_count: number
+  occurrences: Array<{ course_schedule_id: number; inspection_date: string }>
+  items: Array<{
+    course_schedule_id: string
+    inspection_date: string
+    start_period: number
+    end_period: number
+    teaching_class_id: string
+    class_name: string | null
+    course_name: string | null
+    classroom: string | null
+    expected_count: number
+  }>
+}
+
+export async function smartSampleOccurrences(body: {
+  semester_id: number
+  week_no: number
+  morning_only?: boolean
+  max_tasks_per_class?: number
+  sample_ratio?: number
+  exclude_already_generated?: boolean
+}): Promise<SmartSampleResult> {
+  return request<SmartSampleResult>('/api/v1/inspection-course-occurrences/smart-sample', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })
+}
+

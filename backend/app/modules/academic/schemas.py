@@ -41,6 +41,7 @@ class SemesterCreateRequest(BaseModel):
     end_date: date
     first_monday: date
     total_weeks: int = Field(default=20, ge=1, le=60)
+    init_default_periods: bool = Field(default=True, description="是否自动初始化默认6大节次定义")
     reason: str | None = Field(default=None, max_length=512)
 
 
@@ -315,6 +316,63 @@ class PageResponse(BaseModel):
     page: int
     page_size: int
     total: int
+
+
+# --------------------------------------------------------------------------- #
+# 全校教务总课表查询响应 MasterTimetable
+# --------------------------------------------------------------------------- #
+class MasterTimetableItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: IdStr  # schedule_id
+    semester_id: IdStr
+    course_id: IdStr
+    course_code: str
+    course_name: str
+    teaching_class_id: IdStr
+    teaching_class_code: str | None
+    teaching_class_name: str
+    weekday: int
+    start_period: int
+    end_period: int
+    classroom: str | None
+    weeks: list[int] = Field(default_factory=list)
+    status: str
+    enrolled_student_count: int = 0
+    is_physical_education: bool = False
+    is_inspectable: bool = True
+    administrative_classes: list[str] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# 选修课/分班课批量录入结构
+# --------------------------------------------------------------------------- #
+class ElectiveTeachingClassItem(BaseModel):
+    class_code: str = Field(min_length=1, max_length=64)
+    class_name: str | None = Field(default=None, max_length=128)
+    weekday: int = Field(ge=1, le=7)
+    start_period: int = Field(ge=1, le=20)
+    end_period: int = Field(ge=1, le=20)
+    weeks: list[int] = Field(min_length=1)
+    classroom: str | None = Field(default=None, max_length=128)
+    student_nos: list[str] = Field(default_factory=list)
+
+
+class BatchElectiveCourseRequest(BaseModel):
+    semester_id: int = Field(ge=1)
+    course_name: str = Field(min_length=1, max_length=128)
+    course_code: str | None = Field(default=None, max_length=64)
+    teaching_classes: list[ElectiveTeachingClassItem] = Field(min_length=1)
+    reason: str | None = Field(default=None, max_length=512)
+
+
+class BatchElectiveCourseResponse(BaseModel):
+    course_id: IdStr
+    course_name: str
+    course_code: str
+    teaching_classes_created: int
+    schedules_created: int
+    students_enrolled: int
 
 
 __all__ = [name for name in globals() if name.endswith(("Request", "Response"))]

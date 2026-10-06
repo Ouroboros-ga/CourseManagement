@@ -22,6 +22,8 @@ from app.core.exceptions import CsrfError, UnauthenticatedError
 from app.core.permissions import PermissionCode
 from app.modules.identity.deps import CurrentUserDep, SessionIdDep, require_permission
 from app.modules.identity.schemas import (
+    BatchBindingTokenRequest,
+    BatchBindingTokenResponse,
     BindingTokenIssueRequest,
     BindingTokenIssueResult,
     BindingTokenRevokeRequest,
@@ -375,3 +377,53 @@ def student_binding_reset(
         lock_version=version,
     )
     return success(result.model_dump(), rid)
+
+
+@router.post("/students/batch-binding-tokens")
+def batch_issue_binding_tokens(
+    body: BatchBindingTokenRequest,
+    actor: BindingManageDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    """批量签发学生 6 位绑定码。"""
+    rid = getattr(request.state, "request_id", None)
+    items = service.batch_issue_binding_tokens(
+        actor_user_id=actor.id,
+        student_ids=body.student_ids,
+        class_id=body.class_id,
+        days_valid=body.days_valid,
+        reason=body.reason,
+        request_id=rid,
+    )
+    result = BatchBindingTokenResponse(total_issued=len(items), items=items)
+    return success(result.model_dump(), rid)
+
+
+@router.post("/students/export-binding-tokens")
+def export_binding_tokens(
+    body: BatchBindingTokenRequest,
+    actor: BindingManageDep,
+    service: ServiceDep,
+    request: Request,
+):
+    """批量签发并导出绑定码 Excel 文件。"""
+    from fastapi.responses import StreamingResponse
+    import urllib.parse
+
+    rid = getattr(request.state, "request_id", None)
+    excel_stream = service.export_binding_tokens_excel(
+        actor_user_id=actor.id,
+        student_ids=body.student_ids,
+        class_id=body.class_id,
+        days_valid=body.days_valid,
+        reason=body.reason,
+        request_id=rid,
+    )
+    filename = urllib.parse.quote("学生绑定码表.xlsx")
+    return StreamingResponse(
+        excel_stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+

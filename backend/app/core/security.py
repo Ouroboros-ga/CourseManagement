@@ -44,9 +44,15 @@ def generate_secure_token(nbytes: int = 32) -> str:
     return secrets.token_urlsafe(nbytes)
 
 
+def generate_friendly_binding_code(length: int = 6) -> str:
+    """生成学生友好的 6 位绑定码（大写字母与数字，排除 0, O, 1, I 等易混淆字符）。"""
+    charset = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+    return "".join(secrets.choice(charset) for _ in range(length))
+
+
 def hash_token(value: str) -> str:
     """对不透明令牌（刷新凭证 / 绑定码）取 sha256 摘要后入库，绝不存明文。"""
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return hashlib.sha256(value.strip().upper().encode("utf-8")).hexdigest()
 
 
 def create_access_token(
