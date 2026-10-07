@@ -64,6 +64,7 @@ export interface BulkImportResult {
   students_created: number
   students_updated: number
   students_transferred: number
+  total_students?: number
   courses_created: number
   schedules_created: number
   file_results: Array<{

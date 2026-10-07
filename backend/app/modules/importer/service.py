@@ -1317,6 +1317,7 @@ class ImporterService:
         total_students_created = 0
         total_students_updated = 0
         total_transferred = 0
+        total_students_count = 0
         total_courses_created = 0
         total_schedules_created = 0
         file_results: list[dict] = []
@@ -1336,8 +1337,8 @@ class ImporterService:
                 )
                 if not preview.can_confirm:
                     err_msg = "存在格式错误"
-                    if preview.issues:
-                        err_msg = "；".join(str(getattr(i, "message", i)) for i in preview.issues[:3])
+                    if preview.errors:
+                        err_msg = "；".join(str(e.get("message") if isinstance(e, dict) else e) for e in preview.errors[:3])
                     file_results.append({
                         "filename": fn,
                         "type": "ADMIN_ROSTER",
@@ -1351,6 +1352,7 @@ class ImporterService:
                 total_students_created += summary.get("students_created", 0)
                 total_students_updated += summary.get("students_updated", 0)
                 total_transferred += summary.get("students_transferred", 0)
+                total_students_count += summary.get("total_students", summary.get("student_count", 0))
                 file_results.append({
                     "filename": fn,
                     "type": "ADMIN_ROSTER",
@@ -1380,8 +1382,8 @@ class ImporterService:
                 )
                 if not preview.can_confirm:
                     err_msg = "存在排课错误"
-                    if preview.issues:
-                        err_msg = "；".join(str(getattr(i, "message", i)) for i in preview.issues[:3])
+                    if preview.errors:
+                        err_msg = "；".join(str(e.get("message") if isinstance(e, dict) else e) for e in preview.errors[:3])
                     file_results.append({
                         "filename": fn,
                         "type": "GRID_TIMETABLE",
@@ -1415,6 +1417,7 @@ class ImporterService:
             "students_created": total_students_created,
             "students_updated": total_students_updated,
             "students_transferred": total_transferred,
+            "total_students": total_students_count,
             "courses_created": total_courses_created,
             "schedules_created": total_schedules_created,
             "file_results": file_results,

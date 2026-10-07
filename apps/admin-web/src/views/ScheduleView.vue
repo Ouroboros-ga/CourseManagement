@@ -458,13 +458,15 @@ async function submitBulkImport() {
     if (hasErr) {
       ElMessage.warning(`整包处理完成，但有部分文件存在异常，请在下方列表核对`)
     } else {
-      ElMessage.success(`整包导入成功！共处理 ${res.total_files} 个文件，新建班级 ${res.classes_created} 个，录入学生 ${res.students_created} 名`)
+      const stuMsg = res.students_created > 0 
+        ? `新建建档学生 ${res.students_created} 名` 
+        : `核验在籍学生 ${res.total_students || res.students_updated || 0} 名（档案已存在）`
+      ElMessage.success(`整包导入成功！共处理 ${res.total_files} 个文件，新建班级 ${res.classes_created} 个，${stuMsg}`)
     }
     teachingClasses.value = []
+    await loadData()
     if (activeTab.value === 'master') {
-      loadMasterTimetableData()
-    } else {
-      loadData()
+      await loadMasterTimetableData()
     }
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '批量导入失败'
@@ -1011,8 +1013,11 @@ function applySmartSample() {
               <div class="s-value font-mono">{{ bulkResult.classes_created }}<em>个</em></div>
             </div>
             <div class="rb-stat">
-              <div class="s-label">学生建档</div>
-              <div class="s-value font-mono hl-green">{{ bulkResult.students_created }}<em>人</em></div>
+              <div class="s-label">学生档案</div>
+              <div class="s-value font-mono hl-green">
+                {{ bulkResult.students_created > 0 ? bulkResult.students_created : (bulkResult.total_students || bulkResult.students_updated || 0) }}
+                <em>人{{ bulkResult.students_created === 0 && (bulkResult.total_students || bulkResult.students_updated) ? ' (已有)' : ' (新档)' }}</em>
+              </div>
             </div>
             <div class="rb-stat">
               <div class="s-label">异动识别</div>
@@ -1044,10 +1049,10 @@ function applySmartSample() {
               </span>
               <span v-if="isSuccessFile(f) && f.summary" class="rf-stat font-mono">
                 <template v-if="isRosterFile(f)">
-                  +{{ f.summary.students_created || 0 }}人
+                  {{ (f.summary.students_created && f.summary.students_created > 0) ? `+${f.summary.students_created}人` : `${f.summary.total_students || f.summary.students_updated || f.summary.student_count || 0}人(在籍)` }}
                 </template>
                 <template v-else>
-                  +{{ f.summary.schedules_created || 0 }}节
+                  +{{ f.summary.schedules_created || 0 }}节课
                 </template>
               </span>
               <span v-else-if="f.error" class="rf-error font-mono" :title="f.error">
