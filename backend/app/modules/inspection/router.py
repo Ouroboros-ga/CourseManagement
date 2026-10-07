@@ -37,7 +37,10 @@ from app.modules.inspection.schemas import (
     RosterVersionCreateRequest,
     SubmissionCreateRequest,
     SubmissionReviewRequest,
+    TaskBatchDeleteRequest,
+    TaskBatchDeleteResponse,
     TaskCancelRequest,
+    SemesterVolunteerCandidateItem,
 )
 from app.modules.inspection.service import InspectionService
 
@@ -343,6 +346,21 @@ def set_task_assignment(
     return success(result.model_dump(), _rid(request))
 
 
+# ---- 查询本学期已有志愿者（人工指派/改派候选）----
+@router.get("/inspection/volunteers")
+@router.get("/inspection-volunteers")
+def list_semester_volunteers(
+    semester_id: Annotated[int, Query(ge=1)],
+    actor: InspectionReadDep,
+    service: ServiceDep,
+    request: Request,
+    keyword: Annotated[str | None, Query(max_length=128)] = None,
+) -> dict[str, object]:
+    items = service.list_semester_volunteers(semester_id, keyword=keyword)
+    return success([i.model_dump() for i in items], _rid(request))
+
+
+
 # ---- 调班申请：志愿者对本人当前受派发起（assignment.change_request）----
 @router.post("/assignment-change-requests")
 def create_change_request(
@@ -408,6 +426,39 @@ def cancel_inspection_task(
 ) -> dict[str, object]:
     result = service.cancel_task(actor, task_id, body, _rid(request))
     return success(result.model_dump(), _rid(request))
+
+
+# ---- 删除任务（单个删除与批量删除，inspection.generate）----
+@router.delete("/inspection-tasks/{task_id}")
+def delete_inspection_task(
+    task_id: int,
+    actor: InspectionGenerateDep,
+    service: ServiceDep,
+    request: Request,
+    reason: Annotated[str | None, Query(max_length=512)] = None,
+    force: Annotated[bool, Query()] = False,
+) -> dict[str, object]:
+    deleted = service.delete_tasks(
+        actor, [task_id], reason=reason, force=force, request_id=_rid(request)
+    )
+    return success({"deleted": len(deleted) > 0, "task_id": str(task_id)}, _rid(request))
+
+
+@router.post("/inspection-tasks/batch-delete")
+def batch_delete_inspection_tasks(
+    body: TaskBatchDeleteRequest,
+    actor: InspectionGenerateDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    deleted_ids = service.delete_tasks(
+        actor, body.task_ids, reason=body.reason, force=body.force, request_id=_rid(request)
+    )
+    return success(
+        {"deleted_count": len(deleted_ids), "deleted_ids": [str(x) for x in deleted_ids]},
+        _rid(request),
+    )
+
 
 
 # ---- 名单改版：生成新版本并冻结快照（inspection.roster.manage）----

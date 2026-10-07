@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import date as date_
 from datetime import datetime, time, timedelta
 
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, delete, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -121,6 +121,7 @@ from app.modules.inspection.schemas import (
     PlannedTaskBrief,
     RosterVersionCreateRequest,
     RosterVersionResponse,
+    SemesterVolunteerCandidateItem,
     SettledTaskBrief,
     SubmissionAbnormalItemResponse,
     SubmissionCreateRequest,
@@ -1252,11 +1253,22 @@ class InspectionService:
             raise NotFoundError("学期不存在")
         if sem.status != SemesterStatus.ACTIVE.value:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "已归档学期不可排班")
+        target_uid = body.volunteer_user_id
+        if target_uid is None and body.student_id is not None:
+            from app.modules.academic.service import AcademicService
+
+            acad_svc = AcademicService(self._session)
+            acct = acad_svc._ensure_student_user_account(body.student_id)
+            acad_svc._grant_volunteer_role(body.student_id)
+            target_uid = acct.id
+        if target_uid is None:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "请指定要指派的志愿者", http_status=422)
+
         # 先读既有受派以决定需锁的日期锚点集合（原、新志愿者），再按顶层锁层级串行化。
         existing = self._repo.get_assignment_by_task(task_id)
         old_v = existing.volunteer_user_id if existing is not None else None
-        day_keys: set[tuple[int, date_]] = {(body.volunteer_user_id, task.inspection_date)}
-        if old_v is not None and old_v != body.volunteer_user_id:
+        day_keys: set[tuple[int, date_]] = {(target_uid, task.inspection_date)}
+        if old_v is not None and old_v != target_uid:
             day_keys.add((old_v, task.inspection_date))
         self._lock_day_anchors(day_keys)
         # 日期锚点已持有，再锁任务行并复核状态 / 版本（技术方案 15）。
@@ -1267,7 +1279,7 @@ class InspectionService:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可排班")
         if task.lock_version != body.lock_version:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "任务版本已变化，请刷新后重试")
-        prof = self._load_volunteer(body.volunteer_user_id)
+        prof = self._load_volunteer(target_uid)
         roster_acs = self._roster_admin_class_ids(task)
         code, msg = self._check_eligible(
             prof, task, sem, exclude_task_id=task.id, busy_slots=[], busy_count=0,
@@ -1278,14 +1290,14 @@ class InspectionService:
                 ErrorCode.VALIDATION_ERROR,
                 f"排班校验未通过：{msg}",
                 http_status=422,
-                field_errors={"reason_code": code, "volunteer_user_id": body.volunteer_user_id},
+                field_errors={"reason_code": code, "volunteer_user_id": target_uid},
             )
         existing = self._repo.get_assignment_by_task_for_update(task.id)
         before = self._assignment_snapshot(existing)
         if existing is None:
             existing = InspectionAssignment(
                 task_id=task.id,
-                volunteer_user_id=body.volunteer_user_id,
+                volunteer_user_id=target_uid,
                 assign_method=AssignMethod.MANUAL.value,
                 assign_reason=body.reason,
                 assigned_by=actor.id,
@@ -1293,7 +1305,7 @@ class InspectionService:
             )
             self._repo.add(existing)
         else:
-            existing.volunteer_user_id = body.volunteer_user_id
+            existing.volunteer_user_id = target_uid
             existing.assign_method = AssignMethod.MANUAL.value
             existing.assign_reason = body.reason
             existing.assigned_by = actor.id
@@ -1307,7 +1319,7 @@ class InspectionService:
             resource_id=f"task:{task.id}",
             before=before,
             after={
-                "volunteer_user_id": body.volunteer_user_id,
+                "volunteer_user_id": target_uid,
                 "assign_method": AssignMethod.MANUAL.value,
             },
             reason=body.reason,
@@ -1315,6 +1327,71 @@ class InspectionService:
         )
         self._session.commit()
         return self._assemble_tasks([task])[0]
+
+    def list_semester_volunteers(
+        self, semester_id: int, keyword: str | None = None
+    ) -> list[SemesterVolunteerCandidateItem]:
+        """查询本学期具有有效资质的志愿者候选名单，支持姓名/学号/班级搜索，自动补齐系统账号。"""
+        from app.modules.academic.service import AcademicService
+        from app.modules.identity.models import WechatIdentity
+
+        acad_svc = AcademicService(self._session)
+        qual_students = list(
+            self._session.scalars(
+                select(VolunteerQualification.student_id).where(
+                    VolunteerQualification.semester_id == semester_id,
+                    VolunteerQualification.enabled.is_(True),
+                )
+            ).all()
+        )
+        changed = False
+        for sid in qual_students:
+            if acad_svc._grant_volunteer_role(sid):
+                changed = True
+        if changed:
+            self._session.commit()
+
+        stmt = (
+            select(Student, AdministrativeClass, UserAccount, WechatIdentity.id)
+            .join(
+                VolunteerQualification,
+                (VolunteerQualification.student_id == Student.id)
+                & (VolunteerQualification.semester_id == semester_id)
+                & (VolunteerQualification.enabled.is_(True)),
+            )
+            .outerjoin(
+                AdministrativeClass, AdministrativeClass.id == Student.administrative_class_id
+            )
+            .join(UserAccount, UserAccount.student_id == Student.id)
+            .outerjoin(WechatIdentity, WechatIdentity.user_id == UserAccount.id)
+            .where(Student.status == "ACTIVE")
+        )
+        if keyword:
+            kw = f"%{keyword.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    Student.name.like(kw),
+                    Student.student_no.like(kw),
+                    AdministrativeClass.class_name.like(kw),
+                )
+            )
+        stmt = stmt.order_by(Student.name, Student.student_no)
+        rows = self._session.execute(stmt).all()
+
+        items: list[SemesterVolunteerCandidateItem] = []
+        for stu, ac, user, wechat_id in rows:
+            items.append(
+                SemesterVolunteerCandidateItem(
+                    user_id=str(user.id),
+                    student_id=str(stu.id),
+                    student_no=stu.student_no,
+                    name=stu.name,
+                    class_name=ac.class_name if ac is not None else None,
+                    has_wechat=wechat_id is not None,
+                )
+            )
+        return items
+
 
     # ---- 自动排班（候选计划 + 提交前锁内重验，V1.0 请求内同步全成全败）----
     def auto_assign(
@@ -1799,6 +1876,145 @@ class InspectionService:
         )
         self._session.commit()
         return self._assemble_tasks([task])[0]
+
+    def delete_tasks(
+        self,
+        actor: CurrentUser,
+        task_ids: list[int],
+        *,
+        reason: str | None = None,
+        force: bool = False,
+        request_id: str | None = None,
+    ) -> list[int]:
+        """删除一个或多个查课任务，连带清理排班分配、名单快照与提交记录。"""
+        self._require(actor.id, perms.GENERATE_PERMISSION)
+        if not task_ids:
+            return []
+
+        tasks = list(
+            self._session.scalars(
+                select(InspectionTask)
+                .where(InspectionTask.id.in_(task_ids))
+                .with_for_update()
+            ).all()
+        )
+        if not tasks:
+            return []
+
+        if not force:
+            for t in tasks:
+                if self._repo.has_approved_submission(t.id):
+                    raise ConflictError(
+                        ErrorCode.STATE_CONFLICT,
+                        f"任务 #{t.id}（{t.course_name_snapshot or '课程'}）已有审核通过的考勤结果，不可直接删除",
+                    )
+
+        t_ids = [t.id for t in tasks]
+
+        # 1. 考勤与异议
+        att_ids = list(
+            self._session.scalars(
+                select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(t_ids))
+            ).all()
+        )
+        if att_ids:
+            try:
+                from app.modules.objection.models import Objection, ObjectionProof
+
+                obj_ids = list(
+                    self._session.scalars(
+                        select(Objection.id).where(Objection.attendance_record_id.in_(att_ids))
+                    ).all()
+                )
+                if obj_ids:
+                    self._session.execute(
+                        delete(ObjectionProof).where(ObjectionProof.objection_id.in_(obj_ids))
+                    )
+                    self._session.execute(
+                        delete(Objection).where(Objection.id.in_(obj_ids))
+                    )
+            except Exception:
+                pass
+            self._session.execute(
+                delete(AttendanceRecordVersion).where(
+                    AttendanceRecordVersion.attendance_record_id.in_(att_ids)
+                )
+            )
+            self._session.execute(
+                delete(AttendanceRecord).where(AttendanceRecord.id.in_(att_ids))
+            )
+
+        # 2. 调班申请与受派关系
+        asgn_ids = list(
+            self._session.scalars(
+                select(InspectionAssignment.id).where(InspectionAssignment.task_id.in_(t_ids))
+            ).all()
+        )
+        if asgn_ids:
+            self._session.execute(
+                delete(AssignmentChangeRequest).where(
+                    AssignmentChangeRequest.assignment_id.in_(asgn_ids)
+                )
+            )
+            self._session.execute(
+                delete(InspectionAssignment).where(InspectionAssignment.id.in_(asgn_ids))
+            )
+
+        # 3. 查课提交及异常明细与文件
+        sub_ids = list(
+            self._session.scalars(
+                select(InspectionSubmission.id).where(InspectionSubmission.task_id.in_(t_ids))
+            ).all()
+        )
+        if sub_ids:
+            self._session.execute(
+                delete(SubmissionFile).where(SubmissionFile.submission_id.in_(sub_ids))
+            )
+            self._session.execute(
+                delete(SubmissionAbnormalItem).where(
+                    SubmissionAbnormalItem.submission_id.in_(sub_ids)
+                )
+            )
+            self._session.execute(
+                delete(InspectionSubmission).where(InspectionSubmission.id.in_(sub_ids))
+            )
+
+        # 4. 考核快照
+        self._session.execute(
+            delete(TaskDeadlineAssessment).where(TaskDeadlineAssessment.task_id.in_(t_ids))
+        )
+
+        # 5. 名单成员与版本快照
+        self._session.execute(
+            delete(TaskRosterMember).where(TaskRosterMember.task_id.in_(t_ids))
+        )
+        for t in tasks:
+            t.roster_versions.clear()
+        self._session.execute(
+            delete(TaskRosterVersion).where(TaskRosterVersion.task_id.in_(t_ids))
+        )
+
+        # 6. 删除任务行并写入审计
+        for t in tasks:
+            self._audit(
+                actor_user_id=actor.id,
+                action="inspection.task.delete",
+                resource_type="inspection_task",
+                resource_id=f"{t.id}",
+                before={
+                    "task_key": t.task_key,
+                    "course_name": t.course_name_snapshot,
+                    "inspection_date": str(t.inspection_date),
+                    "lock_version": t.lock_version,
+                },
+                after=None,
+                reason=reason,
+                request_id=request_id,
+            )
+            self._session.delete(t)
+
+        self._session.commit()
+        return t_ids
 
     # ---- 名单改版（inspection.roster.manage）：执行前更正，生成新版本并冻结快照 ----
     def create_roster_version(

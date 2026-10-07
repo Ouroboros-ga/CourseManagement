@@ -3,16 +3,25 @@ import { ref, computed, watch, onMounted } from 'vue'
 import TaskStatusTag from '../components/TaskStatusTag.vue'
 import TaskDrawer from '../components/TaskDrawer.vue'
 import AppIcon from '../components/AppIcon.vue'
-import { listTasks, updateTask, type InspectionTaskItem } from '../api/tasks'
+import {
+  listTasks,
+  updateTask,
+  deleteTask,
+  batchDeleteTasks,
+  listSemesterVolunteers,
+  assignTask,
+  type InspectionTaskItem,
+  type SemesterVolunteerItem
+} from '../api/tasks'
 import { useSessionStore } from '../stores/session'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { request } from '../api/http'
 import { formatPeriodText, PERIOD_PRESET_OPTIONS } from '../utils/period'
 
 const sessionStore = useSessionStore()
 
 const loading = ref(false)
 const tasks = ref<InspectionTaskItem[]>([])
+const selectedTaskIds = ref<string[]>([])
 const drawerVisible = ref(false)
 const activeTask = ref<InspectionTaskItem | null>(null)
 const searchQuery = ref('')
@@ -25,7 +34,7 @@ async function fetchTasks() {
     const res = await listTasks({
       semester_id: sessionStore.currentSemesterId,
       week_no: sessionStore.currentWeekNo,
-      page_size: 100
+      page_size: 200
     })
     tasks.value = res.items || []
   } catch (err: unknown) {
@@ -38,6 +47,7 @@ async function fetchTasks() {
 watch(
   () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo],
   () => {
+    selectedTaskIds.value = []
     fetchTasks()
   }
 )
@@ -53,14 +63,46 @@ const filteredTasks = computed(() => {
     if (!searchQuery.value.trim()) return true
     const q = searchQuery.value.trim().toLowerCase()
     return (
-      (t.id && t.id.toLowerCase().includes(q)) ||
+      (t.id && String(t.id).toLowerCase().includes(q)) ||
       (t.course_name_snapshot && t.course_name_snapshot.toLowerCase().includes(q)) ||
       (t.class_name_snapshot && t.class_name_snapshot.toLowerCase().includes(q)) ||
       (t.classroom_snapshot && t.classroom_snapshot.toLowerCase().includes(q)) ||
-      (t.assigned_volunteer_name && t.assigned_volunteer_name.toLowerCase().includes(q))
+      (t.assigned_volunteer_name && t.assigned_volunteer_name.toLowerCase().includes(q)) ||
+      ((t as any).assignment?.volunteer_name && (t as any).assignment.volunteer_name.toLowerCase().includes(q))
     )
   })
 })
+
+// 批量全选判定
+const isAllSelected = computed(() => {
+  if (filteredTasks.value.length === 0) return false
+  return filteredTasks.value.every(t => selectedTaskIds.value.includes(t.id))
+})
+
+const isIndeterminate = computed(() => {
+  const count = filteredTasks.value.filter(t => selectedTaskIds.value.includes(t.id)).length
+  return count > 0 && count < filteredTasks.value.length
+})
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    const curIds = new Set(filteredTasks.value.map(t => t.id))
+    selectedTaskIds.value = selectedTaskIds.value.filter(id => !curIds.has(id))
+  } else {
+    const set = new Set(selectedTaskIds.value)
+    filteredTasks.value.forEach(t => set.add(t.id))
+    selectedTaskIds.value = Array.from(set)
+  }
+}
+
+function toggleSelectTask(id: string) {
+  const idx = selectedTaskIds.value.indexOf(id)
+  if (idx >= 0) {
+    selectedTaskIds.value.splice(idx, 1)
+  } else {
+    selectedTaskIds.value.push(id)
+  }
+}
 
 // 统计数据
 const stats = computed(() => {
@@ -78,36 +120,135 @@ function openTaskDetail(task: InspectionTaskItem) {
   drawerVisible.value = true
 }
 
-async function handleReassign(task: InspectionTaskItem) {
+// 单项删除查课任务
+async function handleDeleteSingleTask(task: InspectionTaskItem) {
   try {
-    const { value: volunteerId } = await ElMessageBox.prompt(
-      `请输入要指派给该任务的志愿者用户 ID (当前任务: #${task.id}):`,
-      '人工指派志愿者',
+    await ElMessageBox.confirm(
+      `确定要删除查课任务 #${task.id}（${task.course_name_snapshot || '未命名课程'}）吗？\n删除后关联的排班分配与点名名单快照将一并移除，此操作不可撤销。`,
+      '删除查课任务',
       {
-        confirmButtonText: '确认指派',
+        confirmButtonText: '确定删除',
         cancelButtonText: '取消',
-        inputPattern: /^\d+$/,
-        inputErrorMessage: '用户 ID 须为纯数字'
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
       }
     )
-
-    if (volunteerId) {
-      await request(`/api/v1/inspection-tasks/${task.id}/assignment`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          volunteer_user_id: volunteerId,
-          lock_version: task.lock_version || 0
-        })
-      })
-      ElMessage.success('指派成功')
-      fetchTasks()
+    loading.value = true
+    await deleteTask(task.id, '管理端单项删除')
+    ElMessage.success(`查课任务 #${task.id} 已成功删除！`)
+    selectedTaskIds.value = selectedTaskIds.value.filter(id => id !== task.id)
+    if (activeTask.value?.id === task.id) {
+      drawerVisible.value = false
+      activeTask.value = null
     }
-  } catch {
-    // cancelled
+    await fetchTasks()
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error(e?.message || '删除任务失败')
+    }
+  } finally {
+    loading.value = false
   }
 }
 
-// 编辑任务弹窗（方式 A）
+// 批量删除查课任务
+async function handleBatchDelete() {
+  if (selectedTaskIds.value.length === 0) return
+  try {
+    await ElMessageBox.confirm(
+      `确定要批量删除选中的 ${selectedTaskIds.value.length} 个查课任务吗？\n删除后关联的排班受派与名单快照将一并清除，此操作不可撤销。`,
+      '批量删除查课任务',
+      {
+        confirmButtonText: `确认删除 (${selectedTaskIds.value.length}项)`,
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+    loading.value = true
+    const res = await batchDeleteTasks({
+      task_ids: selectedTaskIds.value,
+      reason: '管理端批量删除'
+    })
+    ElMessage.success(`成功批量删除 ${res.deleted_count} 个查课任务！`)
+    selectedTaskIds.value = []
+    if (activeTask.value && res.deleted_ids.includes(String(activeTask.value.id))) {
+      drawerVisible.value = false
+      activeTask.value = null
+    }
+    await fetchTasks()
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error(e?.message || '批量删除任务失败')
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+// ==================== 人工指派志愿者（支持按姓名搜索本学期已有志愿者） ====================
+const assignDialogVisible = ref(false)
+const assigningTask = ref<InspectionTaskItem | null>(null)
+const assignVolunteers = ref<SemesterVolunteerItem[]>([])
+const loadingVolunteers = ref(false)
+const selectedVolunteerUserId = ref<string>('')
+const assignReason = ref('')
+const assignSubmitting = ref(false)
+
+const selectedVolunteer = computed(() => {
+  return assignVolunteers.value.find(v => v.user_id === selectedVolunteerUserId.value)
+})
+
+async function loadSemesterVolunteers() {
+  if (!sessionStore.currentSemesterId) return
+  loadingVolunteers.value = true
+  try {
+    const res = await listSemesterVolunteers(sessionStore.currentSemesterId)
+    assignVolunteers.value = res || []
+  } catch (e) {
+    console.error('加载本学期志愿者失败:', e)
+  } finally {
+    loadingVolunteers.value = false
+  }
+}
+
+async function handleOpenAssignDialog(task: InspectionTaskItem) {
+  assigningTask.value = task
+  assignReason.value = ''
+  const curUid = (task as any).assignment?.volunteer_user_id || task.assigned_volunteer_id
+  selectedVolunteerUserId.value = curUid ? String(curUid) : ''
+  assignDialogVisible.value = true
+  await loadSemesterVolunteers()
+}
+
+async function handleConfirmAssign() {
+  if (!assigningTask.value) return
+  if (!selectedVolunteerUserId.value) {
+    ElMessage.warning('请选择受派志愿者')
+    return
+  }
+  assignSubmitting.value = true
+  try {
+    await assignTask(assigningTask.value.id, {
+      volunteer_user_id: selectedVolunteerUserId.value,
+      lock_version: assigningTask.value.lock_version || 0,
+      reason: assignReason.value || '管理端人工指派志愿者'
+    })
+    const vol = selectedVolunteer.value
+    ElMessage.success(`成功将任务 #${assigningTask.value.id} 指派给志愿者【${vol?.name || '志愿者'}】！`)
+    assignDialogVisible.value = false
+    await fetchTasks()
+    if (activeTask.value?.id === assigningTask.value.id) {
+      activeTask.value = tasks.value.find(t => t.id === assigningTask.value?.id) || null
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '指派志愿者失败')
+  } finally {
+    assignSubmitting.value = false
+  }
+}
+
+// ==================== 编辑任务弹窗（方式 A） ====================
 const editDialogVisible = ref(false)
 const editingTask = ref<InspectionTaskItem | null>(null)
 const editForm = ref({
@@ -166,7 +307,6 @@ async function handleUpdateTask() {
     editSubmitting.value = false
   }
 }
-
 </script>
 
 <template>
@@ -181,7 +321,7 @@ async function handleUpdateTask() {
       </div>
       <h1>查课任务与排班</h1>
       <p class="sub">
-        当前周次真实数据库查课任务总览。支持查看任务点名名单、指派状态与考核事实，可人工分配或改派志愿者。
+        当前周次真实数据库查课任务总览。支持查看任务点名名单、指派状态与考核事实，可人工搜索姓名分配/改派志愿者或批量删除任务。
       </p>
     </header>
 
@@ -200,7 +340,7 @@ async function handleUpdateTask() {
       <div class="stat-cell">
         <div class="label">待分配志愿者</div>
         <div class="value font-mono" style="color: var(--amber)">{{ stats.unassigned }}</div>
-        <div class="note">支持手动改派</div>
+        <div class="note">支持手动按姓名指派</div>
       </div>
       <div class="stat-cell">
         <div class="label">已审核完成</div>
@@ -231,6 +371,14 @@ async function handleUpdateTask() {
             <option value="REVIEWED">已审核</option>
             <option value="CANCELLED">已取消</option>
           </select>
+          <button
+            class="btn btn-sm btn-danger inline-flex items-center gap-1"
+            :disabled="selectedTaskIds.length === 0"
+            @click="handleBatchDelete"
+          >
+            <AppIcon name="trash" :size="13" />
+            <span>批量删除 ({{ selectedTaskIds.length }})</span>
+          </button>
           <button class="btn btn-sm" @click="fetchTasks">⟳ 刷新</button>
         </div>
       </div>
@@ -238,6 +386,16 @@ async function handleUpdateTask() {
       <table v-if="filteredTasks.length > 0" class="tbl">
         <thead>
           <tr>
+            <th style="width: 44px; text-align: center">
+              <input
+                type="checkbox"
+                :checked="isAllSelected"
+                :indeterminate="isIndeterminate"
+                class="chk"
+                title="全选 / 取消全选"
+                @change="toggleSelectAll"
+              />
+            </th>
             <th>任务 ID</th>
             <th>时间与地点</th>
             <th>课程与教学班</th>
@@ -247,7 +405,19 @@ async function handleUpdateTask() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="task in filteredTasks" :key="task.id">
+          <tr
+            v-for="task in filteredTasks"
+            :key="task.id"
+            :class="{ 'row-selected': selectedTaskIds.includes(task.id) }"
+          >
+            <td style="text-align: center">
+              <input
+                type="checkbox"
+                :checked="selectedTaskIds.includes(task.id)"
+                class="chk"
+                @change="toggleSelectTask(task.id)"
+              />
+            </td>
             <td class="cell-mono tid">#{{ task.id }}</td>
             <td>
               <div class="cell-main">{{ task.inspection_date }} {{ formatPeriodText(task.start_period, task.end_period) }}</div>
@@ -261,8 +431,162 @@ async function handleUpdateTask() {
               <template v-if="(task as any).assignment">
                 <div class="cell-main">{{ (task as any).assignment.volunteer_name || '志愿者' }}</div>
                 <div class="cell-sub cell-mono">UID: {{ (task as any).assignment.volunteer_user_id }}</div>
-              
-    <!-- 编辑查课任务弹窗（方式 A） -->
+              </template>
+              <template v-else-if="task.assigned_volunteer_name">
+                <div class="cell-main">{{ task.assigned_volunteer_name }}</div>
+                <div class="cell-sub cell-mono">UID: {{ task.assigned_volunteer_id }}</div>
+              </template>
+              <template v-else>
+                <div class="unassigned">未分配</div>
+                <div class="cell-sub cell-mono">可人工指定</div>
+              </template>
+            </td>
+            <td>
+              <TaskStatusTag :status="task.status" :deadline-assessment="task.deadline_assessment" />
+            </td>
+            <td style="text-align: right">
+              <button
+                class="btn btn-sm"
+                @click="handleOpenAssignDialog(task)"
+              >
+                {{ (task as any).assignment || task.assigned_volunteer_id ? '改派' : '人工指派' }}
+              </button>
+              <button
+                v-if="task.status !== '已取消' && task.status !== '已完成'"
+                class="btn btn-ghost btn-sm inline-flex items-center gap-1"
+                @click="openEditTask(task)"
+              >
+                <AppIcon name="edit" :size="12" />
+                <span>编辑</span>
+              </button>
+              <button class="btn btn-ghost btn-sm" @click="openTaskDetail(task)">详情与名单</button>
+              <button
+                class="btn btn-ghost btn-sm text-red-600 inline-flex items-center gap-1"
+                style="color: #dc2626;"
+                title="删除此查课任务"
+                @click="handleDeleteSingleTask(task)"
+              >
+                <AppIcon name="trash" :size="12" />
+                <span>删除</span>
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-else class="empty-box">
+        <div class="empty-icon flex justify-center mb-2">
+          <AppIcon name="folder-open" :size="36" class="text-gray-300" />
+        </div>
+        <div class="empty-text">当前周次（第 {{ sessionStore.currentWeekNo }} 周）暂无查课任务</div>
+        <div class="empty-sub">您可以前往「01 课次勾选与下发」下发任务，或切换学期/周次</div>
+      </div>
+    </div>
+
+    <!-- 弹窗 1：人工指派志愿者（支持按姓名搜索本学期已有志愿者） -->
+    <el-dialog
+      v-model="assignDialogVisible"
+      :title="`人工指派志愿者 · 任务 #${assigningTask?.id || ''}`"
+      width="580px"
+      destroy-on-close
+    >
+      <div v-loading="assignSubmitting" class="assign-dialog-body">
+        <!-- 任务信息概要卡片 -->
+        <div v-if="assigningTask" class="task-info-card">
+          <div class="task-info-title font-bold">
+            {{ assigningTask.course_name_snapshot || '未命名课程' }}
+          </div>
+          <div class="task-info-meta">
+            <span>教学班：{{ assigningTask.class_name_snapshot || '—' }}</span>
+            <span>·</span>
+            <span>{{ assigningTask.inspection_date }} {{ formatPeriodText(assigningTask.start_period, assigningTask.end_period) }}</span>
+            <span>·</span>
+            <span>教室：{{ assigningTask.classroom_snapshot || '未指定教室' }}</span>
+          </div>
+        </div>
+
+        <!-- 志愿者搜索与选择 -->
+        <div class="form-group" style="margin-top: 18px;">
+          <label class="form-label font-bold" style="display: block; margin-bottom: 8px; font-size: 13px;">
+            选择受派志愿者（在【本学期已有志愿者】中搜索）：
+          </label>
+          <el-select
+            v-model="selectedVolunteerUserId"
+            filterable
+            placeholder="输入志愿者姓名、学号或行政班级快速搜索…"
+            style="width: 100%"
+            :loading="loadingVolunteers"
+            no-data-text="本学期暂无启用的志愿者，可先在「人员资质」中添加"
+          >
+            <el-option
+              v-for="v in assignVolunteers"
+              :key="v.user_id"
+              :label="`${v.name} (${v.student_no} · ${v.class_name || '未分班'})`"
+              :value="v.user_id"
+            >
+              <div class="vol-option-row">
+                <div>
+                  <span class="vol-option-name">{{ v.name }}</span>
+                  <span class="vol-option-sub font-mono">{{ v.student_no }} · {{ v.class_name || '未分班' }}</span>
+                </div>
+                <div class="vol-option-tags">
+                  <span v-if="v.has_wechat" class="tag tag-green tag-mini">微信已绑定</span>
+                  <span v-else class="tag tag-blue tag-mini">账号就绪</span>
+                  <span class="vol-option-uid font-mono">UID:{{ v.user_id }}</span>
+                </div>
+              </div>
+            </el-option>
+          </el-select>
+        </div>
+
+        <!-- 选中志愿者详情名片 -->
+        <div v-if="selectedVolunteer" class="selected-vol-card">
+          <div class="vol-avatar-badge font-bold">{{ selectedVolunteer.name.slice(0, 1) }}</div>
+          <div class="vol-meta-info">
+            <div class="vol-name">
+              {{ selectedVolunteer.name }}
+              <span class="vol-sno font-mono">{{ selectedVolunteer.student_no }}</span>
+            </div>
+            <div class="vol-class font-mono">
+              {{ selectedVolunteer.class_name || '行政班未分配' }} · 系统 UID: {{ selectedVolunteer.user_id }}
+            </div>
+          </div>
+          <div class="vol-status-badge">
+            <span v-if="selectedVolunteer.has_wechat" class="tag tag-green">微信已登录绑定</span>
+            <span v-else class="tag tag-blue">账号就绪 · 可直接排班</span>
+          </div>
+        </div>
+
+        <!-- 改派说明 -->
+        <div class="form-group" style="margin-top: 14px;">
+          <label class="form-label" style="display: block; margin-bottom: 6px; font-size: 12px; color: var(--ink-soft);">
+            指派 / 改派说明（审计备查，选填）：
+          </label>
+          <input
+            v-model="assignReason"
+            type="text"
+            class="input"
+            style="width: 100%; box-sizing: border-box;"
+            placeholder="例如：任课老师调整时段改派、原志愿者请假人工调换"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button class="btn btn-ghost" @click="assignDialogVisible = false">取消</button>
+          <button
+            class="btn btn-primary"
+            :disabled="assignSubmitting || !selectedVolunteerUserId"
+            @click="handleConfirmAssign"
+          >
+            {{ assignSubmitting ? '指派中…' : '确认指派' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 弹窗 2：编辑查课任务弹窗（方式 A） -->
     <el-dialog
       v-model="editDialogVisible"
       :title="`编辑查课任务 #${editingTask?.id || ''}`"
@@ -341,50 +665,11 @@ async function handleUpdateTask() {
       </template>
     </el-dialog>
 
-</template>
-              <template v-else-if="task.assigned_volunteer_name">
-                <div class="cell-main">{{ task.assigned_volunteer_name }}</div>
-                <div class="cell-sub cell-mono">{{ task.assigned_volunteer_id }}</div>
-              </template>
-              <template v-else>
-                <div class="unassigned">未分配</div>
-                <div class="cell-sub cell-mono">可人工指定</div>
-              </template>
-            </td>
-            <td>
-              <TaskStatusTag :status="task.status" :deadline-assessment="task.deadline_assessment" />
-            </td>
-            <td style="text-align: right">
-              <button
-                v-if="!(task as any).assignment && !task.assigned_volunteer_id"
-                class="btn btn-sm"
-                @click="handleReassign(task)"
-              >
-                人工指派
-              </button>
-              <button v-if="task.status !== '已取消' && task.status !== '已完成'" class="btn btn-ghost btn-sm inline-flex items-center gap-1" @click="openEditTask(task)">
-                <AppIcon name="edit" :size="12" />
-                <span>编辑</span>
-              </button>
-              <button class="btn btn-ghost btn-sm" @click="openTaskDetail(task)">详情与名单</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div v-else class="empty-box">
-        <div class="empty-icon flex justify-center mb-2">
-          <AppIcon name="folder-open" :size="36" class="text-gray-300" />
-        </div>
-        <div class="empty-text">当前周次（第 {{ sessionStore.currentWeekNo }} 周）暂无查课任务</div>
-        <div class="empty-sub">您可以前往「01 课次勾选与下发」下发任务，或切换学期/周次</div>
-      </div>
-    </div>
-
     <TaskDrawer
       v-model:visible="drawerVisible"
       :task="activeTask"
-      @reassign="handleReassign"
+      @reassign="handleOpenAssignDialog"
+      @delete="handleDeleteSingleTask"
     />
   </div>
 </template>
@@ -394,6 +679,30 @@ async function handleUpdateTask() {
 .tid { font-weight: 600; color: var(--blue); }
 .unassigned { color: var(--amber); font-weight: 600; }
 
+.chk {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.row-selected {
+  background-color: #f0fdf4 !important;
+}
+
+.btn-danger {
+  background-color: #dc2626;
+  color: #fff;
+  border: 1px solid #dc2626;
+}
+.btn-danger:hover:not(:disabled) {
+  background-color: #b91c1c;
+}
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .empty-box {
   padding: 60px 20px;
   text-align: center;
@@ -402,4 +711,95 @@ async function handleUpdateTask() {
 .empty-icon { font-size: 32px; margin-bottom: 8px; }
 .empty-text { font-size: 14px; font-weight: 600; color: var(--ink-soft); margin-bottom: 4px; }
 .empty-sub { font-size: 12px; }
+
+/* 任务指派弹窗样式 */
+.task-info-card {
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px 16px;
+}
+.task-info-title {
+  font-size: 14px;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.task-info-meta {
+  font-size: 12px;
+  color: var(--ink-mute);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.vol-option-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+.vol-option-name {
+  font-weight: 600;
+  margin-right: 8px;
+}
+.vol-option-sub {
+  color: var(--ink-mute);
+  font-size: 12px;
+}
+.vol-option-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.vol-option-uid {
+  color: var(--ink-mute);
+  font-size: 11px;
+}
+.tag-mini {
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.selected-vol-card {
+  margin-top: 14px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.vol-avatar-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+.vol-meta-info {
+  flex: 1;
+}
+.vol-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vol-sno {
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+.vol-class {
+  font-size: 11px;
+  color: var(--ink-mute);
+  margin-top: 2px;
+}
 </style>

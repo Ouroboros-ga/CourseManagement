@@ -14,6 +14,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'update:visible': [val: boolean]
   reassign: [task: InspectionTaskItem]
+  delete: [task: InspectionTaskItem]
 }>()
 
 const loadingRoster = ref(false)
@@ -143,9 +144,14 @@ const close = () => {
     </div>
 
     <template #footer>
-      <div class="d-footer">
-        <button class="btn" @click="close">关闭</button>
-        <button v-if="task" class="btn btn-dark" @click="emit('reassign', task)">人工指派 / 改派</button>
+      <div class="d-footer" style="display: flex; justify-content: space-between; align-items: center;">
+        <button v-if="task" class="btn btn-sm btn-ghost" style="color: #dc2626;" @click="emit('delete', task)">
+          删除此任务
+        </button>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn" @click="close">关闭</button>
+          <button v-if="task" class="btn btn-dark" @click="emit('reassign', task)">人工指派 / 改派</button>
+        </div>
       </div>
     </template>
   </el-drawer>

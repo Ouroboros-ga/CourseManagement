@@ -215,3 +215,62 @@ export async function smartSampleOccurrences(body: {
   })
 }
 
+export async function deleteTask(
+  taskId: string | number,
+  reason?: string,
+  force = false
+): Promise<{ deleted: boolean; task_id: string }> {
+  const params = new URLSearchParams()
+  if (reason) params.set('reason', reason)
+  if (force) params.set('force', 'true')
+  const qs = params.toString() ? `?${params.toString()}` : ''
+  return request<{ deleted: boolean; task_id: string }>(`/api/v1/inspection-tasks/${taskId}${qs}`, {
+    method: 'DELETE'
+  })
+}
+
+export async function batchDeleteTasks(body: {
+  task_ids: (number | string)[]
+  reason?: string
+  force?: boolean
+}): Promise<{ deleted_count: number; deleted_ids: string[] }> {
+  return request<{ deleted_count: number; deleted_ids: string[] }>('/api/v1/inspection-tasks/batch-delete', {
+    method: 'POST',
+    body: JSON.stringify({
+      task_ids: body.task_ids.map(Number),
+      reason: body.reason,
+      force: body.force || false
+    })
+  })
+}
+
+export interface SemesterVolunteerItem {
+  user_id: string
+  student_id: string
+  student_no: string
+  name: string
+  class_name: string | null
+  has_wechat: boolean
+}
+
+export async function listSemesterVolunteers(
+  semesterId: string | number,
+  keyword?: string
+): Promise<SemesterVolunteerItem[]> {
+  const params = new URLSearchParams()
+  params.set('semester_id', String(semesterId))
+  if (keyword) params.set('keyword', keyword)
+  return request<SemesterVolunteerItem[]>(`/api/v1/inspection/volunteers?${params.toString()}`)
+}
+
+export async function assignTask(
+  taskId: string | number,
+  body: { volunteer_user_id?: string | number; student_id?: string | number; lock_version: number; reason?: string }
+): Promise<InspectionTaskItem> {
+  return request<InspectionTaskItem>(`/api/v1/inspection-tasks/${taskId}/assignment`, {
+    method: 'PUT',
+    body: JSON.stringify(body)
+  })
+}
+
+

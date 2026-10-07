@@ -228,9 +228,37 @@ class GenerateResultResponse(BaseModel):
 class AssignmentSetRequest(BaseModel):
     """人工把某任务分配/改派给指定志愿者。lock_version 乐观锁防并发覆盖。"""
 
-    volunteer_user_id: int = Field(ge=1)
+    volunteer_user_id: int | None = Field(default=None, ge=1)
+    student_id: int | None = Field(default=None, ge=1)
     lock_version: int = Field(ge=0)
     reason: str | None = Field(default=None, max_length=512)
+
+
+class TaskBatchDeleteRequest(BaseModel):
+    """批量删除查课任务请求体。"""
+
+    task_ids: list[int] = Field(min_length=1, max_length=500)
+    reason: str | None = Field(default=None, max_length=512)
+    force: bool = Field(default=False)
+
+
+class TaskBatchDeleteResponse(BaseModel):
+    """批量删除查课任务响应。"""
+
+    deleted_count: int
+    deleted_ids: list[str]
+
+
+class SemesterVolunteerCandidateItem(BaseModel):
+    """当前学期可指派的候选志愿者信息。"""
+
+    user_id: str
+    student_id: str
+    student_no: str
+    name: str
+    class_name: str | None = None
+    has_wechat: bool = False
+
 
 
 class AutoAssignRequest(BaseModel):
