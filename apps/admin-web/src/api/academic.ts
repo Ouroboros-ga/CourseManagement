@@ -20,6 +20,16 @@ export interface TeachingClassItem {
   status: string
 }
 
+export interface AdministrativeClassItem {
+  id: string
+  class_code: string
+  class_name: string
+  grade_year?: number | null
+  major_name?: string | null
+  college?: string | null
+  status: string
+}
+
 export interface StudentItem {
   id: string
   student_no: string
@@ -56,6 +66,20 @@ export async function listTeachingClasses(semesterId: string): Promise<{ items: 
   params.set('semester_id', semesterId)
   params.set('page_size', '100')
   return request<{ items: TeachingClassItem[]; total: number }>(`/api/v1/academic/teaching-classes?${params.toString()}`)
+}
+
+export async function listAdministrativeClasses(params?: {
+  college?: string
+  status?: string
+  keyword?: string
+  page_size?: number
+}): Promise<{ items: AdministrativeClassItem[]; total: number }> {
+  const q = new URLSearchParams()
+  q.set('page_size', String(params?.page_size || 100))
+  if (params?.college) q.set('college', params.college)
+  if (params?.status) q.set('status', params.status)
+  if (params?.keyword) q.set('keyword', params.keyword)
+  return request<{ items: AdministrativeClassItem[]; total: number }>(`/api/v1/academic/administrative-classes?${q.toString()}`)
 }
 
 export async function listStudents(params: {

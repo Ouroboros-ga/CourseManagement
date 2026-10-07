@@ -13,10 +13,10 @@ import {
   type SmartSampleResult
 } from '../api/tasks'
 import {
-  listTeachingClasses,
+  listAdministrativeClasses,
   createSemester,
   getMasterTimetable,
-  type TeachingClassItem,
+  type AdministrativeClassItem,
   type MasterTimetableItem
 } from '../api/academic'
 import {
@@ -35,8 +35,8 @@ const sessionStore = useSessionStore()
 const activeTab = ref<'dispatch' | 'master'>('dispatch')
 const loading = ref(false)
 const dispatchLoading = ref(false)
-const teachingClasses = ref<TeachingClassItem[]>([])
-const selectedClassId = ref<string>('')
+const adminClasses = ref<AdministrativeClassItem[]>([])
+const selectedAdminClassId = ref<string>('')
 
 // ---- 课次下发Tab状态 ----
 const occurrences = ref<CourseOccurrence[]>([])
@@ -51,6 +51,7 @@ const masterTimetableList = ref<MasterTimetableItem[]>([])
 const masterLoading = ref(false)
 const masterWeekday = ref<number | ''>('')
 const masterWeekNo = ref<number | ''>('')
+const masterAdminClassId = ref<string>('')
 const masterKeyword = ref('')
 
 function formatWeekday(dateStr: string): string {
@@ -131,37 +132,36 @@ async function loadData() {
   loading.value = true
   selectedKeys.value = []
   try {
-    // 1. 加载本周已有的查课任务
+    // 1. 加载行政班列表（全校真实行政班）
+    if (adminClasses.value.length === 0) {
+      const adminRes = await listAdministrativeClasses({ page_size: 100 })
+      adminClasses.value = adminRes.items || []
+    }
+
+    // 2. 加载本周已有的查课任务（可按选中的行政班联动过滤）
     const taskRes = await listTasks({
       semester_id: sessionStore.currentSemesterId,
       week_no: sessionStore.currentWeekNo,
-      page_size: 50
+      administrative_class_id: selectedAdminClassId.value ? selectedAdminClassId.value : undefined,
+      page_size: 100
     })
     weekTasks.value = taskRes.items || []
 
-    // 2. 加载当前学期的教学班
-    if (teachingClasses.value.length === 0) {
-      const clsRes = await listTeachingClasses(sessionStore.currentSemesterId)
-      teachingClasses.value = clsRes.items || []
-    }
-
-    // 3. 查询当周排课课次
-    if (sessionStore.weekDateRange.start && sessionStore.weekDateRange.end && teachingClasses.value.length > 0) {
-      const classIds = selectedClassId.value 
-        ? [Number(selectedClassId.value)] 
-        : teachingClasses.value.map(c => Number(c.id)).slice(0, 50)
-
+    // 3. 查询当周排课课次（支持按行政班精准过滤，或查当周全量课次）
+    if (sessionStore.weekDateRange.start && sessionStore.weekDateRange.end) {
       try {
         const occRes = await queryCourseOccurrences({
           semester_id: sessionStore.currentSemesterId,
           date_from: sessionStore.weekDateRange.start,
           date_to: sessionStore.weekDateRange.end,
-          teaching_class_ids: classIds
+          administrative_class_id: selectedAdminClassId.value ? Number(selectedAdminClassId.value) : undefined,
+          page_size: 500
         })
         occurrences.value = occRes.items || []
         selectionRevision.value = occRes.selection_revision
         selectionScope.value = occRes.selection_scope || {}
-      } catch {
+      } catch (err: unknown) {
+        console.error('加载排课课次失败:', err)
         occurrences.value = []
       }
     } else {
@@ -182,6 +182,7 @@ async function loadMasterTimetableData() {
       semester_id: sessionStore.currentSemesterId,
       weekday: masterWeekday.value ? Number(masterWeekday.value) : undefined,
       week_no: masterWeekNo.value ? Number(masterWeekNo.value) : undefined,
+      administrative_class_id: masterAdminClassId.value ? Number(masterAdminClassId.value) : undefined,
       keyword: masterKeyword.value.trim() || undefined
     })
     masterTimetableList.value = res.items || []
@@ -194,7 +195,7 @@ async function loadMasterTimetableData() {
 }
 
 watch(
-  () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo, selectedClassId.value],
+  () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo, selectedAdminClassId.value],
   () => {
     if (activeTab.value === 'dispatch') {
       loadData()
@@ -428,7 +429,7 @@ async function confirmImport() {
       }
     )
     showImportDialog.value = false
-    teachingClasses.value = []
+    adminClasses.value = []
     if (activeTab.value === 'master') {
       loadMasterTimetableData()
     } else {
@@ -464,7 +465,7 @@ async function submitBulkImport() {
         : `核验在籍学生 ${res.total_students || res.students_updated || 0} 名（档案已存在）`
       ElMessage.success(`整包导入成功！共处理 ${res.total_files} 个文件，新建班级 ${res.classes_created} 个，${stuMsg}`)
     }
-    teachingClasses.value = []
+    adminClasses.value = []
     await loadData()
     if (activeTab.value === 'master') {
       await loadMasterTimetableData()
@@ -593,10 +594,10 @@ function applySmartSample() {
         </div>
         <div class="fsep"></div>
         <div class="fgroup">
-          <label>教学班过滤</label>
-          <select v-model="selectedClassId" class="input">
-            <option value="">全部教学班（{{ teachingClasses.length }} 个）</option>
-            <option v-for="c in teachingClasses" :key="c.id" :value="c.id">
+          <label>行政班过滤</label>
+          <select v-model="selectedAdminClassId" class="input">
+            <option value="">全部行政班（{{ adminClasses.length }} 个）</option>
+            <option v-for="c in adminClasses" :key="c.id" :value="c.id">
               {{ c.class_name }}
             </option>
           </select>
@@ -732,6 +733,16 @@ function applySmartSample() {
             <option :value="5">星期五</option>
             <option :value="6">星期六</option>
             <option :value="7">星期日</option>
+          </select>
+        </div>
+        <div class="fsep"></div>
+        <div class="fgroup">
+          <label>行政班</label>
+          <select v-model="masterAdminClassId" class="input" @change="loadMasterTimetableData">
+            <option :value="''">全部行政班</option>
+            <option v-for="c in adminClasses" :key="c.id" :value="c.id">
+              {{ c.class_name }}
+            </option>
           </select>
         </div>
         <div class="fsep"></div>

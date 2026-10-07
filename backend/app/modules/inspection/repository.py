@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from datetime import date as date_
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, Select, and_, case, func, select, tuple_
+from sqlalchemy import ColumnElement, Select, and_, case, func, or_, select, tuple_
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.orm import Session
 
@@ -131,7 +131,22 @@ class InspectionRepository:
         if teaching_class_id is not None:
             stmt = stmt.where(InspectionTask.teaching_class_id == teaching_class_id)
         if administrative_class_id is not None:
-            stmt = stmt.where(InspectionTask.administrative_class_id == administrative_class_id)
+            from app.modules.academic.models import Student, TeachingClassStudent
+
+            tc_subq = (
+                select(TeachingClassStudent.teaching_class_id)
+                .join(Student, Student.id == TeachingClassStudent.student_id)
+                .where(
+                    Student.administrative_class_id == administrative_class_id,
+                    Student.status == "ACTIVE",
+                )
+            )
+            stmt = stmt.where(
+                or_(
+                    InspectionTask.administrative_class_id == administrative_class_id,
+                    InspectionTask.teaching_class_id.in_(tc_subq),
+                )
+            )
         if not include_canceled:
             stmt = stmt.where(InspectionTask.canceled_at.is_(None))
         stmt = stmt.order_by(InspectionTask.inspection_date, InspectionTask.id)

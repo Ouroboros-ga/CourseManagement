@@ -42,6 +42,7 @@ export interface TaskListQuery {
   inspection_date?: string
   status?: string
   teaching_class_id?: string
+  administrative_class_id?: string | number
   include_canceled?: boolean
 }
 
@@ -96,6 +97,7 @@ export async function listTasks(query: TaskListQuery): Promise<PaginatedResult<I
   if (query.inspection_date) params.set('inspection_date', query.inspection_date)
   if (query.status) params.set('status', query.status)
   if (query.teaching_class_id) params.set('teaching_class_id', query.teaching_class_id)
+  if (query.administrative_class_id) params.set('administrative_class_id', String(query.administrative_class_id))
   if (query.include_canceled !== undefined) params.set('include_canceled', String(query.include_canceled))
 
   return request<PaginatedResult<InspectionTaskItem>>(`/api/v1/inspection-tasks?${params.toString()}`)
@@ -110,6 +112,7 @@ export async function queryCourseOccurrences(params: {
   date_from: string
   date_to: string
   teaching_class_ids?: number[]
+  administrative_class_id?: string | number
   page?: number
   page_size?: number
 }): Promise<OccurrencesQueryResult> {
@@ -118,8 +121,11 @@ export async function queryCourseOccurrences(params: {
     date_from: params.date_from,
     date_to: params.date_to,
     page: String(params.page || 1),
-    page_size: String(params.page_size || 50)
+    page_size: String(params.page_size || 500)
   })
+  if (params.administrative_class_id) {
+    searchParams.set('administrative_class_id', String(params.administrative_class_id))
+  }
   if (params.teaching_class_ids?.length) {
     params.teaching_class_ids.forEach(id => searchParams.append('teaching_class_ids', String(id)))
   }

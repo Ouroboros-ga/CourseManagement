@@ -31,7 +31,7 @@ class CourseOccurrenceSelection(BaseModel):
 class CourseOccurrenceScope(BaseModel):
     date_from: date
     date_to: date
-    teaching_class_ids: list[int] = Field(min_length=1, max_length=500)
+    teaching_class_ids: list[int] = Field(default_factory=list, max_length=2000)
     require_photo: bool = False
 
     @model_validator(mode="after")

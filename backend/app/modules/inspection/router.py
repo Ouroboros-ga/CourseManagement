@@ -119,22 +119,86 @@ def get_course_occurrences(
     semester_id: Annotated[int, Query(ge=1)],
     date_from: date_,
     date_to: date_,
-    teaching_class_ids: Annotated[list[int], Query(min_length=1, max_length=500)],
+    teaching_class_ids: Annotated[list[int] | None, Query(max_length=2000)] = None,
+    administrative_class_id: Annotated[int | None, Query(ge=1)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    page_size: Annotated[int, Query(ge=1, le=1000)] = 200,
     require_photo: bool = False,
 ) -> dict[str, object]:
+    from sqlalchemy import select
     from app.modules.inspection.course_occurrences import list_occurrences
 
-    if not 0 <= (date_to - date_from).days < 31 or any(i < 1 for i in teaching_class_ids):
+    if not 0 <= (date_to - date_from).days < 31:
         raise AppError(
-            ErrorCode.VALIDATION_ERROR, "日期范围须为1至31天，教学班ID须为正数", http_status=422,
+            ErrorCode.VALIDATION_ERROR, "日期范围须为1至31天", http_status=422,
         )
     service._require(actor.id, PermissionCode.INSPECTION_GENERATE.value)
     semester = service._get_active_semester_read(semester_id)
+
+    if administrative_class_id is not None:
+        from app.modules.academic.models import Student, TeachingClass, TeachingClassStudent
+
+        resolved_tc_ids = list(
+            service._session.execute(
+                select(TeachingClass.id).where(
+                    TeachingClass.semester_id == semester.id,
+                    TeachingClass.status == "ACTIVE",
+                    select(TeachingClassStudent.student_id)
+                    .join(Student, Student.id == TeachingClassStudent.student_id)
+                    .where(
+                        TeachingClassStudent.teaching_class_id == TeachingClass.id,
+                        Student.administrative_class_id == administrative_class_id,
+                        Student.status == "ACTIVE",
+                    )
+                    .exists(),
+                )
+            )
+            .scalars()
+            .all()
+        )
+    elif teaching_class_ids:
+        if any(i < 1 for i in teaching_class_ids):
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR, "教学班ID须为正数", http_status=422,
+            )
+        resolved_tc_ids = teaching_class_ids
+    else:
+        from app.modules.academic.models import TeachingClass
+
+        resolved_tc_ids = list(
+            service._session.execute(
+                select(TeachingClass.id).where(
+                    TeachingClass.semester_id == semester.id,
+                    TeachingClass.status == "ACTIVE",
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    if not resolved_tc_ids:
+        return success(
+            {
+                "items": [],
+                "page": page,
+                "page_size": page_size,
+                "total": 0,
+                "selection_revision": "empty",
+                "selection_scope": {
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "teaching_class_ids": [],
+                    "require_photo": require_photo,
+                },
+            },
+            _rid(request),
+        )
+
     scope = CourseOccurrenceScope(
-        date_from=date_from, date_to=date_to,
-        teaching_class_ids=teaching_class_ids, require_photo=require_photo,
+        date_from=date_from,
+        date_to=date_to,
+        teaching_class_ids=resolved_tc_ids,
+        require_photo=require_photo,
     )
     return success(
         list_occurrences(service, semester, scope, page=page, page_size=page_size),
@@ -213,6 +277,8 @@ def list_inspection_tasks(
     inspection_date: Annotated[date_ | None, Query()] = None,
     week_no: Annotated[int | None, Query(ge=1, le=60)] = None,
     inspection_type: Annotated[str | None, Query(max_length=16)] = None,
+    teaching_class_id: Annotated[int | None, Query(ge=1)] = None,
+    administrative_class_id: Annotated[int | None, Query(ge=1)] = None,
     include_canceled: Annotated[bool, Query()] = True,
 ) -> dict[str, object]:
     return success(
@@ -223,6 +289,8 @@ def list_inspection_tasks(
             inspection_date=inspection_date,
             week_no=week_no,
             inspection_type=inspection_type,
+            teaching_class_id=teaching_class_id,
+            administrative_class_id=administrative_class_id,
             include_canceled=include_canceled,
         ),
         _rid(request),

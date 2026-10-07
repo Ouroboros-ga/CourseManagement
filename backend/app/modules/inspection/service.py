@@ -605,6 +605,8 @@ class InspectionService:
         inspection_date: date_ | None,
         week_no: int | None,
         inspection_type: str | None,
+        teaching_class_id: int | None = None,
+        administrative_class_id: int | None = None,
         include_canceled: bool,
     ) -> dict:
         self._require(actor.id, perms.READ_PERMISSION)
@@ -616,6 +618,8 @@ class InspectionService:
             inspection_date=inspection_date,
             week_no=week_no,
             inspection_type=inspection_type,
+            teaching_class_id=teaching_class_id,
+            administrative_class_id=administrative_class_id,
             include_canceled=include_canceled,
         )
         dto = self._assemble_tasks(rows)
