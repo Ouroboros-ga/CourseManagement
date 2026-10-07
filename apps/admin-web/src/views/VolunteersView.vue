@@ -10,6 +10,9 @@ import {
   listRoleTargets,
   createStudent,
   listAdministrativeClasses,
+  deleteAdministrativeClass,
+  deleteStudent,
+  batchDeleteStudents,
   type StudentItem,
   type VolunteerQualificationItem,
   type BindingTokenResult,
@@ -38,6 +41,148 @@ const allStudentsCount = ref(0)
 const searchQuery = ref('')
 const selectedAdminClassId = ref<string>('')
 const filterOnlyVolunteers = ref(false)
+
+// 学生多选与批量删除状态
+const selectedStudentIds = ref<string[]>([])
+
+const isAllCurrentPageSelected = computed(() => {
+  if (students.value.length === 0) return false
+  return students.value.every(s => selectedStudentIds.value.includes(String(s.id)))
+})
+
+const isIndeterminate = computed(() => {
+  const currentCount = students.value.filter(s => selectedStudentIds.value.includes(String(s.id))).length
+  return currentCount > 0 && currentCount < students.value.length
+})
+
+function toggleSelectAllCurrentPage(val: boolean) {
+  if (val) {
+    const idsToAdd = students.value.map(s => String(s.id)).filter(id => !selectedStudentIds.value.includes(id))
+    selectedStudentIds.value = [...selectedStudentIds.value, ...idsToAdd]
+  } else {
+    const pageIds = new Set(students.value.map(s => String(s.id)))
+    selectedStudentIds.value = selectedStudentIds.value.filter(id => !pageIds.has(id))
+  }
+}
+
+function toggleSelectStudent(studentId: string, val: boolean) {
+  if (val) {
+    if (!selectedStudentIds.value.includes(studentId)) {
+      selectedStudentIds.value.push(studentId)
+    }
+  } else {
+    selectedStudentIds.value = selectedStudentIds.value.filter(id => id !== studentId)
+  }
+}
+
+// 单条删除学生
+async function handleDeleteStudent(stu: StudentItem) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除学生【${stu.name}】（学号：${stu.student_no}）吗？此操作将彻底删除该学生的基础底册记录。\n注意：若该学生已绑定账号或已产生历史考勤事实将受系统保护无法删除。`,
+      '删除学生确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+  } catch {
+    return
+  }
+
+  try {
+    loading.value = true
+    await deleteStudent(stu.id)
+    ElMessage.success(`学生【${stu.name}】已成功删除`)
+    selectedStudentIds.value = selectedStudentIds.value.filter(id => id !== String(stu.id))
+    await loadData()
+  } catch (err: any) {
+    ElMessage.error(err.message || '删除学生失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 批量删除学生
+async function handleBatchDeleteStudents() {
+  if (selectedStudentIds.value.length === 0) return
+
+  try {
+    await ElMessageBox.confirm(
+      `确定彻底删除选中的 ${selectedStudentIds.value.length} 名学生档案底册吗？\n（未绑定且无历史考勤事实的学生将被物理清理；已产生考勤或已绑定微信的学生将被系统安全拦截）`,
+      '批量删除学生确认',
+      {
+        confirmButtonText: `确定删除(${selectedStudentIds.value.length}人)`,
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+  } catch {
+    return
+  }
+
+  try {
+    loading.value = true
+    const res = await batchDeleteStudents(selectedStudentIds.value)
+    ElMessage.success(`已成功删除 ${res.deleted_count} 名学生底册档案`)
+    selectedStudentIds.value = []
+    await loadData()
+  } catch (err: any) {
+    ElMessage.error(err.message || '批量删除失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 行政班管理弹窗与整班删除
+const adminClassDialogVisible = ref(false)
+const deletingClassId = ref<string | null>(null)
+
+async function handleDeleteAdminClass(cls: AdministrativeClassItem) {
+  try {
+    await ElMessageBox({
+      title: `删除行政班级：${cls.class_name}`,
+      message: `确定要删除该行政班级吗？\n如果这是导入错误的批次，建议点击【连带清空班内学生并删除】一键彻底清理。\n（若班内学生已有考勤或微信绑定事实，系统将严格阻止误删）`,
+      showCancelButton: true,
+      confirmButtonText: '连带清空班内学生并删除',
+      cancelButtonText: '仅删除空班级',
+      confirmButtonClass: 'el-button--danger',
+      distinguishCancelAndClose: true,
+      type: 'warning',
+    })
+    // 确认：连带删除学生
+    await doDeleteAdminClass(cls, true)
+  } catch (action) {
+    if (action === 'cancel') {
+      // 取消按钮：仅删除空班级
+      await doDeleteAdminClass(cls, false)
+    }
+  }
+}
+
+async function doDeleteAdminClass(cls: AdministrativeClassItem, cascadeStudents: boolean) {
+  try {
+    deletingClassId.value = String(cls.id)
+    const res = await deleteAdministrativeClass(cls.id, { cascade_students: cascadeStudents })
+    ElMessage.success(
+      cascadeStudents && res.deleted_students_count > 0
+        ? `成功删除班级【${cls.class_name}】，并级联清理了 ${res.deleted_students_count} 名名下学生`
+        : `成功删除班级【${cls.class_name}】`
+    )
+    if (selectedAdminClassId.value === String(cls.id)) {
+      selectedAdminClassId.value = ''
+    }
+    await loadClasses()
+    await loadData()
+  } catch (err: any) {
+    ElMessage.error(err.message || '删除班级失败')
+  } finally {
+    deletingClassId.value = null
+  }
+}
 
 // 候选学生列表（用于添加志愿者弹窗远程搜索）
 const candidateStudents = ref<StudentItem[]>([])
@@ -553,18 +698,36 @@ async function handleAutoAssign() {
           <h3>学生与志愿者名册（共 {{ totalStudents }} 条）</h3>
           <div class="meta">在校学生档案与 {{ sessionStore.currentSemesterName }} 志愿者资质关联表</div>
         </div>
-        <div class="tbl-tools flex items-center gap-2">
+        <div class="tbl-tools flex items-center gap-2 flex-wrap">
+          <!-- 批量操作栏（有选中时显示） -->
+          <div
+            v-if="selectedStudentIds.length > 0"
+            class="batch-bar flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-800 px-3 py-1 rounded"
+          >
+            <span class="text-xs font-bold font-mono">已选中 {{ selectedStudentIds.length }} 人</span>
+            <button
+              class="btn btn-sm bg-rose-600 hover:bg-rose-700 text-white font-semibold py-0.5 px-2.5 rounded shadow-sm inline-flex items-center gap-1"
+              @click="handleBatchDeleteStudents"
+            >
+              <AppIcon name="trash" :size="12" />
+              <span>批量删除学生</span>
+            </button>
+            <button class="btn btn-xs btn-ghost text-rose-700" @click="selectedStudentIds = []">
+              取消选择
+            </button>
+          </div>
+
           <!-- 行政班级筛选 -->
           <el-select
             v-model="selectedAdminClassId"
             placeholder="全部行政班级"
             clearable
             filterable
-            style="width: 180px"
+            style="width: 175px"
             @change="handleFilterChange"
             @clear="handleFilterChange"
           >
-            <el-option label="全部行政班级 (34个)" value="" />
+            <el-option label="全部行政班级" value="" />
             <el-option
               v-for="c in adminClasses"
               :key="c.id"
@@ -572,6 +735,26 @@ async function handleAutoAssign() {
               :value="String(c.id)"
             />
           </el-select>
+
+          <!-- 班级管理按钮 -->
+          <button
+            class="btn btn-sm btn-ghost border border-slate-300 hover:bg-slate-50 inline-flex items-center gap-1"
+            title="查看所有行政班级，支持整班清理"
+            @click="adminClassDialogVisible = true"
+          >
+            <AppIcon name="folder" :size="13" />
+            <span>班级管理</span>
+          </button>
+
+          <button
+            v-if="selectedAdminClassId"
+            class="btn btn-sm text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 inline-flex items-center gap-1"
+            title="整班删除选中的行政班及其名下学生"
+            @click="() => { const cls = adminClasses.find(c => String(c.id) === selectedAdminClassId); if (cls) handleDeleteAdminClass(cls) }"
+          >
+            <AppIcon name="trash" :size="12" />
+            <span>整班删除此班</span>
+          </button>
 
           <!-- 仅看志愿者 -->
           <label class="filter-chk font-mono">
@@ -585,7 +768,7 @@ async function handleAutoAssign() {
               v-model="searchQuery"
               type="text"
               class="input"
-              style="width: 170px"
+              style="width: 160px"
               placeholder="姓名 / 学号回车…"
               @keyup.enter="handleFilterChange"
             />
@@ -606,6 +789,14 @@ async function handleAutoAssign() {
       <table class="tbl">
         <thead>
           <tr>
+            <th style="width: 44px; text-align: center">
+              <input
+                type="checkbox"
+                :checked="isAllCurrentPageSelected"
+                :indeterminate="isIndeterminate"
+                @change="(e: any) => toggleSelectAllCurrentPage(e.target.checked)"
+              />
+            </th>
             <th>学号</th>
             <th>姓名</th>
             <th>行政班级</th>
@@ -616,6 +807,13 @@ async function handleAutoAssign() {
         </thead>
         <tbody>
           <tr v-for="stu in students" :key="stu.id">
+            <td style="text-align: center" @click.stop>
+              <input
+                type="checkbox"
+                :checked="selectedStudentIds.includes(String(stu.id))"
+                @change="(e: any) => toggleSelectStudent(String(stu.id), e.target.checked)"
+              />
+            </td>
             <td class="cell-mono font-bold">{{ stu.student_no }}</td>
             <td class="cell-main font-bold">{{ stu.name }}</td>
             <td class="cell-sub">
@@ -670,11 +868,19 @@ async function handleAutoAssign() {
                   <AppIcon name="calendar" :size="12" />
                   <span>分配课程</span>
                 </button>
+                <button
+                  class="btn btn-sm btn-ghost text-rose-600 hover:bg-rose-50 inline-flex items-center gap-0.5"
+                  title="删除此学生底册档案"
+                  @click="handleDeleteStudent(stu)"
+                >
+                  <AppIcon name="trash" :size="12" />
+                  <span>删除</span>
+                </button>
               </div>
             </td>
           </tr>
           <tr v-if="students.length === 0">
-            <td colspan="6" class="empty-tip">未找到匹配的学生记录</td>
+            <td colspan="7" class="empty-tip">未找到匹配的学生记录</td>
           </tr>
         </tbody>
       </table>
@@ -913,6 +1119,59 @@ async function handleAutoAssign() {
             <span v-if="batchExporting" class="inline-block animate-spin mr-1">⟳</span>
             <span>{{ batchExporting ? '正在生成导出…' : '立即生成并下载 Excel' }}</span>
           </button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 行政班管理与整班删除弹窗 -->
+    <el-dialog
+      v-model="adminClassDialogVisible"
+      title="行政班级管理与整班清理"
+      width="640px"
+      append-to-body
+    >
+      <div class="space-y-4">
+        <div class="p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900 leading-relaxed">
+          <b>整班清理说明</b>：如导入了错误的班级或多余的班级花名册，可在此一键删除行政班。<br />
+          删除时可选择【连带清空班内学生并删除】，一键彻底清理该班底册数据（若已有正式考勤记录则自动拦截保护）。
+        </div>
+
+        <div class="max-h-[380px] overflow-y-auto border border-slate-200 rounded">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase font-mono">
+              <tr>
+                <th class="p-2.5">班级名称</th>
+                <th class="p-2.5">班级代码</th>
+                <th class="p-2.5">年级/学院</th>
+                <th class="p-2.5 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-for="cls in adminClasses" :key="cls.id" class="hover:bg-slate-50">
+                <td class="p-2.5 font-bold text-slate-800">{{ cls.class_name }}</td>
+                <td class="p-2.5 font-mono text-xs text-slate-600">{{ cls.class_code }}</td>
+                <td class="p-2.5 text-xs text-slate-500">{{ cls.college || '默认' }} {{ cls.grade_year ? `(${cls.grade_year}级)` : '' }}</td>
+                <td class="p-2.5 text-right">
+                  <button
+                    class="btn btn-xs text-rose-600 hover:bg-rose-50 border border-rose-200 inline-flex items-center gap-1"
+                    :disabled="deletingClassId === String(cls.id)"
+                    @click="handleDeleteAdminClass(cls)"
+                  >
+                    <AppIcon name="trash" :size="11" />
+                    <span>{{ deletingClassId === String(cls.id) ? '正在删除…' : '删除班级' }}</span>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="adminClasses.length === 0">
+                <td colspan="4" class="p-4 text-center text-slate-400">暂无行政班级数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <button class="btn btn-ghost" @click="adminClassDialogVisible = false">关闭</button>
         </div>
       </template>
     </el-dialog>

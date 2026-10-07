@@ -16,6 +16,7 @@ import {
   listAdministrativeClasses,
   createSemester,
   getMasterTimetable,
+  resetSemesterData,
   type AdministrativeClassItem,
   type MasterTimetableItem
 } from '../api/academic'
@@ -356,6 +357,52 @@ async function submitSemester() {
   }
 }
 
+// ---- 重置本学期业务数据 ----
+const showResetSemesterDialog = ref(false)
+const resetConfirmName = ref('')
+const resetSubmitting = ref(false)
+
+function openResetSemesterDialog() {
+  resetConfirmName.value = ''
+  showResetSemesterDialog.value = true
+}
+
+async function handleResetSemesterData() {
+  if (!sessionStore.currentSemesterId) return
+  if (resetConfirmName.value.trim() !== (sessionStore.currentSemesterName || '').trim()) {
+    ElMessage.warning(`输入的学期名称与当前学期名称【${sessionStore.currentSemesterName}】不一致，请仔细核对`)
+    return
+  }
+
+  resetSubmitting.value = true
+  try {
+    const res = await resetSemesterData(sessionStore.currentSemesterId, {
+      confirm_name: resetConfirmName.value.trim(),
+      reason: '管理员重置本学期排课与任务业务数据'
+    })
+    ElMessageBox.alert(
+      `学期业务数据重置成功！<br/><br/>
+      1. <b>查课任务清理</b>：${res.cleared_tasks_count} 个<br/>
+      2. <b>课表排课清理</b>：${res.cleared_schedules_count} 条<br/>
+      3. <b>教学班选课清理</b>：${res.cleared_teaching_classes_count} 个<br/>
+      4. <b>志愿者资质清理</b>：${res.cleared_volunteer_qualifications_count} 个<br/>
+      <br/>当前学期已恢复初始空白状态，您现在可以重新上传排课压缩包进行导入。`,
+      '学期重置成功',
+      {
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: '确定'
+      }
+    )
+    showResetSemesterDialog.value = false
+    await loadData()
+  } catch (err: unknown) {
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '重置学期失败'
+    ElMessage.error(msg)
+  } finally {
+    resetSubmitting.value = false
+  }
+}
+
 // ---- 导入数据 ----
 function openImportDialog() {
   importFile.value = null
@@ -580,6 +627,14 @@ function applySmartSample() {
         <button class="btn btn-outline" @click="openImportDialog">
           <AppIcon name="upload" :size="14" />
           <span>批量导入教务数据</span>
+        </button>
+        <button
+          class="btn btn-outline text-rose-700 border-rose-300 hover:bg-rose-50 hover:border-rose-400"
+          title="清空当前学期所有查课任务、排课与选课名单，方便整包重新导入"
+          @click="openResetSemesterDialog"
+        >
+          <AppIcon name="trash" :size="14" />
+          <span>重置本学期数据</span>
         </button>
         <button
           v-if="activeTab === 'dispatch'"
@@ -1381,6 +1436,59 @@ function applySmartSample() {
           </button>
         </div>
       </div>
+    </el-dialog>
+
+    <!-- 重置本学期业务数据弹窗 -->
+    <el-dialog
+      v-model="showResetSemesterDialog"
+      title="重置本学期排课与任务数据"
+      width="560px"
+      append-to-body
+    >
+      <div class="space-y-4">
+        <div class="p-3.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-900 leading-relaxed">
+          <div class="font-bold text-sm text-rose-700 mb-1 flex items-center gap-1.5">
+            <AppIcon name="warning" :size="16" class="text-rose-600" />
+            <span>高危操作警告：本操作将彻底重置当前学期数据</span>
+          </div>
+          此操作将<b>清空本学期（{{ sessionStore.currentSemesterName }}）所有业务数据</b>：
+          <ul class="list-disc pl-5 mt-1 space-y-0.5">
+            <li>所有查课任务、排班分配及点名名单快照</li>
+            <li>所有课表排课节次（含各周上课安排）</li>
+            <li>所有教学班及选课名单关系</li>
+            <li>所有志愿者本学期资质认定</li>
+            <li>所有校历停补课覆盖设置</li>
+          </ul>
+          <div class="mt-2 text-slate-700">
+            <b>安全保留</b>：学生基础底册档案、行政班级及课程公共库<b>完整保留</b>。重置后学期变为空白，您可直接重新上传排课压缩包导入。
+          </div>
+        </div>
+
+        <div class="space-y-1.5 pt-2">
+          <label class="block text-xs font-bold text-slate-700">
+            请输入当前学期完整名称以确认：<span class="text-rose-600 select-all font-mono">{{ sessionStore.currentSemesterName }}</span>
+          </label>
+          <input
+            v-model="resetConfirmName"
+            type="text"
+            class="input w-full font-mono text-sm"
+            :placeholder="sessionStore.currentSemesterName || '请输入学期名称'"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer flex justify-end gap-2">
+          <button class="btn btn-ghost" @click="showResetSemesterDialog = false">取消</button>
+          <button
+            class="btn bg-rose-600 hover:bg-rose-700 text-white font-bold inline-flex items-center gap-1.5"
+            :disabled="resetSubmitting || resetConfirmName.trim() !== (sessionStore.currentSemesterName || '').trim()"
+            @click="handleResetSemesterData"
+          >
+            <AppIcon name="trash" :size="14" />
+            <span>{{ resetSubmitting ? '正在重置…' : '确认彻底重置本学期' }}</span>
+          </button>
+        </div>
+      </template>
     </el-dialog>
   </div>
 </template>

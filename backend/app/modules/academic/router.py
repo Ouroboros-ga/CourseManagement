@@ -27,7 +27,9 @@ from app.modules.academic.schemas import (
     PeriodDefinitionUpsertRequest,
     RosterReplaceRequest,
     SemesterCreateRequest,
+    SemesterResetDataRequest,
     SemesterUpdateRequest,
+    StudentBatchDeleteRequest,
     StudentCreateRequest,
     StudentUpdateRequest,
     TeachingClassCreateRequest,
@@ -110,6 +112,18 @@ def list_semesters(
     status: Annotated[str | None, Query(max_length=16)] = None,
 ) -> dict[str, object]:
     return success(service.list_semesters(params, status=status), _rid(request))
+
+
+@router.post("/semesters/{semester_id}/reset-data")
+def reset_semester_data(
+    semester_id: int,
+    body: SemesterResetDataRequest,
+    actor: AcademicManageDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    result = service.reset_semester_data(actor, semester_id, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
 
 
 # =========================================================================== #
@@ -236,6 +250,21 @@ def list_admin_classes(
     )
 
 
+@router.delete("/administrative-classes/{class_id}")
+def delete_admin_class(
+    class_id: int,
+    actor: AcademicManageDep,
+    service: ServiceDep,
+    request: Request,
+    cascade_students: Annotated[bool, Query(description="是否连带删除该班级名下的学生")] = False,
+    reason: Annotated[str | None, Query(max_length=512)] = None,
+) -> dict[str, object]:
+    result = service.delete_admin_class(
+        actor, class_id, cascade_students=cascade_students, reason=reason, request_id=_rid(request)
+    )
+    return success(result.model_dump(), _rid(request))
+
+
 # =========================================================================== #
 # 学生
 # =========================================================================== #
@@ -294,6 +323,29 @@ def list_students(
         ),
         _rid(request),
     )
+
+
+@router.delete("/students/{student_id}", status_code=204)
+def delete_student(
+    student_id: int,
+    actor: StudentManageDep,
+    service: ServiceDep,
+    request: Request,
+    reason: Annotated[str | None, Query(max_length=512)] = None,
+) -> Response:
+    service.delete_student(actor, student_id, reason=reason, request_id=_rid(request))
+    return Response(status_code=204)
+
+
+@router.post("/students/batch-delete")
+def batch_delete_students(
+    body: StudentBatchDeleteRequest,
+    actor: StudentManageDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    result = service.batch_delete_students(actor, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
 
 
 # =========================================================================== #

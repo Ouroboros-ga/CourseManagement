@@ -376,4 +376,37 @@ class BatchElectiveCourseResponse(BaseModel):
     students_enrolled: int
 
 
+# --------------------------------------------------------------------------- #
+# 学期重置、班级删除与学生批量删除
+# --------------------------------------------------------------------------- #
+class SemesterResetDataRequest(BaseModel):
+    confirm_name: str = Field(min_length=1, max_length=128, description="确认学期名称，必须与当前学期名称一致以防误触")
+    reason: str | None = Field(default=None, max_length=512)
+
+
+class SemesterResetDataResponse(BaseModel):
+    semester_id: IdStr
+    cleared_tasks_count: int
+    cleared_schedules_count: int
+    cleared_teaching_classes_count: int
+    cleared_volunteer_qualifications_count: int
+    cleared_calendar_overrides_count: int
+
+
+class AdministrativeClassDeleteResponse(BaseModel):
+    class_id: IdStr
+    class_name: str
+    deleted_students_count: int
+
+
+class StudentBatchDeleteRequest(BaseModel):
+    student_ids: list[int] = Field(min_length=1, description="待删除的学生ID列表")
+    reason: str | None = Field(default=None, max_length=512)
+
+
+class StudentBatchDeleteResponse(BaseModel):
+    deleted_count: int
+    deleted_ids: list[IdStr]
+
+
 __all__ = [name for name in globals() if name.endswith(("Request", "Response"))]

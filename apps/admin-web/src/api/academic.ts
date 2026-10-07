@@ -257,3 +257,66 @@ export async function batchCreateElectiveCourse(payload: {
   })
 }
 
+export interface SemesterResetResult {
+  semester_id: string
+  cleared_tasks_count: number
+  cleared_schedules_count: number
+  cleared_teaching_classes_count: number
+  cleared_volunteer_qualifications_count: number
+  cleared_calendar_overrides_count: number
+}
+
+export async function resetSemesterData(
+  semesterId: string | number,
+  payload: { confirm_name: string; reason?: string }
+): Promise<SemesterResetResult> {
+  return request(`/api/v1/academic/semesters/${semesterId}/reset-data`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export interface AdminClassDeleteResult {
+  class_id: string
+  class_name: string
+  deleted_students_count: number
+}
+
+export async function deleteAdministrativeClass(
+  classId: string | number,
+  params?: { cascade_students?: boolean; reason?: string }
+): Promise<AdminClassDeleteResult> {
+  const q = new URLSearchParams()
+  if (params?.cascade_students !== undefined) q.set('cascade_students', String(params.cascade_students))
+  if (params?.reason) q.set('reason', params.reason)
+  return request(`/api/v1/academic/administrative-classes/${classId}?${q.toString()}`, {
+    method: 'DELETE'
+  })
+}
+
+export async function deleteStudent(studentId: string | number, reason?: string): Promise<void> {
+  const q = new URLSearchParams()
+  if (reason) q.set('reason', reason)
+  return request(`/api/v1/academic/students/${studentId}?${q.toString()}`, {
+    method: 'DELETE'
+  })
+}
+
+export interface StudentBatchDeleteResult {
+  deleted_count: number
+  deleted_ids: string[]
+}
+
+export async function batchDeleteStudents(
+  studentIds: (string | number)[],
+  reason?: string
+): Promise<StudentBatchDeleteResult> {
+  return request('/api/v1/academic/students/batch-delete', {
+    method: 'POST',
+    body: JSON.stringify({
+      student_ids: studentIds.map(Number),
+      reason
+    })
+  })
+}
+

@@ -49,6 +49,7 @@ from app.modules.academic.models import (
 from app.modules.academic.repository import AcademicRepository
 from app.modules.academic.schemas import (
     AdministrativeClassCreateRequest,
+    AdministrativeClassDeleteResponse,
     AdministrativeClassResponse,
     AdministrativeClassUpdateRequest,
     BatchElectiveCourseRequest,
@@ -65,8 +66,12 @@ from app.modules.academic.schemas import (
     PeriodDefinitionResponse,
     PeriodDefinitionUpsertRequest,
     SemesterCreateRequest,
+    SemesterResetDataRequest,
+    SemesterResetDataResponse,
     SemesterResponse,
     SemesterUpdateRequest,
+    StudentBatchDeleteRequest,
+    StudentBatchDeleteResponse,
     StudentCreateRequest,
     StudentResponse,
     StudentUpdateRequest,
@@ -79,8 +84,8 @@ from app.modules.academic.schemas import (
 from app.modules.audit.models import AuditLog
 from app.modules.identity.models import UserAccount, UserStatus
 from app.modules.identity.repository import IdentityRepository
-from app.modules.inspection.course_policy import is_physical_education
 from app.modules.identity.service import CurrentUser
+from app.modules.inspection.course_policy import is_physical_education
 
 
 def _page(items: list, total: int, params: PageParams) -> dict:
@@ -1393,4 +1398,427 @@ class AcademicService:
             teaching_classes_created=tcs_created,
             schedules_created=schedules_created,
             students_enrolled=total_students_enrolled,
+        )
+
+    # ================================================================== #
+    # 学期数据重置
+    # ================================================================== #
+    def reset_semester_data(
+        self,
+        actor: CurrentUser,
+        semester_id: int,
+        body: SemesterResetDataRequest,
+        request_id: str | None = None,
+    ) -> SemesterResetDataResponse:
+        self._require_actor_permission(actor.id, PermissionCode.ACADEMIC_MANAGE.value)
+        sem = self._repo.get_semester_for_update(semester_id)
+        if sem is None:
+            raise NotFoundError("学期不存在")
+        if body.confirm_name.strip() != sem.name.strip():
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT,
+                f"输入的确认学期名称与当前学期名称（{sem.name}）不匹配，重置已取消",
+            )
+
+        from sqlalchemy import delete
+
+        from app.modules.attendance.models import AttendanceRecord, AttendanceRecordVersion
+        from app.modules.inspection.models import (
+            AssignmentChangeRequest,
+            InspectionAssignment,
+            InspectionSubmission,
+            InspectionTask,
+            SubmissionAbnormalItem,
+            SubmissionDeadlineDay,
+            SubmissionDeadlineVersion,
+            SubmissionFile,
+            TaskDeadlineAssessment,
+            TaskRosterMember,
+            TaskRosterVersion,
+        )
+        from app.modules.objection.models import Objection, ObjectionFile
+
+        # 1. 级联清理查课任务
+        task_ids = list(
+            self._session.scalars(
+                select(InspectionTask.id).where(InspectionTask.semester_id == semester_id)
+            ).all()
+        )
+        cleared_tasks_count = len(task_ids)
+        if task_ids:
+            att_ids = list(
+                self._session.scalars(
+                    select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(task_ids))
+                ).all()
+            )
+            if att_ids:
+                try:
+                    obj_ids = list(
+                        self._session.scalars(
+                            select(Objection.id).where(Objection.attendance_record_id.in_(att_ids))
+                        ).all()
+                    )
+                    if obj_ids:
+                        self._session.execute(
+                            delete(ObjectionFile).where(ObjectionFile.objection_id.in_(obj_ids))
+                        )
+                        self._session.execute(
+                            delete(Objection).where(Objection.id.in_(obj_ids))
+                        )
+                except Exception:
+                    pass
+                self._session.execute(
+                    delete(AttendanceRecordVersion).where(
+                        AttendanceRecordVersion.attendance_record_id.in_(att_ids)
+                    )
+                )
+                self._session.execute(
+                    delete(AttendanceRecord).where(AttendanceRecord.id.in_(att_ids))
+                )
+
+            sub_ids = list(
+                self._session.scalars(
+                    select(InspectionSubmission.id).where(InspectionSubmission.task_id.in_(task_ids))
+                ).all()
+            )
+            if sub_ids:
+                self._session.execute(
+                    delete(SubmissionFile).where(SubmissionFile.submission_id.in_(sub_ids))
+                )
+                self._session.execute(
+                    delete(SubmissionAbnormalItem).where(
+                        SubmissionAbnormalItem.submission_id.in_(sub_ids)
+                    )
+                )
+                self._session.execute(
+                    delete(InspectionSubmission).where(InspectionSubmission.id.in_(sub_ids))
+                )
+
+            # 调班与受派
+            asgn_ids = list(
+                self._session.scalars(
+                    select(InspectionAssignment.id).where(InspectionAssignment.task_id.in_(task_ids))
+                ).all()
+            )
+            if asgn_ids:
+                self._session.execute(
+                    delete(AssignmentChangeRequest).where(
+                        AssignmentChangeRequest.assignment_id.in_(asgn_ids)
+                    )
+                )
+                self._session.execute(
+                    delete(InspectionAssignment).where(InspectionAssignment.id.in_(asgn_ids))
+                )
+
+            self._session.execute(
+                delete(TaskDeadlineAssessment).where(
+                    TaskDeadlineAssessment.task_id.in_(task_ids)
+                )
+            )
+            self._session.execute(
+                delete(TaskRosterMember).where(TaskRosterMember.task_id.in_(task_ids))
+            )
+            self._session.execute(
+                delete(TaskRosterVersion).where(TaskRosterVersion.task_id.in_(task_ids))
+            )
+            self._session.execute(
+                delete(InspectionTask).where(InspectionTask.id.in_(task_ids))
+            )
+
+        # 清理截止时间版本与日当前值
+        self._session.execute(
+            delete(SubmissionDeadlineVersion).where(
+                SubmissionDeadlineVersion.deadline_day_id.in_(
+                    select(SubmissionDeadlineDay.id).where(
+                        SubmissionDeadlineDay.semester_id == semester_id
+                    )
+                )
+            )
+        )
+        self._session.execute(
+            delete(SubmissionDeadlineDay).where(
+                SubmissionDeadlineDay.semester_id == semester_id
+            )
+        )
+
+        # 2. 级联清理排课课表
+        sched_ids = list(
+            self._session.scalars(
+                select(CourseSchedule.id).where(CourseSchedule.semester_id == semester_id)
+            ).all()
+        )
+        cleared_schedules_count = len(sched_ids)
+        if sched_ids:
+            self._session.execute(
+                delete(CourseScheduleWeek).where(CourseScheduleWeek.schedule_id.in_(sched_ids))
+            )
+            self._session.execute(
+                delete(CourseSchedule).where(CourseSchedule.id.in_(sched_ids))
+            )
+
+        # 3. 级联清理教学班与名单
+        tc_ids = list(
+            self._session.scalars(
+                select(TeachingClass.id).where(TeachingClass.semester_id == semester_id)
+            ).all()
+        )
+        cleared_teaching_classes_count = len(tc_ids)
+        if tc_ids:
+            self._session.execute(
+                delete(TeachingClassStudent).where(
+                    TeachingClassStudent.teaching_class_id.in_(tc_ids)
+                )
+            )
+            self._session.execute(
+                delete(TeachingClass).where(TeachingClass.id.in_(tc_ids))
+            )
+
+        # 4. 清理本学期志愿者学期资格
+        vol_del = self._session.execute(
+            delete(VolunteerQualification).where(VolunteerQualification.semester_id == semester_id)
+        )
+        cleared_volunteers_count = vol_del.rowcount or 0
+
+        # 5. 清理校历停调课覆盖
+        cal_del = self._session.execute(
+            delete(CalendarOverride).where(CalendarOverride.semester_id == semester_id)
+        )
+        cleared_calendar_count = cal_del.rowcount or 0
+
+        self._record_audit(
+            actor_user_id=actor.id,
+            action="academic.semester.reset_data",
+            resource_type="semester",
+            resource_id=str(sem.id),
+            before=None,
+            after={
+                "cleared_tasks": cleared_tasks_count,
+                "cleared_schedules": cleared_schedules_count,
+                "cleared_teaching_classes": cleared_teaching_classes_count,
+                "cleared_volunteers": cleared_volunteers_count,
+                "cleared_calendar_overrides": cleared_calendar_count,
+            },
+            reason=body.reason,
+            request_id=request_id,
+        )
+        self._session.commit()
+        return SemesterResetDataResponse(
+            semester_id=str(sem.id),
+            cleared_tasks_count=cleared_tasks_count,
+            cleared_schedules_count=cleared_schedules_count,
+            cleared_teaching_classes_count=cleared_teaching_classes_count,
+            cleared_volunteer_qualifications_count=cleared_volunteers_count,
+            cleared_calendar_overrides_count=cleared_calendar_count,
+        )
+
+    # ================================================================== #
+    # 行政班删除
+    # ================================================================== #
+    def delete_admin_class(
+        self,
+        actor: CurrentUser,
+        class_id: int,
+        *,
+        cascade_students: bool = False,
+        reason: str | None = None,
+        request_id: str | None = None,
+    ) -> AdministrativeClassDeleteResponse:
+        self._require_actor_permission(actor.id, PermissionCode.ACADEMIC_MANAGE.value)
+        ac = self._repo.get_admin_class_for_update(class_id)
+        if ac is None:
+            raise NotFoundError("行政班不存在")
+
+        # 1. 检查自习查课任务引用
+        from app.modules.inspection.models import InspectionTask
+        task_ref = self._session.scalars(
+            select(InspectionTask.id)
+            .where(InspectionTask.administrative_class_id == class_id)
+            .limit(1)
+        ).first()
+        if task_ref is not None:
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT,
+                f"该行政班已被自习任务（任务 #{task_ref}）引用，请先重置学期数据或删除任务",
+            )
+
+        # 2. 查询班级名下学生
+        students = list(
+            self._session.scalars(
+                select(Student).where(Student.administrative_class_id == class_id).with_for_update()
+            ).all()
+        )
+        deleted_students_count = 0
+        if students:
+            if not cascade_students:
+                raise ConflictError(
+                    ErrorCode.STATE_CONFLICT,
+                    f"该班尚有 {len(students)} 名学生档案，无法直接删除。如需清除请选择连带删除",
+                )
+
+            stu_ids = [s.id for s in students]
+            self._verify_and_delete_students(stu_ids)
+            deleted_students_count = len(students)
+
+        class_name = ac.class_name
+        self._session.delete(ac)
+        self._record_audit(
+            actor_user_id=actor.id,
+            action="academic.admin_class.delete",
+            resource_type="administrative_class",
+            resource_id=str(class_id),
+            before={"class_name": class_name, "students_count": deleted_students_count},
+            after=None,
+            reason=reason,
+            request_id=request_id,
+        )
+        self._session.commit()
+        return AdministrativeClassDeleteResponse(
+            class_id=str(class_id),
+            class_name=class_name,
+            deleted_students_count=deleted_students_count,
+        )
+
+    # ================================================================== #
+    # 学生删除与批量删除
+    # ================================================================== #
+    def _verify_and_delete_students(self, student_ids: Sequence[int]) -> list[int]:
+        """批量安全校验并物理删除学生底层记录。
+        若存在绑定的账号或已完结的考勤/任务记录，抛 ConflictError。
+        """
+        if not student_ids:
+            return []
+
+        from sqlalchemy import delete
+
+        from app.modules.attendance.models import AttendanceRecord
+        from app.modules.identity.models import IdentityBindingToken, UserAccount
+        from app.modules.inspection.models import TaskRosterMember
+
+        students = list(
+            self._session.scalars(
+                select(Student).where(Student.id.in_(student_ids)).with_for_update()
+            ).all()
+        )
+        if not students:
+            return []
+
+        target_ids = [s.id for s in students]
+        stu_map = {s.id: s for s in students}
+
+        # 1. 检查系统账号绑定
+        bound_users = list(
+            self._session.execute(
+                select(UserAccount.student_id, UserAccount.display_name).where(
+                    UserAccount.student_id.in_(target_ids)
+                )
+            ).all()
+        )
+        if bound_users:
+            first_sid, first_name = bound_users[0]
+            stu = stu_map.get(first_sid)
+            name_display = stu.name if stu else first_name
+            sno_display = stu.student_no if stu else str(first_sid)
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT,
+                f"学生【{name_display} ({sno_display})】已绑定账号，无法物理删除，请先解绑或停用",
+            )
+
+        # 2. 检查考勤事实记录
+        att_rows = list(
+            self._session.execute(
+                select(AttendanceRecord.student_id).where(
+                    AttendanceRecord.student_id.in_(target_ids)
+                ).limit(1)
+            ).all()
+        )
+        if att_rows:
+            sid = att_rows[0][0]
+            stu = stu_map.get(sid)
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT,
+                f"学生【{stu.name if stu else sid}】已有历史考勤认定事实记录，无法物理删除；"
+                "如需禁用请更新状态为停用(DISABLED)或先重置学期数据",
+            )
+
+        # 3. 检查查课任务名单快照成员引用（外键 RESTRICT）
+        roster_rows = list(
+            self._session.execute(
+                select(TaskRosterMember.student_id).where(
+                    TaskRosterMember.student_id.in_(target_ids)
+                ).limit(1)
+            ).all()
+        )
+        if roster_rows:
+            sid = roster_rows[0][0]
+            stu = stu_map.get(sid)
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT,
+                f"学生【{stu.name if stu else sid}】已被纳入查课任务点名名单，无法物理删除；"
+                "如需清理请先重置或删除相关学期的查课任务",
+            )
+
+        # 校验通过，清理学生轻量依赖并物理删除
+        self._session.execute(
+            delete(IdentityBindingToken).where(IdentityBindingToken.student_id.in_(target_ids))
+        )
+        self._session.execute(
+            delete(VolunteerQualification).where(VolunteerQualification.student_id.in_(target_ids))
+        )
+        self._session.execute(
+            delete(TeachingClassStudent).where(TeachingClassStudent.student_id.in_(target_ids))
+        )
+        self._session.execute(
+            delete(Student).where(Student.id.in_(target_ids))
+        )
+        return target_ids
+
+    def delete_student(
+        self,
+        actor: CurrentUser,
+        student_id: int,
+        *,
+        reason: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        self._require_actor_permission(actor.id, PermissionCode.STUDENT_MANAGE.value)
+        stu = self._repo.get_student_for_update(student_id)
+        if stu is None:
+            raise NotFoundError("学生不存在")
+        stu_no = stu.student_no
+        stu_name = stu.name
+        self._verify_and_delete_students([student_id])
+        self._record_audit(
+            actor_user_id=actor.id,
+            action="academic.student.delete",
+            resource_type="student",
+            resource_id=str(student_id),
+            before={"student_no": stu_no, "name": stu_name},
+            after=None,
+            reason=reason,
+            request_id=request_id,
+        )
+        self._session.commit()
+
+    def batch_delete_students(
+        self,
+        actor: CurrentUser,
+        body: StudentBatchDeleteRequest,
+        request_id: str | None = None,
+    ) -> StudentBatchDeleteResponse:
+        self._require_actor_permission(actor.id, PermissionCode.STUDENT_MANAGE.value)
+        deleted_ids = self._verify_and_delete_students(body.student_ids)
+        self._record_audit(
+            actor_user_id=actor.id,
+            action="academic.student.batch_delete",
+            resource_type="student",
+            resource_id=f"batch[{len(deleted_ids)}]",
+            before={"count": len(deleted_ids)},
+            after=None,
+            reason=body.reason,
+            request_id=request_id,
+        )
+        self._session.commit()
+        return StudentBatchDeleteResponse(
+            deleted_count=len(deleted_ids),
+            deleted_ids=[str(i) for i in deleted_ids],
         )
