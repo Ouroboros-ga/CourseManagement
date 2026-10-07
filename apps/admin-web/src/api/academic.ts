@@ -111,8 +111,22 @@ export async function listVolunteerQualifications(semesterId: string): Promise<{
 }> {
   const q = new URLSearchParams()
   q.set('semester_id', semesterId)
-  q.set('page_size', '1000')
-  return request(`/api/v1/academic/volunteer-qualifications?${q.toString()}`)
+  q.set('page_size', '200')
+  const res = await request<{ items: VolunteerQualificationItem[]; total: number }>(
+    `/api/v1/academic/volunteer-qualifications?${q.toString()}`
+  )
+  const items = [...(res.items || [])]
+  let currentPage = 1
+  while (items.length < res.total && currentPage * 200 < res.total) {
+    currentPage++
+    q.set('page', String(currentPage))
+    const nextRes = await request<{ items: VolunteerQualificationItem[]; total: number }>(
+      `/api/v1/academic/volunteer-qualifications?${q.toString()}`
+    )
+    if (!nextRes.items?.length) break
+    items.push(...nextRes.items)
+  }
+  return { items, total: res.total }
 }
 
 export async function upsertVolunteerQualification(payload: {
