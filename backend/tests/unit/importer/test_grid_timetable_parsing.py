@@ -28,6 +28,6 @@ def test_school_slot_mapping():
     slots3 = parse_period("5-6节", slot_mapping=SCHOOL_SLOT_MAPPING)
     assert slots3 == [3]
 
-    # 10-11节 -> 大节 5, 6
+    # 10-11节 -> 大节 5 (晚上课，9节为晚饭时间)
     slots4 = parse_period("10-11节", slot_mapping=SCHOOL_SLOT_MAPPING)
-    assert slots4 == [5, 6]
+    assert slots4 == [5]

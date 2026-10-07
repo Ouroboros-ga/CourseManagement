@@ -75,9 +75,9 @@ def test_converted_strings_pass_template_parsers_17():
 
 
 def test_evening_periods_need_school_mapping():
-    assert parse_period("11-12节", SCHOOL_SLOT_MAPPING) == [6]
-    assert parse_period("10-11节", SCHOOL_SLOT_MAPPING) == [5, 6]
-    assert parse_period("9-11节", SCHOOL_SLOT_MAPPING) == [5, 6]
+    assert parse_period("11-12节", SCHOOL_SLOT_MAPPING) == [5]
+    assert parse_period("10-11节", SCHOOL_SLOT_MAPPING) == [5]
+    assert parse_period("9-11节", SCHOOL_SLOT_MAPPING) == [5]
 
 
 def test_xlsx_grid_same_layout():
@@ -122,10 +122,10 @@ def test_expand_grid_rows_expands_evening_17():
         },
     ]
     occ = expand_grid_rows(rows, 17, dict(SCHOOL_SLOT_MAPPING))
-    assert len(occ) == 2  # 2 周 × 大节 6
+    assert len(occ) == 2  # 2 周 × 晚上大节 5
     assert occ[0].week_no == 1
     assert occ[0].weekday == 2
-    assert occ[0].start_period == 6
+    assert occ[0].start_period == 5
 
 
 def test_expand_course_key_is_order_independent():

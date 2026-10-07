@@ -24,8 +24,8 @@ export const STANDARD_PERIOD_SLOTS: Record<number, PeriodSlotInfo> = {
   2: { slot: 2, sectionStart: 3, sectionEnd: 4, sectionLabel: '第 3-4 节', timeRange: '10:05 - 11:40', name: '上午二' },
   3: { slot: 3, sectionStart: 5, sectionEnd: 6, sectionLabel: '第 5-6 节', timeRange: '13:30 - 15:05', name: '下午一' },
   4: { slot: 4, sectionStart: 7, sectionEnd: 8, sectionLabel: '第 7-8 节', timeRange: '15:25 - 17:00', name: '下午二' },
-  5: { slot: 5, sectionStart: 9, sectionEnd: 10, sectionLabel: '第 9-10 节', timeRange: '18:30 - 20:05', name: '晚上一' },
-  6: { slot: 6, sectionStart: 11, sectionEnd: 11, sectionLabel: '第 11 节', timeRange: '20:15 - 21:50', name: '晚上二' },
+  5: { slot: 5, sectionStart: 10, sectionEnd: 11, sectionLabel: '第 10-11 节', timeRange: '18:30 - 20:50', name: '晚上课' },
+  6: { slot: 6, sectionStart: 10, sectionEnd: 11, sectionLabel: '第 10-11 节', timeRange: '18:30 - 20:50', name: '晚上课' },
 }
 
 export const PERIOD_PRESET_OPTIONS = [
@@ -33,8 +33,7 @@ export const PERIOD_PRESET_OPTIONS = [
   { value: 2, label: '第 3-4 节' },
   { value: 3, label: '第 5-6 节' },
   { value: 4, label: '第 7-8 节' },
-  { value: 5, label: '第 9-10 节' },
-  { value: 6, label: '第 11 节' },
+  { value: 5, label: '第 10-11 节' },
 ]
 
 /**
@@ -50,6 +49,11 @@ export function formatPeriodText(
   if (start == null && end == null) return '—'
   const s = start ?? end ?? 1
   const e = end ?? start ?? 1
+
+  // 特殊情况：兼容老数据中 10-11 节跨 5..6 或单 6 的情况
+  if ((s === 5 && e === 6) || (s === 6 && e === 6) || (s === 10 && e === 11) || (s === 9 && e === 11)) {
+    return '第 10-11 节'
+  }
 
   // 情况 1：如果传入的是系统标准大节编号（1..6）
   if (s >= 1 && s <= 6 && e >= 1 && e <= 6) {

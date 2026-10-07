@@ -26,8 +26,12 @@ from app.common.parsing.time_slots import parse_period, parse_weekday, parse_wee
 BLOCK_RE = re.compile(r"([^\r\n◇]+?)\s*\r?\n◇([^◇]+?)◇([^◇]*?)◇([^◇]*?)◇选课人数：(\d+)")
 _PARENS = re.compile(r"\(([^)]+)\)")
 
-# 学校实际含晚上 11-12 小节；默认映射只到 10（大节 1..5）。
-# 使用本映射时须记入方案规则快照（技术方案 9.1 period_definition）。
+# 学校实际排课规则：全天 1-11 小节，每两小节为一次正常课程时间：
+# 1-2 节 -> 大节 1 (上午一)
+# 3-4 节 -> 大节 2 (上午二)
+# 5-6 节 -> 大节 3 (下午一)
+# 7-8 节 -> 大节 4 (下午二)
+# 9 节为晚饭休息时间无课；10-11 节为晚上课 -> 大节 5
 SCHOOL_SLOT_MAPPING: dict[int, int] = {
     1: 1,
     2: 1,
@@ -39,8 +43,8 @@ SCHOOL_SLOT_MAPPING: dict[int, int] = {
     8: 4,
     9: 5,
     10: 5,
-    11: 6,
-    12: 6,
+    11: 5,
+    12: 5,
 }
 
 WEEKDAY_NAMES = (
