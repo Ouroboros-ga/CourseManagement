@@ -448,3 +448,38 @@ select.input { cursor: pointer; }
 .el-overlay {
   backdrop-filter: blur(2px);
 }
+
+/* ---------- Element Plus 弹窗适配 ---------- */
+.el-dialog {
+  border-radius: var(--radius);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  --el-dialog-padding-primary: 24px;
+  font-family: inherit;
+  box-shadow: 0 12px 40px rgba(28, 27, 26, 0.14);
+}
+.el-dialog__header {
+  padding-bottom: 16px;
+  margin-right: 0;
+  border-bottom: 1px solid var(--line);
+}
+.el-dialog__title {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.el-dialog__headerbtn {
+  top: 20px;
+}
+.el-dialog__headerbtn .el-dialog__close {
+  color: var(--ink-mute);
+}
+.el-dialog__headerbtn:hover .el-dialog__close {
+  color: var(--ink);
+}
+.el-dialog__body {
+  padding-top: 20px;
+  color: var(--ink-soft);
+}
