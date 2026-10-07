@@ -635,7 +635,7 @@ function applySmartSample() {
               <td class="cell-mono">{{ item.inspection_date }}</td>
               <td>
                 <div class="font-bold">周{{ formatWeekday(item.inspection_date) }}</div>
-                <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period, true) }}</div>
+                <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period) }}</div>
               </td>
               <td>
                 <div class="cell-main">{{ item.course_name }}</div>
@@ -643,9 +643,9 @@ function applySmartSample() {
               </td>
               <td>
                 <div class="cell-main flex items-center gap-1.5 flex-wrap">
-                  <span>{{ item.teaching_class_name }}</span>
+                  <span>{{ item.class_name || item.teaching_class_name || '—' }}</span>
                   <span
-                    v-if="item.teaching_class_name && (item.teaching_class_name.includes('合班') || item.teaching_class_name.includes('+'))"
+                    v-if="(item.class_name || item.teaching_class_name || '').includes('合班') || (item.class_name || item.teaching_class_name || '').includes('+')"
                     class="px-1.5 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200"
                     title="相同教室与时段自动合班查课"
                   >
@@ -654,7 +654,7 @@ function applySmartSample() {
                 </div>
               </td>
               <td>
-                <div class="cell-main">{{ item.classroom_name || '未指定教室' }}</div>
+                <div class="cell-main">{{ item.classroom || item.classroom_name || '未指定教室' }}</div>
               </td>
               <td>
                 <span v-if="item.existing_task_id" class="tag tag-green">已下发任务</span>
@@ -687,7 +687,7 @@ function applySmartSample() {
             <tr v-for="t in weekTasks" :key="t.id">
               <td class="cell-mono code">#{{ t.id }}</td>
               <td>{{ t.inspection_date }}</td>
-              <td class="cell-mono">{{ formatPeriodText(t.start_period, t.end_period, true) }}</td>
+              <td class="cell-mono">{{ formatPeriodText(t.start_period, t.end_period) }}</td>
               <td>{{ t.course_name_snapshot || '—' }}</td>
               <td>{{ t.class_name_snapshot || '—' }}</td>
               <td>{{ t.classroom_snapshot || '—' }}</td>
@@ -771,7 +771,7 @@ function applySmartSample() {
             <tr v-for="item in masterTimetableList" :key="item.id">
               <td>
                 <div class="font-bold">周{{ item.weekday }}</div>
-                <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period, true) }}</div>
+                <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period) }}</div>
               </td>
               <td>
                 <div class="cell-main font-bold">{{ item.course_name }}</div>

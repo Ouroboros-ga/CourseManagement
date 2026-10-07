@@ -250,7 +250,7 @@ async function handleUpdateTask() {
           <tr v-for="task in filteredTasks" :key="task.id">
             <td class="cell-mono tid">#{{ task.id }}</td>
             <td>
-              <div class="cell-main">{{ task.inspection_date }} {{ formatPeriodText(task.start_period, task.end_period, true) }}</div>
+              <div class="cell-main">{{ task.inspection_date }} {{ formatPeriodText(task.start_period, task.end_period) }}</div>
               <div class="cell-sub">{{ task.classroom_snapshot || '未指定教室' }}</div>
             </td>
             <td>

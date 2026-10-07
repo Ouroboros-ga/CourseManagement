@@ -141,9 +141,12 @@ def list_occurrences(
                 "end_period": item.end_period,
                 "teaching_class_id": str(item.teaching_class_id),
                 "class_name": item.class_name_snapshot,
+                "teaching_class_name": item.class_name_snapshot,
                 "course_name": item.course_name_snapshot,
                 "classroom": item.classroom_snapshot,
+                "classroom_name": item.classroom_snapshot,
                 "expected_count": len(item.student_ids),
+                "student_count": len(item.student_ids),
                 "existing_task_id": existing.id if existing else None,
                 "existing_task_status": existing.status if existing else None,
                 "selectable": not canceled,
@@ -236,9 +239,12 @@ def smart_sample_occurrences(
             "end_period": it.end_period,
             "teaching_class_id": str(it.teaching_class_id),
             "class_name": it.class_name_snapshot,
+            "teaching_class_name": it.class_name_snapshot,
             "course_name": it.course_name_snapshot,
             "classroom": it.classroom_snapshot,
+            "classroom_name": it.classroom_snapshot,
             "expected_count": len(it.student_ids),
+            "student_count": len(it.student_ids),
         }
         for it in sampled
         if it.course_schedule_id is not None

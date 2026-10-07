@@ -61,8 +61,11 @@ export interface CourseOccurrence {
   course_code?: string
   teacher_name?: string
   teaching_class_id: string
-  teaching_class_name: string
-  student_count: number
+  teaching_class_name?: string
+  class_name?: string
+  student_count?: number
+  expected_count?: number
+  classroom?: string
   classroom_name?: string
   existing_task_id?: string | null
   existing_task_status?: string | null

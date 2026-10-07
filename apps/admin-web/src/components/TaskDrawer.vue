@@ -76,7 +76,7 @@ const close = () => {
           </div>
           <div>
             <span class="d-label">时间节次</span>
-            <p class="d-value">{{ formatPeriodText(task.start_period, task.end_period, true) }}</p>
+            <p class="d-value">{{ formatPeriodText(task.start_period, task.end_period) }}</p>
           </div>
           <div>
             <span class="d-label">上课教室</span>

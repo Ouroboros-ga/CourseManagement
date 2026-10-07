@@ -20,17 +20,11 @@ function formatPeriodText(start, end, withTime = false) {
     const sInfo = STANDARD_PERIOD_SLOTS[s];
     const eInfo = STANDARD_PERIOD_SLOTS[e];
     if (s === e && sInfo) {
-      return withTime ? `${sInfo.label} (${sInfo.time})` : sInfo.label;
+      return sInfo.label;
     }
     const secStart = sInfo ? sInfo.sectionStart : s;
     const secEnd = eInfo ? eInfo.sectionEnd : e;
-    const secLabel = secStart === secEnd ? `第 ${secStart} 节` : `第 ${secStart}-${secEnd} 节`;
-    if (withTime && sInfo && eInfo) {
-      const startTime = sInfo.time.split('-')[0];
-      const endTime = eInfo.time.split('-')[1];
-      return `${secLabel} (${startTime}-${endTime})`;
-    }
-    return secLabel;
+    return secStart === secEnd ? `第 ${secStart} 节` : `第 ${secStart}-${secEnd} 节`;
   }
 
   if (s === e) return `第 ${s} 节`;

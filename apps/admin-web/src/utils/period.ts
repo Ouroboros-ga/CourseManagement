@@ -29,24 +29,23 @@ export const STANDARD_PERIOD_SLOTS: Record<number, PeriodSlotInfo> = {
 }
 
 export const PERIOD_PRESET_OPTIONS = [
-  { value: 1, label: '第 1-2 节 (08:00 - 09:35 上午一)' },
-  { value: 2, label: '第 3-4 节 (10:05 - 11:40 上午二)' },
-  { value: 3, label: '第 5-6 节 (13:30 - 15:05 下午一)' },
-  { value: 4, label: '第 7-8 节 (15:25 - 17:00 下午二)' },
-  { value: 5, label: '第 9-10 节 (18:30 - 20:05 晚上一)' },
-  { value: 6, label: '第 11 节 (20:15 - 21:50 晚上二)' },
+  { value: 1, label: '第 1-2 节' },
+  { value: 2, label: '第 3-4 节' },
+  { value: 3, label: '第 5-6 节' },
+  { value: 4, label: '第 7-8 节' },
+  { value: 5, label: '第 9-10 节' },
+  { value: 6, label: '第 11 节' },
 ]
 
 /**
- * 格式化节次展示
+ * 格式化节次展示（纯节次，不标注具体时间，符合高校规范）
  * @param start 开始大节（或小节）
  * @param end 结束大节（或小节）
- * @param withTime 是否附带时间区间，如 "第 1-2 节 (08:00-09:35)"
  */
 export function formatPeriodText(
   start?: number | null,
   end?: number | null,
-  withTime: boolean = false
+  _withTime: boolean = false
 ): string {
   if (start == null && end == null) return '—'
   const s = start ?? end ?? 1
@@ -57,19 +56,12 @@ export function formatPeriodText(
     const sInfo = STANDARD_PERIOD_SLOTS[s]
     const eInfo = STANDARD_PERIOD_SLOTS[e]
     if (s === e) {
-      if (!sInfo) return `第 ${s} 节`
-      return withTime ? `${sInfo.sectionLabel} (${sInfo.timeRange})` : sInfo.sectionLabel
+      return sInfo ? sInfo.sectionLabel : `第 ${s} 节`
     }
     // 跨多个大节（如实验课或连排）
     const secStart = sInfo?.sectionStart ?? s
     const secEnd = eInfo?.sectionEnd ?? e
-    const secLabel = secStart === secEnd ? `第 ${secStart} 节` : `第 ${secStart}-${secEnd} 节`
-    if (withTime && sInfo && eInfo) {
-      const startTime = sInfo.timeRange.split(' - ')[0]
-      const endTime = eInfo.timeRange.split(' - ')[1]
-      return `${secLabel} (${startTime} - ${endTime})`
-    }
-    return secLabel
+    return secStart === secEnd ? `第 ${secStart} 节` : `第 ${secStart}-${secEnd} 节`
   }
 
   // 情况 2：若传入的数据已是直接的小节编号（如 1..12）
