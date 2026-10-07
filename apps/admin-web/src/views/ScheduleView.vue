@@ -218,6 +218,27 @@ onMounted(() => {
   loadData()
 })
 
+const selectableOccurrences = computed(() => occurrences.value.filter(o => o.selectable))
+
+const isAllSelected = computed(() => {
+  if (selectableOccurrences.value.length === 0) return false
+  return selectableOccurrences.value.every(o => 
+    selectedKeys.value.includes(`${o.course_schedule_id}_${o.inspection_date}`)
+  )
+})
+
+const isIndeterminate = computed(() => {
+  if (selectableOccurrences.value.length === 0) return false
+  const count = selectableOccurrences.value.filter(o => 
+    selectedKeys.value.includes(`${o.course_schedule_id}_${o.inspection_date}`)
+  ).length
+  return count > 0 && count < selectableOccurrences.value.length
+})
+
+function isSelected(item: CourseOccurrence): boolean {
+  return selectedKeys.value.includes(`${item.course_schedule_id}_${item.inspection_date}`)
+}
+
 function toggleSelect(key: string) {
   const index = selectedKeys.value.indexOf(key)
   if (index > -1) {
@@ -225,6 +246,22 @@ function toggleSelect(key: string) {
   } else {
     selectedKeys.value.push(key)
   }
+}
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    const keysToRemove = new Set(selectableOccurrences.value.map(o => `${o.course_schedule_id}_${o.inspection_date}`))
+    selectedKeys.value = selectedKeys.value.filter(k => !keysToRemove.has(k))
+  } else {
+    const keysToAdd = selectableOccurrences.value.map(o => `${o.course_schedule_id}_${o.inspection_date}`)
+    const set = new Set([...selectedKeys.value, ...keysToAdd])
+    selectedKeys.value = Array.from(set)
+  }
+}
+
+function onRowClick(item: CourseOccurrence) {
+  if (!item.selectable) return
+  toggleSelect(`${item.course_schedule_id}_${item.inspection_date}`)
 }
 
 async function triggerDispatch() {
@@ -606,11 +643,44 @@ function applySmartSample() {
 
       <!-- 课次列表 -->
       <div v-if="occurrences.length > 0">
-        <div class="section-title">当周待下发课次（共 {{ occurrences.length }} 节）</div>
+        <div class="table-header-bar flex items-center justify-between">
+          <div class="section-title">
+            当周待下发课次（共 {{ occurrences.length }} 节，已勾选 {{ selectedKeys.length }} 节）
+          </div>
+          <div class="table-actions flex items-center gap-2 pr-6 py-2">
+            <button
+              v-if="selectableOccurrences.length > 0"
+              type="button"
+              class="btn btn-outline btn-xs"
+              @click="toggleSelectAll"
+            >
+              {{ isAllSelected ? '取消全选' : '全选所有可下发' }}
+            </button>
+            <button
+              v-if="selectedKeys.length > 0"
+              type="button"
+              class="btn btn-outline btn-xs text-rose-700 border-rose-200 hover:bg-rose-50"
+              @click="selectedKeys = []"
+            >
+              清空选择
+            </button>
+          </div>
+        </div>
         <table class="tbl">
           <thead>
             <tr>
-              <th style="width: 44px;">勾选</th>
+              <th style="width: 52px;" class="text-center">
+                <div class="checkbox-wrapper" title="全选 / 取消全选">
+                  <input
+                    type="checkbox"
+                    class="checkbox-lg"
+                    :disabled="selectableOccurrences.length === 0"
+                    :checked="isAllSelected"
+                    .indeterminate="isIndeterminate"
+                    @change="toggleSelectAll"
+                  />
+                </div>
+              </th>
               <th>日期</th>
               <th>星期 / 节次</th>
               <th>课程名称</th>
@@ -623,24 +693,33 @@ function applySmartSample() {
             <tr
               v-for="item in occurrences"
               :key="`${item.course_schedule_id}_${item.inspection_date}`"
-              :class="{ 'row-disabled': !item.selectable }"
+              class="selectable-row"
+              :class="{
+                'row-disabled': !item.selectable,
+                'row-selected': isSelected(item)
+              }"
+              @click="onRowClick(item)"
             >
-              <td>
-                <input
-                  type="checkbox"
-                  :disabled="!item.selectable"
-                  :checked="selectedKeys.includes(`${item.course_schedule_id}_${item.inspection_date}`)"
-                  @change="toggleSelect(`${item.course_schedule_id}_${item.inspection_date}`)"
-                />
+              <td class="cell-checkbox">
+                <div class="checkbox-wrapper">
+                  <input
+                    type="checkbox"
+                    class="checkbox-lg"
+                    :disabled="!item.selectable"
+                    :checked="isSelected(item)"
+                    @click.stop
+                    @change="toggleSelect(`${item.course_schedule_id}_${item.inspection_date}`)"
+                  />
+                </div>
               </td>
-              <td class="cell-mono">{{ item.inspection_date }}</td>
+              <td class="cell-mono font-medium">{{ item.inspection_date }}</td>
               <td>
                 <div class="font-bold">周{{ formatWeekday(item.inspection_date) }}</div>
                 <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period) }}</div>
               </td>
               <td>
-                <div class="cell-main">{{ item.course_name }}</div>
-                <div class="cell-sub font-mono">#{{ item.course_schedule_id }}</div>
+                <div class="cell-main font-semibold">{{ item.course_name }}</div>
+                <div class="cell-sub font-mono text-xs">#{{ item.course_schedule_id }}</div>
               </td>
               <td>
                 <div class="cell-main flex items-center gap-1.5 flex-wrap">
@@ -1360,7 +1439,67 @@ function applySmartSample() {
 .fsep { width: 1px; height: 16px; background: var(--line-strong); }
 
 .code { color: var(--blue); font-weight: 600; }
-.row-disabled { opacity: 0.45; }
+
+.table-header-bar {
+  background: var(--paper);
+}
+
+.selectable-row {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.12s ease;
+}
+
+.selectable-row:hover:not(.row-disabled) {
+  background-color: #f8fafc;
+}
+
+.selectable-row.row-selected {
+  background-color: #eff6ff !important;
+}
+
+.selectable-row.row-selected:hover {
+  background-color: #dbeafe !important;
+}
+
+.row-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cell-checkbox {
+  width: 52px;
+  text-align: center;
+  vertical-align: middle;
+  padding: 0 !important;
+}
+
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 48px;
+  cursor: pointer;
+}
+
+.checkbox-lg {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  accent-color: #0f172a;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.checkbox-lg:hover:not(:disabled) {
+  transform: scale(1.15);
+}
+
+.checkbox-lg:disabled {
+  cursor: not-allowed;
+}
 
 .empty-box {
   padding: 60px 20px;
