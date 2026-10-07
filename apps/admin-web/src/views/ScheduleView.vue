@@ -92,6 +92,28 @@ const bulkFileInputRef = ref<HTMLInputElement | null>(null)
 const bulkUploading = ref(false)
 const bulkResult = ref<BulkImportResult | null>(null)
 
+function isRosterFile(f: { type: string }) {
+  const t = (f.type || '').toUpperCase()
+  return t === 'ADMIN_ROSTER' || t === 'ROSTER'
+}
+
+function isSuccessFile(f: { status: string }) {
+  return (f.status || '').toUpperCase() === 'SUCCESS'
+}
+
+function isSkippedFile(f: { status: string }) {
+  return (f.status || '').toUpperCase() === 'SKIPPED'
+}
+
+const bulkHasErrors = computed(() => {
+  return bulkResult.value?.file_results?.some(f => !isSuccessFile(f) && !isSkippedFile(f)) ?? false
+})
+
+const bulkAllFailed = computed(() => {
+  if (!bulkResult.value?.file_results?.length) return false
+  return bulkResult.value.file_results.every(f => !isSuccessFile(f))
+})
+
 // ---- 智能抽查推荐状态 ----
 const showSmartSampleDialog = ref(false)
 const smartSampling = ref(false)
@@ -432,7 +454,12 @@ async function submitBulkImport() {
   try {
     const res = await uploadBulkImport(sessionStore.currentSemesterId, bulkFiles.value)
     bulkResult.value = res
-    ElMessage.success(`整包导入成功！共处理 ${res.total_files} 个文件，新建班级 ${res.classes_created} 个，录入学生 ${res.students_created} 名`)
+    const hasErr = res.file_results?.some(f => !isSuccessFile(f) && !isSkippedFile(f))
+    if (hasErr) {
+      ElMessage.warning(`整包处理完成，但有部分文件存在异常，请在下方列表核对`)
+    } else {
+      ElMessage.success(`整包导入成功！共处理 ${res.total_files} 个文件，新建班级 ${res.classes_created} 个，录入学生 ${res.students_created} 名`)
+    }
     teachingClasses.value = []
     if (activeTab.value === 'master') {
       loadMasterTimetableData()
@@ -963,9 +990,9 @@ function applySmartSample() {
         <!-- 批量导入结果展示 -->
         <div v-if="bulkResult" class="result-block">
           <div class="rb-head">
-            <div class="rb-title ok">
-              <AppIcon name="check-circle" :size="16" />
-              <span>整包导入完成</span>
+            <div class="rb-title" :class="bulkAllFailed ? 'err' : (bulkHasErrors ? 'warn' : 'ok')">
+              <AppIcon :name="bulkAllFailed ? 'close' : (bulkHasErrors ? 'alert' : 'check-circle')" :size="16" />
+              <span>{{ bulkAllFailed ? '整包导入失败' : (bulkHasErrors ? '部分文件导入完成（存在异常文件）' : '整包导入完成') }}</span>
             </div>
             <span class="rb-meta font-mono">共处理 {{ bulkResult.total_files }} 个文件</span>
           </div>
@@ -1005,14 +1032,26 @@ function applySmartSample() {
           <div v-if="bulkResult.file_results && bulkResult.file_results.length > 0" class="rb-files">
             <div v-for="(f, idx) in bulkResult.file_results" :key="idx" class="rb-file-row">
               <span class="rf-name font-mono" :title="f.filename">{{ f.filename }}</span>
-              <span class="tag" :class="f.type === 'ADMIN_ROSTER' ? 'tag-blue' : 'tag-gray'">
-                {{ f.type === 'ADMIN_ROSTER' ? '花名册' : '网格课表' }}
+              <span class="tag" :class="isRosterFile(f) ? 'tag-blue' : 'tag-gray'">
+                {{ isRosterFile(f) ? '花名册' : '网格课表' }}
               </span>
               <span
                 class="tag"
-                :class="f.status === 'SUCCESS' ? 'tag-green' : (f.status === 'SKIPPED' ? 'tag-gray' : 'tag-red')"
+                :class="isSuccessFile(f) ? 'tag-green' : (isSkippedFile(f) ? 'tag-gray' : 'tag-red')"
+                :title="f.error || ''"
               >
-                {{ f.status === 'SUCCESS' ? '已入库' : (f.status === 'SKIPPED' ? '已跳过' : '异常') }}
+                {{ isSuccessFile(f) ? '已入库' : (isSkippedFile(f) ? '已跳过' : '异常') }}
+              </span>
+              <span v-if="isSuccessFile(f) && f.summary" class="rf-stat font-mono">
+                <template v-if="isRosterFile(f)">
+                  +{{ f.summary.students_created || 0 }}人
+                </template>
+                <template v-else>
+                  +{{ f.summary.schedules_created || 0 }}节
+                </template>
+              </span>
+              <span v-else-if="f.error" class="rf-error font-mono" :title="f.error">
+                {{ f.error }}
               </span>
             </div>
           </div>
@@ -1528,6 +1567,8 @@ function applySmartSample() {
   color: var(--ink);
 }
 .rb-title.ok { color: var(--green); }
+.rb-title.warn { color: var(--amber); }
+.rb-title.err { color: var(--accent); }
 .rb-meta { font-size: 11px; color: var(--ink-mute); }
 
 .rb-stats {
@@ -1584,6 +1625,22 @@ function applySmartSample() {
   white-space: nowrap;
   font-size: 11px;
   color: var(--ink-soft);
+}
+.rf-stat {
+  font-size: 11px;
+  color: var(--green);
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.rf-error {
+  font-size: 11px;
+  color: var(--accent);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .rb-summary {

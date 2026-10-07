@@ -1293,10 +1293,25 @@ class ImporterService:
         roster_files: list[tuple[str, bytes]] = []
         timetable_files: list[tuple[str, bytes]] = []
         for fn, data in expanded_files:
-            if "课表" in fn or "排课" in fn:
+            lower_fn = fn.lower()
+            if "课表" in fn or "排课" in fn or "timetable" in lower_fn:
                 timetable_files.append((fn, data))
-            else:
+            elif "考勤" in fn or "花名册" in fn or "名单" in fn or "学生" in fn or "roster" in lower_fn:
                 roster_files.append((fn, data))
+            else:
+                # 尝试通过内容关键字做轻量嗅探
+                sniff_txt = ""
+                try:
+                    sniff_txt = data[:8192].decode("utf-8", errors="ignore") + data[:8192].decode("gbk", errors="ignore")
+                except Exception:
+                    pass
+                if "星期" in sniff_txt or "周一" in sniff_txt:
+                    timetable_files.append((fn, data))
+                elif "学号" in sniff_txt:
+                    roster_files.append((fn, data))
+                else:
+                    # 默认降级为花名册
+                    roster_files.append((fn, data))
 
         total_classes_created = 0
         total_students_created = 0
@@ -1320,11 +1335,14 @@ class ImporterService:
                     request_id=request_id,
                 )
                 if not preview.can_confirm:
+                    err_msg = "存在格式错误"
+                    if preview.issues:
+                        err_msg = "；".join(str(getattr(i, "message", i)) for i in preview.issues[:3])
                     file_results.append({
                         "filename": fn,
-                        "type": "roster",
-                        "status": "error",
-                        "error": "存在格式错误",
+                        "type": "ADMIN_ROSTER",
+                        "status": "FAILED",
+                        "error": err_msg,
                     })
                     continue
                 confirmed = self.confirm(actor, batch_id=int(preview.id), request_id=request_id)
@@ -1335,15 +1353,15 @@ class ImporterService:
                 total_transferred += summary.get("students_transferred", 0)
                 file_results.append({
                     "filename": fn,
-                    "type": "roster",
-                    "status": "success",
+                    "type": "ADMIN_ROSTER",
+                    "status": "SUCCESS",
                     "summary": summary,
                 })
             except Exception as exc:
                 file_results.append({
                     "filename": fn,
-                    "type": "roster",
-                    "status": "failed",
+                    "type": "ADMIN_ROSTER",
+                    "status": "FAILED",
                     "error": str(exc),
                 })
 
@@ -1361,11 +1379,14 @@ class ImporterService:
                     request_id=request_id,
                 )
                 if not preview.can_confirm:
+                    err_msg = "存在排课错误"
+                    if preview.issues:
+                        err_msg = "；".join(str(getattr(i, "message", i)) for i in preview.issues[:3])
                     file_results.append({
                         "filename": fn,
-                        "type": "timetable",
-                        "status": "error",
-                        "error": "存在排课错误",
+                        "type": "GRID_TIMETABLE",
+                        "status": "FAILED",
+                        "error": err_msg,
                     })
                     continue
                 confirmed = self.confirm(actor, batch_id=int(preview.id), request_id=request_id)
@@ -1374,15 +1395,15 @@ class ImporterService:
                 total_schedules_created += summary.get("schedules_created", 0)
                 file_results.append({
                     "filename": fn,
-                    "type": "timetable",
-                    "status": "success",
+                    "type": "GRID_TIMETABLE",
+                    "status": "SUCCESS",
                     "summary": summary,
                 })
             except Exception as exc:
                 file_results.append({
                     "filename": fn,
-                    "type": "timetable",
-                    "status": "failed",
+                    "type": "GRID_TIMETABLE",
+                    "status": "FAILED",
                     "error": str(exc),
                 })
 
