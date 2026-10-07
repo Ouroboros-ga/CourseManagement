@@ -800,7 +800,7 @@ async function handleAutoAssign() {
             <th>学号</th>
             <th>姓名</th>
             <th>行政班级</th>
-            <th>查课账号与绑定状态</th>
+            <th>小程序微信绑定状态</th>
             <th>志愿者资质（本学期）</th>
             <th style="text-align: right">操作</th>
           </tr>
@@ -835,13 +835,17 @@ async function handleAutoAssign() {
                 <AppIcon name="check-circle" :size="12" class="text-emerald-600" />
                 <span>微信已绑定 (UID: {{ boundUserMap.get(stu.id)?.id }})</span>
               </span>
-              <span v-else-if="boundUserMap.has(stu.id)" class="tag tag-blue inline-flex items-center gap-1">
-                <AppIcon name="check-circle" :size="12" class="text-blue-600" />
-                <span>账号就绪 · 可直接排班 (UID: {{ boundUserMap.get(stu.id)?.id }})</span>
+              <span
+                v-else-if="boundUserMap.has(stu.id)"
+                class="tag tag-amber inline-flex items-center gap-1"
+                title="该学生已生成排班底册账号可直接派课，但学生本人尚未在微信小程序输入绑定码认证"
+              >
+                <AppIcon name="warning" :size="12" class="text-amber-600" />
+                <span>未绑定微信 · 可排班 (UID: {{ boundUserMap.get(stu.id)?.id }})</span>
               </span>
               <span v-else class="tag tag-gray inline-flex items-center gap-1">
                 <AppIcon name="close" :size="10" class="text-slate-400" />
-                <span>未生成查课账号</span>
+                <span>未绑定微信小程序</span>
               </span>
             </td>
             <td>
