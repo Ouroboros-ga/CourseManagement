@@ -167,6 +167,7 @@ class RoleAssignmentTargetItem(BaseModel):
     roles: list[str]
     lock_version: int
     student_id: str | None = None
+    has_wechat: bool = False
 
 
 class RoleAssignmentTargetsResponse(BaseModel):

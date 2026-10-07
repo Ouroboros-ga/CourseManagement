@@ -163,6 +163,7 @@ export interface RoleTargetUser {
   roles: string[]
   lock_version: number
   student_id?: string | null
+  has_wechat?: boolean
 }
 
 export async function listRoleTargets(): Promise<{ items: RoleTargetUser[]; assignable_roles: string[] }> {

@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -42,6 +42,7 @@ from app.modules.identity.models import (
     ClientType,
     UserAccount,
     UserStatus,
+    WechatIdentity,
 )
 from app.modules.identity.policy import (
     OPTIONAL_PERMISSION_CODES,
@@ -547,6 +548,7 @@ class IdentityService:
     ) -> tuple[list[RoleAssignmentTargetItem], list[str]]:
         actor_roles = frozenset(self._repo.list_role_codes(actor_user_id))
         assignable = assignable_roles(actor_roles)
+        wechat_uids = set(self._session.scalars(select(WechatIdentity.user_id)).all())
         items = [
             RoleAssignmentTargetItem(
                 id=str(user.id),
@@ -556,6 +558,7 @@ class IdentityService:
                 roles=sorted(r.code for r in user.roles),
                 lock_version=user.lock_version,
                 student_id=str(user.student_id) if user.student_id is not None else None,
+                has_wechat=user.id in wechat_uids,
             )
             for user in self._repo.list_all_users()
         ]
@@ -972,42 +975,65 @@ class IdentityService:
             )
         ).scalar_one_or_none()
         if existing is not None:
-            raise ConflictError(ErrorCode.STATE_CONFLICT, "该学生已被其他账号绑定")
+            existing_wechat = self._session.execute(
+                select(WechatIdentity).where(WechatIdentity.user_id == existing.id)
+            ).scalar_one_or_none()
+            if existing_wechat is not None:
+                raise ConflictError(ErrorCode.STATE_CONFLICT, "该学生已被其他账号绑定")
+            # 预置系统账号关联：将当前微信登录身份与会话平滑关联至已有系统账号
+            user_wechat = self._session.execute(
+                select(WechatIdentity).where(WechatIdentity.user_id == user.id)
+            ).scalar_one_or_none()
+            if user_wechat is not None:
+                user_wechat.user_id = existing.id
+            self._session.execute(
+                update(AuthSession).where(AuthSession.user_id == user.id).values(user_id=existing.id)
+            )
+            student_role = self._repo.get_or_create_role(
+                RoleCode.STUDENT.value, RoleCode.STUDENT.value
+            )
+            self._repo.grant_role(existing.id, student_role.id)
+            self._grant_volunteer_if_qualified(existing)
+            token.status = BindingTokenStatus.USED.value
+            token.used_at = now
+            existing.display_name = student.name
+            existing.lock_version += 1
+            try:
+                self._session.delete(user)
+            except Exception:
+                pass
+            target_user = existing
+        else:
+            before_roles = self._repo.list_role_codes(user.id)
+            user.student_id = student.id
+            user.display_name = student.name
+            token.status = BindingTokenStatus.USED.value
+            token.used_at = now
+            student_role = self._repo.get_or_create_role(
+                RoleCode.STUDENT.value, RoleCode.STUDENT.value
+            )
+            self._repo.grant_role(user.id, student_role.id)
+            user.lock_version += 1
+            self._grant_volunteer_if_qualified(user)
+            target_user = user
 
-        before_roles = self._repo.list_role_codes(user.id)
-        user.student_id = student.id
-        user.display_name = student.name
-        token.status = BindingTokenStatus.USED.value
-        token.used_at = now
-
-        # 有效绑定后自动维护 STUDENT 身份（PERMISSIONS.md 1.4/6.1）。
-        # 这是系统自动身份，刻意不经手工 role.assign 差集守卫（该守卫禁止手工授 STUDENT）。
-        student_role = self._repo.get_or_create_role(
-            RoleCode.STUDENT.value, RoleCode.STUDENT.value
-        )
-        self._repo.grant_role(user.id, student_role.id)
-        user.lock_version += 1
-        # 反向补授："先导入资格后绑定"——若该生此前已被导入启用中的志愿者资格
-        # （落在 ACTIVE 学期），绑定即刻补授 VOLUNTEER 身份，与导入确认时的正向补授对称。
-        self._grant_volunteer_if_qualified(user)
-        after_roles = self._repo.list_role_codes(user.id)
+        after_roles = self._repo.list_role_codes(target_user.id)
 
         self._record_audit(
-            actor_user_id=user.id,
+            actor_user_id=target_user.id,
             action="student.bind",
             resource_type="user_account",
-            resource_id=str(user.id),
-            before={"student_id": None, "roles": before_roles},
+            resource_id=str(target_user.id),
+            before={"student_id": None},
             after={
                 "student_id": student.id,
                 "display_name": student.name,
                 "roles": after_roles,
-                "lock_version": user.lock_version,
+                "lock_version": target_user.lock_version,
             },
             reason=None,
             request_id=request_id,
         )
-        # 核销、绑定、自动授角色、审计在同一提交内完成（同事务原子）。
         self._session.commit()
         return student.id, student.student_no, student.name
 

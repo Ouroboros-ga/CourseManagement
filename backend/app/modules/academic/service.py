@@ -77,7 +77,7 @@ from app.modules.academic.schemas import (
     VolunteerQualificationUpsertRequest,
 )
 from app.modules.audit.models import AuditLog
-from app.modules.identity.models import UserAccount
+from app.modules.identity.models import UserAccount, UserStatus
 from app.modules.identity.repository import IdentityRepository
 from app.modules.inspection.course_policy import is_physical_education
 from app.modules.identity.service import CurrentUser
@@ -1062,13 +1062,39 @@ class AcademicService:
     # ================================================================== #
     # 志愿者学期资格（含 VOLUNTEER 自动身份维护）
     # ================================================================== #
-    def _grant_volunteer_role(self, student_id: int) -> bool:
-        """学生若已绑定账号则确保其持有 VOLUNTEER 角色（系统自动身份）。返回是否新授予。"""
+    def _ensure_student_user_account(self, student_id: int) -> UserAccount:
+        """为学生预置系统查课账号（若尚未建立），无需强制等待微信小程序首次上线。"""
         acct = self._session.execute(
             select(UserAccount).where(UserAccount.student_id == student_id)
         ).scalar_one_or_none()
         if acct is None:
-            return False
+            stu = self._repo.get_student(student_id)
+            if stu is None:
+                raise NotFoundError("学生不存在")
+            username = stu.student_no
+            existing_user = self._session.execute(
+                select(UserAccount).where(UserAccount.username == username)
+            ).scalar_one_or_none()
+            if existing_user is not None:
+                username = f"stu_{stu.student_no}"
+            acct = UserAccount(
+                username=username,
+                password_hash=None,
+                student_id=stu.id,
+                display_name=stu.name,
+                status=UserStatus.ACTIVE.value,
+            )
+            self._session.add(acct)
+            self._session.flush()
+            student_role = self._identity.get_or_create_role(
+                RoleCode.STUDENT.value, RoleCode.STUDENT.value
+            )
+            self._identity.grant_role(acct.id, student_role.id)
+        return acct
+
+    def _grant_volunteer_role(self, student_id: int) -> bool:
+        """确保志愿者拥有系统账号并持有 VOLUNTEER 角色（系统自动身份）。返回是否新授予。"""
+        acct = self._ensure_student_user_account(student_id)
         if RoleCode.VOLUNTEER.value in self._identity.list_role_codes(acct.id):
             return False
         role = self._identity.get_or_create_role(RoleCode.VOLUNTEER.value, RoleCode.VOLUNTEER.value)
@@ -1131,6 +1157,19 @@ class AcademicService:
     def list_volunteer_qualifications(
         self, params: PageParams, *, semester_id: int | None, enabled: bool | None
     ) -> dict:
+        if semester_id is not None:
+            qual_students = self._session.scalars(
+                select(VolunteerQualification.student_id).where(
+                    VolunteerQualification.semester_id == semester_id,
+                    VolunteerQualification.enabled.is_(True),
+                )
+            ).all()
+            changed = False
+            for sid in qual_students:
+                if self._grant_volunteer_role(sid):
+                    changed = True
+            if changed:
+                self._session.commit()
         rows, total = self._repo.list_volunteer_qualifications(
             params, semester_id=semester_id, enabled=enabled
         )

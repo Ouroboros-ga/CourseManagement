@@ -295,13 +295,25 @@ function copyBindingInfo() {
 
 // 打开分配任务弹窗
 async function openAssignDialog(student: StudentItem) {
-  const boundUser = boundUserMap.value.get(student.id)
+  let boundUser = boundUserMap.value.get(student.id)
   if (!boundUser) {
-    ElMessageBox.alert(
-      `学生【${student.name}】（学号：${student.student_no}）尚未在微信小程序中完成账号绑定（暂未生成系统账号 UID）。\n\n请先点击【生成绑定码】将绑定码发放给该学生，由其在微信小程序登录后输入学号与绑定码完成绑定。绑定完成后即可直接为其分配课程。`,
-      '尚未绑定小程序账号',
-      { type: 'warning', confirmButtonText: '我知道了' }
-    )
+    try {
+      await upsertVolunteerQualification({
+        semester_id: Number(sessionStore.currentSemesterId),
+        student_id: Number(student.id),
+        enabled: true,
+        reason: '分配查课任务时确保系统账号就绪'
+      })
+      const userRes = await listRoleTargets()
+      roleTargets.value = userRes.items || []
+      boundUser = boundUserMap.value.get(student.id)
+    } catch (e) {
+      console.error('自动初始化志愿者系统账号失败:', e)
+    }
+  }
+
+  if (!boundUser) {
+    ElMessage.error('无法为该志愿者初始化系统账号')
     return
   }
 
@@ -489,9 +501,9 @@ async function handleAutoAssign() {
         <div class="note">已具备查课排班资格</div>
       </div>
       <div class="stat-cell">
-        <div class="label">小程序已绑定账号</div>
+        <div class="label">可受派系统账号</div>
         <div class="value" style="color: var(--green)">{{ stats.boundCount }} <span class="unit">人</span></div>
-        <div class="note">已生成独立系统 UID</div>
+        <div class="note">已具备独立系统 UID / 可直接排班</div>
       </div>
     </div>
 
@@ -597,7 +609,7 @@ async function handleAutoAssign() {
             <th>学号</th>
             <th>姓名</th>
             <th>行政班级</th>
-            <th>小程序绑定状态</th>
+            <th>查课账号与绑定状态</th>
             <th>志愿者资质（本学期）</th>
             <th style="text-align: right">操作</th>
           </tr>
@@ -621,13 +633,17 @@ async function handleAutoAssign() {
               </span>
             </td>
             <td>
-              <span v-if="boundUserMap.has(stu.id)" class="tag tag-green inline-flex items-center gap-1">
+              <span v-if="boundUserMap.get(stu.id)?.has_wechat" class="tag tag-green inline-flex items-center gap-1">
                 <AppIcon name="check-circle" :size="12" class="text-emerald-600" />
-                <span>已绑定 (UID: {{ boundUserMap.get(stu.id)?.id }})</span>
+                <span>微信已绑定 (UID: {{ boundUserMap.get(stu.id)?.id }})</span>
+              </span>
+              <span v-else-if="boundUserMap.has(stu.id)" class="tag tag-blue inline-flex items-center gap-1">
+                <AppIcon name="check-circle" :size="12" class="text-blue-600" />
+                <span>账号就绪 · 可直接排班 (UID: {{ boundUserMap.get(stu.id)?.id }})</span>
               </span>
               <span v-else class="tag tag-gray inline-flex items-center gap-1">
                 <AppIcon name="close" :size="10" class="text-slate-400" />
-                <span>未绑定小程序</span>
+                <span>未生成查课账号</span>
               </span>
             </td>
             <td>
@@ -730,7 +746,7 @@ async function handleAutoAssign() {
     >
       <div v-loading="assigning" class="assign-dialog-body">
         <p class="dialog-tip">
-          志愿者已绑定系统账号（UID: {{ assignTargetUser?.id }}）。从本周（第 {{ sessionStore.currentWeekNo }} 周）未分配的查课任务中选择一项直接指派：
+          志愿者系统查课账号已就绪（系统 UID: {{ assignTargetUser?.id }}）。可从本周（第 {{ sessionStore.currentWeekNo }} 周）未分配的查课任务中直接指派；无论志愿者是否已登录微信小程序均可排班，学生后续在小程序登录后即可查收执行：
         </p>
 
         <div v-if="unassignedTasks.length > 0" class="task-select-list">
