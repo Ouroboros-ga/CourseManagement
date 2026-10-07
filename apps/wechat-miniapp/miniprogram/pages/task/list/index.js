@@ -1,4 +1,5 @@
 import { getTaskList } from '../../../api/task';
+import { formatPeriodText } from '../../../utils/period';
 
 Page({
   data: {
@@ -31,9 +32,7 @@ Page({
         const d = new Date(dateStr);
         const dayStr = Number.isNaN(d.getDay()) ? '' : ' 星期' + dayNames[d.getDay()];
         const week = item.week_no || item.academicWeek;
-        const periodStr = (item.start_period && item.end_period) 
-            ? `${item.start_period}-${item.end_period}` 
-            : item.period;
+        const periodText = formatPeriodText(item.start_period, item.end_period, true);
 
         return {
           ...item,
@@ -41,7 +40,7 @@ Page({
           classroom: item.classroom_snapshot || item.classroom,
           className: item.class_name_snapshot || item.className,
           status: item.status, // 后端已经返回中文如 '待执行', '已逾期'
-          timeStr: `第${week}周${dayStr} ${periodStr}节`
+          timeStr: `第${week}周${dayStr} ${periodText || (item.period ? item.period + '节' : '')}`
         };
       });
 

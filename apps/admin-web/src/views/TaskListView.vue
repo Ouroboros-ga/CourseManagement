@@ -7,6 +7,7 @@ import { listTasks, updateTask, type InspectionTaskItem } from '../api/tasks'
 import { useSessionStore } from '../stores/session'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { request } from '../api/http'
+import { formatPeriodText, PERIOD_PRESET_OPTIONS } from '../utils/period'
 
 const sessionStore = useSessionStore()
 
@@ -117,15 +118,30 @@ const editForm = ref({
   reason: ''
 })
 const editSubmitting = ref(false)
+const editPeriodPreset = ref<number>(1)
+
+function onPeriodPresetChange(val: number) {
+  if (val > 0) {
+    editForm.value.start_period = val
+    editForm.value.end_period = val
+  }
+}
 
 function openEditTask(task: InspectionTaskItem) {
   editingTask.value = task
+  const sp = task.start_period || 1
+  const ep = task.end_period || 1
   editForm.value = {
     classroom: task.classroom_snapshot || '',
-    start_period: task.start_period || 1,
-    end_period: task.end_period || 2,
+    start_period: sp,
+    end_period: ep,
     course_name: task.course_name_snapshot || '',
     reason: ''
+  }
+  if (sp === ep && sp >= 1 && sp <= 6) {
+    editPeriodPreset.value = sp
+  } else {
+    editPeriodPreset.value = 0
   }
   editDialogVisible.value = true
 }
@@ -234,7 +250,7 @@ async function handleUpdateTask() {
           <tr v-for="task in filteredTasks" :key="task.id">
             <td class="cell-mono tid">#{{ task.id }}</td>
             <td>
-              <div class="cell-main">{{ task.inspection_date }} 第 {{ task.start_period }}-{{ task.end_period }} 节</div>
+              <div class="cell-main">{{ task.inspection_date }} {{ formatPeriodText(task.start_period, task.end_period, true) }}</div>
               <div class="cell-sub">{{ task.classroom_snapshot || '未指定教室' }}</div>
             </td>
             <td>
@@ -269,14 +285,27 @@ async function handleUpdateTask() {
           />
         </div>
 
-        <div style="display: flex; gap: 12px; margin-bottom: 14px;">
+        <div style="margin-bottom: 14px;">
+          <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">课程节次时段：</label>
+          <el-select v-model="editPeriodPreset" @change="onPeriodPresetChange" style="width: 100%;">
+            <el-option
+              v-for="opt in PERIOD_PRESET_OPTIONS"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+            <el-option :value="0" label="自定义起止节次 (连堂课/跨时段)" />
+          </el-select>
+        </div>
+
+        <div v-if="editPeriodPreset === 0" style="display: flex; gap: 12px; margin-bottom: 14px;">
           <div style="flex: 1;">
-            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">开始大节：</label>
-            <el-input-number v-model="editForm.start_period" :min="1" :max="12" style="width: 100%;" />
+            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">开始大节时段 (1-6)：</label>
+            <el-input-number v-model="editForm.start_period" :min="1" :max="6" style="width: 100%;" />
           </div>
           <div style="flex: 1;">
-            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">结束大节：</label>
-            <el-input-number v-model="editForm.end_period" :min="editForm.start_period" :max="12" style="width: 100%;" />
+            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">结束大节时段 (1-6)：</label>
+            <el-input-number v-model="editForm.end_period" :min="editForm.start_period" :max="6" style="width: 100%;" />
           </div>
         </div>
 

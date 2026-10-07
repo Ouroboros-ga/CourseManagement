@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import type { InspectionTaskItem } from '../api/tasks'
 import { getTaskRoster, type RosterStudentItem } from '../api/submissions'
 import TaskStatusTag from './TaskStatusTag.vue'
+import { formatPeriodText } from '../utils/period'
 
 interface Props {
   visible: boolean
@@ -75,7 +76,7 @@ const close = () => {
           </div>
           <div>
             <span class="d-label">时间节次</span>
-            <p class="d-value">第 {{ task.start_period }}-{{ task.end_period }} 节</p>
+            <p class="d-value">{{ formatPeriodText(task.start_period, task.end_period, true) }}</p>
           </div>
           <div>
             <span class="d-label">上课教室</span>

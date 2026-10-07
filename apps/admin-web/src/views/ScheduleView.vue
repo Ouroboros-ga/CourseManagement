@@ -28,6 +28,7 @@ import {
 } from '../api/importer'
 import TaskStatusTag from '../components/TaskStatusTag.vue'
 import AppIcon from '../components/AppIcon.vue'
+import { formatPeriodText } from '../utils/period'
 
 const sessionStore = useSessionStore()
 
@@ -634,7 +635,7 @@ function applySmartSample() {
               <td class="cell-mono">{{ item.inspection_date }}</td>
               <td>
                 <div class="font-bold">周{{ formatWeekday(item.inspection_date) }}</div>
-                <div class="cell-sub font-mono">第 {{ item.start_period }}-{{ item.end_period }} 大节</div>
+                <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period, true) }}</div>
               </td>
               <td>
                 <div class="cell-main">{{ item.course_name }}</div>
@@ -686,7 +687,7 @@ function applySmartSample() {
             <tr v-for="t in weekTasks" :key="t.id">
               <td class="cell-mono code">#{{ t.id }}</td>
               <td>{{ t.inspection_date }}</td>
-              <td class="cell-mono">第 {{ t.start_period }}-{{ t.end_period }} 节</td>
+              <td class="cell-mono">{{ formatPeriodText(t.start_period, t.end_period, true) }}</td>
               <td>{{ t.course_name_snapshot || '—' }}</td>
               <td>{{ t.class_name_snapshot || '—' }}</td>
               <td>{{ t.classroom_snapshot || '—' }}</td>
@@ -770,7 +771,7 @@ function applySmartSample() {
             <tr v-for="item in masterTimetableList" :key="item.id">
               <td>
                 <div class="font-bold">周{{ item.weekday }}</div>
-                <div class="cell-sub font-mono">第 {{ item.start_period }}-{{ item.end_period }} 大节</div>
+                <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period, true) }}</div>
               </td>
               <td>
                 <div class="cell-main font-bold">{{ item.course_name }}</div>
@@ -861,7 +862,7 @@ function applySmartSample() {
         <div class="pt-2">
           <label class="inline-flex items-center gap-2 text-sm text-gray-700 font-medium">
             <input v-model="semesterForm.init_default_periods" type="checkbox" class="rounded text-blue-600" />
-            <span>自动初始化标准 6 大节次时间定义 (08:00 - 21:50)</span>
+            <span>自动初始化标准时段定义 (覆盖 1–11 节，08:00 - 21:50)</span>
           </label>
         </div>
       </div>
@@ -1187,7 +1188,7 @@ function applySmartSample() {
         <div class="pb-grid">
           <div class="pb-item">
             <b>早八重点查</b>
-            <span>默认优先筛选上午 1–2 大节</span>
+            <span>默认优先筛选上午课（第 1–4 节 / 早八与午前课）</span>
           </div>
           <div class="pb-item">
             <b>免查规则过滤</b>
@@ -1270,7 +1271,7 @@ function applySmartSample() {
               <span class="cr-class">{{ item.class_name }}</span>
             </div>
             <div class="cr-right font-mono">
-              {{ item.inspection_date }} · 第{{ item.start_period }}–{{ item.end_period }}节 · {{ item.classroom }}
+              {{ item.inspection_date }} · {{ formatPeriodText(item.start_period, item.end_period) }} · {{ item.classroom }}
             </div>
           </div>
           <div v-if="smartSampleResult.items.length > 15" class="more-row font-mono">

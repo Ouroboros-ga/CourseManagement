@@ -1,6 +1,7 @@
 import { getTaskDetail, submitTaskResult, getMySubmissions } from '../../../api/task';
 import { uploadFile } from '../../../utils/upload';
 import Toast from 'tdesign-miniprogram/toast/index';
+import { formatPeriodText } from '../../../utils/period';
 
 Page({
   data: {
@@ -36,9 +37,7 @@ Page({
         // 兼容新旧字段
         const dateStr = task.inspection_date || task.date;
         const week = task.week_no || task.academicWeek;
-        const periodStr = (task.start_period && task.end_period) 
-            ? `${task.start_period}-${task.end_period}` 
-            : task.period;
+        const periodText = formatPeriodText(task.start_period, task.end_period, true);
 
         let dayStr = '';
         if (dateStr) {
@@ -46,7 +45,7 @@ Page({
           const d = new Date(dateStr);
           dayStr = Number.isNaN(d.getDay()) ? '' : ' 星期' + dayNames[d.getDay()];
         }
-        task.timeStr = `第${week}周${dayStr} ${periodStr}节`;
+        task.timeStr = `第${week}周${dayStr} ${periodText || (task.period ? task.period + '节' : '')}`;
         task.courseName = task.course_name_snapshot || task.courseName;
         task.classroom = task.classroom_snapshot || task.classroom;
         task.className = task.class_name_snapshot || task.className;

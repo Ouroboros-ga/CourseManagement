@@ -18,6 +18,7 @@ import { listTasks, type InspectionTaskItem } from '../api/tasks'
 import { request } from '../api/http'
 import { exportBindingTokensExcel } from '../api/auth'
 import AppIcon from '../components/AppIcon.vue'
+import { formatPeriodText } from '../utils/period'
 
 const sessionStore = useSessionStore()
 
@@ -603,7 +604,7 @@ async function handleAutoAssign() {
             <div>
               <div class="t-name font-bold">{{ t.course_name_snapshot || '课程' }} · {{ t.class_name_snapshot || '教学班' }}</div>
               <div class="t-sub font-mono">
-                {{ t.inspection_date }} 第 {{ t.start_period }}-{{ t.end_period }} 节 · {{ t.classroom_snapshot || '教室' }}
+                {{ t.inspection_date }} {{ formatPeriodText(t.start_period, t.end_period, true) }} · {{ t.classroom_snapshot || '教室' }}
               </div>
             </div>
             <button class="btn btn-sm btn-dark" @click="assignTaskToStudent(t)">指派此课 →</button>
