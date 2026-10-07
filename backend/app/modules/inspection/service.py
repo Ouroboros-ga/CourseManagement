@@ -696,6 +696,33 @@ class InspectionService:
         cur_ver_ids = self._repo.map_current_deadline_version_ids(
             list(deadline_by_date.values())
         )
+
+        # 批量获取受派人真实姓名、学号与班级
+        vol_uids = {
+            a.volunteer_user_id for a in assignments.values() if a is not None
+        }
+        vol_info_map: dict[int, tuple[str, str | None, str | None]] = {}
+        if vol_uids:
+            vol_stmt = (
+                select(
+                    UserAccount.id,
+                    UserAccount.display_name,
+                    Student.name,
+                    Student.student_no,
+                    AdministrativeClass.class_name,
+                )
+                .outerjoin(Student, UserAccount.student_id == Student.id)
+                .outerjoin(
+                    AdministrativeClass,
+                    Student.administrative_class_id == AdministrativeClass.id,
+                )
+                .where(UserAccount.id.in_(vol_uids))
+            )
+            for row in self._session.execute(vol_stmt):
+                uid, u_disp, s_name, s_no, c_name = row
+                real_name = s_name or u_disp or f"志愿者#{uid}"
+                vol_info_map[uid] = (real_name, s_no, c_name)
+
         result: list[InspectionTaskResponse] = []
         for t in tasks:
             day = deadline_by_date.get((t.semester_id, t.inspection_date))
@@ -705,14 +732,19 @@ class InspectionService:
                 if assessment is not None
                 else (cur_ver_ids.get(day.id) if day is not None else None)
             )
+            asgn = assignments.get(t.id)
+            vol_info = (
+                vol_info_map.get(asgn.volunteer_user_id) if asgn is not None else None
+            )
             result.append(
                 self._to_task_dto(
                     t,
-                    assignments.get(t.id),
+                    asgn,
                     day,
                     assessment,
                     version_id,
                     sub_flags.get(t.id, (False, False)),
+                    vol_info=vol_info,
                 )
             )
         return result
@@ -751,11 +783,15 @@ class InspectionService:
         assessment: TaskDeadlineAssessment | None = None,
         deadline_version_id: int | None = None,
         submission_flags: tuple[bool, bool] = (False, False),
+        vol_info: tuple[str, str | None, str | None] | None = None,
     ) -> InspectionTaskResponse:
         brief = (
             TaskAssignmentBrief(
                 volunteer_user_id=assignment.volunteer_user_id,
                 assign_method=assignment.assign_method,
+                volunteer_name=vol_info[0] if vol_info else None,
+                volunteer_student_no=vol_info[1] if vol_info else None,
+                volunteer_class_name=vol_info[2] if vol_info else None,
             )
             if assignment is not None
             else None

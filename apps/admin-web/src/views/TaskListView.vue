@@ -428,17 +428,20 @@ async function handleUpdateTask() {
               <div class="cell-sub">{{ task.class_name_snapshot || '—' }}</div>
             </td>
             <td>
-              <template v-if="(task as any).assignment">
-                <div class="cell-main">{{ (task as any).assignment.volunteer_name || '志愿者' }}</div>
-                <div class="cell-sub cell-mono">UID: {{ (task as any).assignment.volunteer_user_id }}</div>
-              </template>
-              <template v-else-if="task.assigned_volunteer_name">
-                <div class="cell-main">{{ task.assigned_volunteer_name }}</div>
-                <div class="cell-sub cell-mono">UID: {{ task.assigned_volunteer_id }}</div>
+              <template v-if="(task as any).assignment?.volunteer_user_id || task.assigned_volunteer_id">
+                <div class="cell-main font-bold text-slate-800">
+                  {{ (task as any).assignment?.volunteer_name || task.assigned_volunteer_name || '志愿者' }}
+                </div>
+                <div class="cell-sub cell-mono text-xs text-slate-500">
+                  <span v-if="(task as any).assignment?.volunteer_class_name" class="mr-1">
+                    {{ (task as any).assignment.volunteer_class_name }} ·
+                  </span>
+                  UID: {{ (task as any).assignment?.volunteer_user_id || task.assigned_volunteer_id }}
+                </div>
               </template>
               <template v-else>
-                <div class="unassigned">未分配</div>
-                <div class="cell-sub cell-mono">可人工指定</div>
+                <div class="unassigned text-slate-400">未分配</div>
+                <div class="cell-sub cell-mono text-xs text-slate-400">可人工指定</div>
               </template>
             </td>
             <td>

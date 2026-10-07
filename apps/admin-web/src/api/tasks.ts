@@ -27,7 +27,10 @@ export interface InspectionTaskItem {
   assigned_volunteer_name?: string | null
   assignment?: {
     volunteer_user_id: string
+    assign_method?: string
     volunteer_name?: string
+    volunteer_student_no?: string
+    volunteer_class_name?: string
     assigned_at?: string
   } | null
   lock_version?: number
