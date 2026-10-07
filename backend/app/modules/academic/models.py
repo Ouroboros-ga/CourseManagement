@@ -176,6 +176,10 @@ class Student(TimestampMixin, Base):
         back_populates="students"
     )
 
+    @property
+    def administrative_class_name(self) -> str | None:
+        return self.administrative_class.class_name if self.administrative_class else None
+
 
 # --------------------------------------------------------------------------- #
 # 课程与教学班

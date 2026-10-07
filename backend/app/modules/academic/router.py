@@ -279,6 +279,8 @@ def list_students(
     college: Annotated[str | None, Query(max_length=128)] = None,
     status: Annotated[str | None, Query(max_length=16)] = None,
     keyword: Annotated[str | None, Query(max_length=128)] = None,
+    is_volunteer: Annotated[bool | None, Query()] = None,
+    semester_id: Annotated[int | None, Query(ge=1)] = None,
 ) -> dict[str, object]:
     return success(
         service.list_students(
@@ -287,6 +289,8 @@ def list_students(
             college=college,
             status=status,
             keyword=keyword,
+            is_volunteer=is_volunteer,
+            semester_id=semester_id,
         ),
         _rid(request),
     )

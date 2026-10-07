@@ -35,6 +35,7 @@ export interface StudentItem {
   student_no: string
   name: string
   administrative_class_id?: string | null
+  administrative_class_name?: string | null
   status: 'ACTIVE' | 'SUSPENDED' | 'GRADUATED'
   unassigned_task_count?: number
 }
@@ -87,12 +88,20 @@ export async function listStudents(params: {
   page_size?: number
   keyword?: string
   status?: string
+  administrative_class_id?: string | number
+  college?: string
+  is_volunteer?: boolean
+  semester_id?: string | number
 } = {}): Promise<{ items: StudentItem[]; total: number; page: number; page_size: number }> {
   const q = new URLSearchParams()
   if (params.page) q.set('page', String(params.page))
   q.set('page_size', String(params.page_size || 50))
   if (params.keyword) q.set('keyword', params.keyword)
   if (params.status) q.set('status', params.status)
+  if (params.administrative_class_id) q.set('administrative_class_id', String(params.administrative_class_id))
+  if (params.college) q.set('college', params.college)
+  if (params.is_volunteer !== undefined) q.set('is_volunteer', String(params.is_volunteer))
+  if (params.semester_id) q.set('semester_id', String(params.semester_id))
   return request(`/api/v1/academic/students?${q.toString()}`)
 }
 
@@ -102,7 +111,7 @@ export async function listVolunteerQualifications(semesterId: string): Promise<{
 }> {
   const q = new URLSearchParams()
   q.set('semester_id', semesterId)
-  q.set('page_size', '100')
+  q.set('page_size', '1000')
   return request(`/api/v1/academic/volunteer-qualifications?${q.toString()}`)
 }
 

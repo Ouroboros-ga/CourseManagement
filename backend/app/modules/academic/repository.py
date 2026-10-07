@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from sqlalchemy import Select, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.common.pagination import PageParams
 from app.modules.academic.models import (
@@ -203,8 +203,10 @@ class AcademicRepository:
         college: str | None,
         status: str | None,
         keyword: str | None,
+        is_volunteer: bool | None = None,
+        semester_id: int | None = None,
     ) -> tuple[list[Student], int]:
-        stmt = select(Student)
+        stmt = select(Student).options(joinedload(Student.administrative_class))
         if administrative_class_id is not None:
             stmt = stmt.where(Student.administrative_class_id == administrative_class_id)
         if college:
@@ -216,6 +218,16 @@ class AcademicRepository:
         if keyword:
             like = f"%{keyword}%"
             stmt = stmt.where(or_(Student.student_no.like(like), Student.name.like(like)))
+        if is_volunteer is True and semester_id is not None:
+            stmt = stmt.where(
+                select(VolunteerQualification.id)
+                .where(
+                    VolunteerQualification.student_id == Student.id,
+                    VolunteerQualification.semester_id == semester_id,
+                    VolunteerQualification.enabled.is_(True),
+                )
+                .exists()
+            )
         stmt = stmt.order_by(Student.id)
         return _paged(self._session, stmt, params)
 

@@ -9,10 +9,12 @@ import {
   issueBindingToken,
   listRoleTargets,
   createStudent,
+  listAdministrativeClasses,
   type StudentItem,
   type VolunteerQualificationItem,
   type BindingTokenResult,
-  type RoleTargetUser
+  type RoleTargetUser,
+  type AdministrativeClassItem
 } from '../api/academic'
 import { listTasks, type InspectionTaskItem } from '../api/tasks'
 import { request } from '../api/http'
@@ -26,8 +28,32 @@ const loading = ref(false)
 const students = ref<StudentItem[]>([])
 const volunteerQuals = ref<VolunteerQualificationItem[]>([])
 const roleTargets = ref<RoleTargetUser[]>([])
+const adminClasses = ref<AdministrativeClassItem[]>([])
+
+// 服务端分页与筛选状态
+const currentPage = ref(1)
+const pageSize = ref(50)
+const totalStudents = ref(0)
+const allStudentsCount = ref(0)
 const searchQuery = ref('')
+const selectedAdminClassId = ref<string>('')
 const filterOnlyVolunteers = ref(false)
+
+// 候选学生列表（用于添加志愿者弹窗远程搜索）
+const candidateStudents = ref<StudentItem[]>([])
+const searchingCandidate = ref(false)
+
+async function searchCandidates(query = '') {
+  searchingCandidate.value = true
+  try {
+    const res = await listStudents({ keyword: query.trim() || undefined, page_size: 50 })
+    candidateStudents.value = res.items || []
+  } catch (err) {
+    console.error('搜索学生候选人失败:', err)
+  } finally {
+    searchingCandidate.value = false
+  }
+}
 
 // 绑定码弹窗
 const tokenDialogVisible = ref(false)
@@ -96,19 +122,46 @@ async function handleBatchExport() {
   }
 }
 
+async function loadClasses() {
+  try {
+    const res = await listAdministrativeClasses({ page_size: 100 })
+    adminClasses.value = res.items || []
+  } catch (e) {
+    console.warn('获取行政班级列表失败:', e)
+  }
+}
+
 async function loadData() {
   if (!sessionStore.currentSemesterId) return
   loading.value = true
   try {
-    // 1. 获取学生列表
-    const stuRes = await listStudents({ page_size: 100 })
-    students.value = stuRes.items || []
+    // 1. 获取行政班级列表（如尚未加载）
+    if (adminClasses.value.length === 0) {
+      await loadClasses()
+    }
 
-    // 2. 获取当前学期志愿者资质列表
+    // 2. 获取学生列表（带服务端分页与过滤）
+    const stuRes = await listStudents({
+      page: currentPage.value,
+      page_size: pageSize.value,
+      administrative_class_id: selectedAdminClassId.value ? Number(selectedAdminClassId.value) : undefined,
+      keyword: searchQuery.value.trim() || undefined,
+      is_volunteer: filterOnlyVolunteers.value ? true : undefined,
+      semester_id: filterOnlyVolunteers.value ? Number(sessionStore.currentSemesterId) : undefined
+    })
+    students.value = stuRes.items || []
+    totalStudents.value = stuRes.total || 0
+
+    // 若无任何过滤条件，记录全校在籍学生总数
+    if (!selectedAdminClassId.value && !searchQuery.value.trim() && !filterOnlyVolunteers.value) {
+      allStudentsCount.value = stuRes.total || 0
+    }
+
+    // 3. 获取当前学期志愿者资质列表
     const volRes = await listVolunteerQualifications(sessionStore.currentSemesterId)
     volunteerQuals.value = volRes.items || []
 
-    // 3. 获取用户账号列表（查看小程序绑定状态及 UID）
+    // 4. 获取用户账号列表（查看小程序绑定状态及 UID）
     try {
       const userRes = await listRoleTargets()
       roleTargets.value = userRes.items || []
@@ -122,6 +175,30 @@ async function loadData() {
   }
 }
 
+function handleFilterChange() {
+  currentPage.value = 1
+  loadData()
+}
+
+function handleResetFilters() {
+  selectedAdminClassId.value = ''
+  searchQuery.value = ''
+  filterOnlyVolunteers.value = false
+  currentPage.value = 1
+  loadData()
+}
+
+function handlePageChange(page: number) {
+  currentPage.value = page
+  loadData()
+}
+
+function handleSizeChange(size: number) {
+  pageSize.value = size
+  currentPage.value = 1
+  loadData()
+}
+
 watch(
   () => sessionStore.currentSemesterId,
   () => {
@@ -131,6 +208,15 @@ watch(
 
 onMounted(() => {
   loadData()
+})
+
+// 映射班级 ID 到名称
+const adminClassMap = computed(() => {
+  const map = new Map<string, string>()
+  adminClasses.value.forEach(c => {
+    map.set(String(c.id), c.class_name)
+  })
+  return map
 })
 
 // 映射学生是否有志愿者资格
@@ -155,22 +241,10 @@ const boundUserMap = computed(() => {
 
 // 统计数据
 const stats = computed(() => {
-  const total = students.value.length
-  const volunteers = students.value.filter(s => volunteerMap.value.get(s.id)).length
-  const boundCount = students.value.filter(s => boundUserMap.value.has(s.id)).length
+  const total = allStudentsCount.value || totalStudents.value
+  const volunteers = volunteerQuals.value.filter(q => q.enabled).length
+  const boundCount = roleTargets.value.filter(u => u.student_id).length
   return { total, volunteers, boundCount }
-})
-
-// 过滤后的学生列表
-const filteredStudents = computed(() => {
-  return students.value.filter(s => {
-    if (filterOnlyVolunteers.value && !volunteerMap.value.get(s.id)) {
-      return false
-    }
-    if (!searchQuery.value.trim()) return true
-    const q = searchQuery.value.trim().toLowerCase()
-    return s.name.toLowerCase().includes(q) || s.student_no.toLowerCase().includes(q)
-  })
 })
 
 // 切换志愿者资质
@@ -278,6 +352,7 @@ function openAddDialog() {
     set_as_volunteer: true,
     issue_token_now: true
   }
+  searchCandidates('')
   addDialogVisible.value = true
 }
 
@@ -463,21 +538,55 @@ async function handleAutoAssign() {
     <div class="tbl-wrap">
       <div class="tbl-head">
         <div>
-          <h3>学生与志愿者名册（共 {{ filteredStudents.length }} 条）</h3>
+          <h3>学生与志愿者名册（共 {{ totalStudents }} 条）</h3>
           <div class="meta">在校学生档案与 {{ sessionStore.currentSemesterName }} 志愿者资质关联表</div>
         </div>
-        <div class="tbl-tools">
+        <div class="tbl-tools flex items-center gap-2">
+          <!-- 行政班级筛选 -->
+          <el-select
+            v-model="selectedAdminClassId"
+            placeholder="全部行政班级"
+            clearable
+            filterable
+            style="width: 180px"
+            @change="handleFilterChange"
+            @clear="handleFilterChange"
+          >
+            <el-option label="全部行政班级 (34个)" value="" />
+            <el-option
+              v-for="c in adminClasses"
+              :key="c.id"
+              :label="c.class_name"
+              :value="String(c.id)"
+            />
+          </el-select>
+
+          <!-- 仅看志愿者 -->
           <label class="filter-chk font-mono">
-            <input type="checkbox" v-model="filterOnlyVolunteers" />
-            <span>仅显示志愿者 ({{ stats.volunteers }})</span>
+            <input type="checkbox" v-model="filterOnlyVolunteers" @change="handleFilterChange" />
+            <span>仅看志愿者 ({{ stats.volunteers }})</span>
           </label>
-          <input
-            v-model="searchQuery"
-            type="text"
-            class="input"
-            style="width: 220px"
-            placeholder="搜索姓名 / 学号…"
-          />
+
+          <!-- 关键字搜索 -->
+          <div class="search-input-wrap">
+            <input
+              v-model="searchQuery"
+              type="text"
+              class="input"
+              style="width: 170px"
+              placeholder="姓名 / 学号回车…"
+              @keyup.enter="handleFilterChange"
+            />
+            <button class="btn btn-sm btn-ghost" @click="handleFilterChange">搜索</button>
+          </div>
+
+          <button
+            v-if="selectedAdminClassId || searchQuery || filterOnlyVolunteers"
+            class="btn btn-sm btn-ghost text-amber-700"
+            @click="handleResetFilters"
+          >
+            重置
+          </button>
           <button class="btn btn-sm btn-ghost" @click="loadData">⟳ 刷新</button>
         </div>
       </div>
@@ -494,11 +603,22 @@ async function handleAutoAssign() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="stu in filteredStudents" :key="stu.id">
+          <tr v-for="stu in students" :key="stu.id">
             <td class="cell-mono font-bold">{{ stu.student_no }}</td>
             <td class="cell-main font-bold">{{ stu.name }}</td>
             <td class="cell-sub">
-              {{ stu.administrative_class_id ? `行政班 #${stu.administrative_class_id}` : '未指定班级' }}
+              <span
+                v-if="stu.administrative_class_name || adminClassMap.get(String(stu.administrative_class_id))"
+                class="class-badge"
+              >
+                {{ stu.administrative_class_name || adminClassMap.get(String(stu.administrative_class_id)) }}
+              </span>
+              <span v-else-if="stu.administrative_class_id" class="text-xs text-slate-400 font-mono">
+                行政班 #{{ stu.administrative_class_id }}
+              </span>
+              <span v-else class="text-xs text-slate-400 italic">
+                未指定班级
+              </span>
             </td>
             <td>
               <span v-if="boundUserMap.has(stu.id)" class="tag tag-green inline-flex items-center gap-1">
@@ -537,11 +657,29 @@ async function handleAutoAssign() {
               </div>
             </td>
           </tr>
-          <tr v-if="filteredStudents.length === 0">
+          <tr v-if="students.length === 0">
             <td colspan="6" class="empty-tip">未找到匹配的学生记录</td>
           </tr>
         </tbody>
       </table>
+
+      <!-- 底部服务端分页栏 -->
+      <div class="tbl-footer">
+        <div class="pagination-info font-mono">
+          显示第 {{ totalStudents > 0 ? (currentPage - 1) * pageSize + 1 : 0 }} - {{ Math.min(currentPage * pageSize, totalStudents) }} 条，全库共 {{ totalStudents }} 名学生
+        </div>
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[20, 50, 100, 200]"
+          :total="totalStudents"
+          layout="total, sizes, prev, pager, next, jumper"
+          size="default"
+          background
+          @current-change="handlePageChange"
+          @size-change="handleSizeChange"
+        />
+      </div>
     </div>
 
     <!-- 弹窗 1：一次性绑定码发放 -->
@@ -654,13 +792,16 @@ async function handleAutoAssign() {
             <el-select
               v-model="selectedStudentId"
               filterable
-              placeholder="请输入姓名或学号搜索…"
+              remote
+              :remote-method="searchCandidates"
+              :loading="searchingCandidate"
+              placeholder="请输入姓名或学号搜索全校学生…"
               style="width: 100%"
             >
               <el-option
-                v-for="s in students"
+                v-for="s in candidateStudents"
                 :key="s.id"
-                :label="`${s.name} (${s.student_no})`"
+                :label="`${s.name} (${s.student_no}) - ${s.administrative_class_name || adminClassMap.get(String(s.administrative_class_id)) || '未分配班级'}`"
                 :value="s.id"
               />
             </el-select>
@@ -950,4 +1091,34 @@ async function handleAutoAssign() {
 }
 
 .dialog-footer { display: flex; justify-content: flex-end; gap: 10px; }
+
+.tbl-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  background: var(--paper-deep);
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.pagination-info {
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+.class-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #f1f5f9;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.search-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 </style>

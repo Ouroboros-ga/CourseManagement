@@ -663,6 +663,8 @@ class AcademicService:
         college: str | None,
         status: str | None,
         keyword: str | None,
+        is_volunteer: bool | None = None,
+        semester_id: int | None = None,
     ) -> dict:
         rows, total = self._repo.list_students(
             params,
@@ -670,6 +672,8 @@ class AcademicService:
             college=college,
             status=status,
             keyword=keyword,
+            is_volunteer=is_volunteer,
+            semester_id=semester_id,
         )
         return _page([StudentResponse.model_validate(r) for r in rows], total, params)
 

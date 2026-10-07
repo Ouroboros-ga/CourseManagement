@@ -180,6 +180,7 @@ class StudentResponse(BaseModel):
     student_no: str
     name: str
     administrative_class_id: OptIdStr
+    administrative_class_name: str | None = None
     status: str
     unassigned_task_count: int = 0
 
