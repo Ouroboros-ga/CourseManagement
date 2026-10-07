@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import TaskStatusTag from '../components/TaskStatusTag.vue'
 import TaskDrawer from '../components/TaskDrawer.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { listTasks, updateTask, type InspectionTaskItem } from '../api/tasks'
 import { useSessionStore } from '../stores/session'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -332,7 +333,10 @@ async function handleUpdateTask() {
               >
                 人工指派
               </button>
-              <button v-if="task.status !== '已取消' && task.status !== '已完成'" class="btn btn-ghost btn-sm" @click="openEditTask(task)">✏️ 编辑</button>
+              <button v-if="task.status !== '已取消' && task.status !== '已完成'" class="btn btn-ghost btn-sm inline-flex items-center gap-1" @click="openEditTask(task)">
+                <AppIcon name="edit" :size="12" />
+                <span>编辑</span>
+              </button>
               <button class="btn btn-ghost btn-sm" @click="openTaskDetail(task)">详情与名单</button>
             </td>
           </tr>
@@ -340,7 +344,9 @@ async function handleUpdateTask() {
       </table>
 
       <div v-else class="empty-box">
-        <div class="empty-icon">📂</div>
+        <div class="empty-icon flex justify-center mb-2">
+          <AppIcon name="folder-open" :size="36" class="text-gray-300" />
+        </div>
         <div class="empty-text">当前周次（第 {{ sessionStore.currentWeekNo }} 周）暂无查课任务</div>
         <div class="empty-sub">您可以前往「01 课次勾选与下发」下发任务，或切换学期/周次</div>
       </div>

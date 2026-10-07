@@ -27,6 +27,7 @@ import {
   type BulkImportResult
 } from '../api/importer'
 import TaskStatusTag from '../components/TaskStatusTag.vue'
+import AppIcon from '../components/AppIcon.vue'
 
 const sessionStore = useSessionStore()
 
@@ -305,6 +306,49 @@ function openImportDialog() {
   if (bulkFileInputRef.value) bulkFileInputRef.value.value = ''
 }
 
+const isDragging = ref(false)
+
+function triggerBulkFileInput() {
+  bulkFileInputRef.value?.click()
+}
+
+function triggerSingleFileInput() {
+  fileInputRef.value?.click()
+}
+
+function handleDrop(e: DragEvent) {
+  isDragging.value = false
+  if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+    if (importMode.value === 'bulk') {
+      bulkFiles.value = Array.from(e.dataTransfer.files)
+      bulkResult.value = null
+    } else {
+      importFile.value = e.dataTransfer.files[0]
+      importPreview.value = null
+    }
+  }
+}
+
+function removeBulkFile(index: number) {
+  bulkFiles.value.splice(index, 1)
+  if (bulkFiles.value.length === 0) {
+    bulkResult.value = null
+  }
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+function getFileTypeBadge(name: string): string {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.zip')) return 'ZIP 压缩包'
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'Excel 表格'
+  return '数据文件'
+}
+
 function handleFileSelect(e: Event) {
   const target = e.target as HTMLInputElement
   if (target.files && target.files.length > 0) {
@@ -462,17 +506,20 @@ function applySmartSample() {
 
       <div class="head-actions flex items-center gap-3">
         <button class="btn btn-outline" @click="openSemesterDialog">
-          ➕ 开启新学期
+          <AppIcon name="plus" :size="14" />
+          <span>开启新学期</span>
         </button>
         <button class="btn btn-outline" @click="openImportDialog">
-          📁 批量导入教务数据
+          <AppIcon name="upload" :size="14" />
+          <span>批量导入教务数据</span>
         </button>
         <button
           v-if="activeTab === 'dispatch'"
-          class="btn btn-outline border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 font-semibold"
+          class="btn btn-outline border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100 font-semibold"
           @click="openSmartSampleDialog"
         >
-          ⚡ 智能抽查推荐
+          <AppIcon name="sparkles" :size="14" class="text-amber-700" />
+          <span>智能抽查推荐</span>
         </button>
         <button
           v-if="activeTab === 'dispatch'"
@@ -480,7 +527,8 @@ function applySmartSample() {
           :disabled="dispatchLoading || selectedKeys.length === 0"
           @click="triggerDispatch"
         >
-          {{ dispatchLoading ? '正在下发…' : `⚡ 确认下发并排班 (${selectedKeys.length})` }}
+          <AppIcon name="send" :size="14" />
+          <span>{{ dispatchLoading ? '正在下发…' : `确认下发并排班 (${selectedKeys.length})` }}</span>
         </button>
       </div>
     </header>
@@ -488,18 +536,20 @@ function applySmartSample() {
     <!-- Tab 切换 -->
     <div class="tab-nav">
       <button
-        class="tab-btn"
+        class="tab-btn flex items-center gap-2"
         :class="{ active: activeTab === 'dispatch' }"
         @click="activeTab = 'dispatch'"
       >
-        📅 当周课次下发与排班
+        <AppIcon name="calendar" :size="15" />
+        <span>当周课次下发与排班</span>
       </button>
       <button
-        class="tab-btn"
+        class="tab-btn flex items-center gap-2"
         :class="{ active: activeTab === 'master' }"
         @click="activeTab = 'master'"
       >
-        🏫 全校总课表数据库 (Master Timetable)
+        <AppIcon name="database" :size="15" />
+        <span>全校总课表数据库 (Master Timetable)</span>
       </button>
     </div>
 
@@ -621,7 +671,9 @@ function applySmartSample() {
 
       <!-- 空状态 -->
       <div v-if="!loading && !hasData" class="empty-box">
-        <div class="empty-icon">📂</div>
+        <div class="empty-icon flex justify-center mb-2">
+          <AppIcon name="folder-open" :size="36" class="text-gray-300" />
+        </div>
         <div class="empty-text">当前周次（第 {{ sessionStore.currentWeekNo }} 周）暂无可下发课次及已有任务</div>
         <div class="empty-sub">您可以点击右上角“批量导入教务数据”录入班级花名册与课表</div>
       </div>
@@ -720,13 +772,16 @@ function applySmartSample() {
               </td>
               <td>
                 <div v-if="item.is_physical_education" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-500">
-                  <span>⚽ 体育课·免查</span>
+                  <AppIcon name="ban" :size="12" class="text-gray-400" />
+                  <span>体育课 · 免查</span>
                 </div>
                 <div v-else-if="item.enrolled_student_count > 0" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium border border-emerald-200">
-                  <span>👥 需查课 · 名单 {{ item.enrolled_student_count }} 人</span>
+                  <AppIcon name="users" :size="12" class="text-emerald-600" />
+                  <span>需查课 · 名单 {{ item.enrolled_student_count }} 人</span>
                 </div>
                 <div v-else class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 border border-amber-200">
-                  <span>⚠️ 暂无学生名单</span>
+                  <AppIcon name="alert" :size="12" class="text-amber-500" />
+                  <span>暂无学生名单</span>
                 </div>
               </td>
             </tr>
@@ -735,7 +790,9 @@ function applySmartSample() {
       </div>
 
       <div v-if="!masterLoading && masterTimetableList.length === 0" class="empty-box">
-        <div class="empty-icon">📚</div>
+        <div class="empty-icon flex justify-center mb-2">
+          <AppIcon name="book" :size="36" class="text-gray-300" />
+        </div>
         <div class="empty-text">未检索到符合条件的排课记录</div>
         <div class="empty-sub">请检查筛选条件，或使用上方“批量导入教务数据”导入网格课表</div>
       </div>
@@ -790,121 +847,237 @@ function applySmartSample() {
     </el-dialog>
 
     <!-- 弹窗 2: 导入教务数据 -->
-    <el-dialog v-model="showImportDialog" title="导入教务数据" width="720px">
+    <el-dialog
+      v-model="showImportDialog"
+      title="导入教务数据"
+      width="720px"
+      :close-on-click-modal="false"
+      class="import-dialog"
+    >
       <!-- 模式选择切换 -->
-      <div class="flex items-center gap-2 p-1 bg-gray-100 rounded-lg mb-4 text-xs font-semibold">
+      <div class="flex items-center gap-1.5 p-1 bg-gray-100 rounded-lg mb-4 text-xs font-semibold">
         <button
           type="button"
-          class="flex-1 py-2 px-3 rounded-md transition-all text-center"
-          :class="importMode === 'bulk' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-600 hover:text-gray-900'"
+          class="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md transition-all text-center"
+          :class="importMode === 'bulk' ? 'bg-white shadow-sm text-gray-900 font-bold' : 'text-gray-500 hover:text-gray-800'"
           @click="importMode = 'bulk'"
         >
-          📦 批量整包 ZIP / 多文件导入 (推荐 · 支持30+班级考勤与课表)
+          <AppIcon name="archive" :size="14" :class="importMode === 'bulk' ? 'text-blue-600' : 'text-gray-400'" />
+          <span>批量整包导入 (ZIP / 多文件)</span>
         </button>
         <button
           type="button"
-          class="flex-1 py-2 px-3 rounded-md transition-all text-center"
-          :class="importMode === 'single' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-600 hover:text-gray-900'"
+          class="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md transition-all text-center"
+          :class="importMode === 'single' ? 'bg-white shadow-sm text-gray-900 font-bold' : 'text-gray-500 hover:text-gray-800'"
           @click="importMode = 'single'"
         >
-          📄 单文件分步导入与预览
+          <AppIcon name="file-text" :size="14" :class="importMode === 'single' ? 'text-blue-600' : 'text-gray-400'" />
+          <span>单文件分步导入与预览</span>
         </button>
       </div>
 
       <!-- 模式 1: 整包 / 批量 ZIP 导入 -->
       <div v-if="importMode === 'bulk'" class="space-y-4">
-        <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 leading-relaxed">
-          <div class="font-bold mb-1">💡 智能整包解析说明：</div>
-          <div>支持直接上传包含多个班级考勤表（如《数据科学2601.xlsx》）和全校班级课表（如《班级课表.zip》）的压缩包或多选文件。</div>
-          <div class="mt-1 text-blue-700">
-            • <b>自动顺序执行</b>：先解析考勤表完成行政建班与学生建档，再解析网格课表关联学生，无须手动分步上传。<br/>
-            • <b>学籍异动识别</b>：自动识别并标记转专业/调班学生，更新至最新班级。<br/>
-            • <b>支持格式</b>：.zip 压缩包（内含 xlsx/xls）、或直接多选多个 .xlsx / .xls 文件。
+        <!-- 现代化解析指引卡片 -->
+        <div class="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-700 leading-relaxed">
+          <div class="flex items-center gap-1.5 font-bold text-slate-900 mb-2">
+            <AppIcon name="info" :size="15" class="text-blue-600" />
+            <span>高校教务数据智能整包解析指引</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+            <div class="bg-white p-2.5 rounded-lg border border-slate-200/60 shadow-2xs">
+              <div class="font-bold text-slate-800 flex items-center gap-1 mb-1">
+                <AppIcon name="sparkles" :size="13" class="text-amber-600" />
+                <span>自动顺序编排</span>
+              </div>
+              <div class="text-slate-500 text-[11px] leading-normal">
+                自动先建行政班与学生建档，再关联网格课表，无需繁琐分批操作。
+              </div>
+            </div>
+            <div class="bg-white p-2.5 rounded-lg border border-slate-200/60 shadow-2xs">
+              <div class="font-bold text-slate-800 flex items-center gap-1 mb-1">
+                <AppIcon name="swap" :size="13" class="text-blue-600" />
+                <span>学籍异动识别</span>
+              </div>
+              <div class="text-slate-500 text-[11px] leading-normal">
+                自动核对学号变化，智能识别并修正转专业/调班学生班级。
+              </div>
+            </div>
+            <div class="bg-white p-2.5 rounded-lg border border-slate-200/60 shadow-2xs">
+              <div class="font-bold text-slate-800 flex items-center gap-1 mb-1">
+                <AppIcon name="archive" :size="13" class="text-emerald-600" />
+                <span>全格式支持</span>
+              </div>
+              <div class="text-slate-500 text-[11px] leading-normal">
+                支持 Windows GBK/UTF-8 ZIP 压缩包，或直接多选多个表格。
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
-          <label class="block text-xs font-bold text-gray-700 mb-2">选择 ZIP 压缩包或多选 Excel 文件</label>
+        <!-- 现代化拖拽上传区域 -->
+        <div
+          v-if="!bulkResult"
+          class="dropzone border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer group"
+          :class="isDragging ? 'border-blue-500 bg-blue-50/40 scale-[1.005]' : 'border-slate-200 hover:border-blue-400 bg-slate-50/50 hover:bg-slate-50'"
+          @dragover.prevent="isDragging = true"
+          @dragleave.prevent="isDragging = false"
+          @drop.prevent="handleDrop"
+          @click="triggerBulkFileInput"
+        >
           <input
             ref="bulkFileInputRef"
             type="file"
             accept=".zip,.xlsx,.xls"
             multiple
-            class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            class="hidden"
             @change="handleBulkFileSelect"
           />
-          <div v-if="bulkFiles.length > 0" class="mt-2 text-xs text-gray-600">
-            已选择 <span class="font-bold text-blue-700">{{ bulkFiles.length }}</span> 个文件：
-            <span class="text-gray-500 font-mono">{{ bulkFiles.map(f => f.name).slice(0, 3).join(', ') }}{{ bulkFiles.length > 3 ? ` 等共 ${bulkFiles.length} 项` : '' }}</span>
+          <div class="w-12 h-12 rounded-full bg-blue-50 group-hover:bg-blue-100/80 text-blue-600 flex items-center justify-center mx-auto mb-3 transition-colors">
+            <AppIcon name="cloud-upload" :size="24" />
+          </div>
+          <div class="text-sm font-bold text-slate-800 mb-1">
+            点击选择文件，或将文件拖拽至此处
+          </div>
+          <div class="text-xs text-slate-400">
+            支持整包 .zip 压缩包（内含全班考勤及课表），或按住 Ctrl 多选多个 .xlsx / .xls 表格
+          </div>
+        </div>
+
+        <!-- 已选文件清单卡片 -->
+        <div v-if="bulkFiles.length > 0 && !bulkResult" class="space-y-2">
+          <div class="flex items-center justify-between text-xs font-bold text-slate-700 px-1">
+            <span>待处理文件清单（共 {{ bulkFiles.length }} 个文件）</span>
+            <button
+              type="button"
+              class="text-slate-400 hover:text-rose-600 text-[11px] font-normal transition-colors flex items-center gap-1"
+              @click.stop="bulkFiles = []"
+            >
+              <AppIcon name="trash" :size="12" />
+              <span>清空重新选择</span>
+            </button>
+          </div>
+          <div class="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+            <div
+              v-for="(f, idx) in bulkFiles"
+              :key="idx"
+              class="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80 text-xs shadow-2xs hover:border-slate-300"
+            >
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <AppIcon :name="f.name.endsWith('.zip') ? 'archive' : 'file-text'" :size="16" class="text-slate-500 shrink-0" />
+                <span class="truncate font-mono font-medium text-slate-800">{{ f.name }}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono shrink-0">
+                  {{ formatFileSize(f.size) }}
+                </span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0" :class="f.name.endsWith('.zip') ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'">
+                  {{ getFileTypeBadge(f.name) }}
+                </span>
+              </div>
+              <button
+                type="button"
+                class="ml-2 p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition-colors shrink-0"
+                title="移除此项"
+                @click.stop="removeBulkFile(idx)"
+              >
+                <AppIcon name="close" :size="13" />
+              </button>
+            </div>
           </div>
         </div>
 
         <div v-if="!bulkResult">
           <button
-            class="btn btn-dark w-full py-2.5 text-center font-bold"
+            class="btn btn-dark w-full py-2.5 text-center font-bold flex items-center justify-center gap-2"
             :disabled="bulkUploading || bulkFiles.length === 0"
             @click="submitBulkImport"
           >
-            {{ bulkUploading ? '🚀 正在解压并批量原子落库，请稍候…' : '🚀 开始整包自动分析与原子落库' }}
+            <AppIcon v-if="!bulkUploading" name="upload" :size="15" />
+            <span v-if="bulkUploading" class="inline-block animate-spin mr-1">⟳</span>
+            <span>{{ bulkUploading ? '正在解压并批量原子入库，请稍候…' : `开始整包自动分析与原子入库 (${bulkFiles.length})` }}</span>
           </button>
         </div>
 
         <!-- 批量导入结果展示 -->
-        <div v-if="bulkResult" class="p-4 bg-emerald-50 border border-emerald-200 rounded-lg space-y-3">
+        <div v-if="bulkResult" class="p-4 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-3.5">
           <div class="flex justify-between items-center">
-            <span class="font-bold text-emerald-900 text-sm">🎉 批量整包导入完成</span>
-            <span class="text-xs px-2 py-0.5 rounded bg-emerald-200 text-emerald-800 font-mono">
+            <div class="flex items-center gap-2 font-bold text-emerald-900 text-sm">
+              <AppIcon name="check-circle" :size="18" class="text-emerald-600" />
+              <span>批量整包导入完成</span>
+            </div>
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono font-medium">
               共处理 {{ bulkResult.total_files }} 个文件
             </span>
           </div>
 
-          <div class="grid grid-cols-4 gap-2 text-xs bg-white p-3 rounded border border-emerald-100">
-            <div class="p-2 bg-gray-50 rounded">
-              <div class="text-gray-500">考勤花名册</div>
-              <div class="text-base font-bold text-gray-800">{{ bulkResult.rosters_count }} 份</div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div class="p-2.5 bg-white rounded-lg border border-emerald-100 shadow-2xs">
+              <div class="text-slate-500 flex items-center gap-1 mb-1">
+                <AppIcon name="file-text" :size="12" class="text-slate-400" />
+                <span>考勤花名册</span>
+              </div>
+              <div class="text-base font-bold font-mono text-slate-800">{{ bulkResult.rosters_count }} 份</div>
             </div>
-            <div class="p-2 bg-gray-50 rounded">
-              <div class="text-gray-500">班级网格课表</div>
-              <div class="text-base font-bold text-gray-800">{{ bulkResult.timetables_count }} 份</div>
+            <div class="p-2.5 bg-white rounded-lg border border-emerald-100 shadow-2xs">
+              <div class="text-slate-500 flex items-center gap-1 mb-1">
+                <AppIcon name="calendar" :size="12" class="text-slate-400" />
+                <span>班级网格课表</span>
+              </div>
+              <div class="text-base font-bold font-mono text-slate-800">{{ bulkResult.timetables_count }} 份</div>
             </div>
-            <div class="p-2 bg-gray-50 rounded">
-              <div class="text-gray-500">新建行政班</div>
-              <div class="text-base font-bold text-gray-800">{{ bulkResult.classes_created }} 个</div>
+            <div class="p-2.5 bg-white rounded-lg border border-emerald-100 shadow-2xs">
+              <div class="text-slate-500 flex items-center gap-1 mb-1">
+                <AppIcon name="users" :size="12" class="text-slate-400" />
+                <span>新建行政班</span>
+              </div>
+              <div class="text-base font-bold font-mono text-slate-800">{{ bulkResult.classes_created }} 个</div>
             </div>
-            <div class="p-2 bg-gray-50 rounded">
-              <div class="text-gray-500">学生建立档案</div>
-              <div class="text-base font-bold text-emerald-600">{{ bulkResult.students_created }} 人</div>
+            <div class="p-2.5 bg-white rounded-lg border border-emerald-100 shadow-2xs">
+              <div class="text-slate-500 flex items-center gap-1 mb-1">
+                <AppIcon name="user" :size="12" class="text-emerald-500" />
+                <span>学生建立档案</span>
+              </div>
+              <div class="text-base font-bold font-mono text-emerald-600">{{ bulkResult.students_created }} 人</div>
             </div>
-            <div class="p-2 bg-gray-50 rounded">
-              <div class="text-gray-500">转专业/换班识别</div>
-              <div class="text-base font-bold text-blue-600">{{ bulkResult.students_transferred }} 人</div>
+            <div class="p-2.5 bg-white rounded-lg border border-emerald-100 shadow-2xs">
+              <div class="text-slate-500 flex items-center gap-1 mb-1">
+                <AppIcon name="swap" :size="12" class="text-blue-500" />
+                <span>转专业/调班识别</span>
+              </div>
+              <div class="text-base font-bold font-mono text-blue-600">{{ bulkResult.students_transferred }} 人</div>
             </div>
-            <div class="p-2 bg-gray-50 rounded">
-              <div class="text-gray-500">新建课程库</div>
-              <div class="text-base font-bold text-gray-800">{{ bulkResult.courses_created }} 门</div>
+            <div class="p-2.5 bg-white rounded-lg border border-emerald-100 shadow-2xs">
+              <div class="text-slate-500 flex items-center gap-1 mb-1">
+                <AppIcon name="book" :size="12" class="text-slate-400" />
+                <span>课程库更新</span>
+              </div>
+              <div class="text-base font-bold font-mono text-slate-800">{{ bulkResult.courses_created }} 门</div>
             </div>
-            <div class="p-2 bg-gray-50 rounded col-span-2">
-              <div class="text-gray-500">课表排课节次</div>
-              <div class="text-base font-bold text-gray-800">{{ bulkResult.schedules_created }} 节</div>
+            <div class="p-2.5 bg-white rounded-lg border border-emerald-100 shadow-2xs col-span-2">
+              <div class="text-slate-500 flex items-center gap-1 mb-1">
+                <AppIcon name="database" :size="12" class="text-slate-400" />
+                <span>排课节次入库</span>
+              </div>
+              <div class="text-base font-bold font-mono text-slate-800">{{ bulkResult.schedules_created }} 节</div>
             </div>
           </div>
 
-          <!-- 文件列表明细摘要 -->
-          <div v-if="bulkResult.file_results && bulkResult.file_results.length > 0" class="max-h-48 overflow-y-auto text-xs bg-white p-2 rounded border border-emerald-100 divide-y divide-gray-100">
-            <div v-for="(f, idx) in bulkResult.file_results" :key="idx" class="py-1.5 flex justify-between items-center">
-              <span class="truncate max-w-xs font-mono text-gray-700" :title="f.filename">{{ f.filename }}</span>
-              <div class="flex items-center gap-2">
+          <!-- 文件列表明细 -->
+          <div v-if="bulkResult.file_results && bulkResult.file_results.length > 0" class="max-h-44 overflow-y-auto text-xs bg-white p-2 rounded-lg border border-emerald-100 divide-y divide-slate-100">
+            <div v-for="(f, idx) in bulkResult.file_results" :key="idx" class="py-1.5 px-1 flex justify-between items-center">
+              <span class="truncate max-w-xs font-mono text-slate-700" :title="f.filename">{{ f.filename }}</span>
+              <div class="flex items-center gap-2 shrink-0">
                 <span class="px-1.5 py-0.5 rounded text-[11px]" :class="f.type === 'ADMIN_ROSTER' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'">
                   {{ f.type === 'ADMIN_ROSTER' ? '花名册' : '网格课表' }}
                 </span>
-                <span class="px-1.5 py-0.5 rounded text-[11px]" :class="f.status === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700 font-bold' : (f.status === 'SKIPPED' ? 'bg-gray-100 text-gray-500' : 'bg-red-100 text-red-600')">
-                  {{ f.status === 'SUCCESS' ? '成功' : (f.status === 'SKIPPED' ? '跳过' : '异常') }}
+                <span class="px-1.5 py-0.5 rounded text-[11px] font-medium" :class="f.status === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700' : (f.status === 'SKIPPED' ? 'bg-slate-100 text-slate-500' : 'bg-rose-100 text-rose-600')">
+                  {{ f.status === 'SUCCESS' ? '已入库' : (f.status === 'SKIPPED' ? '已跳过' : '异常') }}
                 </span>
               </div>
             </div>
           </div>
 
-          <div class="pt-2 flex justify-end">
+          <div class="pt-2 flex justify-end gap-2">
+            <button class="btn btn-outline" @click="bulkResult = null; bulkFiles = []">继续导入更多</button>
             <button class="btn btn-dark" @click="showImportDialog = false">完成并关闭</button>
           </div>
         </div>
@@ -913,7 +1086,7 @@ function applySmartSample() {
       <!-- 模式 2: 单文件分步导入 -->
       <div v-if="importMode === 'single'" class="space-y-4">
         <div>
-          <label class="block text-xs font-bold text-gray-700 mb-1">导入目标类型 *</label>
+          <label class="block text-xs font-bold text-slate-700 mb-1">导入目标类型 *</label>
           <select v-model="importTarget" class="input w-full font-medium" @change="importPreview = null">
             <option value="admin_roster">1. 行政班花名册 (班级考勤表 .xlsx/.xls) - 自动建班与学生</option>
             <option value="grid_timetable">2. 学校网格课表 (.xls/.xlsx) - 自动提取排课并关联行政班学生名单</option>
@@ -921,65 +1094,89 @@ function applySmartSample() {
           </select>
         </div>
 
-        <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
-          <label class="block text-xs font-bold text-gray-700 mb-2">选择 Excel 文件 (.xlsx 或 .xls)</label>
+        <div
+          v-if="!importPreview"
+          class="dropzone border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer group"
+          :class="isDragging ? 'border-blue-500 bg-blue-50/40' : 'border-slate-200 hover:border-blue-400 bg-slate-50/50'"
+          @dragover.prevent="isDragging = true"
+          @dragleave.prevent="isDragging = false"
+          @drop.prevent="handleDrop"
+          @click="triggerSingleFileInput"
+        >
           <input
             ref="fileInputRef"
             type="file"
             accept=".xlsx,.xls"
-            class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            class="hidden"
             @change="handleFileSelect"
           />
-          <div class="mt-2 text-xs text-gray-500">
-            支持学校导出的原始班级考勤表与课程网格表，系统将自动进行中英文归一化解析并原子事务入库。
+          <div class="w-10 h-10 rounded-full bg-blue-50 group-hover:bg-blue-100 text-blue-600 flex items-center justify-center mx-auto mb-2 transition-colors">
+            <AppIcon name="file-text" :size="20" />
+          </div>
+          <div class="text-sm font-bold text-slate-800 mb-1">
+            {{ importFile ? importFile.name : '点击选择单个 Excel 表格，或拖拽至此' }}
+          </div>
+          <div class="text-xs text-slate-400">
+            支持 .xlsx 或 .xls 格式单个花名册或课表
           </div>
         </div>
 
-        <div v-if="!importPreview" class="pt-2">
+        <div v-if="!importPreview" class="pt-1">
           <button
-            class="btn btn-dark w-full py-2.5 text-center"
+            class="btn btn-dark w-full py-2.5 text-center font-bold flex items-center justify-center gap-2"
             :disabled="importUploading || !importFile"
             @click="uploadAndPreview"
           >
-            {{ importUploading ? '正在解析文件…' : '🔍 上传并预览解析' }}
+            <AppIcon v-if="!importUploading" name="search" :size="15" />
+            <span v-if="importUploading" class="inline-block animate-spin mr-1">⟳</span>
+            <span>{{ importUploading ? '正在解析文件…' : '上传并预览解析' }}</span>
           </button>
         </div>
 
         <!-- 预览结果显示 -->
-        <div v-if="importPreview" class="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+        <div v-if="importPreview" class="p-4 bg-blue-50/60 border border-blue-200/80 rounded-xl space-y-3">
           <div class="flex justify-between items-center">
-            <span class="font-bold text-blue-900">解析预览结果</span>
-            <span class="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800">批次 #{{ importPreview.id }}</span>
+            <div class="flex items-center gap-2 font-bold text-blue-900 text-sm">
+              <AppIcon name="info" :size="16" class="text-blue-600" />
+              <span>解析预览结果</span>
+            </div>
+            <span class="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-mono">批次 #{{ importPreview.id }}</span>
           </div>
 
-          <div class="grid grid-cols-2 gap-2 text-xs text-gray-700 bg-white p-3 rounded border border-blue-100">
+          <div class="grid grid-cols-2 gap-2 text-xs bg-white p-3 rounded-lg border border-blue-100">
             <div v-for="(val, key) in importPreview.summary" :key="key">
-              <span class="font-medium text-gray-500">{{ key }}: </span>
-              <span class="font-mono font-bold">{{ val }}</span>
+              <span class="font-medium text-slate-500">{{ key }}: </span>
+              <span class="font-mono font-bold text-slate-800">{{ val }}</span>
             </div>
           </div>
 
-          <div v-if="importPreview.errors && importPreview.errors.length > 0" class="text-xs text-red-600 bg-red-50 p-2 rounded">
-            <strong>发现错误 (无法确认):</strong>
-            <ul class="list-disc pl-4 mt-1">
+          <div v-if="importPreview.errors && importPreview.errors.length > 0" class="text-xs text-rose-700 bg-rose-50 p-2.5 rounded-lg border border-rose-200">
+            <div class="font-bold mb-1 flex items-center gap-1">
+              <AppIcon name="alert" :size="13" />
+              <span>发现错误 (无法确认):</span>
+            </div>
+            <ul class="list-disc pl-4 space-y-0.5">
               <li v-for="(e, idx) in importPreview.errors.slice(0, 5)" :key="idx">
                 第 {{ e.row }} 行: {{ e.message }}
               </li>
             </ul>
           </div>
 
-          <div v-if="importPreview.warnings && importPreview.warnings.length > 0" class="text-xs text-amber-700 bg-amber-50 p-2 rounded">
-            <strong>告警提示:</strong> 共 {{ importPreview.warnings.length }} 条提示（如重复项将自动忽略）
+          <div v-if="importPreview.warnings && importPreview.warnings.length > 0" class="text-xs text-amber-700 bg-amber-50 p-2 rounded border border-amber-200 flex items-center gap-1">
+            <AppIcon name="info" :size="13" />
+            <span>告警提示: 共 {{ importPreview.warnings.length }} 条提示（如重复项将自动忽略）</span>
           </div>
 
           <div class="pt-2 flex gap-3">
             <button class="btn btn-outline flex-1" @click="importPreview = null">重新选择</button>
             <button
-              class="btn btn-dark flex-1"
+              class="btn btn-dark flex-1 flex items-center justify-center gap-2 font-bold"
               :disabled="importConfirming || !importPreview.can_confirm"
               @click="confirmImport"
             >
-              {{ importConfirming ? '正在落库…' : '✅ 确认整批原子落库' }}
+              <AppIcon v-if="!importConfirming" name="check" :size="15" />
+              <span v-if="importConfirming" class="inline-block animate-spin mr-1">⟳</span>
+              <span>{{ importConfirming ? '正在落库…' : '确认整批原子落库' }}</span>
             </button>
           </div>
         </div>
@@ -987,19 +1184,28 @@ function applySmartSample() {
     </el-dialog>
 
     <!-- 弹窗 3: 智能抽查推荐 -->
-    <el-dialog v-model="showSmartSampleDialog" title="⚡ 智能抽查推荐 (按规则筛选当周需查课)" width="640px">
+    <el-dialog
+      v-model="showSmartSampleDialog"
+      title="智能抽查推荐 (按规则筛选当周需查课)"
+      width="640px"
+    >
       <div class="space-y-4">
-        <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 leading-relaxed">
-          <strong>🎯 算法策略与高校教务规范：</strong><br/>
-          • <b>早八重点查</b>：默认优先筛选上午 1-2 大节（考勤旷课高发时段）。<br/>
-          • <b>免查规则过滤</b>：自动剔除体育课、实验/实训课、在线通选网课，不占用查课力量。<br/>
-          • <b>班级均衡配额</b>：每个教学班每周按指定上限抽查，防止查课过度集中或遗漏。<br/>
-          • <b>相同课时合流</b>：同一教室同一时段的多班合堂已自动合并，一趟查完。
+        <div class="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-xl text-xs text-amber-900 leading-relaxed">
+          <div class="font-bold mb-2 flex items-center gap-1.5 text-amber-950">
+            <AppIcon name="sliders" :size="15" class="text-amber-700" />
+            <span>算法策略与高校教务规范</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-[11px] text-amber-800">
+            <div>• <b>早八重点查</b>：默认优先筛选上午 1-2 大节。</div>
+            <div>• <b>免查规则过滤</b>：自动剔除体育、实验、网课。</div>
+            <div>• <b>班级均衡配额</b>：每班按每周上限合理抽查。</div>
+            <div>• <b>相同课时合流</b>：相同教室时段多班自动合并。</div>
+          </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-3 text-xs bg-gray-50 p-3 rounded-lg border border-gray-200">
+        <div class="grid grid-cols-2 gap-3 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200/80">
           <div>
-            <label class="block font-bold text-gray-700 mb-1">每班每周抽查上限 (节)</label>
+            <label class="block font-bold text-slate-700 mb-1">每班每周抽查上限 (节)</label>
             <input
               v-model.number="smartSampleForm.max_tasks_per_class"
               type="number"
@@ -1009,7 +1215,7 @@ function applySmartSample() {
             />
           </div>
           <div>
-            <label class="block font-bold text-gray-700 mb-1">抽查比例 (0.1 ~ 1.0)</label>
+            <label class="block font-bold text-slate-700 mb-1">抽查比例 (0.1 ~ 1.0)</label>
             <input
               v-model.number="smartSampleForm.sample_ratio"
               type="number"
@@ -1022,12 +1228,12 @@ function applySmartSample() {
         </div>
 
         <div class="space-y-2 text-xs">
-          <label class="inline-flex items-center gap-2 cursor-pointer font-medium text-gray-700">
+          <label class="inline-flex items-center gap-2 cursor-pointer font-medium text-slate-700">
             <input v-model="smartSampleForm.morning_only" type="checkbox" class="rounded text-blue-600" />
             <span>仅抽查上午 1-2 节 (早八课堂高优考勤)</span>
           </label>
           <div>
-            <label class="inline-flex items-center gap-2 cursor-pointer font-medium text-gray-700">
+            <label class="inline-flex items-center gap-2 cursor-pointer font-medium text-slate-700">
               <input v-model="smartSampleForm.exclude_already_generated" type="checkbox" class="rounded text-blue-600" />
               <span>排除当周已下发任务的课次 (不重复下发)</span>
             </label>
@@ -1036,36 +1242,39 @@ function applySmartSample() {
 
         <div>
           <button
-            class="btn btn-dark w-full py-2.5 text-center font-bold"
+            class="btn btn-dark w-full py-2.5 text-center font-bold flex items-center justify-center gap-2"
             :disabled="smartSampling"
             @click="runSmartSample"
           >
-            {{ smartSampling ? '正在运算推荐课次…' : '🔍 计算智能推荐课次' }}
+            <AppIcon v-if="!smartSampling" name="search" :size="15" />
+            <span v-if="smartSampling" class="inline-block animate-spin mr-1">⟳</span>
+            <span>{{ smartSampling ? '正在运算推荐课次…' : '计算智能推荐课次' }}</span>
           </button>
         </div>
 
         <!-- 计算结果预览 -->
-        <div v-if="smartSampleResult" class="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+        <div v-if="smartSampleResult" class="p-3.5 bg-blue-50/70 border border-blue-200/80 rounded-xl space-y-2.5">
           <div class="flex justify-between items-center text-xs">
-            <span class="font-bold text-blue-900">
-              推荐查课清单：共精选 {{ smartSampleResult.sampled_count }} 门课次
+            <span class="font-bold text-blue-900 flex items-center gap-1.5">
+              <AppIcon name="check-circle" :size="15" class="text-blue-600" />
+              <span>推荐查课清单：共精选 {{ smartSampleResult.sampled_count }} 门课次</span>
             </span>
-            <span class="text-blue-700">
-              (候选池共 {{ smartSampleResult.total_candidates }} 门课)
+            <span class="text-blue-700 font-mono">
+              (候选池共 {{ smartSampleResult.total_candidates }} 门)
             </span>
           </div>
 
-          <div v-if="smartSampleResult.items && smartSampleResult.items.length > 0" class="max-h-48 overflow-y-auto bg-white p-2 rounded border border-blue-100 text-xs divide-y divide-gray-100">
-            <div v-for="item in smartSampleResult.items.slice(0, 15)" :key="item.course_schedule_id" class="py-1.5 flex justify-between items-center">
+          <div v-if="smartSampleResult.items && smartSampleResult.items.length > 0" class="max-h-48 overflow-y-auto bg-white p-2 rounded-lg border border-blue-100 text-xs divide-y divide-slate-100">
+            <div v-for="item in smartSampleResult.items.slice(0, 15)" :key="item.course_schedule_id" class="py-1.5 px-1 flex justify-between items-center">
               <div>
-                <span class="font-bold text-gray-800">{{ item.course_name }}</span>
-                <span class="text-gray-500 ml-2">{{ item.class_name }}</span>
+                <span class="font-bold text-slate-800">{{ item.course_name }}</span>
+                <span class="text-slate-500 ml-2 font-medium">{{ item.class_name }}</span>
               </div>
-              <div class="text-right text-gray-600 font-mono">
+              <div class="text-right text-slate-600 font-mono text-[11px]">
                 {{ item.inspection_date }} 第{{ item.start_period }}-{{ item.end_period }}节 {{ item.classroom }}
               </div>
             </div>
-            <div v-if="smartSampleResult.items.length > 15" class="py-1 text-center text-gray-400 font-mono text-[11px]">
+            <div v-if="smartSampleResult.items.length > 15" class="py-1 text-center text-slate-400 font-mono text-[11px]">
               ... 以及更多 {{ smartSampleResult.items.length - 15 }} 门课次
             </div>
           </div>
@@ -1073,11 +1282,12 @@ function applySmartSample() {
           <div class="pt-2 flex justify-end gap-2">
             <button class="btn btn-outline" @click="showSmartSampleDialog = false">取消</button>
             <button
-              class="btn btn-dark"
+              class="btn btn-dark flex items-center gap-1.5 font-bold"
               :disabled="smartSampleResult.sampled_count === 0"
               @click="applySmartSample"
             >
-              ✨ 应用推荐并批量勾选 ({{ smartSampleResult.sampled_count }} 节)
+              <AppIcon name="check" :size="15" />
+              <span>应用推荐并批量勾选 ({{ smartSampleResult.sampled_count }} 节)</span>
             </button>
           </div>
         </div>

@@ -7,6 +7,7 @@ import {
   reviewSubmission,
   type ManagementSubmissionItem
 } from '../api/submissions'
+import AppIcon from '../components/AppIcon.vue'
 
 const sessionStore = useSessionStore()
 
@@ -263,8 +264,9 @@ const typeMap: Record<string, string> = {
               </tbody>
             </table>
           </div>
-          <div v-else class="normal-tip">
-            ✓ 志愿者报告：现场无迟到、早退、旷课或请假情况，本节课全勤应到。
+          <div v-else class="normal-tip flex items-center gap-1.5">
+            <AppIcon name="check-circle" :size="15" class="text-emerald-600 shrink-0" />
+            <span>志愿者报告：现场无迟到、早退、旷课或请假情况，本节课全勤应到。</span>
           </div>
         </section>
 
@@ -273,7 +275,9 @@ const typeMap: Record<string, string> = {
           <h4 class="sec-heading">现场证明留痕材料</h4>
           <div v-if="activeSubmission.file_ids.length > 0" class="photo-box">
             <div v-for="fid in activeSubmission.file_ids" :key="fid" class="photo-placeholder">
-              <div class="photo-icon">📷</div>
+              <div class="photo-icon flex justify-center mb-1">
+                <AppIcon name="camera" :size="24" class="text-slate-400" />
+              </div>
               <div class="photo-id font-mono">证明文件 ID: #{{ fid }}</div>
             </div>
           </div>
@@ -297,18 +301,20 @@ const typeMap: Record<string, string> = {
 
             <div class="action-btn-row">
               <button
-                class="btn btn-dark"
+                class="btn btn-dark inline-flex items-center gap-1.5"
                 :disabled="reviewLoading || activeSubmission.review_status === 'APPROVED'"
                 @click="handleApprove"
               >
-                {{ reviewLoading ? '处理中…' : '✓ 审核通过' }}
+                <AppIcon v-if="!reviewLoading" name="check" :size="14" />
+                <span>{{ reviewLoading ? '处理中…' : '审核通过' }}</span>
               </button>
               <button
-                class="btn btn-outline-danger"
+                class="btn btn-outline-danger inline-flex items-center gap-1.5"
                 :disabled="reviewLoading"
                 @click="handleReject"
               >
-                ✕ 驳回并填写原因
+                <AppIcon name="close" :size="14" />
+                <span>驳回并填写原因</span>
               </button>
             </div>
           </div>
@@ -318,7 +324,9 @@ const typeMap: Record<string, string> = {
 
     <!-- 无数据状态 -->
     <div v-else-if="!loading" class="empty-box">
-      <div class="empty-icon">✓</div>
+      <div class="empty-icon flex justify-center mb-2">
+        <AppIcon name="check-circle" :size="36" class="text-gray-300" />
+      </div>
       <div class="empty-text">当前学期暂无符合筛选条件的查课提交记录</div>
       <div class="empty-sub">志愿者在微信小程序提交查课记录后，将实时出现在此工作台中</div>
     </div>

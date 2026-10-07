@@ -17,6 +17,7 @@ import {
 import { listTasks, type InspectionTaskItem } from '../api/tasks'
 import { request } from '../api/http'
 import { exportBindingTokensExcel } from '../api/auth'
+import AppIcon from '../components/AppIcon.vue'
 
 const sessionStore = useSessionStore()
 
@@ -222,7 +223,7 @@ async function openAssignDialog(student: StudentItem) {
   const boundUser = boundUserMap.value.get(student.id)
   if (!boundUser) {
     ElMessageBox.alert(
-      `学生【${student.name}】（学号：${student.student_no}）尚未在微信小程序中完成账号绑定（暂未生成系统账号 UID）。\n\n请先点击【🔑 生成绑定码】将绑定码发放给该学生，由其在微信小程序登录后输入学号与绑定码完成绑定。绑定完成后即可直接为其分配课程。`,
+      `学生【${student.name}】（学号：${student.student_no}）尚未在微信小程序中完成账号绑定（暂未生成系统账号 UID）。\n\n请先点击【生成绑定码】将绑定码发放给该学生，由其在微信小程序登录后输入学号与绑定码完成绑定。绑定完成后即可直接为其分配课程。`,
       '尚未绑定小程序账号',
       { type: 'warning', confirmButtonText: '我知道了' }
     )
@@ -382,10 +383,19 @@ async function handleAutoAssign() {
             业务闭环起点：维护在校学生档案、认定查课志愿者资质、生成小程序一次性绑定码；并支持将课次直接或智能指派给志愿者。
           </p>
         </div>
-        <div class="head-actions">
-          <button class="btn btn-ghost" @click="handleAutoAssign">⚡ 智能自动排班</button>
-          <button class="btn btn-primary" @click="batchExportDialogVisible = true">📤 批量生成绑定码并导出 Excel</button>
-          <button class="btn btn-dark" @click="openAddDialog">➕ 添加志愿者 / 学生</button>
+        <div class="head-actions flex items-center gap-2">
+          <button class="btn btn-ghost inline-flex items-center gap-1.5" @click="handleAutoAssign">
+            <AppIcon name="sparkles" :size="14" class="text-amber-600" />
+            <span>智能自动排班</span>
+          </button>
+          <button class="btn btn-primary inline-flex items-center gap-1.5" @click="batchExportDialogVisible = true">
+            <AppIcon name="download" :size="14" />
+            <span>批量生成绑定码并导出 Excel</span>
+          </button>
+          <button class="btn btn-dark inline-flex items-center gap-1.5" @click="openAddDialog">
+            <AppIcon name="plus" :size="14" />
+            <span>添加志愿者 / 学生</span>
+          </button>
         </div>
       </div>
     </header>
@@ -411,7 +421,10 @@ async function handleAutoAssign() {
 
     <!-- 流程全景指引卡片 -->
     <div class="guide-banner">
-      <div class="g-title">💡 教务查课端到端全流程闭环指引</div>
+      <div class="g-title flex items-center gap-1.5">
+        <AppIcon name="info" :size="15" class="text-blue-600" />
+        <span>教务查课端到端全流程闭环指引</span>
+      </div>
       <div class="g-steps font-mono">
         <div class="g-step current">
           <span class="num">00</span>
@@ -487,61 +500,14 @@ async function handleAutoAssign() {
               {{ stu.administrative_class_id ? `行政班 #${stu.administrative_class_id}` : '未指定班级' }}
             </td>
             <td>
-              <template v-if="boundUserMap.has(stu.id)">
-                <span class="tag tag-green">
-                  🟢 已绑定 (UID: {{ boundUserMap.get(stu.id)?.id }})
-                </span>
-              
-    <!-- 弹窗 4：批量生成绑定码并导出 Excel -->
-    <el-dialog
-      v-model="batchExportDialogVisible"
-      title="批量生成学生 6 位绑定码并导出 Excel"
-      width="540px"
-      destroy-on-close
-    >
-      <div v-loading="batchExporting" class="export-dialog-body">
-        <p class="dialog-tip">
-          为学生一键批量签发 6 位大写英文字母与数字组成的友好绑定码（已剔除易混淆字符）。
-          导出的 Excel 包含：学号、姓名、行政班级、所属学院、6位绑定码、有效期截止时间、当前绑定状态。
-        </p>
-
-        <div class="form-item">
-          <label class="form-label">绑定码有效期：</label>
-          <el-radio-group v-model="batchExportDays">
-            <el-radio :value="14">14 天</el-radio>
-            <el-radio :value="30">30 天 (推荐)</el-radio>
-            <el-radio :value="60">60 天</el-radio>
-            <el-radio :value="90">90 天 (本学期有效)</el-radio>
-          </el-radio-group>
-        </div>
-
-        <div class="form-item">
-          <label class="form-label">签发范围：</label>
-          <el-radio-group v-model="batchExportScope">
-            <el-radio value="all">全校在籍学生 (共 {{ stats.total }} 人)</el-radio>
-            <el-radio value="volunteers">仅当前学期志愿者 (共 {{ stats.volunteers }} 人)</el-radio>
-          </el-radio-group>
-        </div>
-
-        <div style="background: #e6f7ff; border: 1px solid #91d5ff; padding: 12px; border-radius: 4px; font-size: 12px; color: #0050b3; margin-top: 16px;">
-          📌 <b>说明</b>：微信小程序端仅供学生绑定；获得志愿者资格的学生登录后将自动叠加查课工作台权限。
-          导出的 Excel 表格可直接发送至各班级大群或由辅导员分发。
-        </div>
-      </div>
-      <template #footer>
-        <div class="dialog-footer">
-          <button class="btn btn-ghost" @click="batchExportDialogVisible = false">取消</button>
-          <button class="btn btn-primary" :disabled="batchExporting" @click="handleBatchExport">
-            {{ batchExporting ? '正在生成导出…' : '立即生成并下载 Excel' }}
-          </button>
-        </div>
-      </template>
-    </el-dialog>
-
-</template>
-              <template v-else>
-                <span class="tag tag-gray">⚪ 未绑定小程序</span>
-              </template>
+              <span v-if="boundUserMap.has(stu.id)" class="tag tag-green inline-flex items-center gap-1">
+                <AppIcon name="check-circle" :size="12" class="text-emerald-600" />
+                <span>已绑定 (UID: {{ boundUserMap.get(stu.id)?.id }})</span>
+              </span>
+              <span v-else class="tag tag-gray inline-flex items-center gap-1">
+                <AppIcon name="close" :size="10" class="text-slate-400" />
+                <span>未绑定小程序</span>
+              </span>
             </td>
             <td>
               <div class="vol-switch-wrap">
@@ -554,16 +520,18 @@ async function handleAutoAssign() {
               </div>
             </td>
             <td style="text-align: right">
-              <div class="action-btns">
-                <button class="btn btn-sm" @click="handleIssueToken(stu)">
-                  🔑 生成绑定码
+              <div class="action-btns flex items-center justify-end gap-1.5">
+                <button class="btn btn-sm inline-flex items-center gap-1" @click="handleIssueToken(stu)">
+                  <AppIcon name="key" :size="12" />
+                  <span>生成绑定码</span>
                 </button>
                 <button
                   v-if="volunteerMap.get(stu.id)"
-                  class="btn btn-dark btn-sm"
+                  class="btn btn-dark btn-sm inline-flex items-center gap-1"
                   @click="openAssignDialog(stu)"
                 >
-                  📅 分配课程
+                  <AppIcon name="calendar" :size="12" />
+                  <span>分配课程</span>
                 </button>
               </div>
             </td>
@@ -606,7 +574,10 @@ async function handleAutoAssign() {
       <template #footer>
         <div class="dialog-footer">
           <button class="btn" @click="tokenDialogVisible = false">关闭</button>
-          <button class="btn btn-dark" @click="copyBindingInfo">📋 一键复制绑定信息</button>
+          <button class="btn btn-dark inline-flex items-center gap-1.5" @click="copyBindingInfo">
+            <AppIcon name="copy" :size="14" />
+            <span>一键复制绑定信息</span>
+          </button>
         </div>
       </template>
     </el-dialog>
@@ -733,6 +704,57 @@ async function handleAutoAssign() {
         <div class="dialog-footer">
           <button class="btn" @click="addDialogVisible = false">取消</button>
           <button class="btn btn-dark" @click="handleAddConfirm">确定保存</button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 弹窗 4：批量生成绑定码并导出 Excel -->
+    <el-dialog
+      v-model="batchExportDialogVisible"
+      title="批量生成学生 6 位绑定码并导出 Excel"
+      width="540px"
+      destroy-on-close
+    >
+      <div v-loading="batchExporting" class="export-dialog-body space-y-4">
+        <p class="dialog-tip">
+          为学生一键批量签发 6 位大写英文字母与数字组成的友好绑定码（已剔除易混淆字符）。
+          导出的 Excel 包含：学号、姓名、行政班级、所属学院、6位绑定码、有效期截止时间、当前绑定状态。
+        </p>
+
+        <div class="form-item">
+          <label class="form-label font-bold text-xs text-slate-700">绑定码有效期：</label>
+          <el-radio-group v-model="batchExportDays">
+            <el-radio :value="14">14 天</el-radio>
+            <el-radio :value="30">30 天 (推荐)</el-radio>
+            <el-radio :value="60">60 天</el-radio>
+            <el-radio :value="90">90 天 (本学期有效)</el-radio>
+          </el-radio-group>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label font-bold text-xs text-slate-700">签发范围：</label>
+          <el-radio-group v-model="batchExportScope">
+            <el-radio value="all">全校在籍学生 (共 {{ stats.total }} 人)</el-radio>
+            <el-radio value="volunteers">仅当前学期志愿者 (共 {{ stats.volunteers }} 人)</el-radio>
+          </el-radio-group>
+        </div>
+
+        <div class="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs text-blue-900 flex items-start gap-2">
+          <AppIcon name="info" :size="15" class="text-blue-600 shrink-0 mt-0.5" />
+          <div class="leading-relaxed">
+            <b>说明</b>：微信小程序端仅供学生绑定；获得志愿者资格的学生登录后将自动叠加查课工作台权限。
+            导出的 Excel 表格可直接发送至各班级大群或由辅导员分发。
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <button class="btn btn-ghost" @click="batchExportDialogVisible = false">取消</button>
+          <button class="btn btn-primary inline-flex items-center gap-1.5" :disabled="batchExporting" @click="handleBatchExport">
+            <AppIcon v-if="!batchExporting" name="download" :size="14" />
+            <span v-if="batchExporting" class="inline-block animate-spin mr-1">⟳</span>
+            <span>{{ batchExporting ? '正在生成导出…' : '立即生成并下载 Excel' }}</span>
+          </button>
         </div>
       </template>
     </el-dialog>
