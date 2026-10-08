@@ -253,10 +253,6 @@ async function handleLogout() {
 
           <span class="t-range font-mono">{{ sessionStore.weekDateRange.text || '计算日期中' }}</span>
         </div>
-        <div class="deadline">
-          <span class="d-label">今日 22:00 提交截止</span>
-          <span class="d-count font-mono">05:22:18</span>
-        </div>
       </header>
 
       <main class="main">
@@ -512,15 +508,6 @@ async function handleLogout() {
 }
 .t-week-select option { background: var(--paper); color: var(--ink); }
 .term .t-range { color: var(--ink-mute); font-size: 11px; }
-
-.deadline {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-size: 11px;
-}
-.deadline .d-label { color: var(--amber); font-weight: 500; }
-.deadline .d-count { color: var(--amber); font-weight: 700; font-size: 13px; }
 
 /* ---------- 内容区 ---------- */
 .main {
