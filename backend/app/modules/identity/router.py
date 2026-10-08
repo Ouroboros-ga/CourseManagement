@@ -212,6 +212,23 @@ def bind_student(
     return success(result.model_dump(), getattr(request.state, "request_id", None))
 
 
+@router.delete("/me/student-binding")
+def unbind_student(
+    user: CurrentUserDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    """前端重新绑定入口：清空自己的学号绑定，并撤销当前所有会话。"""
+    revoked, version = service.student_self_unbind(
+        user.id,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    return success(
+        {"revoked_sessions": revoked, "lock_version": version},
+        getattr(request.state, "request_id", None),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 授权管理闭环（P1 步骤 4）：受限目标选择器 + 角色分配 + 可选权限开关
 # --------------------------------------------------------------------------- #

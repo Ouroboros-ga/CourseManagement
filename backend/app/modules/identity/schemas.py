@@ -100,7 +100,7 @@ class StudentBindingRequest(BaseModel):
     """学生身份绑定：输入学号与一次性绑定码。"""
 
     student_no: str = Field(min_length=1, max_length=32)
-    binding_code: str = Field(min_length=8, max_length=128)
+    binding_code: str = Field(min_length=6, max_length=128)
 
 
 class StudentBindingResult(BaseModel):

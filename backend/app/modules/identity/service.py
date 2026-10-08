@@ -672,7 +672,7 @@ class IdentityService:
         for s in students:
             code = generate_friendly_binding_code(6)
             token = self._repo.create_binding_token(s.id, hash_token(code), expires_at)
-            ac = acs.get(s.administrative_class_id)
+            ac = acs.get(s.administrative_class_id) if s.administrative_class_id is not None else None
             results.append({
                 "student_id": s.id,
                 "student_no": s.student_no,
@@ -999,7 +999,9 @@ class IdentityService:
             existing.display_name = student.name
             existing.lock_version += 1
             try:
-                self._session.delete(user)
+                with self._session.begin_nested():
+                    self._session.delete(user)
+                    self._session.flush()
             except Exception:
                 pass
             target_user = existing
@@ -1036,6 +1038,63 @@ class IdentityService:
         )
         self._session.commit()
         return student.id, student.student_no, student.name
+
+    def student_self_unbind(
+        self,
+        user_id: int,
+        *,
+        request_id: str | None = None,
+    ) -> tuple[int, int]:
+        """前端自助解绑（供测试或特殊场景）：清除当前账号的 student_id 并撤销会话。"""
+        self._session.rollback()
+        self._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
+        user = self._repo.get_user_by_id_for_update(user_id)
+        if user is None:
+            raise NotFoundError("账号不存在")
+        if not user.is_active:
+            raise UnauthenticatedError("账号已停用")
+        before_roles = self._repo.list_role_codes(user_id)
+        if user.student_id is None and not before_roles:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "当前账号尚未绑定任何身份")
+
+        before_student = user.student_id
+
+        user.student_id = None
+        
+        # 解绑时必须清除该账号关联的所有角色（user_role 表的记录）
+        # 只有确保其角色被清空，下次微信登录时 need_binding 才能正确返回 true
+        for role_code in before_roles:
+            role = self._repo.get_role_by_code(role_code)
+            if role is not None:
+                self._repo.revoke_role(user_id, role.id)
+
+        self._repo.clear_optional_grants(user_id)
+
+        revoked = self._repo.revoke_active_sessions(user_id, utcnow())
+        user.lock_version += 1
+        after_roles = self._repo.list_role_codes(user_id)
+
+        self._record_audit(
+            actor_user_id=user_id,
+            action="student.self_unbind",
+            resource_type="user_account",
+            resource_id=str(user_id),
+            before={
+                "student_id": before_student,
+                "roles": before_roles,
+                "lock_version": user.lock_version - 1,
+            },
+            after={
+                "student_id": None,
+                "roles": after_roles,
+                "lock_version": user.lock_version,
+                "revoked_sessions": revoked,
+            },
+            reason="前端重新绑定",
+            request_id=request_id,
+        )
+        self._session.commit()
+        return revoked, user.lock_version
 
     def _grant_volunteer_if_qualified(self, user: UserAccount) -> bool:
         """绑定后反向补授 VOLUNTEER：若该生已有 ACTIVE 学期下启用中的志愿者资格。
