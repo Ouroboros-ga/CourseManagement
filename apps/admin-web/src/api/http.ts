@@ -110,12 +110,37 @@ export async function request<T = unknown>(
   }
 
   if (!response.ok) {
-    let payload: ApiErrorPayload = {
+    let payload: any = {
       code: 'UNKNOWN_ERROR',
       message: `请求失败: HTTP ${response.status}`
     }
     try {
-      payload = await response.json()
+      const data = await response.json()
+      if (data && typeof data === 'object') {
+        payload = data
+        if (!payload.message && payload.detail) {
+          if (typeof payload.detail === 'string') {
+            payload.message = payload.detail
+          } else if (Array.isArray(payload.detail)) {
+            const fieldMap: Record<string, string> = {
+              username: '教工工号/账号',
+              display_name: '真实姓名',
+              initial_password: '初始密码',
+              current_password: '当前密码',
+              old_password: '当前旧密码',
+              new_password: '新密码',
+              lock_version: '版本号'
+            }
+            payload.message = payload.detail
+              .map((item: any) => {
+                const lastLoc = item.loc ? item.loc[item.loc.length - 1] : ''
+                const fieldName = fieldMap[lastLoc] || lastLoc
+                return fieldName ? `【${fieldName}】${item.msg}` : item.msg
+              })
+              .join('；')
+          }
+        }
+      }
     } catch {
       // Non-json response
     }

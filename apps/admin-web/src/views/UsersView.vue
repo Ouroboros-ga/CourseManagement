@@ -210,18 +210,30 @@ function openCreateDialog() {
 }
 
 async function handleCreateTeacher() {
-  if (!createForm.value.username.trim() || !createForm.value.display_name.trim()) {
-    ElMessage.warning('请填写教工工号和真实姓名')
+  const uname = createForm.value.username.trim()
+  const dname = createForm.value.display_name.trim()
+  const pwd = (createForm.value.initial_password || '').trim() || 'Teacher@123456'
+
+  if (!uname) {
+    ElMessage.warning('请填写教工工号/登录账号')
+    return
+  }
+  if (!dname) {
+    ElMessage.warning('请填写教工真实姓名')
+    return
+  }
+  if (pwd.length < 6) {
+    ElMessage.warning('初始密码长度至少需要 6 位字符（推荐默认 Teacher@123456）')
     return
   }
   createSubmitting.value = true
   try {
     await createTeacherAccount({
-      username: createForm.value.username.trim(),
-      display_name: createForm.value.display_name.trim(),
-      initial_password: createForm.value.initial_password || 'Teacher@123456'
+      username: uname,
+      display_name: dname,
+      initial_password: pwd
     })
-    ElMessage.success(`成功创建教工账号【${createForm.value.display_name}】！初始密码已设置。`)
+    ElMessage.success(`成功创建教工账号【${dname}】！初始密码已设置。`)
     createDialogVisible.value = false
     await fetchTeachers()
   } catch (err: unknown) {
@@ -247,10 +259,18 @@ async function handleResetPassword(teacher: TeacherAccountItem) {
       }
     )
     if (newPwd) {
-      await resetTeacherPassword(teacher.id, { new_password: newPwd })
+      await resetTeacherPassword(teacher.id, {
+        new_password: newPwd.trim(),
+        lock_version: teacher.lock_version
+      })
       ElMessage.success(`教工【${teacher.display_name}】密码重置成功！已生效。`)
+      await fetchTeachers()
     }
-  } catch {}
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'message' in err) {
+      ElMessage.error(String(err.message))
+    }
+  }
 }
 
 // ==================== 超管专属：切换账号状态 ====================

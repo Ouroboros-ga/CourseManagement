@@ -96,12 +96,13 @@ export async function updateTeacherAccount(
 
 export async function resetTeacherPassword(
   userId: string | number,
-  body: { new_password?: string } = {}
+  body: { new_password?: string; lock_version?: number } = {}
 ): Promise<void> {
   return request<void>(`/api/v1/teacher-accounts/${userId}/password-reset`, {
     method: 'POST',
     body: JSON.stringify({
-      new_password: body.new_password || 'Teacher@123456'
+      new_password: body.new_password || 'Teacher@123456',
+      lock_version: body.lock_version ?? 0
     })
   })
 }
@@ -112,7 +113,11 @@ export async function changeMyPassword(body: {
 }): Promise<void> {
   return request<void>('/api/v1/me/password-change', {
     method: 'POST',
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      current_password: body.old_password,
+      old_password: body.old_password,
+      new_password: body.new_password
+    })
   })
 }
 
