@@ -1332,8 +1332,12 @@ function applySmartSample() {
         </div>
         <div class="pb-grid">
           <div class="pb-item">
+            <b>全周随机均衡</b>
+            <span>周一至周五随机均衡分散，杜绝星期偏差</span>
+          </div>
+          <div class="pb-item">
             <b>早八重点查</b>
-            <span>默认优先筛选上午课（第 1–4 节 / 早八与午前课）</span>
+            <span>优先筛选早八与午前课，精准抓取考勤重点</span>
           </div>
           <div class="pb-item">
             <b>免查规则过滤</b>
@@ -1342,10 +1346,6 @@ function applySmartSample() {
           <div class="pb-item">
             <b>班级均衡配额</b>
             <span>每班按每周上限合理抽查</span>
-          </div>
-          <div class="pb-item">
-            <b>相同课时合流</b>
-            <span>相同教室时段多班自动合并</span>
           </div>
         </div>
       </div>
@@ -1406,7 +1406,20 @@ function applySmartSample() {
             <AppIcon name="check-circle" :size="15" />
             <span>推荐查课清单</span>
           </div>
-          <span class="rb-meta font-mono">精选 {{ smartSampleResult.sampled_count }} / 候选 {{ smartSampleResult.total_candidates }} 门</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="rb-meta font-mono">精选 {{ smartSampleResult.sampled_count }} / 候选 {{ smartSampleResult.total_candidates }} 门</span>
+            <button
+              type="button"
+              class="btn btn-sm"
+              style="padding: 2px 8px; font-size: 11px; height: 24px; border: 1px solid #cbd5e1; background: #fff; color: #4338ca; cursor: pointer;"
+              :disabled="smartSampling"
+              title="重新随机生成一套推荐课次"
+              @click="runSmartSample"
+            >
+              <span v-if="smartSampling">⟳ 计算中</span>
+              <span v-else>🎲 换一批</span>
+            </button>
+          </div>
         </div>
 
         <div v-if="smartSampleResult.items && smartSampleResult.items.length > 0" class="rb-files tall">
@@ -1416,7 +1429,7 @@ function applySmartSample() {
               <span class="cr-class">{{ item.class_name }}</span>
             </div>
             <div class="cr-right font-mono">
-              {{ item.inspection_date }} · {{ formatPeriodText(item.start_period, item.end_period) }} · {{ item.classroom }}
+              <span style="font-weight: 600; color: #1e293b;">{{ item.inspection_date }} (周{{ formatWeekday(item.inspection_date) }})</span> · {{ formatPeriodText(item.start_period, item.end_period) }} · {{ item.classroom }}
             </div>
           </div>
           <div v-if="smartSampleResult.items.length > 15" class="more-row font-mono">
@@ -1426,6 +1439,15 @@ function applySmartSample() {
 
         <div class="rb-actions">
           <button class="btn btn-sm" @click="showSmartSampleDialog = false">取消</button>
+          <button
+            type="button"
+            class="btn btn-sm"
+            style="border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; cursor: pointer;"
+            :disabled="smartSampling"
+            @click="runSmartSample"
+          >
+            🎲 重新随机（换一批）
+          </button>
           <button
             class="btn btn-dark btn-sm"
             :disabled="smartSampleResult.sampled_count === 0"

@@ -568,6 +568,7 @@ class SmartSampleRequest(BaseModel):
     max_tasks_per_class: int = Field(default=1, ge=1, le=10)
     sample_ratio: float | None = Field(default=None, ge=0.05, le=1.0)
     exclude_already_generated: bool = True
+    random_seed: int | None = None
 
 
 class SmartSampleItemBrief(BaseModel):

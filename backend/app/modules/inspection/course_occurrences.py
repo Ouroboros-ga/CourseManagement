@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -209,22 +211,80 @@ def smart_sample_occurrences(
     if body.morning_only:
         candidates = [it for it in candidates if it.start_period <= 2]
 
+    if not candidates:
+        return {
+            "semester_id": semester.id,
+            "week_no": body.week_no,
+            "total_candidates": 0,
+            "sampled_count": 0,
+            "occurrences": [],
+            "items": [],
+        }
+
+    # 随机发生器：若传入 random_seed 则便于单元测试复现，否则使用系统随机
+    rng = random.Random(body.random_seed) if body.random_seed is not None else random.Random()
+
     by_class: dict[str, list[PlanItem]] = {}
     for it in candidates:
         c_name = it.class_name_snapshot or "默认"
         by_class.setdefault(c_name, []).append(it)
 
+    class_keys = list(by_class.keys())
+    rng.shuffle(class_keys)
+
+    # 记录全周各日已被选中的查课任务数，用于平滑各工作日的查课负荷
+    daily_tally: dict[object, int] = defaultdict(int)
     sampled: list[PlanItem] = []
-    for _c_name, class_items in by_class.items():
-        class_items.sort(key=lambda x: (x.start_period, x.inspection_date))
-        picked = class_items[: body.max_tasks_per_class]
-        sampled.extend(picked)
 
+    for c_name in class_keys:
+        class_items = by_class[c_name]
+        picked_for_class: list[PlanItem] = []
+        picked_dates: set[object] = set()
+        picked_keys: set[str] = set()
+
+        k = min(body.max_tasks_per_class, len(class_items))
+        for _ in range(k):
+            available = [it for it in class_items if it.task_key not in picked_keys]
+            if not available:
+                break
+
+            scored: list[tuple[float, PlanItem]] = []
+            for it in available:
+                # 优先级分层：0: 早八(<=2节), 1: 午前(3-4节), 2: 下午及晚间(>4节)
+                if it.start_period <= 2:
+                    tier = 0
+                elif it.start_period <= 4:
+                    tier = 1
+                else:
+                    tier = 2
+
+                tier_penalty = tier * 1000.0
+                # 同一行政班多节抽查时，优先分散到不同日期
+                same_day_penalty = 100.0 if it.inspection_date in picked_dates else 0.0
+                # 全周日期负载平滑：已有抽查任务较多的日期得分惩罚更高，彻底打破偏向周一的死板排序，促使周一至周五随机均匀抽查
+                day_load_penalty = daily_tally[it.inspection_date] * 10.0
+                # 随机扰动因子：打破确定性排序偏向，保证每次推荐均具随机探索性
+                random_jitter = rng.uniform(0.0, 5.0)
+
+                score = tier_penalty + same_day_penalty + day_load_penalty + random_jitter
+                scored.append((score, it))
+
+            scored.sort(key=lambda x: x[0])
+            best_item = scored[0][1]
+            picked_for_class.append(best_item)
+            picked_keys.add(best_item.task_key)
+            picked_dates.add(best_item.inspection_date)
+            daily_tally[best_item.inspection_date] += 1
+
+        sampled.extend(picked_for_class)
+
+    # 抽查比例限制：随机抽样截取，杜绝按班级顺序截断的偏差
     if body.sample_ratio is not None and 0.0 < body.sample_ratio < 1.0:
-        target_cnt = max(1, int(len(sampled) * body.sample_ratio))
-        sampled = sampled[:target_cnt]
+        target_cnt = max(1, min(len(sampled), int(len(sampled) * body.sample_ratio)))
+        sampled = rng.sample(sampled, target_cnt)
 
-    sampled.sort(key=lambda x: (x.inspection_date, x.start_period))
+    # 最终结果按日期与节次升序排序，便于教务老师直观核对
+    sampled.sort(key=lambda x: (x.inspection_date, x.start_period, x.class_name_snapshot or ""))
 
     out_occurrences = [
         {"course_schedule_id": it.course_schedule_id, "inspection_date": it.inspection_date}

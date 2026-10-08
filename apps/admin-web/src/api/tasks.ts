@@ -211,6 +211,7 @@ export async function smartSampleOccurrences(body: {
   max_tasks_per_class?: number
   sample_ratio?: number
   exclude_already_generated?: boolean
+  random_seed?: number
 }): Promise<SmartSampleResult> {
   return request<SmartSampleResult>('/api/v1/inspection-course-occurrences/smart-sample', {
     method: 'POST',

@@ -92,3 +92,15 @@ export function getPeriodTimeRange(start?: number | null, end?: number | null): 
   }
   return ''
 }
+
+/**
+ * 格式化星期文本（如 "2026-10-07" -> "周三"）
+ */
+export function formatWeekday(dateStr?: string | null): string {
+  if (!dateStr) return ''
+  const parts = String(dateStr).split('-').map(Number)
+  if (parts.length !== 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) return ''
+  const d = new Date(parts[0], parts[1] - 1, parts[2])
+  const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  return days[d.getDay()] || ''
+}
