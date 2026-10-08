@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useSessionStore } from '../stores/session'
 import { listManagementSubmissions } from '../api/submissions'
 import { listObjections } from '../api/objections'
+import schoolLogo from '../assets/school-logo.png'
 
 const router = useRouter()
 const route = useRoute()
@@ -127,9 +128,21 @@ const userDisplayName = computed(() => {
   return currentUser.value?.display_name || '教师管理员'
 })
 
+const roleNameMap: Record<string, string> = {
+  SUPER_ADMIN: '系统管理员',
+  TEACHER_ADMIN: '教师管理员',
+  COLLEGE_ADMIN: '学院管理员',
+  COUNSELOR: '专职辅导员',
+  STUDENT_VOLUNTEER: '查课志愿者',
+  VOLUNTEER: '查课志愿者',
+  STUDENT: '学生',
+  TEACHER: '任课教师'
+}
+
 const userRoleBadge = computed(() => {
-  const roles = currentUser.value?.roles || ['TEACHER_ADMIN']
-  return roles[0] || 'TEACHER_ADMIN'
+  const roles = currentUser.value?.roles || []
+  const primary = roles[0] || 'TEACHER_ADMIN'
+  return roleNameMap[primary] || primary
 })
 
 async function handleLogout() {
@@ -143,8 +156,13 @@ async function handleLogout() {
     <!-- 侧边栏 -->
     <aside class="sidebar">
       <div class="side-brand">
-        <div class="zh font-serif">查课管理后台</div>
-        <div class="en font-mono">COURSECHECK ADMIN</div>
+        <div class="brand-wrap">
+          <img :src="schoolLogo" alt="绍兴理工学院校徽" class="brand-logo" />
+          <div class="brand-titles">
+            <div class="college-name font-serif">人工智能学院</div>
+            <div class="system-name font-serif">查课管理后台</div>
+          </div>
+        </div>
       </div>
 
       <nav class="side-nav">
@@ -162,14 +180,16 @@ async function handleLogout() {
       </nav>
 
       <div class="side-user">
-        <div class="u-name">{{ userDisplayName }}</div>
-        <div class="u-role font-mono">{{ userRoleBadge }}</div>
+        <div class="u-info">
+          <div class="u-name" :title="userDisplayName">{{ userDisplayName }}</div>
+          <div class="u-role">{{ userRoleBadge }}</div>
+        </div>
         <button class="u-logout" title="退出登录" @click="handleLogout">登出 →</button>
       </div>
 
       <div class="side-foot">
         <div class="status"><span class="dot"></span>系统运行正常</div>
-        <div>API 契约 112 Ops · FastAPI</div>
+        <div class="foot-sub">考勤数据实时同步 · 运行稳定</div>
       </div>
     </aside>
 
@@ -269,20 +289,44 @@ async function handleLogout() {
   background: var(--paper);
 }
 .side-brand {
-  padding: 0 28px 28px;
+  padding: 0 20px 24px;
   border-bottom: 1px solid var(--line);
   margin-bottom: 24px;
 }
-.side-brand .zh {
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+.brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.side-brand .en {
-  font-size: 10px;
-  color: var(--ink-mute);
-  letter-spacing: 0.12em;
-  margin-top: 4px;
+.brand-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.brand-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.brand-titles .college-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.brand-titles .system-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  letter-spacing: 0.03em;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .side-nav { flex: 1; overflow-y: auto; }
@@ -290,7 +334,7 @@ async function handleLogout() {
   display: flex;
   align-items: baseline;
   gap: 14px;
-  padding: 11px 28px;
+  padding: 11px 24px;
   color: var(--ink-mute);
   text-decoration: none;
   font-size: 13px;
@@ -322,42 +366,81 @@ async function handleLogout() {
 .badge-amber { background: var(--amber-soft); color: var(--amber); }
 
 .side-user {
-  padding: 20px 28px;
+  padding: 16px 20px;
   border-top: 1px solid var(--line);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
 }
-.side-user .u-name { font-size: 13px; font-weight: 600; }
+.side-user .u-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.side-user .u-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
 .side-user .u-role {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--blue);
   background: var(--blue-soft);
-  padding: 2px 6px;
-  border-radius: 2px;
-  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  width: fit-content;
+  font-weight: 500;
+  line-height: 1.35;
 }
 .side-user .u-logout {
-  margin-left: auto;
+  flex-shrink: 0;
   border: none;
   background: none;
-  font-size: 11px;
+  font-size: 12px;
   font-family: inherit;
   color: var(--ink-mute);
   cursor: pointer;
-  padding: 4px 0;
-  transition: color 0.2s;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  white-space: nowrap;
 }
-.side-user .u-logout:hover { color: var(--accent); }
+.side-user .u-logout:hover {
+  color: var(--accent);
+  background: var(--paper-deep);
+}
 
 .side-foot {
-  padding: 16px 28px 20px;
+  padding: 14px 20px 20px;
   font-size: 11px;
   color: var(--ink-mute);
-  line-height: 1.7;
+  line-height: 1.6;
 }
-.side-foot .status { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.side-foot .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.side-foot .status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.side-foot .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.side-foot .foot-sub {
+  color: var(--ink-mute);
+  font-size: 11px;
+}
 
 /* ---------- 顶栏 ---------- */
 .shell-main {
