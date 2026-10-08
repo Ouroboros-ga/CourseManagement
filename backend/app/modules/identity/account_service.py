@@ -115,9 +115,11 @@ class AccountService:
     def list_accounts(
         self, actor: CurrentUser, params: PageParams, query: str | None, status: str | None
     ) -> dict:
-        self.identity._require_actor_permission(actor.id, PermissionCode.ACCOUNT_READ.value)
+        roles = set(self.repo.list_role_codes(actor.id))
+        if RoleCode.SUPER_ADMIN.value not in roles and RoleCode.TEACHER_ADMIN.value not in roles:
+            self.identity._require_actor_permission(actor.id, PermissionCode.ACCOUNT_READ.value)
         teacher = (
-            select(UserRole.user_id).join(Role).where(Role.code == RoleCode.TEACHER_ADMIN.value)
+            select(UserRole.user_id).join(Role).where(Role.code.in_([RoleCode.TEACHER_ADMIN.value, RoleCode.SUPER_ADMIN.value]))
         )
         stmt = select(UserAccount).where(UserAccount.id.in_(teacher))
         if query:

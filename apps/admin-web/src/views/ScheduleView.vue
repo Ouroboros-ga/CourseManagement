@@ -14,9 +14,7 @@ import {
 } from '../api/tasks'
 import {
   listAdministrativeClasses,
-  createSemester,
   getMasterTimetable,
-  resetSemesterData,
   type AdministrativeClassItem,
   type MasterTimetableItem
 } from '../api/academic'
@@ -64,20 +62,6 @@ function formatWeekday(dateStr: string): string {
     return ''
   }
 }
-
-// ---- 开启新学期弹窗 ----
-const showSemesterDialog = ref(false)
-const semesterSubmitting = ref(false)
-const semesterForm = ref({
-  code: '',
-  name: '',
-  start_date: '',
-  end_date: '',
-  first_monday: '',
-  total_weeks: 20,
-  init_default_periods: true,
-  reason: '管理端开启新学期'
-})
 
 // ---- 导入教务数据弹窗 ----
 const showImportDialog = ref(false)
@@ -323,88 +307,6 @@ async function triggerDispatch() {
   }
 }
 
-// ---- 开启新学期 ----
-function openSemesterDialog() {
-  const currentYear = new Date().getFullYear()
-  semesterForm.value = {
-    code: `${currentYear}-${currentYear + 1}-1`,
-    name: `${currentYear}-${currentYear + 1}学年第1学期`,
-    start_date: `${currentYear}-09-01`,
-    end_date: `${currentYear + 1}-01-31`,
-    first_monday: `${currentYear}-09-07`,
-    total_weeks: 20,
-    init_default_periods: true,
-    reason: '管理端新建学期'
-  }
-  showSemesterDialog.value = true
-}
-
-async function submitSemester() {
-  if (!semesterForm.value.code || !semesterForm.value.name) {
-    ElMessage.warning('请填写学期代码与学期名称')
-    return
-  }
-  semesterSubmitting.value = true
-  try {
-    const newSem = await createSemester(semesterForm.value)
-    ElMessage.success(`学期 ${newSem.name} 开启成功！标准节次定义已自动初始化`)
-    showSemesterDialog.value = false
-    await sessionStore.fetchAcademicContext()
-    sessionStore.setSemester(newSem.id)
-  } catch (err: unknown) {
-    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '开启学期失败'
-    ElMessage.error(msg)
-  } finally {
-    semesterSubmitting.value = false
-  }
-}
-
-// ---- 重置本学期业务数据 ----
-const showResetSemesterDialog = ref(false)
-const resetConfirmName = ref('')
-const resetSubmitting = ref(false)
-
-function openResetSemesterDialog() {
-  resetConfirmName.value = ''
-  showResetSemesterDialog.value = true
-}
-
-async function handleResetSemesterData() {
-  if (!sessionStore.currentSemesterId) return
-  if (resetConfirmName.value.trim() !== (sessionStore.currentSemesterName || '').trim()) {
-    ElMessage.warning(`输入的学期名称与当前学期名称【${sessionStore.currentSemesterName}】不一致，请仔细核对`)
-    return
-  }
-
-  resetSubmitting.value = true
-  try {
-    const res = await resetSemesterData(sessionStore.currentSemesterId, {
-      confirm_name: resetConfirmName.value.trim(),
-      reason: '管理员重置本学期排课与任务业务数据'
-    })
-    ElMessageBox.alert(
-      `学期业务数据重置成功！<br/><br/>
-      1. <b>查课任务清理</b>：${res.cleared_tasks_count} 个<br/>
-      2. <b>课表排课清理</b>：${res.cleared_schedules_count} 条<br/>
-      3. <b>教学班选课清理</b>：${res.cleared_teaching_classes_count} 个<br/>
-      4. <b>志愿者资质清理</b>：${res.cleared_volunteer_qualifications_count} 个<br/>
-      <br/>当前学期已恢复初始空白状态，您现在可以重新上传排课压缩包进行导入。`,
-      '学期重置成功',
-      {
-        dangerouslyUseHTMLString: true,
-        confirmButtonText: '确定'
-      }
-    )
-    showResetSemesterDialog.value = false
-    await loadData()
-  } catch (err: unknown) {
-    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '重置学期失败'
-    ElMessage.error(msg)
-  } finally {
-    resetSubmitting.value = false
-  }
-}
-
 // ---- 导入数据 ----
 function openImportDialog() {
   importFile.value = null
@@ -622,21 +524,9 @@ function applySmartSample() {
       </p>
 
       <div class="head-actions flex items-center gap-3">
-        <button class="btn btn-outline" @click="openSemesterDialog">
-          <AppIcon name="plus" :size="14" />
-          <span>开启新学期</span>
-        </button>
         <button class="btn btn-outline" @click="openImportDialog">
           <AppIcon name="upload" :size="14" />
           <span>批量导入教务数据</span>
-        </button>
-        <button
-          class="btn btn-outline text-rose-700 border-rose-300 hover:bg-rose-50 hover:border-rose-400"
-          title="清空当前学期所有查课任务、排课与选课名单，方便整包重新导入"
-          @click="openResetSemesterDialog"
-        >
-          <AppIcon name="trash" :size="14" />
-          <span>重置本学期数据</span>
         </button>
         <button
           v-if="activeTab === 'dispatch'"
@@ -975,55 +865,7 @@ function applySmartSample() {
       </div>
     </div>
 
-    <!-- 弹窗 1: 开启新学期 -->
-    <el-dialog v-model="showSemesterDialog" title="开启新学期与初始化教学日历" width="540px">
-      <div class="space-y-4">
-        <div>
-          <label class="block text-xs font-bold text-gray-700 mb-1">学期代码 (唯一英数字识别码) *</label>
-          <input v-model="semesterForm.code" class="input w-full" placeholder="例如: 2026-2027-1 或 2026FA" />
-        </div>
-        <div>
-          <label class="block text-xs font-bold text-gray-700 mb-1">学期全称 *</label>
-          <input v-model="semesterForm.name" class="input w-full" placeholder="例如: 2026-2027学年第1学期" />
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">学期开始日期 *</label>
-            <input v-model="semesterForm.start_date" type="date" class="input w-full" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">学期结束日期 *</label>
-            <input v-model="semesterForm.end_date" type="date" class="input w-full" />
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">第一教学周周一 *</label>
-            <input v-model="semesterForm.first_monday" type="date" class="input w-full" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">总教学周数 *</label>
-            <input v-model.number="semesterForm.total_weeks" type="number" min="1" max="50" class="input w-full" />
-          </div>
-        </div>
-        <div class="pt-2">
-          <label class="inline-flex items-center gap-2 text-sm text-gray-700 font-medium">
-            <input v-model="semesterForm.init_default_periods" type="checkbox" class="rounded text-blue-600" />
-            <span>自动初始化标准时段定义 (覆盖 1–11 节，08:00 - 21:50)</span>
-          </label>
-        </div>
-      </div>
-      <template #footer>
-        <div class="flex justify-end gap-2">
-          <button class="btn btn-outline" @click="showSemesterDialog = false">取消</button>
-          <button class="btn btn-dark" :disabled="semesterSubmitting" @click="submitSemester">
-            {{ semesterSubmitting ? '正在创建…' : '确认创建学期' }}
-          </button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <!-- 弹窗 2: 导入教务数据 -->
+    <!-- 弹窗: 导入教务数据 -->
     <el-dialog
       v-model="showImportDialog"
       title="导入教务数据"
@@ -1460,59 +1302,6 @@ function applySmartSample() {
           </button>
         </div>
       </div>
-    </el-dialog>
-
-    <!-- 重置本学期业务数据弹窗 -->
-    <el-dialog
-      v-model="showResetSemesterDialog"
-      title="重置本学期排课与任务数据"
-      width="560px"
-      append-to-body
-    >
-      <div class="space-y-4">
-        <div class="p-3.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-900 leading-relaxed">
-          <div class="font-bold text-sm text-rose-700 mb-1 flex items-center gap-1.5">
-            <AppIcon name="warning" :size="16" class="text-rose-600" />
-            <span>高危操作警告：本操作将彻底重置当前学期数据</span>
-          </div>
-          此操作将<b>清空本学期（{{ sessionStore.currentSemesterName }}）所有业务数据</b>：
-          <ul class="list-disc pl-5 mt-1 space-y-0.5">
-            <li>所有查课任务、排班分配及点名名单快照</li>
-            <li>所有课表排课节次（含各周上课安排）</li>
-            <li>所有教学班及选课名单关系</li>
-            <li>所有志愿者本学期资质认定</li>
-            <li>所有校历停补课覆盖设置</li>
-          </ul>
-          <div class="mt-2 text-slate-700">
-            <b>安全保留</b>：学生基础底册档案、行政班级及课程公共库<b>完整保留</b>。重置后学期变为空白，您可直接重新上传排课压缩包导入。
-          </div>
-        </div>
-
-        <div class="space-y-1.5 pt-2">
-          <label class="block text-xs font-bold text-slate-700">
-            请输入当前学期完整名称以确认：<span class="text-rose-600 select-all font-mono">{{ sessionStore.currentSemesterName }}</span>
-          </label>
-          <input
-            v-model="resetConfirmName"
-            type="text"
-            class="input w-full font-mono text-sm"
-            :placeholder="sessionStore.currentSemesterName || '请输入学期名称'"
-          />
-        </div>
-      </div>
-      <template #footer>
-        <div class="dialog-footer flex justify-end gap-2">
-          <button class="btn btn-ghost" @click="showResetSemesterDialog = false">取消</button>
-          <button
-            class="btn bg-rose-600 hover:bg-rose-700 text-white font-bold inline-flex items-center gap-1.5"
-            :disabled="resetSubmitting || resetConfirmName.trim() !== (sessionStore.currentSemesterName || '').trim()"
-            @click="handleResetSemesterData"
-          >
-            <AppIcon name="trash" :size="14" />
-            <span>{{ resetSubmitting ? '正在重置…' : '确认彻底重置本学期' }}</span>
-          </button>
-        </div>
-      </template>
     </el-dialog>
   </div>
 </template>

@@ -113,6 +113,24 @@ const menuItems = computed(() => {
       badge: null,
       badgeClass: '',
       permission: 'report.read'
+    },
+    {
+      id: 'users',
+      idx: '06',
+      path: '/dashboard/users',
+      name: '教工与权限管理',
+      badge: null,
+      badgeClass: '',
+      permission: 'academic.read'
+    },
+    {
+      id: 'settings',
+      idx: '07',
+      path: '/dashboard/settings',
+      name: '平台与学期设置',
+      badge: null,
+      badgeClass: '',
+      permission: 'academic.manage'
     }
   ]
 

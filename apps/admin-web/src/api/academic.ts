@@ -6,8 +6,10 @@ export interface SemesterItem {
   name: string
   status: 'ACTIVE' | 'ARCHIVED'
   start_date: string
+  end_date?: string
+  first_monday?: string
   total_weeks: number
-  lock_version: number
+  lock_version?: number
   created_at: string
 }
 
@@ -317,6 +319,101 @@ export async function batchDeleteStudents(
       student_ids: studentIds.map(Number),
       reason
     })
+  })
+}
+
+export interface PeriodDefinitionItem {
+  id: string
+  semester_id: string
+  period_no: number
+  start_time: string | null
+  end_time: string | null
+}
+
+export async function listPeriodDefinitions(semesterId: string | number): Promise<{ items: PeriodDefinitionItem[] }> {
+  return request(`/api/v1/academic/semesters/${semesterId}/period-definitions`)
+}
+
+export async function upsertPeriodDefinition(
+  semesterId: string | number,
+  periodNo: number,
+  body: { start_time?: string | null; end_time?: string | null; reason?: string }
+): Promise<PeriodDefinitionItem> {
+  return request(`/api/v1/academic/semesters/${semesterId}/period-definitions/${periodNo}`, {
+    method: 'PUT',
+    body: JSON.stringify(body)
+  })
+}
+
+export async function deletePeriodDefinition(
+  semesterId: string | number,
+  periodId: string | number,
+  reason?: string
+): Promise<void> {
+  const q = new URLSearchParams()
+  if (reason) q.set('reason', reason)
+  return request(`/api/v1/academic/semesters/${semesterId}/period-definitions/${periodId}?${q.toString()}`, {
+    method: 'DELETE'
+  })
+}
+
+export interface CalendarOverrideItem {
+  id: string
+  semester_id: string
+  date: string
+  override_type: 'STOP' | 'MAKEUP'
+  source_teaching_week?: number | null
+  source_teaching_weekday?: number | null
+  reason?: string | null
+}
+
+export async function listCalendarOverrides(semesterId: string | number): Promise<{ items: CalendarOverrideItem[] }> {
+  return request(`/api/v1/academic/semesters/${semesterId}/calendar-overrides`)
+}
+
+export async function createCalendarOverride(
+  semesterId: string | number,
+  payload: {
+    date: string
+    override_type: 'STOP' | 'MAKEUP'
+    source_teaching_week?: number
+    source_teaching_weekday?: number
+    reason?: string
+  }
+): Promise<CalendarOverrideItem> {
+  return request(`/api/v1/academic/semesters/${semesterId}/calendar-overrides`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteCalendarOverride(
+  semesterId: string | number,
+  overrideId: string | number,
+  reason?: string
+): Promise<void> {
+  const q = new URLSearchParams()
+  if (reason) q.set('reason', reason)
+  return request(`/api/v1/academic/semesters/${semesterId}/calendar-overrides/${overrideId}?${q.toString()}`, {
+    method: 'DELETE'
+  })
+}
+
+export async function updateSemester(
+  semesterId: string | number,
+  payload: {
+    name?: string
+    start_date?: string
+    end_date?: string
+    first_monday?: string
+    total_weeks?: number
+    status?: 'ACTIVE' | 'ARCHIVED'
+    reason?: string
+  }
+): Promise<SemesterItem> {
+  return request(`/api/v1/academic/semesters/${semesterId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
   })
 }
 
