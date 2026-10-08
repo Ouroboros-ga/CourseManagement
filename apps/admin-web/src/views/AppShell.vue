@@ -118,7 +118,7 @@ const menuItems = computed(() => {
       id: 'users',
       idx: '06',
       path: '/dashboard/users',
-      name: '教工与权限管理',
+      name: '人员与权限管理',
       badge: null,
       badgeClass: '',
       permission: 'academic.read'

@@ -198,7 +198,7 @@ function openResetSemesterDialog() {
 async function handleResetSemesterData() {
   if (!sessionStore.currentSemesterId) return
   if (resetConfirmName.value.trim() !== (sessionStore.currentSemesterName || '').trim()) {
-    ElMessage.warning(`输入的学期名称与当前学期名称【${sessionStore.currentSemesterName}】不一致，请核对`)
+    ElMessage.warning(`输入的学期名称与当前学期名称【${sessionStore.currentSemesterName}】不一致，请仔细核对`)
     return
   }
 
@@ -325,7 +325,6 @@ async function fetchPeriods() {
   periodsLoading.value = true
   try {
     const res = await listPeriodDefinitions(sessionStore.currentSemesterId)
-    // 按照 period_no 升序排列
     periods.value = (res.items || []).sort((a, b) => a.period_no - b.period_no)
   } catch (err) {
     console.error('获取节次定义失败:', err)
@@ -338,6 +337,12 @@ function getPeriodSlotName(pNo: number): string {
   if (pNo <= 4) return '上午'
   if (pNo <= 8) return '下午'
   return '晚间'
+}
+
+function getPeriodTagClass(pNo: number): string {
+  if (pNo <= 4) return 'tag-blue'
+  if (pNo <= 8) return 'tag-amber'
+  return 'tag-red'
 }
 
 function openEditPeriodDialog(p: PeriodDefinitionItem) {
@@ -400,7 +405,6 @@ async function handleDeletePeriod(p: PeriodDefinitionItem) {
   } catch {}
 }
 
-// 一键初始化/重置标准 1-11 节作息
 async function handleInitDefaultPeriods() {
   if (!sessionStore.currentSemesterId) return
   try {
@@ -457,6 +461,7 @@ onMounted(async () => {
 
 <template>
   <div v-loading="loading">
+    <!-- 纸面秩序标准页面头 -->
     <header class="page-head">
       <div class="crumb font-mono">
         <span>PLATFORM & SETTINGS</span>
@@ -467,23 +472,51 @@ onMounted(async () => {
       </div>
       <div class="head-row">
         <div>
-          <h1>平台与学期设置</h1>
+          <h1 class="font-serif">平台与学期设置</h1>
           <p class="sub">
-            统一维护全校学期生命周期、教学日历、停补课调度、节次作息时刻表及查课业务全局规则。教师与管理员均可协同维护。
+            统一维护全校学期生命周期、教学日历、节次作息时间表及查课业务全局规则。所有调整将实时作为全校排课与抽查的时间基准。
           </p>
         </div>
 
-        <div class="head-tools">
+        <div class="head-actions">
+          <button class="btn btn-outline" @click="openEditSemesterDialog(selectedSemester || undefined)">
+            <AppIcon name="edit" :size="14" />
+            <span>编辑当前学期</span>
+          </button>
           <button class="btn btn-dark" @click="openCreateSemesterDialog">
             <AppIcon name="plus" :size="14" />
-            <span>开启新学期</span>
+            <span>+ 开启新学期</span>
           </button>
         </div>
       </div>
     </header>
 
-    <!-- Tab 导航 -->
-    <nav class="tab-nav">
+    <!-- 关键指标分栏 (纸面秩序标准 stat-row) -->
+    <div class="stat-row font-mono mb-6">
+      <div class="stat-cell">
+        <div class="label">当前工作学期</div>
+        <div class="value" style="font-size: 20px;">{{ selectedSemester?.name || sessionStore.currentSemesterName }}</div>
+        <div class="note">代码：{{ selectedSemester?.code || '—' }} · {{ selectedSemester?.status === 'ACTIVE' ? '正常激活' : '已归档' }}</div>
+      </div>
+      <div class="stat-cell">
+        <div class="label">教学总周数</div>
+        <div class="value">{{ selectedSemester?.total_weeks || 20 }} <span class="text-xs font-normal text-[var(--ink-mute)]">周</span></div>
+        <div class="note">{{ selectedSemester?.start_date || '—' }} 至 {{ selectedSemester?.end_date || '—' }}</div>
+      </div>
+      <div class="stat-cell">
+        <div class="label">第一教学周周一</div>
+        <div class="value" style="font-size: 20px;">{{ selectedSemester?.first_monday || '—' }}</div>
+        <div class="note">全校排课与周次折算基准日</div>
+      </div>
+      <div class="stat-cell">
+        <div class="label">节次作息定义</div>
+        <div class="value" style="color: var(--blue)">{{ periods.length }} <span class="text-xs font-normal text-[var(--ink-mute)]">节</span></div>
+        <div class="note">覆盖 08:00 至 21:00 高校标准作息</div>
+      </div>
+    </div>
+
+    <!-- 顶部 Tab 切换 -->
+    <div class="tab-nav mb-6">
       <button
         class="tab-btn"
         :class="{ active: activeTab === 'semester' }"
@@ -498,7 +531,7 @@ onMounted(async () => {
         @click="activeTab = 'periods'"
       >
         <AppIcon name="clock" :size="14" />
-        <span>节次作息时间表</span>
+        <span>节次作息时间表 ({{ periods.length }})</span>
       </button>
       <button
         class="tab-btn"
@@ -508,319 +541,258 @@ onMounted(async () => {
         <AppIcon name="shield" :size="14" />
         <span>查课业务规则</span>
       </button>
-    </nav>
+    </div>
 
-    <!-- Tab 1: 学期与教学日历 -->
-    <main v-if="activeTab === 'semester'" class="tab-body space-y-6">
-      <!-- 当前学期概览卡片 -->
-      <div class="card p-5">
-        <div class="flex items-start justify-between">
+    <!-- ==================== Tab 1: 学期与教学日历 ==================== -->
+    <div v-if="activeTab === 'semester'" class="space-y-6">
+      <!-- 全校学期总目录 -->
+      <div class="tbl-wrap">
+        <div class="tbl-head">
           <div>
-            <div class="flex items-center gap-3">
-              <h2 class="text-lg font-bold text-slate-800">{{ selectedSemester?.name || sessionStore.currentSemesterName }}</h2>
-              <span
-                class="tag"
-                :class="selectedSemester?.status === 'ACTIVE' ? 'tag-green' : 'tag-muted'"
-              >
-                {{ selectedSemester?.status === 'ACTIVE' ? '当前激活运行中' : '已归档' }}
-              </span>
-            </div>
-            <p class="text-xs text-slate-500 mt-1 font-mono">
-              学期代码：{{ selectedSemester?.code || '—' }} |
-              起止日期：{{ selectedSemester?.start_date || '—' }} ~ {{ selectedSemester?.end_date || '—' }} |
-              第一教学周周一：{{ selectedSemester?.first_monday || '—' }} |
-              总周数：{{ selectedSemester?.total_weeks || 20 }} 周
-            </p>
+            <h3>全校学期总目录</h3>
+            <div class="meta">支持跨学期浏览、切换当前活跃学期以及学期归档处理。</div>
           </div>
-
-          <div class="flex items-center gap-2">
-            <button class="btn btn-outline text-xs" @click="openEditSemesterDialog(selectedSemester || undefined)">
-              <AppIcon name="edit" :size="12" />
-              <span>编辑学期信息</span>
-            </button>
+          <div class="tbl-tools">
+            <button class="btn btn-sm btn-ghost" @click="fetchSemesters">⟳ 刷新学期列表</button>
           </div>
         </div>
 
-        <div class="grid grid-cols-4 gap-4 mt-5 pt-4 border-t border-slate-100 text-center">
-          <div class="bg-slate-50 rounded p-3">
-            <div class="text-xs text-slate-500 mb-1">学期代码</div>
-            <div class="text-sm font-mono font-bold text-slate-800">{{ selectedSemester?.code }}</div>
-          </div>
-          <div class="bg-slate-50 rounded p-3">
-            <div class="text-xs text-slate-500 mb-1">总教学周</div>
-            <div class="text-sm font-bold text-slate-800">{{ selectedSemester?.total_weeks }} 周</div>
-          </div>
-          <div class="bg-slate-50 rounded p-3">
-            <div class="text-xs text-slate-500 mb-1">第一教学周周一</div>
-            <div class="text-sm font-mono text-slate-800">{{ selectedSemester?.first_monday }}</div>
-          </div>
-          <div class="bg-slate-50 rounded p-3">
-            <div class="text-xs text-slate-500 mb-1">生命周期状态</div>
-            <div class="text-sm font-bold" :class="selectedSemester?.status === 'ACTIVE' ? 'text-emerald-700' : 'text-slate-500'">
-              {{ selectedSemester?.status === 'ACTIVE' ? '运行中' : '已归档' }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 全校所有学期列表 -->
-      <div class="card">
-        <div class="card-header flex items-center justify-between p-4 border-b border-slate-100">
-          <div>
-            <h3 class="font-bold text-slate-800">全校学期总目录</h3>
-            <p class="text-xs text-slate-500 mt-0.5">支持跨学期浏览、切换当前活跃学期以及学期归档处理。</p>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th style="width: 160px;">学期代码</th>
-                <th>学期全称</th>
-                <th style="width: 140px;">起止日期</th>
-                <th style="width: 100px;">总周数</th>
-                <th style="width: 100px;">状态</th>
-                <th style="width: 180px; text-align: right;">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="sem in semesters"
-                :key="sem.id"
-                :class="{ 'bg-blue-50/40': sem.id === sessionStore.currentSemesterId }"
-              >
-                <td class="font-mono font-semibold text-slate-700">{{ sem.code }}</td>
-                <td class="font-medium text-slate-900">
-                  <div class="flex items-center gap-2">
-                    <span>{{ sem.name }}</span>
-                    <span v-if="sem.id === sessionStore.currentSemesterId" class="tag tag-blue text-[11px] py-0 px-1.5">当前工作</span>
-                  </div>
-                </td>
-                <td class="text-xs font-mono text-slate-600">{{ sem.start_date }} ~ {{ sem.end_date || '未设' }}</td>
-                <td class="text-xs text-slate-700">{{ sem.total_weeks }} 周</td>
-                <td>
-                  <span class="tag" :class="sem.status === 'ACTIVE' ? 'tag-green' : 'tag-muted'">
-                    {{ sem.status === 'ACTIVE' ? '正常' : '已归档' }}
-                  </span>
-                </td>
-                <td style="text-align: right;">
-                  <div class="action-links flex items-center justify-end gap-3">
-                    <button
-                      v-if="sem.id !== sessionStore.currentSemesterId"
-                      class="btn-text text-blue-600 hover:text-blue-800 text-xs"
-                      @click="handleSwitchSemester(sem.id)"
-                    >
-                      切换为此学期
-                    </button>
-                    <button
-                      class="btn-text text-slate-600 hover:text-slate-800 text-xs"
-                      @click="openEditSemesterDialog(sem)"
-                    >
-                      编辑
-                    </button>
-                    <button
-                      class="btn-text text-xs"
-                      :class="sem.status === 'ACTIVE' ? 'text-amber-600 hover:text-amber-800' : 'text-emerald-600 hover:text-emerald-800'"
-                      @click="handleToggleArchive(sem)"
-                    >
-                      {{ sem.status === 'ACTIVE' ? '归档' : '解归档' }}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="width: 160px;">学期代码</th>
+              <th>学期全称</th>
+              <th style="width: 200px;">起止日期</th>
+              <th style="width: 120px;">总周数</th>
+              <th style="width: 100px;">状态</th>
+              <th style="width: 220px; text-align: right;">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="sem in semesters"
+              :key="sem.id"
+              :style="sem.id === sessionStore.currentSemesterId ? 'background: var(--paper-deep);' : ''"
+            >
+              <td class="cell-mono font-bold">{{ sem.code }}</td>
+              <td class="cell-main">
+                <div class="flex items-center gap-2">
+                  <span>{{ sem.name }}</span>
+                  <span v-if="sem.id === sessionStore.currentSemesterId" class="tag tag-blue">当前工作</span>
+                </div>
+              </td>
+              <td class="cell-sub font-mono">{{ sem.start_date }} ~ {{ sem.end_date || '未设' }}</td>
+              <td class="cell-main">{{ sem.total_weeks }} 周</td>
+              <td>
+                <span class="tag" :class="sem.status === 'ACTIVE' ? 'tag-green' : 'tag-gray'">
+                  {{ sem.status === 'ACTIVE' ? '正常激活' : '已归档' }}
+                </span>
+              </td>
+              <td style="text-align: right;">
+                <div class="flex items-center justify-end gap-3">
+                  <button
+                    v-if="sem.id !== sessionStore.currentSemesterId"
+                    class="btn-text text-xs text-blue-700 hover:underline"
+                    @click="handleSwitchSemester(sem.id)"
+                  >
+                    切换为此学期
+                  </button>
+                  <button
+                    class="btn-text text-xs text-[var(--ink-soft)] hover:underline"
+                    @click="openEditSemesterDialog(sem)"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    class="btn-text text-xs hover:underline"
+                    :class="sem.status === 'ACTIVE' ? 'text-amber-700' : 'text-green-700'"
+                    @click="handleToggleArchive(sem)"
+                  >
+                    {{ sem.status === 'ACTIVE' ? '归档' : '恢复激活' }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <!-- 校历停补课调度覆盖 -->
-      <div class="card">
-        <div class="card-header flex items-center justify-between p-4 border-b border-slate-100">
+      <div class="tbl-wrap">
+        <div class="tbl-head">
           <div>
-            <h3 class="font-bold text-slate-800">校历节假日停课 / 调休补课调度</h3>
-            <p class="text-xs text-slate-500 mt-0.5">
+            <h3>校历节假日停课 / 调休补课调度</h3>
+            <div class="meta">
               用于中秋、国庆等节假日调休，或校运会全天停课。停课日排课课次将不计入当日查课抽检。
-            </p>
-          </div>
-          <button class="btn btn-outline text-xs" @click="openCreateOverrideDialog">
-            <AppIcon name="plus" :size="12" />
-            <span>添加停补课规则</span>
-          </button>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th style="width: 140px;">执行日期</th>
-                <th style="width: 120px;">规则类型</th>
-                <th>调休上课规则</th>
-                <th>说明备注</th>
-                <th style="width: 100px; text-align: right;">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in calendarOverrides" :key="item.id">
-                <td class="font-mono font-semibold text-slate-800">{{ item.date }}</td>
-                <td>
-                  <span class="tag" :class="item.override_type === 'STOP' ? 'tag-rose' : 'tag-blue'">
-                    {{ item.override_type === 'STOP' ? '全天停课' : '调休补课' }}
-                  </span>
-                </td>
-                <td class="text-xs text-slate-700">
-                  <span v-if="item.override_type === 'MAKEUP'">
-                    按第 {{ item.source_teaching_week }} 周 星期{{ item.source_teaching_weekday }} 课表执行
-                  </span>
-                  <span v-else class="text-slate-400">停课不调课</span>
-                </td>
-                <td class="text-xs text-slate-600">{{ item.reason || '—' }}</td>
-                <td style="text-align: right;">
-                  <button class="btn-text text-rose-600 hover:text-rose-800 text-xs" @click="handleDeleteOverride(item)">
-                    删除
-                  </button>
-                </td>
-              </tr>
-              <tr v-if="calendarOverrides.length === 0">
-                <td colspan="5" class="text-center py-6 text-slate-400 text-xs">
-                  暂未配置本学期校历停补课覆盖规则
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- 高危重置区 -->
-      <div class="card border border-rose-200 bg-rose-50/20 p-5 rounded-lg">
-        <div class="flex items-start justify-between">
-          <div class="space-y-1">
-            <div class="flex items-center gap-2 text-rose-700 font-bold text-base">
-              <AppIcon name="alert" :size="18" />
-              <span>学期业务数据清空与高危重置</span>
             </div>
-            <p class="text-xs text-rose-600 leading-relaxed max-w-2xl">
-              清空当前学期（{{ sessionStore.currentSemesterName }}）所有查课任务、课表排课节次、教学班及选课名单。
-              底册学生名单、行政班级及公共课程库将<b>完整保留</b>。重置后学期变为空白，可在课表中心重新批量导入。
-            </p>
           </div>
-          <button
-            class="btn bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shrink-0"
-            @click="openResetSemesterDialog"
-          >
-            <AppIcon name="trash" :size="13" />
-            <span>重置本学期业务数据</span>
-          </button>
+          <div class="tbl-tools">
+            <button class="btn btn-sm btn-dark" @click="openCreateOverrideDialog">
+              <AppIcon name="plus" :size="12" />
+              <span>+ 添加停补课规则</span>
+            </button>
+          </div>
         </div>
-      </div>
-    </main>
 
-    <!-- Tab 2: 节次作息时间表 -->
-    <main v-if="activeTab === 'periods'" class="tab-body space-y-4">
-      <div class="card p-4">
-        <div class="flex items-center justify-between mb-3">
-          <div>
-            <h3 class="font-bold text-slate-800">节次作息时间表 (Period Definitions)</h3>
-            <p class="text-xs text-slate-500 mt-0.5">
-              定义当前学期各节次的上课与下课时刻。课表导入、点名任务生成与下发均以此时刻为时间锚点。
-            </p>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="width: 140px;">执行日期</th>
+              <th style="width: 120px;">规则类型</th>
+              <th>调休上课规则</th>
+              <th>说明备注</th>
+              <th style="width: 100px; text-align: right;">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in calendarOverrides" :key="item.id">
+              <td class="cell-mono font-bold">{{ item.date }}</td>
+              <td>
+                <span class="tag" :class="item.override_type === 'STOP' ? 'tag-red' : 'tag-blue'">
+                  {{ item.override_type === 'STOP' ? '全天停课' : '调休补课' }}
+                </span>
+              </td>
+              <td class="cell-main text-xs">
+                <span v-if="item.override_type === 'MAKEUP'">
+                  按第 {{ item.source_teaching_week }} 周 星期{{ item.source_teaching_weekday }} 课表执行
+                </span>
+                <span v-else class="text-[var(--ink-mute)]">全天停课不调课</span>
+              </td>
+              <td class="cell-sub">{{ item.reason || '—' }}</td>
+              <td style="text-align: right;">
+                <button class="btn-text text-xs text-[var(--accent)] hover:underline" @click="handleDeleteOverride(item)">
+                  删除
+                </button>
+              </td>
+            </tr>
+            <tr v-if="calendarOverrides.length === 0">
+              <td colspan="5" class="text-center py-8 text-xs text-[var(--ink-mute)]">
+                暂未配置本学期校历停补课覆盖规则
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 高危重置区 (纸面秩序标准 banner-warn) -->
+      <div class="banner banner-warn">
+        <div class="space-y-1">
+          <div class="b-title flex items-center gap-1.5" style="color: var(--accent);">
+            <AppIcon name="alert" :size="16" />
+            <span>高危操作：清空当前学期排课与任务业务数据</span>
           </div>
-          <div class="flex items-center gap-2">
-            <button class="btn btn-outline text-xs" @click="handleInitDefaultPeriods">
+          <div class="b-desc">
+            此操作将彻底清空当前学期（{{ sessionStore.currentSemesterName }}）所有查课任务、排班分配及课表节次。
+            <b>学生底册档案、行政班级及公共课程库完整保留</b>。重置后学期变为空白，可在课表中心重新整包导入。
+          </div>
+        </div>
+        <button
+          class="btn btn-danger-line shrink-0"
+          @click="openResetSemesterDialog"
+        >
+          <AppIcon name="trash" :size="14" />
+          <span>重置本学期业务数据</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ==================== Tab 2: 节次作息时间表 ==================== -->
+    <div v-if="activeTab === 'periods'" class="space-y-4">
+      <div class="tbl-wrap">
+        <div class="tbl-head">
+          <div>
+            <h3>高校节次作息时刻表 (Period Definitions)</h3>
+            <div class="meta">
+              定义当前学期各小节上下课时刻。排课导入、点名任务生成与下发均以此时刻为时间锚点。
+            </div>
+          </div>
+          <div class="tbl-tools">
+            <button class="btn btn-sm btn-ghost" @click="handleInitDefaultPeriods">
               <AppIcon name="refresh" :size="12" />
               <span>一键恢复高校标准作息 (1–11节)</span>
             </button>
-            <button class="btn btn-dark text-xs" @click="openCreatePeriodDialog">
+            <button class="btn btn-sm btn-dark" @click="openCreatePeriodDialog">
               <AppIcon name="plus" :size="12" />
-              <span>新增节次</span>
+              <span>+ 新增节次</span>
             </button>
           </div>
         </div>
 
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th style="width: 120px;">节次序号</th>
-                <th style="width: 120px;">时段分类</th>
-                <th style="width: 180px;">上课开始时刻</th>
-                <th style="width: 180px;">下课结束时刻</th>
-                <th>持续时长</th>
-                <th style="width: 140px; text-align: right;">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="p in periods" :key="p.id">
-                <td class="font-bold text-slate-800">第 {{ p.period_no }} 节</td>
-                <td>
-                  <span
-                    class="tag"
-                    :class="p.period_no <= 4 ? 'tag-blue' : (p.period_no <= 8 ? 'tag-amber' : 'tag-purple')"
-                  >
-                    {{ getPeriodSlotName(p.period_no) }}
-                  </span>
-                </td>
-                <td class="font-mono text-sm font-semibold text-slate-700">
-                  {{ p.start_time ? p.start_time.slice(0, 5) : '—' }}
-                </td>
-                <td class="font-mono text-sm font-semibold text-slate-700">
-                  {{ p.end_time ? p.end_time.slice(0, 5) : '—' }}
-                </td>
-                <td class="text-xs text-slate-500 font-mono">
-                  45 分钟标准学时
-                </td>
-                <td style="text-align: right;">
-                  <div class="action-links flex items-center justify-end gap-3">
-                    <button class="btn-text text-blue-600 hover:text-blue-800 text-xs" @click="openEditPeriodDialog(p)">
-                      编辑作息
-                    </button>
-                    <button class="btn-text text-rose-600 hover:text-rose-800 text-xs" @click="handleDeletePeriod(p)">
-                      删除
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="periods.length === 0">
-                <td colspan="6" class="text-center py-8 text-slate-400 text-xs">
-                  当前学期暂无节次作息定义，请点击上方“一键恢复高校标准作息”快速初始化。
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="width: 140px;">节次序号</th>
+              <th style="width: 130px;">时段分类</th>
+              <th style="width: 180px;">上课开始时刻</th>
+              <th style="width: 180px;">下课结束时刻</th>
+              <th>单节学时</th>
+              <th style="width: 160px; text-align: right;">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in periods" :key="p.id">
+              <td class="cell-main font-bold">第 {{ p.period_no }} 节</td>
+              <td>
+                <span class="tag" :class="getPeriodTagClass(p.period_no)">
+                  {{ getPeriodSlotName(p.period_no) }}
+                </span>
+              </td>
+              <td class="cell-mono font-bold">{{ p.start_time ? p.start_time.slice(0, 5) : '—' }}</td>
+              <td class="cell-mono font-bold">{{ p.end_time ? p.end_time.slice(0, 5) : '—' }}</td>
+              <td class="cell-sub">45 分钟标准学时</td>
+              <td style="text-align: right;">
+                <div class="flex items-center justify-end gap-3">
+                  <button class="btn-text text-xs text-blue-700 hover:underline" @click="openEditPeriodDialog(p)">
+                    编辑作息
+                  </button>
+                  <button class="btn-text text-xs text-[var(--accent)] hover:underline" @click="handleDeletePeriod(p)">
+                    删除
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="periods.length === 0">
+              <td colspan="6" class="text-center py-8 text-xs text-[var(--ink-mute)]">
+                当前学期暂无节次作息定义，请点击上方“一键恢复高校标准作息”快速初始化。
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-    </main>
+    </div>
 
-    <!-- Tab 3: 查课业务规则 -->
-    <main v-if="activeTab === 'rules'" class="tab-body space-y-4">
-      <div class="grid grid-cols-2 gap-4">
-        <div class="card p-5">
-          <div class="flex items-center gap-2.5 text-blue-800 font-bold mb-2">
-            <AppIcon name="clock" :size="18" />
-            <h3 class="text-base">每日查课提交截止规则 (Daily Submission Deadline)</h3>
+    <!-- ==================== Tab 3: 查课业务规则 ==================== -->
+    <div v-if="activeTab === 'rules'" class="space-y-6">
+      <div class="grid grid-cols-2 gap-6">
+        <div class="panel">
+          <div class="panel-title flex items-center gap-2 mb-3">
+            <AppIcon name="clock" :size="16" />
+            <span>每日查课提交截止规则 (Daily Submission Deadline)</span>
           </div>
-          <p class="text-xs text-slate-600 leading-relaxed mb-4">
+          <p class="text-xs text-[var(--ink-soft)] leading-relaxed mb-5">
             查课志愿者在现场考勤与拍照核验后，必须在每日设定时限前通过小程序提交查课记录。
           </p>
-          <div class="bg-blue-50/60 rounded p-4 border border-blue-100 flex items-center justify-between">
+          <div class="banner mb-4" style="border-color: var(--blue); background: var(--blue-soft);">
             <div>
-              <div class="text-xs text-slate-500 font-medium">全校默认查课提交截止时间</div>
-              <div class="text-2xl font-mono font-bold text-blue-900 mt-1">22:00:00</div>
+              <div class="b-desc font-medium">全校默认查课提交截止时间</div>
+              <div class="font-mono text-2xl font-bold mt-1" style="color: var(--blue);">22:00:00</div>
             </div>
             <span class="tag tag-blue">系统默认全局策略</span>
           </div>
-          <div class="mt-3 text-[11px] text-slate-400">
+          <div class="text-[11px] text-[var(--ink-mute)]">
             * 超过 22:00 提交的记录将被标记为【迟交】，并在次日早报与统计报表中予以提示。
           </div>
         </div>
 
-        <div class="card p-5">
-          <div class="flex items-center gap-2.5 text-amber-800 font-bold mb-2">
-            <AppIcon name="sparkles" :size="18" />
-            <h3 class="text-base">查课任务智能推荐策略 (Smart Sampling Policy)</h3>
+        <div class="panel">
+          <div class="panel-title flex items-center gap-2 mb-3">
+            <AppIcon name="sparkles" :size="16" />
+            <span>查课任务智能推荐策略 (Smart Sampling Policy)</span>
           </div>
-          <p class="text-xs text-slate-600 leading-relaxed mb-4">
+          <p class="text-xs text-[var(--ink-soft)] leading-relaxed mb-4">
             在排班调度中心使用“智能抽查推荐”时，系统遵循以下业务加权策略：
           </p>
-          <ul class="text-xs text-slate-700 space-y-2 list-disc list-inside">
+          <ul class="text-xs text-[var(--ink-soft)] space-y-2 list-disc list-inside">
             <li><b>早八优先</b>：默认优先筛选上午第 1–2 节的高出勤关键课次。</li>
             <li><b>行政班均衡</b>：限制单周每个行政班级抽查上限（默认 1 门），规避单一班级疲劳。</li>
             <li><b>抽样覆盖率</b>：推荐比例默认 35%，兼顾监督震慑力与志愿者排班负荷。</li>
@@ -828,49 +800,49 @@ onMounted(async () => {
           </ul>
         </div>
       </div>
-    </main>
+    </div>
 
     <!-- 弹窗 1: 开启新学期 -->
     <el-dialog v-model="showCreateSemesterDialog" title="开启新学期与初始化教学日历" width="540px">
       <div class="space-y-4">
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">学期代码 (唯一英数字识别码) *</label>
-          <input v-model="semesterCreateForm.code" class="input w-full" placeholder="例如: 2026-2027-1 或 2026FA" />
+          <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期代码 (唯一英数字识别码) *</label>
+          <input v-model="semesterCreateForm.code" class="input w-full font-mono" placeholder="例如: 2026-2027-1 或 2026FA" />
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">学期全称 *</label>
+          <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期全称 *</label>
           <input v-model="semesterCreateForm.name" class="input w-full" placeholder="例如: 2026-2027学年第1学期" />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">学期开始日期 *</label>
-            <input v-model="semesterCreateForm.start_date" type="date" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期开始日期 *</label>
+            <input v-model="semesterCreateForm.start_date" type="date" class="input w-full font-mono" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">学期结束日期 *</label>
-            <input v-model="semesterCreateForm.end_date" type="date" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期结束日期 *</label>
+            <input v-model="semesterCreateForm.end_date" type="date" class="input w-full font-mono" />
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">第一教学周周一 *</label>
-            <input v-model="semesterCreateForm.first_monday" type="date" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">第一教学周周一 *</label>
+            <input v-model="semesterCreateForm.first_monday" type="date" class="input w-full font-mono" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">总教学周数 *</label>
-            <input v-model.number="semesterCreateForm.total_weeks" type="number" min="1" max="50" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">总教学周数 *</label>
+            <input v-model.number="semesterCreateForm.total_weeks" type="number" min="1" max="50" class="input w-full font-mono" />
           </div>
         </div>
         <div class="pt-2">
-          <label class="inline-flex items-center gap-2 text-sm text-slate-700 font-medium">
-            <input v-model="semesterCreateForm.init_default_periods" type="checkbox" class="rounded text-blue-600" />
+          <label class="inline-flex items-center gap-2 text-sm text-[var(--ink-soft)] font-medium cursor-pointer">
+            <input v-model="semesterCreateForm.init_default_periods" type="checkbox" class="chk" />
             <span>自动初始化标准时段定义 (覆盖 1–11 节，08:00 - 21:50)</span>
           </label>
         </div>
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <button class="btn btn-outline" @click="showCreateSemesterDialog = false">取消</button>
+          <button class="btn btn-ghost" @click="showCreateSemesterDialog = false">取消</button>
           <button class="btn btn-dark" :disabled="createSemesterSubmitting" @click="handleCreateSemester">
             {{ createSemesterSubmitting ? '正在创建…' : '确认创建学期' }}
           </button>
@@ -882,31 +854,31 @@ onMounted(async () => {
     <el-dialog v-model="showEditSemesterDialog" title="编辑学期信息" width="520px">
       <div class="space-y-4">
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">学期全称 *</label>
+          <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期全称 *</label>
           <input v-model="semesterEditForm.name" class="input w-full" />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">学期开始日期</label>
-            <input v-model="semesterEditForm.start_date" type="date" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期开始日期</label>
+            <input v-model="semesterEditForm.start_date" type="date" class="input w-full font-mono" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">学期结束日期</label>
-            <input v-model="semesterEditForm.end_date" type="date" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期结束日期</label>
+            <input v-model="semesterEditForm.end_date" type="date" class="input w-full font-mono" />
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">第一教学周周一</label>
-            <input v-model="semesterEditForm.first_monday" type="date" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">第一教学周周一</label>
+            <input v-model="semesterEditForm.first_monday" type="date" class="input w-full font-mono" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">总教学周数</label>
-            <input v-model.number="semesterEditForm.total_weeks" type="number" min="1" max="50" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">总教学周数</label>
+            <input v-model.number="semesterEditForm.total_weeks" type="number" min="1" max="50" class="input w-full font-mono" />
           </div>
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">学期生命周期状态</label>
+          <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期生命周期状态</label>
           <select v-model="semesterEditForm.status" class="input w-full">
             <option value="ACTIVE">正常激活 (ACTIVE)</option>
             <option value="ARCHIVED">历史归档 (ARCHIVED)</option>
@@ -915,7 +887,7 @@ onMounted(async () => {
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <button class="btn btn-outline" @click="showEditSemesterDialog = false">取消</button>
+          <button class="btn btn-ghost" @click="showEditSemesterDialog = false">取消</button>
           <button class="btn btn-dark" :disabled="editSemesterSubmitting" @click="handleUpdateSemester">
             {{ editSemesterSubmitting ? '正在保存…' : '保存学期信息' }}
           </button>
@@ -926,29 +898,28 @@ onMounted(async () => {
     <!-- 弹窗 3: 高危重置确认 -->
     <el-dialog v-model="showResetSemesterDialog" title="高危操作：重置当前学期排课与任务数据" width="560px">
       <div class="space-y-3 text-sm">
-        <div class="bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded">
-          <div class="font-bold mb-1 flex items-center gap-1.5">
-            <AppIcon name="alert" :size="16" />
-            <span>警告：此操作不可撤销！</span>
-          </div>
-          <p class="text-xs text-rose-700 leading-relaxed">
-            重置操作将彻底物理清空【{{ sessionStore.currentSemesterName }}】的所有排课与查课数据：
-          </p>
-          <ul class="text-xs text-rose-700 list-disc list-inside mt-1 space-y-0.5">
-            <li>所有查课任务、排班分配及点名名单快照</li>
-            <li>所有课表排课节次（含各周上课安排）</li>
-            <li>所有教学班及选课名单关系</li>
-            <li>所有志愿者本学期资质认定</li>
-            <li>所有校历停补课覆盖设置</li>
-          </ul>
-          <div class="mt-2 text-slate-700 text-xs">
-            <b>安全保留</b>：学生基础底册档案、行政班级及课程公共库<b>完整保留</b>。重置后学期变为空白，您可直接重新上传排课压缩包导入。
+        <div class="banner banner-warn" style="border-left: 4px solid var(--accent);">
+          <div>
+            <div class="b-title" style="color: var(--accent);">警告：此操作不可撤销！</div>
+            <p class="b-desc">
+              重置操作将彻底物理清空【{{ sessionStore.currentSemesterName }}】的所有排课与查课数据：
+            </p>
+            <ul class="text-xs list-disc list-inside mt-1 space-y-0.5 text-[var(--ink-soft)]">
+              <li>所有查课任务、排班分配及点名名单快照</li>
+              <li>所有课表排课节次（含各周上课安排）</li>
+              <li>所有教学班及选课名单关系</li>
+              <li>所有志愿者本学期资质认定</li>
+              <li>所有校历停补课覆盖设置</li>
+            </ul>
+            <div class="mt-2 text-xs font-semibold text-[var(--ink)]">
+              安全保留：学生基础底册档案、行政班级及课程公共库完整保留。
+            </div>
           </div>
         </div>
 
         <div class="space-y-1.5 pt-2">
-          <label class="block text-xs font-bold text-slate-700">
-            请输入当前学期完整名称以确认：<span class="text-rose-600 select-all font-mono">{{ sessionStore.currentSemesterName }}</span>
+          <label class="block text-xs font-bold text-[var(--ink)]">
+            请输入当前学期完整名称以确认：<span class="text-[var(--accent)] select-all font-mono">{{ sessionStore.currentSemesterName }}</span>
           </label>
           <input
             v-model="resetConfirmName"
@@ -962,7 +933,7 @@ onMounted(async () => {
         <div class="flex justify-end gap-2">
           <button class="btn btn-ghost" @click="showResetSemesterDialog = false">取消</button>
           <button
-            class="btn bg-rose-600 hover:bg-rose-700 text-white font-bold inline-flex items-center gap-1.5"
+            class="btn btn-accent inline-flex items-center gap-1.5"
             :disabled="resetSubmitting || resetConfirmName.trim() !== (sessionStore.currentSemesterName || '').trim()"
             @click="handleResetSemesterData"
           >
@@ -977,11 +948,11 @@ onMounted(async () => {
     <el-dialog v-model="showCreateOverrideDialog" title="添加校历停补课规则" width="480px">
       <div class="space-y-4">
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">执行日期 *</label>
-          <input v-model="overrideForm.date" type="date" class="input w-full" />
+          <label class="block text-xs font-bold text-[var(--ink)] mb-1">执行日期 *</label>
+          <input v-model="overrideForm.date" type="date" class="input w-full font-mono" />
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">规则类型 *</label>
+          <label class="block text-xs font-bold text-[var(--ink)] mb-1">规则类型 *</label>
           <select v-model="overrideForm.override_type" class="input w-full">
             <option value="STOP">全天停课 (STOP)</option>
             <option value="MAKEUP">调休补课 (MAKEUP)</option>
@@ -989,11 +960,11 @@ onMounted(async () => {
         </div>
         <div v-if="overrideForm.override_type === 'MAKEUP'" class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">补第几教学周课</label>
-            <input v-model.number="overrideForm.source_teaching_week" type="number" min="1" max="50" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">补第几教学周课</label>
+            <input v-model.number="overrideForm.source_teaching_week" type="number" min="1" max="50" class="input w-full font-mono" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">补星期几的课</label>
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">补星期几的课</label>
             <select v-model.number="overrideForm.source_teaching_weekday" class="input w-full">
               <option :value="1">星期一</option>
               <option :value="2">星期二</option>
@@ -1006,13 +977,13 @@ onMounted(async () => {
           </div>
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">规则说明 / 节日名称</label>
+          <label class="block text-xs font-bold text-[var(--ink)] mb-1">规则说明 / 节日名称</label>
           <input v-model="overrideForm.reason" class="input w-full" placeholder="例如: 国庆节放假停课 或 补上周二课" />
         </div>
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <button class="btn btn-outline" @click="showCreateOverrideDialog = false">取消</button>
+          <button class="btn btn-ghost" @click="showCreateOverrideDialog = false">取消</button>
           <button class="btn btn-dark" :disabled="overrideSubmitting" @click="handleCreateOverride">
             {{ overrideSubmitting ? '正在添加…' : '确认添加' }}
           </button>
@@ -1025,22 +996,22 @@ onMounted(async () => {
       <div class="space-y-4">
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">上课开始时间 *</label>
-            <input v-model="periodForm.start_time" type="time" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">上课开始时间 *</label>
+            <input v-model="periodForm.start_time" type="time" class="input w-full font-mono" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">下课结束时间 *</label>
-            <input v-model="periodForm.end_time" type="time" class="input w-full" />
+            <label class="block text-xs font-bold text-[var(--ink)] mb-1">下课结束时间 *</label>
+            <input v-model="periodForm.end_time" type="time" class="input w-full font-mono" />
           </div>
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">变更备注 (可选)</label>
+          <label class="block text-xs font-bold text-[var(--ink)] mb-1">变更备注 (可选)</label>
           <input v-model="periodForm.reason" class="input w-full" placeholder="例如: 夏季作息调整" />
         </div>
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <button class="btn btn-outline" @click="showPeriodDialog = false">取消</button>
+          <button class="btn btn-ghost" @click="showPeriodDialog = false">取消</button>
           <button class="btn btn-dark" :disabled="periodSubmitting" @click="handleSavePeriod">
             {{ periodSubmitting ? '正在保存…' : '确认保存' }}
           </button>
@@ -1051,61 +1022,23 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.page-head {
-  padding: 24px 32px 16px;
-  background: var(--paper);
-  border-bottom: 1px solid var(--line);
-}
 .head-row {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
   gap: 16px;
+  flex-wrap: wrap;
 }
-.crumb {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--ink-mute);
-  margin-bottom: 6px;
-  text-transform: uppercase;
-}
-.crumb em {
-  font-style: normal;
-  font-size: 8px;
-  color: var(--line-strong);
-}
-.page-head h1 {
-  font-family: var(--font-serif);
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--ink);
-  letter-spacing: -0.01em;
-}
-.page-head .sub {
-  font-size: 13px;
-  color: var(--ink-mute);
-  margin-top: 4px;
-}
-.head-tools {
-  display: flex;
-  gap: 10px;
-}
-
 .tab-nav {
   display: flex;
   gap: 8px;
-  padding: 0 32px;
-  background: var(--paper);
   border-bottom: 2px solid var(--line);
 }
 .tab-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 12px 20px;
+  padding: 10px 18px;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink-mute);
@@ -1116,85 +1049,9 @@ onMounted(async () => {
   cursor: pointer;
   transition: all 0.15s ease;
 }
-.tab-btn:hover {
-  color: var(--ink);
-}
-.tab-btn.active {
-  color: var(--ink);
-  border-bottom-color: var(--ink);
-}
+.tab-btn:hover { color: var(--ink); }
+.tab-btn.active { color: var(--ink); border-bottom-color: var(--ink); }
 
-.tab-body {
-  padding: 24px 32px;
-}
-
-.card {
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.table-wrap {
-  overflow-x: auto;
-}
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.data-table th {
-  padding: 10px 16px;
-  background: var(--paper-warm);
-  color: var(--ink-mute);
-  font-weight: 600;
-  text-align: left;
-  border-bottom: 1px solid var(--line);
-  font-size: 12px;
-}
-.data-table td {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--line);
-  color: var(--ink);
-}
-.data-table tr:hover td {
-  background: rgba(0, 0, 0, 0.015);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  border: 1px solid transparent;
-}
-.btn-dark {
-  background: var(--ink);
-  color: var(--paper);
-}
-.btn-dark:hover {
-  opacity: 0.9;
-}
-.btn-outline {
-  background: transparent;
-  border-color: var(--line-strong);
-  color: var(--ink);
-}
-.btn-outline:hover {
-  background: var(--paper-warm);
-}
-.btn-ghost {
-  background: transparent;
-  color: var(--ink-mute);
-}
-.btn-ghost:hover {
-  color: var(--ink);
-}
 .btn-text {
   background: none;
   border: none;
@@ -1202,31 +1059,4 @@ onMounted(async () => {
   cursor: pointer;
   font-weight: 500;
 }
-
-.input {
-  padding: 7px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--ink);
-  background: var(--paper);
-  outline: none;
-}
-.input:focus {
-  border-color: var(--ink);
-}
-
-.tag {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
-}
-.tag-green { background: #e8f5e9; color: #1b5e20; }
-.tag-blue { background: #e3f2fd; color: #0d47a1; }
-.tag-amber { background: #fff8e1; color: #b78103; }
-.tag-purple { background: #f3e5f5; color: #4a148c; }
-.tag-rose { background: #ffebee; color: #c62828; }
-.tag-muted { background: #f5f5f5; color: #757575; }
 </style>

@@ -29,11 +29,32 @@ export interface TeacherAccountUpdatePayload {
 }
 
 export interface RoleAssignmentTarget {
-  user_id: string
-  username: string
+  id: string
+  username?: string | null
   display_name: string
+  status: 'ACTIVE' | 'DISABLED' | 'BANNED'
   roles: string[]
   lock_version: number
+  student_id?: string | null
+  has_wechat: boolean
+}
+
+export interface OptionalPermissionState {
+  code: string
+  enabled: boolean
+}
+
+export interface OptionalPermissionTargetItem {
+  id: string
+  display_name: string
+  status: string
+  permissions: OptionalPermissionState[]
+  lock_version: number
+}
+
+export interface OptionalPermissionTargetsResponse {
+  items: OptionalPermissionTargetItem[]
+  configurable_codes: string[]
 }
 
 export async function listTeacherAccounts(params: {
@@ -95,16 +116,47 @@ export async function changeMyPassword(body: {
   })
 }
 
-export async function listRoleTargets(): Promise<{ items: RoleAssignmentTarget[] }> {
-  return request<{ items: RoleAssignmentTarget[] }>('/api/v1/role-assignment-targets')
+export async function listRoleTargets(): Promise<{ items: RoleAssignmentTarget[]; assignable_roles: string[] }> {
+  return request<{ items: RoleAssignmentTarget[]; assignable_roles: string[] }>('/api/v1/role-assignment-targets')
 }
 
 export async function updateUserRoles(
   userId: string | number,
-  roles: string[]
-): Promise<void> {
-  return request<void>(`/api/v1/users/${userId}/roles`, {
+  payload: {
+    roles: string[]
+    lock_version: number
+    reason?: string
+  }
+): Promise<{ roles: string[]; lock_version: number }> {
+  return request(`/api/v1/users/${userId}/roles`, {
     method: 'PUT',
-    body: JSON.stringify({ roles })
+    body: JSON.stringify({
+      roles: payload.roles,
+      lockVersion: payload.lock_version,
+      reason: payload.reason
+    })
+  })
+}
+
+export async function listOptionalPermissionTargets(): Promise<OptionalPermissionTargetsResponse> {
+  return request('/api/v1/optional-permission-targets')
+}
+
+export async function updateOptionalPermission(
+  userId: string | number,
+  code: string,
+  payload: {
+    enabled: boolean
+    lock_version: number
+    reason?: string
+  }
+): Promise<{ code: string; enabled: boolean; lock_version: number }> {
+  return request(`/api/v1/users/${userId}/optional-permissions/${code}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      enabled: payload.enabled,
+      lockVersion: payload.lock_version,
+      reason: payload.reason
+    })
   })
 }

@@ -65,6 +65,7 @@ class AccountService:
             "display_name": user.display_name,
             "status": user.status,
             "lock_version": user.lock_version,
+            "roles": sorted([r.code for r in user.roles]),
         }
 
     def _manage(self, actor: CurrentUser, target_id: int | None = None) -> UserAccount:
@@ -119,7 +120,15 @@ class AccountService:
         if RoleCode.SUPER_ADMIN.value not in roles and RoleCode.TEACHER_ADMIN.value not in roles:
             self.identity._require_actor_permission(actor.id, PermissionCode.ACCOUNT_READ.value)
         teacher = (
-            select(UserRole.user_id).join(Role).where(Role.code.in_([RoleCode.TEACHER_ADMIN.value, RoleCode.SUPER_ADMIN.value]))
+            select(UserRole.user_id)
+            .join(Role)
+            .where(
+                Role.code.in_([
+                    RoleCode.TEACHER_ADMIN.value,
+                    RoleCode.SUPER_ADMIN.value,
+                    RoleCode.STUDENT_AFFAIRS_MANAGER.value,
+                ])
+            )
         )
         stmt = select(UserAccount).where(UserAccount.id.in_(teacher))
         if query:
