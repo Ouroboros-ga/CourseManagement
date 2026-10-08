@@ -1,16 +1,57 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSessionStore } from '../stores/session'
+import { listManagementSubmissions } from '../api/submissions'
+import { listObjections } from '../api/objections'
 
 const router = useRouter()
 const route = useRoute()
 const sessionStore = useSessionStore()
 
+const pendingReviewsCount = ref<number>(0)
+const pendingObjectionsCount = ref<number>(0)
+
+async function fetchBadgeCounts() {
+  if (!sessionStore.currentUser) return
+
+  // 1. 待审核查课提交
+  if (sessionStore.hasPermission('submission.review')) {
+    try {
+      const res = await listManagementSubmissions({
+        semester_id: sessionStore.currentSemesterId || undefined,
+        review_status: 'PENDING',
+        page_size: 1
+      })
+      pendingReviewsCount.value = res.total || 0
+    } catch (e) {
+      console.warn('获取待审核徽标计数失败:', e)
+    }
+  }
+
+  // 2. 待终审考勤异议
+  if (sessionStore.hasPermission('objection.final_review') || sessionStore.hasPermission('objection.read')) {
+    try {
+      const res = await listObjections({
+        final_status: 'PENDING',
+        page_size: 1
+      })
+      pendingObjectionsCount.value = res.total || 0
+    } catch (e) {
+      console.warn('获取待终审徽标计数失败:', e)
+    }
+  }
+}
+
 onMounted(async () => {
   if (sessionStore.semesters.length === 0) {
     await sessionStore.fetchAcademicContext()
   }
+  await fetchBadgeCounts()
+})
+
+watch(() => route.path, () => {
+  fetchBadgeCounts()
 })
 
 const currentUser = computed(() => sessionStore.currentUser)
@@ -50,7 +91,7 @@ const menuItems = computed(() => {
       idx: '03',
       path: '/dashboard/reviews',
       name: '提交管理审核',
-      badge: '3',
+      badge: pendingReviewsCount.value > 0 ? String(pendingReviewsCount.value) : null,
       badgeClass: 'badge-amber',
       permission: 'submission.review'
     },
@@ -59,7 +100,7 @@ const menuItems = computed(() => {
       idx: '04',
       path: '/dashboard/objections',
       name: '考勤异议处理',
-      badge: '1',
+      badge: pendingObjectionsCount.value > 0 ? String(pendingObjectionsCount.value) : null,
       badgeClass: 'badge-red',
       permission: 'objection.final_review'
     },
