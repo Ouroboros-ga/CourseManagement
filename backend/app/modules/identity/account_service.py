@@ -11,6 +11,7 @@ from app.core.database import utcnow
 from app.core.exceptions import ConflictError, ErrorCode, NotFoundError, PermissionDeniedError
 from app.core.permissions import PermissionCode, RoleCode
 from app.core.security import hash_password, verify_password
+from app.modules.academic.models import Student
 from app.modules.audit.models import AuditLog
 from app.modules.identity.account_schemas import (
     PasswordChange,
@@ -202,14 +203,47 @@ class AccountService:
     def reset_password(
         self, actor: CurrentUser, uid: int, body: PasswordReset, request_id: str | None
     ) -> None:
-        user = self._manage(actor, uid)
-        self._version(user, body.lock_version)
-        user.password_hash = hash_password(body.new_password)
-        user.failed_login_count = 0
-        user.locked_until = None
-        user.lock_version += 1
+        self.session.rollback()
+        lock_admin_registry(self.session)
+        ids = sorted({actor.id, uid})
+        locked = {user_id: self.repo.get_user_by_id_for_update(user_id) for user_id in ids}
+        active_actor = locked[actor.id]
+        if active_actor is None or not active_actor.is_active:
+            raise PermissionDeniedError("操作者账号已停用")
+
+        target = locked[uid]
+        if target is None:
+            raise NotFoundError("目标账号不存在")
+
+        target_roles = set(self.repo.list_role_codes(uid))
+
+        if RoleCode.TEACHER_ADMIN.value in target_roles or RoleCode.SUPER_ADMIN.value in target_roles:
+            self.identity._require_actor_permission(actor.id, PermissionCode.ACCOUNT_MANAGE.value)
+            if not actor.has_role(RoleCode.SUPER_ADMIN.value):
+                raise PermissionDeniedError("仅超级管理员可重置教工密码")
+        elif RoleCode.STUDENT_AFFAIRS_MANAGER.value in target_roles:
+            can_manage = (
+                actor.has_role(RoleCode.SUPER_ADMIN.value)
+                or actor.has_role(RoleCode.TEACHER_ADMIN.value)
+                or actor.has_permission(PermissionCode.ROLE_ASSIGN.value)
+                or actor.has_permission(PermissionCode.ACCOUNT_MANAGE.value)
+            )
+            if not can_manage:
+                raise PermissionDeniedError("无权为学生负责人设置密码")
+            if not target.username and target.student_id:
+                student = self.session.get(Student, target.student_id)
+                if student:
+                    target.username = student.student_no
+        else:
+            raise NotFoundError("该账号不支持密码重置")
+
+        self._version(target, body.lock_version)
+        target.password_hash = hash_password(body.new_password)
+        target.failed_login_count = 0
+        target.locked_until = None
+        target.lock_version += 1
         self.repo.revoke_active_sessions(uid, utcnow())
-        self._audit(actor, "account.password.reset", user, request_id, reason=body.reason)
+        self._audit(actor, "account.password.reset", target, request_id, reason=body.reason)
         self.session.commit()
 
     def change_password(

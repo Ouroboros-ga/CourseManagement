@@ -121,7 +121,7 @@ const menuItems = computed(() => {
       name: '人员与权限管理',
       badge: null,
       badgeClass: '',
-      permission: 'academic.read'
+      permission: 'role.assign'
     },
     {
       id: 'settings',

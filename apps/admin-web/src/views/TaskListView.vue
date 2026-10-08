@@ -228,6 +228,48 @@ async function handleAutoAssign() {
   }
 }
 
+// ==================== 导出排班表（CSV / Excel 兼容） ====================
+function handleExportTasks() {
+  if (filteredTasks.value.length === 0) {
+    ElMessage.warning('当前暂无可导出的排班任务')
+    return
+  }
+  const headers = ['任务编号', '查课日期', '周次', '节次', '课程名称', '教学班级', '查课教室', '受派志愿者', '任务状态']
+  const rows = filteredTasks.value.map(t => {
+    const periodStr = formatPeriodText(t.start_period, t.end_period)
+    const volName = t.assigned_volunteer_name || (t as any).assignment?.volunteer_name || '未指派'
+    const statusMap: Record<string, string> = {
+      NOT_STARTED: '待执行',
+      SUBMITTED: '待审核',
+      REVIEWED: '已审核',
+      CANCELLED: '已取消'
+    }
+    const statusStr = statusMap[t.status] || t.status || '待执行'
+    return [
+      t.id,
+      t.inspection_date || '',
+      `第${sessionStore.currentWeekNo}周`,
+      `"${periodStr.replace(/"/g, '""')}"`,
+      `"${(t.course_name_snapshot || '').replace(/"/g, '""')}"`,
+      `"${(t.class_name_snapshot || '').replace(/"/g, '""')}"`,
+      `"${(t.classroom_snapshot || '').replace(/"/g, '""')}"`,
+      `"${volName.replace(/"/g, '""')}"`,
+      statusStr
+    ].join(',')
+  })
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n')
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `查课排班表_第${sessionStore.currentWeekNo}周_${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(url)
+  ElMessage.success(`成功导出 ${filteredTasks.value.length} 条查课排班记录！`)
+}
+
 // ==================== 人工指派志愿者（支持按姓名搜索本学期已有志愿者） ====================
 const assignDialogVisible = ref(false)
 const assigningTask = ref<InspectionTaskItem | null>(null)
@@ -429,6 +471,15 @@ async function handleUpdateTask() {
           >
             <AppIcon name="trash" :size="13" />
             <span>批量删除 ({{ selectedTaskIds.length }})</span>
+          </button>
+          <button
+            class="btn btn-sm btn-outline inline-flex items-center gap-1"
+            :disabled="filteredTasks.length === 0"
+            title="将当前周或筛选出的查课任务与受派人员导出为表格"
+            @click="handleExportTasks"
+          >
+            <AppIcon name="download" :size="13" />
+            <span>导出排班 ({{ filteredTasks.length }})</span>
           </button>
           <button class="btn btn-sm" @click="fetchTasks">⟳ 刷新</button>
         </div>

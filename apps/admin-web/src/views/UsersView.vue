@@ -7,6 +7,7 @@ import {
   createTeacherAccount,
   updateTeacherAccount,
   resetTeacherPassword,
+  resetManagerPassword,
   changeMyPassword,
   listRoleTargets,
   updateUserRoles,
@@ -265,6 +266,35 @@ async function handleResetPassword(teacher: TeacherAccountItem) {
       })
       ElMessage.success(`教工【${teacher.display_name}】密码重置成功！已生效。`)
       await fetchTeachers()
+    }
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'message' in err) {
+      ElMessage.error(String(err.message))
+    }
+  }
+}
+
+// ==================== 学生负责人：设置/重置 Web 密码 ====================
+async function handleResetManagerPassword(manager: RoleAssignmentTarget) {
+  try {
+    const { value: newPwd } = await ElMessageBox.prompt(
+      `确定为学生工作负责人【${manager.display_name}（学号：${manager.username || '—'}）】设置/重置 Web 管理端登录密码？请输入新密码：\n\n设置后该负责人可凭借【学号】和此密码直接登录 PC 管理后台，开展课表查看、排班导出与名单核验等工作。`,
+      '设置/重置学生负责人 Web 登录密码',
+      {
+        confirmButtonText: '确定保存',
+        cancelButtonText: '取消',
+        inputValue: 'Student@123456',
+        inputPattern: /\S{6,}/,
+        inputErrorMessage: '密码长度至少6位'
+      }
+    )
+    if (newPwd) {
+      await resetManagerPassword(manager.id, {
+        new_password: newPwd.trim(),
+        lock_version: manager.lock_version
+      })
+      ElMessage.success(`学生负责人【${manager.display_name}】Web 密码已设置成功！可使用学号【${manager.username}】登录。`)
+      await fetchManagersAndRoles()
     }
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'message' in err) {
@@ -580,7 +610,7 @@ onMounted(async () => {
               <th>当前持有角色</th>
               <th style="width: 180px;">考勤异议初核权</th>
               <th style="width: 180px;">数据统计查阅权</th>
-              <th style="width: 150px; text-align: right;">操作</th>
+              <th style="width: 210px; text-align: right;">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -641,12 +671,21 @@ onMounted(async () => {
                 </div>
               </td>
               <td style="text-align: right;">
-                <button
-                  class="btn-text text-xs text-amber-800 hover:underline"
-                  @click="handleToggleManagerRole(manager, false)"
-                >
-                  撤销负责人角色
-                </button>
+                <div class="flex items-center justify-end gap-3">
+                  <button
+                    class="btn-text text-xs text-blue-700 hover:underline"
+                    title="为该学生负责人设置/重置 PC Web 后台登录密码"
+                    @click="handleResetManagerPassword(manager)"
+                  >
+                    设置Web密码
+                  </button>
+                  <button
+                    class="btn-text text-xs text-amber-800 hover:underline"
+                    @click="handleToggleManagerRole(manager, false)"
+                  >
+                    撤销角色
+                  </button>
+                </div>
               </td>
             </tr>
             <tr v-if="studentAffairsManagers.length === 0">

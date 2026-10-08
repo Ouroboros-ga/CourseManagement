@@ -417,3 +417,17 @@ export async function updateSemester(
   })
 }
 
+export async function exportCourseSchedulesExcel(semesterId: string | number): Promise<Blob> {
+  const token = localStorage.getItem('access_token') || ''
+  const response = await fetch(`/api/v1/course-schedules/export?semester_id=${semesterId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  })
+  if (!response.ok) {
+    throw new Error(`课表导出失败: HTTP ${response.status}`)
+  }
+  return response.blob()
+}
+
+

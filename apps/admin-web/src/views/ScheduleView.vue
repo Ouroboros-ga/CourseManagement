@@ -15,6 +15,7 @@ import {
 import {
   listAdministrativeClasses,
   getMasterTimetable,
+  exportCourseSchedulesExcel,
   type AdministrativeClassItem,
   type MasterTimetableItem
 } from '../api/academic'
@@ -176,6 +177,32 @@ async function loadMasterTimetableData() {
     ElMessage.error('加载总课表库失败')
   } finally {
     masterLoading.value = false
+  }
+}
+
+const exportingMaster = ref(false)
+
+async function handleExportMasterTimetable() {
+  if (!sessionStore.currentSemesterId) {
+    ElMessage.warning('未选择学期，无法导出课表')
+    return
+  }
+  exportingMaster.value = true
+  try {
+    const blob = await exportCourseSchedulesExcel(sessionStore.currentSemesterId)
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `学期总课表_${sessionStore.currentSemesterName || '未命名学期'}.xlsx`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('学期总课表 Excel 导出成功！')
+  } catch (err: any) {
+    ElMessage.error(err?.message || '导出学期课表失败')
+  } finally {
+    exportingMaster.value = false
   }
 }
 
@@ -787,11 +814,22 @@ function applySmartSample() {
 
       <!-- 总课表列表 -->
       <div v-if="masterTimetableList.length > 0">
-        <div class="section-title flex justify-between items-center">
-          <span>全校教务总课表检索结果（共 {{ masterTimetableList.length }} 门排课）</span>
-          <span class="text-xs text-gray-500 font-normal">
-            其中查课覆盖课次：{{ masterTimetableList.filter(m => m.is_inspectable).length }} 门
-          </span>
+        <div class="section-title flex justify-between items-center py-1">
+          <div class="flex items-center gap-3">
+            <span>全校教务总课表检索结果（共 {{ masterTimetableList.length }} 门排课）</span>
+            <span class="text-xs text-gray-500 font-normal">
+              其中查课覆盖课次：{{ masterTimetableList.filter(m => m.is_inspectable).length }} 门
+            </span>
+          </div>
+          <button
+            type="button"
+            class="btn btn-outline btn-xs flex items-center gap-1.5"
+            :disabled="exportingMaster"
+            @click="handleExportMasterTimetable"
+          >
+            <AppIcon name="download" :size="13" />
+            <span>{{ exportingMaster ? '正在导出…' : '导出学期总课表 Excel' }}</span>
+          </button>
         </div>
         <table class="tbl">
           <thead>
