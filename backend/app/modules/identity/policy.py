@@ -61,6 +61,8 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "inspection.roster.read",
         "submission_deadline.read",
         "attendance.read",
+        "submission.read",
+        "submission.review",
     }),
     # VOLUNTEER：仅志愿者专有语义权限；学生基础三项经"绑定同持 STUDENT"并集获得，见上方注释。
     RoleCode.VOLUNTEER.value: frozenset({
