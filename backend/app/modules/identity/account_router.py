@@ -62,6 +62,7 @@ def update_teacher(
     return success(service.update(actor, user_id, body, rid), rid)
 
 
+@router.post("/accounts/{user_id}/password-reset", status_code=204)
 @router.post("/teacher-accounts/{user_id}/password-reset", status_code=204)
 def reset_password(
     user_id: int, actor: CurrentUserDep, service: ServiceDep, request: Request, body: PasswordReset
