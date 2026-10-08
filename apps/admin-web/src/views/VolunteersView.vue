@@ -306,12 +306,14 @@ async function loadData() {
     const volRes = await listVolunteerQualifications(sessionStore.currentSemesterId)
     volunteerQuals.value = volRes.items || []
 
-    // 4. 获取用户账号列表（查看小程序绑定状态及 UID）
-    try {
-      const userRes = await listRoleTargets()
-      roleTargets.value = userRes.items || []
-    } catch (e) {
-      console.warn('获取用户账号列表失败（可能权限受限）:', e)
+    // 4. 获取用户账号列表（仅持角色管理权限的管理员/教师加载，避免无权时触发 403）
+    if (sessionStore.hasPermission('role.assign')) {
+      try {
+        const userRes = await listRoleTargets()
+        roleTargets.value = userRes.items || []
+      } catch (e) {
+        console.warn('获取用户账号列表失败:', e)
+      }
     }
   } catch (err: unknown) {
     console.error('加载学生与志愿者列表失败:', err)
@@ -449,8 +451,10 @@ async function openAssignDialog(student: StudentItem) {
         enabled: true,
         reason: '分配查课任务时确保系统账号就绪'
       })
-      const userRes = await listRoleTargets()
-      roleTargets.value = userRes.items || []
+      if (sessionStore.hasPermission('role.assign')) {
+        const userRes = await listRoleTargets()
+        roleTargets.value = userRes.items || []
+      }
       boundUser = boundUserMap.value.get(student.id)
     } catch (e) {
       console.error('自动初始化志愿者系统账号失败:', e)
