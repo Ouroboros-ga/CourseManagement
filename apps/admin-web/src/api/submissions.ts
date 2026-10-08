@@ -51,14 +51,17 @@ export interface RosterStudentItem {
   student_id: string
   student_no: string
   name: string
+  class_name_snapshot?: string | null
   administrative_class_name?: string | null
+  grade_year_snapshot?: number | null
 }
 
 export interface TaskRosterResult {
   task_id: string
   roster_version: number
-  total_students: number
-  students: RosterStudentItem[]
+  total_students?: number
+  items?: RosterStudentItem[]
+  students?: RosterStudentItem[]
 }
 
 export async function listManagementSubmissions(query: ManagementSubmissionsQuery = {}): Promise<{

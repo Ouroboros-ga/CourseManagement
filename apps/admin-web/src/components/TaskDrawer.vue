@@ -32,9 +32,10 @@ watch(
     loadingRoster.value = true
     try {
       const res = await getTaskRoster(newTask.id)
-      students.value = res.students || []
+      const list = res.items || res.students || []
+      students.value = list
       rosterVersion.value = res.roster_version || 1
-      totalStudents.value = res.total_students || students.value.length
+      totalStudents.value = res.total_students || list.length
     } catch {
       students.value = []
       totalStudents.value = 0
@@ -131,7 +132,7 @@ const close = () => {
                 <tr v-for="stu in students" :key="stu.student_id">
                   <td class="cell-mono">{{ stu.student_no }}</td>
                   <td class="font-bold">{{ stu.name }}</td>
-                  <td class="cell-sub">{{ stu.administrative_class_name || '—' }}</td>
+                  <td class="cell-sub">{{ stu.class_name_snapshot || stu.administrative_class_name || '—' }}</td>
                 </tr>
               </tbody>
             </table>

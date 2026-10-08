@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from app.modules.academic.schemas import IdStr, OptIdStr
 
@@ -165,14 +165,24 @@ class TaskRosterMemberResponse(BaseModel):
     student_id: IdStr
     student_no: str
     name: str
-    class_name_snapshot: str | None
-    grade_year_snapshot: int | None
+    class_name_snapshot: str | None = None
+    grade_year_snapshot: int | None = None
 
 
 class TaskRosterResponse(BaseModel):
     task_id: IdStr
     roster_version: int
     items: list[TaskRosterMemberResponse]
+
+    @computed_field
+    @property
+    def total_students(self) -> int:
+        return len(self.items)
+
+    @computed_field
+    @property
+    def students(self) -> list[TaskRosterMemberResponse]:
+        return self.items
 
 
 # --------------------------------------------------------------------------- #
