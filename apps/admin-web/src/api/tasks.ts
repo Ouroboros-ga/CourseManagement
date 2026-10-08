@@ -153,19 +153,41 @@ export async function generateExactTasks(body: {
   })
 }
 
-export async function triggerAutoAssign(body: {
-  task_ids: string[]
-  candidate_user_ids?: string[]
-}): Promise<{
+export interface AutoAssignResult {
+  semester_id: string
   target_task_count: number
   assigned_count: number
   unassigned_count: number
-  assigned_assignments: Array<{ task_id: string; volunteer_user_id: string }>
-  unassigned_tasks: Array<{ task_id: string; reason_code: string; message: string }>
-}> {
-  return request('/api/v1/assignments/auto', {
+  assigned: Array<{ task_id: string; volunteer_user_id: string }>
+  unassigned: Array<{ task_id: string; reason_code: string; message: string }>
+}
+
+export async function triggerAutoAssign(body: {
+  semester_id: string | number
+  task_ids?: (string | number)[]
+  inspection_date?: string
+  date_from?: string
+  date_to?: string
+  candidate_user_ids?: (string | number)[]
+  reason?: string
+}): Promise<AutoAssignResult> {
+  const payload: Record<string, unknown> = {
+    semester_id: Number(body.semester_id)
+  }
+  if (body.task_ids && body.task_ids.length > 0) {
+    payload.task_ids = body.task_ids.map(Number)
+  }
+  if (body.inspection_date) payload.inspection_date = body.inspection_date
+  if (body.date_from) payload.date_from = body.date_from
+  if (body.date_to) payload.date_to = body.date_to
+  if (body.candidate_user_ids && body.candidate_user_ids.length > 0) {
+    payload.candidate_user_ids = body.candidate_user_ids.map(Number)
+  }
+  if (body.reason) payload.reason = body.reason
+
+  return request<AutoAssignResult>('/api/v1/assignments/auto', {
     method: 'POST',
-    body: JSON.stringify(body)
+    body: JSON.stringify(payload)
   })
 }
 

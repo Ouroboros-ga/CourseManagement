@@ -569,34 +569,6 @@ async function handleAddConfirm() {
     adding.value = false
   }
 }
-
-// 智能自动排班
-async function handleAutoAssign() {
-  try {
-    await ElMessageBox.confirm(
-      `确定对当前【${sessionStore.currentSemesterName}】第 ${sessionStore.currentWeekNo} 周未分配的查课任务执行智能自动排班？\n系统将自动结合已绑定的有效志愿者进行防冲突排班。`,
-      '智能自动排班确认',
-      { confirmButtonText: '立即执行', cancelButtonText: '取消', type: 'info' }
-    )
-    loading.value = true
-    const res: any = await request('/api/v1/assignments/auto', {
-      method: 'POST',
-      body: JSON.stringify({
-        semester_id: Number(sessionStore.currentSemesterId),
-        date_from: sessionStore.weekDateRange.start || undefined,
-        date_to: sessionStore.weekDateRange.end || undefined
-      })
-    })
-    ElMessage.success(`自动排班完成！已分配: ${res.assigned_count ?? 0} 个任务，未分配: ${res.unassigned_count ?? 0} 个`)
-  } catch (err: any) {
-    if (err !== 'cancel') {
-      const msg = err?.message || '自动排班失败'
-      ElMessage.error(msg)
-    }
-  } finally {
-    loading.value = false
-  }
-}
 </script>
 
 <template>
@@ -613,14 +585,14 @@ async function handleAutoAssign() {
         <div>
           <h1>志愿者与学生绑定管理</h1>
           <p class="sub">
-            业务闭环起点：维护在校学生档案、认定查课志愿者资质、生成小程序一次性绑定码；并支持将课次直接或智能指派给志愿者。
+            业务闭环起点：维护在校学生档案、认定查课志愿者资质、生成小程序一次性绑定码并追踪微信绑定状态。
           </p>
         </div>
         <div class="head-actions flex items-center gap-2">
-          <button class="btn btn-ghost inline-flex items-center gap-1.5" @click="handleAutoAssign">
-            <AppIcon name="sparkles" :size="14" class="text-amber-600" />
-            <span>智能自动排班</span>
-          </button>
+          <router-link to="/dashboard/tasks" class="btn btn-ghost inline-flex items-center gap-1.5 text-xs text-slate-700">
+            <AppIcon name="external-link" :size="13" />
+            <span>前往任务排班中心</span>
+          </router-link>
           <button class="btn btn-primary inline-flex items-center gap-1.5" @click="batchExportDialogVisible = true">
             <AppIcon name="download" :size="14" />
             <span>批量生成绑定码并导出 Excel</span>

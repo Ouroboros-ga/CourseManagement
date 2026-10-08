@@ -292,11 +292,13 @@ async function triggerDispatch() {
     if (genRes.assignable_task_ids && genRes.assignable_task_ids.length > 0) {
       try {
         const assignRes = await triggerAutoAssign({
+          semester_id: sessionStore.currentSemesterId,
           task_ids: genRes.assignable_task_ids
         })
-        assignMsg = `<br/>3. <b>求解器自动排班</b>：已排定 ${assignRes.assigned_count} 个任务，待人工处理 ${assignRes.unassigned_count} 个。`
-      } catch {
-        assignMsg = '<br/>3. <b>自动排班</b>：暂无可用志愿者或无需自动分配。'
+        assignMsg = `<br/>3. <b>智能自动排班</b>：已自动匹配分配 <b>${assignRes.assigned_count}</b> 个任务，待人工处理 <b>${assignRes.unassigned_count}</b> 个。`
+      } catch (assignErr: unknown) {
+        const errMsg = assignErr && typeof assignErr === 'object' && 'message' in assignErr ? String(assignErr.message) : '自动排班求解未触发'
+        assignMsg = `<br/>3. <b>自动排班提示</b>：${errMsg}（可前往任务中心查看或手动指派）。`
       }
     }
 

@@ -8,6 +8,7 @@ import {
   updateTask,
   deleteTask,
   batchDeleteTasks,
+  triggerAutoAssign,
   listSemesterVolunteers,
   assignTask,
   type InspectionTaskItem,
@@ -183,6 +184,47 @@ async function handleBatchDelete() {
     }
   } finally {
     loading.value = false
+  }
+}
+
+// ==================== 智能自动排班（求解器防冲突算法） ====================
+const autoAssigning = ref(false)
+
+async function handleAutoAssign() {
+  if (!sessionStore.currentSemesterId) return
+  const isSelectedScope = selectedTaskIds.value.length > 0
+  const confirmText = isSelectedScope
+    ? `确定对表格中选中的 ${selectedTaskIds.value.length} 个任务执行智能自动排班？\n系统将自动运行防冲突算法，为其中尚未分配的任务匹配在册志愿者。`
+    : `确定对当前【${sessionStore.currentSemesterName}】第 ${sessionStore.currentWeekNo} 周所有未分配的查课任务执行智能自动排班？\n系统将自动结合在册有效志愿者进行防冲突排班。`
+
+  try {
+    await ElMessageBox.confirm(confirmText, '智能自动排班确认', {
+      confirmButtonText: '立即执行排班',
+      cancelButtonText: '取消',
+      type: 'info'
+    })
+    autoAssigning.value = true
+    const payload = isSelectedScope
+      ? {
+          semester_id: sessionStore.currentSemesterId,
+          task_ids: selectedTaskIds.value
+        }
+      : {
+          semester_id: sessionStore.currentSemesterId,
+          date_from: sessionStore.weekDateRange.start || undefined,
+          date_to: sessionStore.weekDateRange.end || undefined
+        }
+    const res = await triggerAutoAssign(payload)
+    ElMessage.success(`智能自动排班完成！已成功分配 ${res.assigned_count ?? 0} 个任务，待人工处理 ${res.unassigned_count ?? 0} 个`)
+    selectedTaskIds.value = []
+    await fetchTasks()
+  } catch (err: unknown) {
+    if (err !== 'cancel') {
+      const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '自动排班执行失败'
+      ElMessage.error(msg)
+    }
+  } finally {
+    autoAssigning.value = false
   }
 }
 
@@ -371,6 +413,15 @@ async function handleUpdateTask() {
             <option value="REVIEWED">已审核</option>
             <option value="CANCELLED">已取消</option>
           </select>
+          <button
+            class="btn btn-sm btn-primary inline-flex items-center gap-1.5 shadow-sm"
+            :disabled="autoAssigning"
+            title="调用求解器防冲突算法，为当前未分配任务自动匹配在册志愿者"
+            @click="handleAutoAssign"
+          >
+            <AppIcon name="sparkles" :size="13" class="text-amber-300" />
+            <span>{{ autoAssigning ? '排班中…' : (selectedTaskIds.length > 0 ? `智能自动排班 (${selectedTaskIds.length})` : '智能自动排班') }}</span>
+          </button>
           <button
             class="btn btn-sm btn-danger inline-flex items-center gap-1"
             :disabled="selectedTaskIds.length === 0"
