@@ -613,7 +613,7 @@ class ObjectionService:
                 files_brief.append(
                     ObjectionFileBrief(
                         id=str(fid),
-                        filename=fobj.filename if fobj else None,
+                        filename=fobj.original_name if fobj else None,
                         size_bytes=fobj.size_bytes if fobj else None,
                         content_type=fobj.content_type if fobj else None,
                         access_url=f"/api/v1/files/{fid}/download",
