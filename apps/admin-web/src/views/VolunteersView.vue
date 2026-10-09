@@ -21,7 +21,7 @@ import {
 } from '../api/academic'
 import { listTasks, type InspectionTaskItem } from '../api/tasks'
 import { request } from '../api/http'
-import { exportBindingTokensExcel } from '../api/auth'
+import { exportBindingTokensExcel, resetStudentBinding } from '../api/auth'
 import AppIcon from '../components/AppIcon.vue'
 import { formatPeriodText } from '../utils/period'
 
@@ -429,15 +429,74 @@ async function handleIssueToken(student: StudentItem) {
   }
 }
 
+function formatBeijingTime(dateStr?: string | null): string {
+  if (!dateStr) return '-'
+  try {
+    let iso = dateStr.trim()
+    if (!iso.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(iso)) {
+      iso += 'Z'
+    }
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return dateStr.substring(0, 19).replace('T', ' ')
+    const formatter = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    })
+    const parts = formatter.formatToParts(d)
+    const get = (type: string) => parts.find(p => p.type === type)?.value || ''
+    return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`
+  } catch {
+    return dateStr.substring(0, 19).replace('T', ' ')
+  }
+}
+
 // 复制绑定信息
 function copyBindingInfo() {
   if (!currentTokenInfo.value.tokenResult) return
-  const text = `【查课小程序学生绑定】\n姓名：${currentTokenInfo.value.studentName}\n学号：${currentTokenInfo.value.studentNo}\n一次性绑定码：${currentTokenInfo.value.tokenResult.plaintext_code}\n有效截止：${currentTokenInfo.value.tokenResult.expires_at.substring(0, 19).replace('T', ' ')}\n请在微信小程序登录后输入学号与绑定码完成身份认证。`
+  const expireStr = formatBeijingTime(currentTokenInfo.value.tokenResult.expires_at)
+  const text = `【查课小程序学生绑定】\n姓名：${currentTokenInfo.value.studentName}\n学号：${currentTokenInfo.value.studentNo}\n一次性绑定码：${currentTokenInfo.value.tokenResult.plaintext_code}\n有效截止：${expireStr}\n请在微信小程序登录后输入学号与绑定码完成身份认证。`
   navigator.clipboard.writeText(text).then(() => {
     ElMessage.success('已复制绑定信息到剪贴板，可直接发送给学生！')
   }).catch(() => {
     ElMessage.info('请手动选中文本进行复制')
   })
+}
+
+// 解除学生微信绑定
+async function handleUnbindStudent(stu: StudentItem) {
+  const boundUser = boundUserMap.value.get(stu.id)
+  if (!boundUser) {
+    ElMessage.warning('该学生未绑定微信用户')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定要解除学生【${stu.name}】（学号：${stu.student_no}）与当前微信账号（UID: ${boundUser.id}）的绑定关系吗？\n解绑后该学生可使用新微信重新绑定，旧会话将立即撤销。`,
+      '解除绑定确认',
+      {
+        confirmButtonText: '确定解绑',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await resetStudentBinding(String(boundUser.id), { reason: `管理员在底册解绑学生 ${stu.name}` })
+    ElMessage.success(`学生【${stu.name}】已成功解除绑定！`)
+    if (sessionStore.hasPermission('role.assign')) {
+      const userRes = await listRoleTargets()
+      roleTargets.value = userRes.items || []
+    }
+  } catch (err: unknown) {
+    if (err !== 'cancel') {
+      const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '解绑失败'
+      ElMessage.error(msg)
+    }
+  }
 }
 
 // 打开分配任务弹窗
@@ -849,6 +908,15 @@ async function handleAddConfirm() {
                   <span>分配课程</span>
                 </button>
                 <button
+                  v-if="boundUserMap.get(stu.id)"
+                  class="btn btn-sm btn-ghost text-amber-600 hover:bg-amber-50 inline-flex items-center gap-0.5"
+                  title="解除微信小程序的账号绑定"
+                  @click="handleUnbindStudent(stu)"
+                >
+                  <AppIcon name="ban" :size="12" />
+                  <span>解绑</span>
+                </button>
+                <button
                   class="btn btn-sm btn-ghost text-rose-600 hover:bg-rose-50 inline-flex items-center gap-0.5"
                   title="删除此学生底册档案"
                   @click="handleDeleteStudent(stu)"
@@ -907,7 +975,7 @@ async function handleAddConfirm() {
           </div>
 
           <div class="token-expire">
-            有效截止时间：<span class="font-mono">{{ currentTokenInfo.tokenResult?.expires_at?.substring(0, 19).replace('T', ' ') }}</span>（超时自动失效）
+            有效截止时间：<span class="font-mono">{{ formatBeijingTime(currentTokenInfo.tokenResult?.expires_at) }}</span>（超时自动失效）
           </div>
         </div>
       </div>

@@ -103,6 +103,35 @@ export async function reviewSubmission(
   })
 }
 
+export interface BatchReviewResultItem {
+  submission_id: string
+  success: boolean
+  error?: string | null
+  review_status?: string | null
+}
+
+export interface SubmissionBatchReviewResponse {
+  total: number
+  success_count: number
+  failed_count: number
+  results: BatchReviewResultItem[]
+}
+
+export async function batchReviewSubmissions(payload: {
+  submission_ids: (number | string)[]
+  decision: 'APPROVED' | 'REJECTED'
+  comment?: string
+}): Promise<SubmissionBatchReviewResponse> {
+  return request('/api/v1/management/submissions/batch-review', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...payload,
+      submission_ids: payload.submission_ids.map(id => Number(id))
+    })
+  })
+}
+
+
 export async function getTaskRoster(taskId: string, rosterVersion?: number): Promise<TaskRosterResult> {
   const params = new URLSearchParams()
   if (rosterVersion) params.set('roster_version', String(rosterVersion))

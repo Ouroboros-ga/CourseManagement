@@ -2684,6 +2684,50 @@ class InspectionService:
         self._session.refresh(sub)
         return self._assemble_submissions([sub])[0]
 
+    def batch_review_submissions(
+        self,
+        actor: CurrentUser,
+        submission_ids: list[int],
+        decision: str,
+        comment: str | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        """批量处理待审核提交（一键通过 / 批量勾选通过）。
+
+        逐笔独立处理并捕获单项冲突（如已被处理或已取消任务），
+        单项失败不阻断其余待审核项，保证批量操作的高容错与审计完整性。
+        """
+        self._require(actor.id, perms.SUBMISSION_REVIEW_PERMISSION)
+        results: list[dict[str, object]] = []
+        success_count = 0
+        failed_count = 0
+        req = SubmissionReviewRequest(decision=decision, comment=comment)  # type: ignore[arg-type]
+        for sid in submission_ids:
+            try:
+                res = self.review_submission(actor, sid, req, request_id)
+                results.append({
+                    "submission_id": str(sid),
+                    "success": True,
+                    "review_status": res.review_status,
+                })
+                success_count += 1
+            except Exception as e:
+                self._session.rollback()
+                err_msg = str(getattr(e, "detail", getattr(e, "message", str(e))))
+                results.append({
+                    "submission_id": str(sid),
+                    "success": False,
+                    "error": err_msg,
+                })
+                failed_count += 1
+
+        return {
+            "total": len(submission_ids),
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "results": results,
+        }
+
     def _generate_attendance(self, sub: InspectionSubmission, actor_id: int) -> int:
         """审核通过时按提交所用名单版本为每生建初始考勤 + 版本 1（技术方案 12、14）。
 

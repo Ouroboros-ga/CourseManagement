@@ -37,6 +37,7 @@ from app.modules.inspection.schemas import (
     RosterVersionCreateRequest,
     SubmissionCreateRequest,
     SubmissionReviewRequest,
+    SubmissionBatchReviewRequest,
     TaskBatchDeleteRequest,
     TaskBatchDeleteResponse,
     TaskCancelRequest,
@@ -263,7 +264,7 @@ def list_my_inspection_tasks(
     service: ServiceDep,
     request: Request,
     params: Annotated[PageParams, Depends(page_params)],
-    include_canceled: Annotated[bool, Query()] = True,
+    include_canceled: Annotated[bool, Query()] = False,
 ) -> dict[str, object]:
     data = service.my_tasks(actor, params, include_canceled=include_canceled)
     return success(data, _rid(request))
@@ -651,6 +652,25 @@ def review_submission(
 ) -> dict[str, object]:
     result = service.review_submission(actor, submission_id, body, _rid(request))
     return success(result.model_dump(), _rid(request))
+
+
+# ---- 批量审核待审核提交（submission.review，管理人员）----
+@router.post("/management/submissions/batch-review")
+def batch_review_submissions(
+    body: SubmissionBatchReviewRequest,
+    actor: SubmissionReviewDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    result = service.batch_review_submissions(
+        actor,
+        submission_ids=body.submission_ids,
+        decision=body.decision,
+        comment=body.comment,
+        request_id=_rid(request),
+    )
+    return success(result, _rid(request))
+
 
 
 # ---- 人工调整任务当前应到人数（attendance.expected_count_adjust，保留初始快照与历史）----

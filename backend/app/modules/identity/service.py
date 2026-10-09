@@ -680,7 +680,7 @@ class IdentityService:
                 "class_name": ac.class_name if ac else None,
                 "college": ac.college if ac else None,
                 "binding_code": code,
-                "expires_at": expires_at.isoformat(),
+                "expires_at": expires_at.isoformat() + "Z",
                 "is_bound": s.id in bound_student_ids,
             })
 
@@ -690,7 +690,7 @@ class IdentityService:
             resource_type="identity_binding_token",
             resource_id=f"batch:{len(results)}",
             before=None,
-            after={"count": len(results), "expires_at": expires_at.isoformat()},
+            after={"count": len(results), "expires_at": expires_at.isoformat() + "Z"},
             reason=reason,
             request_id=request_id,
         )
@@ -751,13 +751,18 @@ class IdentityService:
 
         for row_idx, item in enumerate(tokens_data, start=2):
             status_text = "已绑定" if item["is_bound"] else "未绑定"
+            try:
+                raw_exp = item["expires_at"].replace("Z", "")
+                bj_exp = (datetime.fromisoformat(raw_exp) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                bj_exp = item["expires_at"][:19].replace("T", " ")
             ws.append([
                 item["student_no"],
                 item["name"],
                 item["class_name"] or "",
                 item["college"] or "",
                 item["binding_code"],
-                item["expires_at"][:19].replace("T", " "),
+                bj_exp,
                 status_text,
             ])
             ws.row_dimensions[row_idx].height = 22

@@ -99,3 +99,11 @@ export async function exportBindingTokensExcel(body: {
   return res.blob()
 }
 
+export async function resetStudentBinding(userId: string, body?: { new_student_no?: string | null; reason?: string }) {
+  return request(`/api/v1/users/${userId}/student-binding-reset`, {
+    method: 'POST',
+    body: JSON.stringify(body || { reason: '管理员在后台重置解绑' })
+  })
+}
+
+

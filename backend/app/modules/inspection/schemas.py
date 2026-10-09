@@ -542,6 +542,29 @@ class SubmissionReviewRequest(BaseModel):
     comment: str | None = Field(default=None, max_length=512)
 
 
+class SubmissionBatchReviewRequest(BaseModel):
+    """批量处理待审核提交（一键通过/勾选批量通过）。"""
+
+    submission_ids: list[int] = Field(min_length=1, max_length=500)
+    decision: ReviewDecisionLiteral = "APPROVED"
+    comment: str | None = Field(default=None, max_length=512)
+
+
+class BatchReviewResultItem(BaseModel):
+    submission_id: IdStr
+    success: bool
+    error: str | None = None
+    review_status: str | None = None
+
+
+class SubmissionBatchReviewResponse(BaseModel):
+    total: int
+    success_count: int
+    failed_count: int
+    results: list[BatchReviewResultItem]
+
+
+
 # --------------------------------------------------------------------------- #
 # 应到人数调整（attendance.expected_count_adjust，Wave P5d）：改当前应到人数，保留初始快照。
 # --------------------------------------------------------------------------- #
@@ -661,5 +684,8 @@ __all__ = [
     "AbnormalTypeLiteral",
     "ReviewDecisionLiteral",
     "SubmissionReviewRequest",
+    "SubmissionBatchReviewRequest",
+    "BatchReviewResultItem",
+    "SubmissionBatchReviewResponse",
     "ExpectedCountUpdateRequest",
 ]
