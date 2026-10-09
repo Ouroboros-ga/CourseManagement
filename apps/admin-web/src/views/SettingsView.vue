@@ -529,7 +529,14 @@ onMounted(async () => {
       <div class="stat-cell">
         <div class="label">第一教学周周一</div>
         <div class="value" style="font-size: 20px;">{{ selectedSemester?.first_monday || '—' }}</div>
-        <div class="note">全校排课与周次折算基准日</div>
+        <div class="note">
+          <template v-if="selectedSemester?.start_date === selectedSemester?.first_monday">
+            与开学首日完全对齐 · 排课基准日
+          </template>
+          <template v-else>
+            全校排课基准日（开学日：{{ selectedSemester?.start_date || '—' }}）
+          </template>
+        </div>
       </div>
       <div class="stat-cell">
         <div class="label flex items-center justify-between">
@@ -875,6 +882,31 @@ onMounted(async () => {
             <input v-model.number="semesterCreateForm.total_weeks" type="number" min="1" max="50" class="input w-full font-mono" />
           </div>
         </div>
+        <!-- 日期对齐校准提示 -->
+        <div
+          v-if="semesterCreateForm.start_date && semesterCreateForm.first_monday && semesterCreateForm.start_date !== semesterCreateForm.first_monday"
+          class="p-2.5 rounded bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between"
+        >
+          <div class="leading-relaxed">
+            <b>⚠️ 日期对齐提醒</b>：开学日与首周周一不一致。
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0 ml-2">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-white"
+              @click="semesterCreateForm.start_date = semesterCreateForm.first_monday"
+            >
+              设开学=首周一
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-white"
+              @click="semesterCreateForm.first_monday = semesterCreateForm.start_date"
+            >
+              设首周一=开学
+            </button>
+          </div>
+        </div>
         <div class="pt-2">
           <label class="inline-flex items-center gap-2 text-sm text-[var(--ink-soft)] font-medium cursor-pointer">
             <input v-model="semesterCreateForm.init_default_periods" type="checkbox" class="chk" />
@@ -921,6 +953,33 @@ onMounted(async () => {
           <div>
             <label class="block text-xs font-bold text-[var(--ink)] mb-1">总教学周数</label>
             <input v-model.number="semesterEditForm.total_weeks" type="number" min="1" max="50" class="input w-full font-mono" />
+          </div>
+        </div>
+        <!-- 日期对齐校准提示 -->
+        <div
+          v-if="semesterEditForm.start_date && semesterEditForm.first_monday && semesterEditForm.start_date !== semesterEditForm.first_monday"
+          class="p-2.5 rounded bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between"
+        >
+          <div class="leading-relaxed">
+            <b>⚠️ 日期基准提示</b>：开学日（{{ semesterEditForm.start_date }}）与首周一（{{ semesterEditForm.first_monday }}）不一致。
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0 ml-2">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-white"
+              title="将学期开学日期同步设为第一教学周周一"
+              @click="semesterEditForm.start_date = semesterEditForm.first_monday"
+            >
+              设开学=首周一
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-white"
+              title="将第一教学周周一同步设为学期开学日期"
+              @click="semesterEditForm.first_monday = semesterEditForm.start_date"
+            >
+              设首周一=开学
+            </button>
           </div>
         </div>
         <div>

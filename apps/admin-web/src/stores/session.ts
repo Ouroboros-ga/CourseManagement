@@ -30,13 +30,14 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   /**
-   * 计算指定周的周一至周日日期
+   * 计算指定周的周一至周日日期（严格以第一教学周周一 first_monday 为基准）
    */
   const weekDateRange = computed(() => {
-    if (!currentSemester.value?.start_date) {
+    const baseDate = currentSemester.value?.first_monday || currentSemester.value?.start_date
+    if (!baseDate) {
       return { start: '', end: '', text: '' }
     }
-    const [year, month, day] = currentSemester.value.start_date.split('-').map(Number)
+    const [year, month, day] = baseDate.split('-').map(Number)
     const startDate = new Date(year, month - 1, day)
     
     // 偏移到对应周的周一
@@ -64,11 +65,11 @@ export const useSessionStore = defineStore('session', () => {
   })
 
   /**
-   * 根据当前自然日计算系统应处于的周次
+   * 根据当前自然日计算系统应处于的周次（严格以第一教学周周一为第1周开始基准）
    */
-  function calculateCurrentNaturalWeek(startDateStr: string, maxWeeks: number): number {
+  function calculateCurrentNaturalWeek(baseMondayStr: string, maxWeeks: number): number {
     try {
-      const [year, month, day] = startDateStr.split('-').map(Number)
+      const [year, month, day] = baseMondayStr.split('-').map(Number)
       const start = new Date(year, month - 1, day)
       const now = new Date()
       const diffMs = now.getTime() - start.getTime()
@@ -98,7 +99,7 @@ export const useSessionStore = defineStore('session', () => {
 
         currentSemester.value = target
         localStorage.setItem('preferred_semester_id', target.id)
-        currentWeekNo.value = calculateCurrentNaturalWeek(target.start_date, target.total_weeks)
+        currentWeekNo.value = calculateCurrentNaturalWeek(target.first_monday || target.start_date, target.total_weeks)
       }
     } catch (err) {
       console.warn('获取学期日历上下文失败:', err)
@@ -110,7 +111,7 @@ export const useSessionStore = defineStore('session', () => {
     if (found) {
       currentSemester.value = found
       localStorage.setItem('preferred_semester_id', found.id)
-      currentWeekNo.value = calculateCurrentNaturalWeek(found.start_date, found.total_weeks)
+      currentWeekNo.value = calculateCurrentNaturalWeek(found.first_monday || found.start_date, found.total_weeks)
     }
   }
 
