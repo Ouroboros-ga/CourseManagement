@@ -53,14 +53,51 @@ const semesterCreateForm = ref({
   reason: '管理端开启新学期'
 })
 
+function getMondayOfDate(dateStr: string): string {
+  if (!dateStr) return ''
+  try {
+    const [y, m, d] = dateStr.split('-').map(Number)
+    const dt = new Date(y, m - 1, d)
+    const day = dt.getDay()
+    const diff = dt.getDate() - day + (day === 0 ? -6 : 1)
+    const monday = new Date(dt.setDate(diff))
+    const yStr = monday.getFullYear()
+    const mStr = String(monday.getMonth() + 1).padStart(2, '0')
+    const dStr = String(monday.getDate()).padStart(2, '0')
+    return `${yStr}-${mStr}-${dStr}`
+  } catch {
+    return dateStr
+  }
+}
+
+function isMonday(dateStr: string): boolean {
+  try {
+    if (!dateStr) return false
+    const parts = dateStr.split('-').map(Number)
+    if (parts.length !== 3) return false
+    const [y, m, d] = parts
+    const dt = new Date(y, m - 1, d)
+    return dt.getDay() === 1
+  } catch {
+    return false
+  }
+}
+
+function handleStartDateChange(form: { start_date: string; first_monday: string }) {
+  if (form.start_date) {
+    form.first_monday = getMondayOfDate(form.start_date)
+  }
+}
+
 function openCreateSemesterDialog() {
   const currentYear = new Date().getFullYear()
+  const defaultStart = `${currentYear}-09-01`
   semesterCreateForm.value = {
     code: `${currentYear}-${currentYear + 1}-1`,
     name: `${currentYear}-${currentYear + 1}学年第1学期`,
-    start_date: `${currentYear}-09-01`,
+    start_date: defaultStart,
     end_date: `${currentYear + 1}-01-31`,
-    first_monday: `${currentYear}-09-07`,
+    first_monday: getMondayOfDate(defaultStart),
     total_weeks: 20,
     init_default_periods: true,
     reason: '管理端新建学期'
@@ -75,6 +112,12 @@ async function handleCreateSemester() {
   }
   if (!semesterCreateForm.value.start_date || !semesterCreateForm.value.end_date || !semesterCreateForm.value.first_monday) {
     ElMessage.warning('请填写完整的学期起止日期和第一教学周周一')
+    return
+  }
+  if (!isMonday(semesterCreateForm.value.first_monday)) {
+    const corrected = getMondayOfDate(semesterCreateForm.value.first_monday)
+    semesterCreateForm.value.first_monday = corrected
+    ElMessage.warning(`“第一教学周周一”必须是星期一，已自动为您校准为：${corrected}`)
     return
   }
 
@@ -129,6 +172,12 @@ function openEditSemesterDialog(sem?: SemesterItem) {
 async function handleUpdateSemester() {
   if (!semesterEditForm.value.name.trim()) {
     ElMessage.warning('学期名称不能为空')
+    return
+  }
+  if (semesterEditForm.value.first_monday && !isMonday(semesterEditForm.value.first_monday)) {
+    const corrected = getMondayOfDate(semesterEditForm.value.first_monday)
+    semesterEditForm.value.first_monday = corrected
+    ElMessage.warning(`“第一教学周周一”必须是星期一，已自动为您校准为：${corrected}`)
     return
   }
   editSemesterSubmitting.value = true
@@ -865,7 +914,12 @@ onMounted(async () => {
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期开始日期 *</label>
-            <input v-model="semesterCreateForm.start_date" type="date" class="input w-full font-mono" />
+            <input
+              v-model="semesterCreateForm.start_date"
+              type="date"
+              class="input w-full font-mono"
+              @change="handleStartDateChange(semesterCreateForm)"
+            />
           </div>
           <div>
             <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期结束日期 *</label>
@@ -885,25 +939,19 @@ onMounted(async () => {
         <!-- 日期对齐校准提示 -->
         <div
           v-if="semesterCreateForm.start_date && semesterCreateForm.first_monday && semesterCreateForm.start_date !== semesterCreateForm.first_monday"
-          class="p-2.5 rounded bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between"
+          class="p-2.5 rounded bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-center justify-between"
         >
           <div class="leading-relaxed">
-            <b>⚠️ 日期对齐提醒</b>：开学日与首周周一不一致。
+            <b>💡 教学周基准提示</b>：开学日（{{ semesterCreateForm.start_date }}）与首周一（{{ semesterCreateForm.first_monday }}）不同，系统将以首周一为全校排课基准。
           </div>
           <div class="flex items-center gap-1.5 shrink-0 ml-2">
             <button
               type="button"
               class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-white"
-              @click="semesterCreateForm.start_date = semesterCreateForm.first_monday"
+              title="根据开学日期自动推导所在周周一"
+              @click="semesterCreateForm.first_monday = getMondayOfDate(semesterCreateForm.start_date)"
             >
-              设开学=首周一
-            </button>
-            <button
-              type="button"
-              class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-white"
-              @click="semesterCreateForm.first_monday = semesterCreateForm.start_date"
-            >
-              设首周一=开学
+              推导开学周周一
             </button>
           </div>
         </div>
@@ -938,7 +986,12 @@ onMounted(async () => {
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期开始日期</label>
-            <input v-model="semesterEditForm.start_date" type="date" class="input w-full font-mono" />
+            <input
+              v-model="semesterEditForm.start_date"
+              type="date"
+              class="input w-full font-mono"
+              @change="handleStartDateChange(semesterEditForm)"
+            />
           </div>
           <div>
             <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期结束日期</label>
@@ -958,27 +1011,19 @@ onMounted(async () => {
         <!-- 日期对齐校准提示 -->
         <div
           v-if="semesterEditForm.start_date && semesterEditForm.first_monday && semesterEditForm.start_date !== semesterEditForm.first_monday"
-          class="p-2.5 rounded bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between"
+          class="p-2.5 rounded bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-center justify-between"
         >
           <div class="leading-relaxed">
-            <b>⚠️ 日期基准提示</b>：开学日（{{ semesterEditForm.start_date }}）与首周一（{{ semesterEditForm.first_monday }}）不一致。
+            <b>💡 教学周基准提示</b>：开学日（{{ semesterEditForm.start_date }}）与首周一（{{ semesterEditForm.first_monday }}）不同，系统将以首周一为全校排课基准。
           </div>
           <div class="flex items-center gap-1.5 shrink-0 ml-2">
             <button
               type="button"
               class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-white"
-              title="将学期开学日期同步设为第一教学周周一"
-              @click="semesterEditForm.start_date = semesterEditForm.first_monday"
+              title="根据开学日期自动推导所在周周一"
+              @click="semesterEditForm.first_monday = getMondayOfDate(semesterEditForm.start_date)"
             >
-              设开学=首周一
-            </button>
-            <button
-              type="button"
-              class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-white"
-              title="将第一教学周周一同步设为学期开学日期"
-              @click="semesterEditForm.first_monday = semesterEditForm.start_date"
-            >
-              设首周一=开学
+              推导开学周周一
             </button>
           </div>
         </div>
