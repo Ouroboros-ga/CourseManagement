@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -61,8 +61,53 @@ class ObjectionFinalReviewRequest(BaseModel):
     current_version: int = Field(ge=1)
 
 
+class ObjectionStudentBrief(BaseModel):
+    """异议发起学生的展示信息。"""
+
+    student_id: IdStr
+    student_no: str | None = None
+    name: str | None = None
+    administrative_class_name: str | None = None
+
+
+class ObjectionTaskBrief(BaseModel):
+    """异议所属查课任务与课程时段信息。"""
+
+    task_id: IdStr
+    inspection_date: date
+    inspection_type: str
+    course_name_snapshot: str | None = None
+    class_name_snapshot: str | None = None
+    classroom_snapshot: str | None = None
+    start_period: int | None = None
+    end_period: int | None = None
+    period_text: str | None = None
+    week_no: int | None = None
+
+
+class ObjectionAttendanceBrief(BaseModel):
+    """异议关联的考勤记录信息。"""
+
+    id: IdStr
+    task_id: IdStr
+    student_id: IdStr
+    effective_type: str
+    current_version: int
+    base_attendance_version: int
+
+
+class ObjectionFileBrief(BaseModel):
+    """异议证明材料文件信息。"""
+
+    id: IdStr
+    filename: str | None = None
+    size_bytes: int | None = None
+    content_type: str | None = None
+    access_url: str | None = None
+
+
 class ObjectionResponse(BaseModel):
-    """异议全貌：考勤锚点、发起版本、诉求、初核/终审状态与意见、终审改判、证明材料文件。"""
+    """异议全貌：考勤锚点、发起版本、诉求、初核/终审状态与意见、终审改判、证明材料文件，附学生/任务/考勤完整上下文。"""
 
     id: IdStr
     attendance_record_id: IdStr
@@ -83,6 +128,30 @@ class ObjectionResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # 扩展结构化上下文（供移动端/Web端直接渲染）
+    student: ObjectionStudentBrief | None = None
+    task: ObjectionTaskBrief | None = None
+    attendance: ObjectionAttendanceBrief | None = None
+    files: list[ObjectionFileBrief] = Field(default_factory=list)
+
+    # 平铺便利字段（无需前端多层解包）
+    student_name: str | None = None
+    student_no: str | None = None
+    course_name: str | None = None
+    class_name: str | None = None
+    classroom: str | None = None
+    inspection_date: str | None = None
+    date: str | None = None
+    period: str | None = None
+    original_attendance_type: str | None = None
+    current_attendance_type: str | None = None
+
+    # 小程序模板特定绑定字段（零代码修改直接开箱生效）
+    studentName: str | None = None
+    studentId: str | None = None
+    courseName: str | None = None
+    type: str | None = None
+
 
 __all__ = [
     "ObjectionTypeLiteral",
@@ -91,5 +160,10 @@ __all__ = [
     "ObjectionCreateRequest",
     "ObjectionInitialReviewRequest",
     "ObjectionFinalReviewRequest",
+    "ObjectionStudentBrief",
+    "ObjectionTaskBrief",
+    "ObjectionAttendanceBrief",
+    "ObjectionFileBrief",
     "ObjectionResponse",
 ]
+

@@ -241,13 +241,6 @@ async function handleViewFile(fileId: string) {
 <template>
   <div v-loading="loading">
     <header class="page-head">
-      <div class="crumb font-mono">
-        <span>OBJECTION</span>
-        <em>●</em>
-        <span>待终审 {{ pendingFinalCount }} 笔</span>
-        <em>●</em>
-        <span>总记录 {{ objections.length }} 笔</span>
-      </div>
       <h1>学生考勤异议处理</h1>
       <p class="sub">
         处理学生对考勤结果提出的异议申诉。终审裁决将同步更正考勤最终事实、递增版本编号、写入操作人审计日志并刷新学院周报。
@@ -269,7 +262,7 @@ async function handleViewFile(fileId: string) {
           :class="{ on: statusFilter === 'PENDING_FINAL' }"
           @click="statusFilter = 'PENDING_FINAL'"
         >
-          待教师终审
+          待教师终审 ({{ pendingFinalCount }})
         </button>
         <button
           class="tab-btn"
@@ -339,14 +332,14 @@ async function handleViewFile(fileId: string) {
             </div>
 
             <div class="card-name font-serif">
-              {{ attendanceMap[obj.attendance_record_id]?.name || '学生 #' + obj.student_id }}
+              {{ obj.student_name || attendanceMap[obj.attendance_record_id]?.name || '学生 #' + obj.student_id }}
               <span class="card-class font-mono">
-                {{ attendanceMap[obj.attendance_record_id]?.student_no ? `(${attendanceMap[obj.attendance_record_id]?.student_no})` : '' }}
+                {{ (obj.student_no || attendanceMap[obj.attendance_record_id]?.student_no) ? `(${obj.student_no || attendanceMap[obj.attendance_record_id]?.student_no})` : '' }}
               </span>
             </div>
 
             <div class="card-course cell-sub">
-              {{ attendanceMap[obj.attendance_record_id]?.task?.course_name_snapshot || '考勤记录 #' + obj.attendance_record_id }}
+              {{ obj.course_name || attendanceMap[obj.attendance_record_id]?.task?.course_name_snapshot || '考勤记录 #' + obj.attendance_record_id }}
             </div>
 
             <div class="card-bottom">
@@ -382,16 +375,16 @@ async function handleViewFile(fileId: string) {
             </div>
 
             <div class="obj-title font-serif">
-              {{ activeAttendance?.name || '学生 #' + activeObjection.student_id }}
-              <span v-if="activeAttendance?.student_no" class="font-mono obj-sub-no">
-                · {{ activeAttendance.student_no }}
+              {{ activeObjection.student_name || activeAttendance?.name || '学生 #' + activeObjection.student_id }}
+              <span v-if="activeObjection.student_no || activeAttendance?.student_no" class="font-mono obj-sub-no">
+                · {{ activeObjection.student_no || activeAttendance?.student_no }}
               </span>
-              <span v-if="activeAttendance?.task?.class_name_snapshot" class="font-mono obj-sub-class">
-                · {{ activeAttendance.task.class_name_snapshot }}
+              <span v-if="activeObjection.class_name || activeAttendance?.task?.class_name_snapshot" class="font-mono obj-sub-class">
+                · {{ activeObjection.class_name || activeAttendance?.task?.class_name_snapshot }}
               </span>
             </div>
             <div class="cell-sub">
-              针对 {{ activeAttendance?.task?.inspection_date || '' }} 《{{ activeAttendance?.task?.course_name_snapshot || '课程' }}》考勤认定提出异议
+              针对 {{ activeObjection.date || activeAttendance?.task?.inspection_date || '' }} 《{{ activeObjection.course_name || activeAttendance?.task?.course_name_snapshot || '课程' }}》考勤认定提出异议
             </div>
           </div>
 
@@ -601,15 +594,12 @@ async function handleViewFile(fileId: string) {
 </template>
 
 <style scoped>
-.page-head { margin-bottom: 24px; }
-.crumb em { margin: 0 8px; color: var(--ink-mute); }
-
 .sub-nav-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
   gap: 16px;
 }

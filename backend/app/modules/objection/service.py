@@ -27,6 +27,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams
@@ -40,16 +41,18 @@ from app.core.exceptions import (
     PermissionDeniedError,
     UnauthenticatedError,
 )
+from app.modules.academic.models import AdministrativeClass, Student
 from app.modules.attendance.models import (
     AttendanceRecord,
     AttendanceRecordVersion,
     AttendanceSourceType,
 )
 from app.modules.audit.models import AuditLog
-from app.modules.file.models import FileCategory, FileStatus
+from app.modules.file.models import FileCategory, FileObject, FileStatus
 from app.modules.file.repository import FileRepository
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
+from app.modules.inspection.models import InspectionTask
 from app.modules.objection import permissions as perms
 from app.modules.objection.models import (
     Objection,
@@ -59,10 +62,14 @@ from app.modules.objection.models import (
 )
 from app.modules.objection.repository import ObjectionRepository
 from app.modules.objection.schemas import (
+    ObjectionAttendanceBrief,
     ObjectionCreateRequest,
+    ObjectionFileBrief,
     ObjectionFinalReviewRequest,
     ObjectionInitialReviewRequest,
     ObjectionResponse,
+    ObjectionStudentBrief,
+    ObjectionTaskBrief,
 )
 from app.modules.report.source_revision import SourceRevisionService
 
@@ -466,14 +473,156 @@ class ObjectionService:
         return self._assemble([obj])[0]
 
     # ================================================================== #
-    # 装配（批量取材料关联，禁 N+1）
+    # 装配（批量取材料关联、学生与考勤上下文，禁 N+1）
     # ================================================================== #
     def _assemble(self, objs: Sequence[Objection]) -> list[ObjectionResponse]:
         if not objs:
             return []
+
+        # 1. 批量取证明材料关联及文件实体 (禁 N+1)
         file_map = self._repo.map_file_ids_by_objection([o.id for o in objs])
+        all_file_ids = list({fid for fids in file_map.values() for fid in fids})
+        file_objs_map: dict[int, FileObject] = {}
+        if all_file_ids:
+            f_rows = self._session.execute(
+                select(FileObject).where(FileObject.id.in_(all_file_ids))
+            ).scalars().all()
+            file_objs_map = {f.id: f for f in f_rows}
+
+        # 2. 批量取考勤记录及关联的查课任务 (禁 N+1)
+        record_ids = list({o.attendance_record_id for o in objs})
+        records = (
+            self._session.execute(
+                select(AttendanceRecord).where(AttendanceRecord.id.in_(record_ids))
+            ).scalars().all()
+            if record_ids
+            else []
+        )
+        record_map = {r.id: r for r in records}
+
+        task_ids = list({r.task_id for r in records})
+        tasks = (
+            self._session.execute(
+                select(InspectionTask).where(InspectionTask.id.in_(task_ids))
+            ).scalars().all()
+            if task_ids
+            else []
+        )
+        task_map = {t.id: t for t in tasks}
+
+        # 3. 批量取学生及行政班级 (禁 N+1)
+        student_ids = list({o.student_id for o in objs})
+        students = (
+            self._session.execute(
+                select(Student).where(Student.id.in_(student_ids))
+            ).scalars().all()
+            if student_ids
+            else []
+        )
+        student_map = {s.id: s for s in students}
+
+        admin_class_ids = list(
+            {s.administrative_class_id for s in students if s.administrative_class_id}
+        )
+        admin_classes = (
+            self._session.execute(
+                select(AdministrativeClass).where(AdministrativeClass.id.in_(admin_class_ids))
+            ).scalars().all()
+            if admin_class_ids
+            else []
+        )
+        admin_class_map = {c.id: c.class_name for c in admin_classes}
+
+        type_cn_map = {
+            "NORMAL": "正常出勤",
+            "LEAVE": "请假",
+            "LATE": "迟到",
+            "ABSENT": "旷课",
+        }
+
         out: list[ObjectionResponse] = []
         for o in objs:
+            rec = record_map.get(o.attendance_record_id)
+            task = task_map.get(rec.task_id) if rec else None
+            stu = student_map.get(o.student_id)
+            admin_class_name = (
+                admin_class_map.get(stu.administrative_class_id)
+                if (stu and stu.administrative_class_id)
+                else None
+            )
+
+            # 学生简报
+            student_brief = (
+                ObjectionStudentBrief(
+                    student_id=str(stu.id),
+                    student_no=stu.student_no,
+                    name=stu.name,
+                    administrative_class_name=admin_class_name,
+                )
+                if stu
+                else None
+            )
+
+            # 任务简报
+            period_text = (
+                f"第{task.start_period}-{task.end_period}节"
+                if task and task.start_period and task.end_period
+                else None
+            )
+            period_simple = (
+                f"{task.start_period}-{task.end_period}"
+                if task and task.start_period and task.end_period
+                else None
+            )
+            task_brief = (
+                ObjectionTaskBrief(
+                    task_id=str(task.id),
+                    inspection_date=task.inspection_date,
+                    inspection_type=task.inspection_type,
+                    course_name_snapshot=task.course_name_snapshot,
+                    class_name_snapshot=task.class_name_snapshot,
+                    classroom_snapshot=task.classroom_snapshot,
+                    start_period=task.start_period,
+                    end_period=task.end_period,
+                    period_text=period_text,
+                    week_no=task.week_no,
+                )
+                if task
+                else None
+            )
+
+            # 考勤简报
+            attendance_brief = (
+                ObjectionAttendanceBrief(
+                    id=str(rec.id),
+                    task_id=str(rec.task_id),
+                    student_id=str(rec.student_id),
+                    effective_type=rec.effective_type,
+                    current_version=rec.current_version,
+                    base_attendance_version=o.base_attendance_version,
+                )
+                if rec
+                else None
+            )
+
+            # 文件简报
+            file_ids_for_obj = file_map.get(o.id, [])
+            files_brief = []
+            for fid in file_ids_for_obj:
+                fobj = file_objs_map.get(fid)
+                files_brief.append(
+                    ObjectionFileBrief(
+                        id=str(fid),
+                        filename=fobj.filename if fobj else None,
+                        size_bytes=fobj.size_bytes if fobj else None,
+                        content_type=fobj.content_type if fobj else None,
+                        access_url=f"/api/v1/files/{fid}/download",
+                    )
+                )
+
+            orig_type = rec.effective_type if rec else None
+            orig_type_cn = type_cn_map.get(orig_type, orig_type) if orig_type else None
+
             out.append(
                 ObjectionResponse(
                     id=o.id,
@@ -491,9 +640,27 @@ class ObjectionService:
                     final_reviewed_at=o.final_reviewed_at,
                     final_comment=o.final_comment,
                     final_attendance_type=o.final_attendance_type,
-                    file_ids=file_map.get(o.id, []),
+                    file_ids=file_ids_for_obj,
                     created_at=o.created_at,
                     updated_at=o.updated_at,
+                    student=student_brief,
+                    task=task_brief,
+                    attendance=attendance_brief,
+                    files=files_brief,
+                    student_name=stu.name if stu else None,
+                    student_no=stu.student_no if stu else None,
+                    course_name=task.course_name_snapshot if task else None,
+                    class_name=task.class_name_snapshot if task else None,
+                    classroom=task.classroom_snapshot if task else None,
+                    inspection_date=str(task.inspection_date) if task else None,
+                    date=str(task.inspection_date) if task else None,
+                    period=period_simple,
+                    original_attendance_type=orig_type,
+                    current_attendance_type=orig_type,
+                    studentName=stu.name if stu else None,
+                    studentId=stu.student_no if (stu and stu.student_no) else (str(o.student_id)),
+                    courseName=task.course_name_snapshot if task else None,
+                    type=orig_type_cn or o.desired_type,
                 )
             )
         return out

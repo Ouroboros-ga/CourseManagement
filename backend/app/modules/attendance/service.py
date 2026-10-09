@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams
@@ -35,6 +36,7 @@ from app.modules.attendance.models import (
 from app.modules.attendance.repository import AttendanceRepository
 from app.modules.attendance.schemas import (
     AttendanceCorrectionRequest,
+    AttendanceObjectionBrief,
     AttendanceResponse,
     AttendanceTaskBrief,
     AttendanceVersionResponse,
@@ -43,6 +45,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
 from app.modules.inspection.models import InspectionTask
+from app.modules.objection.models import Objection
 from app.modules.report.source_revision import SourceRevisionService
 
 
@@ -259,10 +262,36 @@ class AttendanceService:
         version_by_task = {tid: t.roster_version for tid, t in tasks.items()}
         pairs = [(r.task_id, r.student_id) for r in records]
         display = self._repo.map_roster_display(pairs, version_by_task)
+
+        # 批量查所涉考勤记录的异议信息（取最新一条，禁 N+1）
+        record_ids = [r.id for r in records]
+        objections_by_record: dict[int, Objection] = {}
+        if record_ids:
+            stmt = (
+                select(Objection)
+                .where(Objection.attendance_record_id.in_(record_ids))
+                .order_by(Objection.id.desc())
+            )
+            for obj in self._session.execute(stmt).scalars().all():
+                if obj.attendance_record_id not in objections_by_record:
+                    objections_by_record[obj.attendance_record_id] = obj
+
         out: list[AttendanceResponse] = []
         for r in records:
             task: InspectionTask | None = tasks.get(r.task_id)
             sno, name = display.get((r.task_id, r.student_id), (None, None))
+
+            # 任务时段与教室简报
+            period_text = (
+                f"第{task.start_period}-{task.end_period}节"
+                if task and task.start_period and task.end_period
+                else None
+            )
+            period_simple = (
+                f"{task.start_period}-{task.end_period}"
+                if task and task.start_period and task.end_period
+                else None
+            )
             task_brief = (
                 AttendanceTaskBrief(
                     task_id=task.id,
@@ -270,10 +299,35 @@ class AttendanceService:
                     inspection_type=task.inspection_type,
                     course_name_snapshot=task.course_name_snapshot,
                     class_name_snapshot=task.class_name_snapshot,
+                    classroom_snapshot=task.classroom_snapshot,
+                    start_period=task.start_period,
+                    end_period=task.end_period,
+                    period_text=period_text,
+                    week_no=task.week_no,
                 )
                 if task is not None
                 else None
             )
+
+            # 关联的异议信息
+            obj = objections_by_record.get(r.id)
+            has_obj = obj is not None
+            obj_id = str(obj.id) if obj else None
+            obj_status = obj.final_status if obj else None
+            obj_summary = (
+                AttendanceObjectionBrief(
+                    id=str(obj.id),
+                    status=obj.final_status,
+                    initial_status=obj.initial_status,
+                    final_status=obj.final_status,
+                    desired_type=obj.desired_type,  # type: ignore[arg-type]
+                    reason=obj.reason,
+                    created_at=obj.created_at,
+                )
+                if obj
+                else None
+            )
+
             out.append(
                 AttendanceResponse(
                     id=r.id,
@@ -286,6 +340,12 @@ class AttendanceService:
                     source_submission_item_id=r.source_submission_item_id,
                     task=task_brief,
                     created_at=r.created_at,
+                    has_objection=has_obj,
+                    objection_id=obj_id,
+                    objection_status=obj_status,
+                    objection_summary=obj_summary,
+                    period=period_simple,
+                    classroom=task.classroom_snapshot if task else None,
                 )
             )
         return out

@@ -23,17 +23,34 @@ AttendanceSourceLiteral = Literal["SUBMISSION", "CORRECTION", "OBJECTION_FINAL"]
 
 
 class AttendanceTaskBrief(BaseModel):
-    """考勤所属查课任务的精简展示信息（列表按任务上下文回看，技术方案 14）。"""
+    """考勤所属查课任务的展示信息（列表按任务上下文回看，技术方案 14）。"""
 
     task_id: IdStr
     inspection_date: date
     inspection_type: str
-    course_name_snapshot: str | None
-    class_name_snapshot: str | None
+    course_name_snapshot: str | None = None
+    class_name_snapshot: str | None = None
+    classroom_snapshot: str | None = None
+    start_period: int | None = None
+    end_period: int | None = None
+    period_text: str | None = None
+    week_no: int | None = None
+
+
+class AttendanceObjectionBrief(BaseModel):
+    """考勤记录所关联的异议概况（小程序/移动端重点消费）。"""
+
+    id: IdStr
+    status: str
+    initial_status: str
+    final_status: str
+    desired_type: AttendanceTypeLiteral
+    reason: str | None = None
+    created_at: datetime | None = None
 
 
 class AttendanceResponse(BaseModel):
-    """当前有效考勤：一任务一学生一条，附学生快照与任务上下文。"""
+    """当前有效考勤：一任务一学生一条，附学生快照、任务上下文与异议标识。"""
 
     id: IdStr
     task_id: IdStr
@@ -45,6 +62,17 @@ class AttendanceResponse(BaseModel):
     source_submission_item_id: OptIdStr
     task: AttendanceTaskBrief | None
     created_at: datetime
+
+    # 异议标识扩展字段（小程序判断是否允许发起异议 / 展示申诉状态）
+    has_objection: bool = False
+    objection_id: OptIdStr = None
+    objection_status: str | None = None
+    objection_summary: AttendanceObjectionBrief | None = None
+
+    # 小程序平铺便利字段（无需多层解包）
+    period: str | None = None
+    classroom: str | None = None
+
 
 
 class AttendanceVersionResponse(BaseModel):
@@ -77,6 +105,7 @@ __all__ = [
     "AttendanceTypeLiteral",
     "AttendanceSourceLiteral",
     "AttendanceTaskBrief",
+    "AttendanceObjectionBrief",
     "AttendanceResponse",
     "AttendanceVersionResponse",
     "AttendanceCorrectionRequest",

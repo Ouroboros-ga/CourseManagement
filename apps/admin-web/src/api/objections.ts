@@ -5,6 +5,43 @@ export type ObjectionType = AttendanceType
 export type ObjectionInitialStatus = 'PENDING' | 'PASSED' | 'REJECTED'
 export type ObjectionFinalStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 
+export interface ObjectionStudentBrief {
+  student_id: string
+  student_no?: string | null
+  name?: string | null
+  administrative_class_name?: string | null
+}
+
+export interface ObjectionTaskBrief {
+  task_id: string
+  inspection_date: string
+  inspection_type: string
+  course_name_snapshot?: string | null
+  class_name_snapshot?: string | null
+  classroom_snapshot?: string | null
+  start_period?: number | null
+  end_period?: number | null
+  period_text?: string | null
+  week_no?: number | null
+}
+
+export interface ObjectionAttendanceBrief {
+  id: string
+  task_id: string
+  student_id: string
+  effective_type: string
+  current_version: number
+  base_attendance_version: number
+}
+
+export interface ObjectionFileBrief {
+  id: string
+  filename?: string | null
+  size_bytes?: number | null
+  content_type?: string | null
+  access_url?: string | null
+}
+
 export interface ObjectionItem {
   id: string
   attendance_record_id: string
@@ -24,6 +61,20 @@ export interface ObjectionItem {
   file_ids: string[]
   created_at: string
   updated_at: string
+  student?: ObjectionStudentBrief | null
+  task?: ObjectionTaskBrief | null
+  attendance?: ObjectionAttendanceBrief | null
+  files?: ObjectionFileBrief[]
+  student_name?: string | null
+  student_no?: string | null
+  course_name?: string | null
+  class_name?: string | null
+  classroom?: string | null
+  inspection_date?: string | null
+  date?: string | null
+  period?: string | null
+  original_attendance_type?: string | null
+  current_attendance_type?: string | null
 }
 
 export interface ListObjectionsParams {
