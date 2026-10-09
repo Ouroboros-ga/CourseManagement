@@ -81,17 +81,23 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  async function fetchAcademicContext(): Promise<void> {
+  async function fetchAcademicContext(preferredId?: string): Promise<void> {
     try {
-      const res = await listSemesters('ACTIVE')
+      // 拉取全部学期（包含 ACTIVE 与 ARCHIVED），确保全局支持切换与查阅
+      const res = await listSemesters('')
       semesters.value = res.items || []
       if (semesters.value.length > 0) {
-        // 优先选择匹配当前年度的学期或最新学期
-        const target = semesters.value.find(s => s.code === '2026FA') 
-          || semesters.value.find(s => s.name.includes('2026')) 
-          || semesters.value[0]
-        
+        const storedId = localStorage.getItem('preferred_semester_id') || ''
+        const candidateId = preferredId || currentSemester.value?.id || storedId
+
+        // 查找优先级：明确指定的ID -> 当前选中的ID -> LocalStorage记录的ID -> 首个活跃学期 -> 倒序最新学期
+        let target = candidateId ? semesters.value.find(s => String(s.id) === String(candidateId)) : null
+        if (!target) {
+          target = semesters.value.find(s => s.status === 'ACTIVE') || semesters.value[semesters.value.length - 1] || semesters.value[0]
+        }
+
         currentSemester.value = target
+        localStorage.setItem('preferred_semester_id', target.id)
         currentWeekNo.value = calculateCurrentNaturalWeek(target.start_date, target.total_weeks)
       }
     } catch (err) {
@@ -100,9 +106,10 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function setSemester(semesterId: string): void {
-    const found = semesters.value.find(s => s.id === semesterId)
+    const found = semesters.value.find(s => String(s.id) === String(semesterId))
     if (found) {
       currentSemester.value = found
+      localStorage.setItem('preferred_semester_id', found.id)
       currentWeekNo.value = calculateCurrentNaturalWeek(found.start_date, found.total_weeks)
     }
   }
