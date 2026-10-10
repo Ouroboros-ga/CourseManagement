@@ -94,11 +94,6 @@ const weekDayOptions = computed(() => {
   })
 })
 
-const currentDayFilterLabel = computed(() => {
-  const found = weekDayOptions.value.find(d => d.value === selectedDayFilter.value)
-  return found ? `${found.weekdayName} (${found.dateLabel}) · ${found.count} 节查课` : '指定日期'
-})
-
 async function fetchTasks() {
   if (!sessionStore.currentSemesterId) return
   loading.value = true
@@ -572,28 +567,22 @@ async function handleConfirmCancel() {
     <!-- 任务表 -->
     <div class="tbl-wrap">
       <div class="tbl-head">
-        <div>
+        <div class="tbl-head-title">
           <h3>任务总览（{{ filteredTasks.length }} / {{ tasks.length }}）</h3>
-          <div class="meta">
-            按检查日期与节次排序 · 数据库真实数据
-            <span v-if="selectedDayFilter !== 'ALL'" class="ml-2 font-medium text-slate-700">
-              · [已筛选: {{ currentDayFilterLabel }}]
-            </span>
-          </div>
+          <div class="meta">按检查日期与节次排序 · 数据库真实数据</div>
         </div>
         <div class="tbl-tools">
           <input
             v-model="searchQuery"
             type="text"
-            class="input"
-            style="width: 200px"
+            class="input search-input"
             placeholder="搜索课程 / 班级 / 教室…"
           />
-          <select v-model="selectedDayFilter" class="input" style="min-width: 185px">
+          <select v-model="selectedDayFilter" class="input day-filter-select">
             <option value="ALL">本周全部 ({{ tasks.length }} 节查课)</option>
             <option v-for="d in weekDayOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
           </select>
-          <select v-model="selectedStatus" class="input">
+          <select v-model="selectedStatus" class="input status-select">
             <option value="">全部状态</option>
             <option value="待执行">待执行</option>
             <option value="已逾期">已逾期</option>
@@ -602,32 +591,32 @@ async function handleConfirmCancel() {
             <option value="已取消">已取消</option>
           </select>
           <button
-            class="btn btn-sm btn-primary inline-flex items-center gap-1.5 shadow-sm"
+            class="btn btn-sm btn-primary inline-flex items-center gap-1 shadow-sm flex-shrink-0"
             :disabled="autoAssigning"
             title="调用求解器防冲突算法，为当前未分配任务自动匹配在册志愿者"
             @click="handleAutoAssign"
           >
             <AppIcon name="sparkles" :size="13" class="text-amber-300" />
-            <span>{{ autoAssigning ? '排班中…' : (selectedTaskIds.length > 0 ? `智能自动排班 (${selectedTaskIds.length})` : '智能自动排班') }}</span>
+            <span>{{ autoAssigning ? '排班中…' : '智能排班' }}</span>
           </button>
           <button
-            class="btn btn-sm btn-danger inline-flex items-center gap-1"
+            class="btn btn-sm btn-danger inline-flex items-center gap-1 flex-shrink-0"
             :disabled="selectedTaskIds.length === 0"
             @click="handleBatchDelete"
           >
             <AppIcon name="trash" :size="13" />
-            <span>批量删除 ({{ selectedTaskIds.length }})</span>
+            <span>批量删除{{ selectedTaskIds.length > 0 ? ` (${selectedTaskIds.length})` : '' }}</span>
           </button>
           <button
-            class="btn btn-sm btn-outline inline-flex items-center gap-1"
+            class="btn btn-sm btn-outline inline-flex items-center gap-1 flex-shrink-0"
             :disabled="filteredTasks.length === 0"
             title="将当前周或筛选出的查课任务与受派人员导出为表格"
             @click="handleExportTasks"
           >
             <AppIcon name="download" :size="13" />
-            <span>导出排班 ({{ filteredTasks.length }})</span>
+            <span>导出排班</span>
           </button>
-          <button class="btn btn-sm" @click="fetchTasks">⟳ 刷新</button>
+          <button class="btn btn-sm flex-shrink-0" @click="fetchTasks">⟳ 刷新</button>
         </div>
       </div>
 
@@ -644,12 +633,12 @@ async function handleConfirmCancel() {
                 @change="toggleSelectAll"
               />
             </th>
-            <th>任务 ID</th>
-            <th>时间与地点</th>
-            <th>课程与教学班</th>
-            <th>受派志愿者</th>
-            <th>状态</th>
-            <th style="text-align: right">操作</th>
+            <th style="width: 75px">任务 ID</th>
+            <th style="width: 200px">时间与地点</th>
+            <th style="min-width: 180px">课程与教学班</th>
+            <th style="width: 160px">受派志愿者</th>
+            <th style="width: 110px">状态</th>
+            <th style="width: 320px; text-align: right">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -702,7 +691,7 @@ async function handleConfirmCancel() {
                 停课: {{ task.cancel_reason }}
               </div>
             </td>
-            <td style="text-align: right">
+            <td style="text-align: right; white-space: nowrap">
               <button
                 class="btn btn-sm"
                 @click="handleOpenAssignDialog(task)"
@@ -993,6 +982,60 @@ async function handleConfirmCancel() {
 .stat-row { margin-bottom: 16px; }
 .tid { font-weight: 600; color: var(--blue); }
 .unassigned { color: var(--amber); font-weight: 600; }
+
+.tbl-head {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+.tbl-head-title {
+  flex-shrink: 0;
+  min-width: 160px;
+}
+.tbl-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+.search-input {
+  width: 155px;
+  min-width: 155px;
+  max-width: 155px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.day-filter-select {
+  width: 195px;
+  min-width: 195px;
+  max-width: 195px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  transition: border-color 0.15s ease;
+}
+.status-select {
+  width: 95px;
+  min-width: 95px;
+  max-width: 95px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.tbl {
+  table-layout: fixed;
+}
+.tbl th, .tbl td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cell-main, .cell-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .chk {
   width: 16px;
