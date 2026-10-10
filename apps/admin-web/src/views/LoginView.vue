@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSessionStore } from '../stores/session'
 import { ElMessage } from 'element-plus'
+import schoolLogo from '../assets/school-logo.png'
 
 const router = useRouter()
 const sessionStore = useSessionStore()
@@ -11,6 +12,8 @@ const username = ref('')
 const password = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
+
+const currentTermText = computed(() => sessionStore.currentSemesterName || '2026-2027 学年第一学期')
 
 async function handleLogin() {
   if (!username.value || !password.value) {
@@ -39,27 +42,37 @@ async function handleLogin() {
   <div class="login-wrap">
     <!-- 左侧品牌叙事栏 -->
     <div class="login-left">
-      <div class="login-brand font-mono">COURSECHECK · ADMIN CONSOLE</div>
+      <div class="login-brand-header">
+        <img :src="schoolLogo" alt="绍兴理工学院校徽" class="brand-school-logo" />
+        <div class="brand-text">
+          <div class="college-title font-serif">绍兴理工学院 · 人工智能学院</div>
+          <div class="college-sub font-mono">SCHOOL OF ARTIFICIAL INTELLIGENCE</div>
+        </div>
+      </div>
+
       <div class="login-hero">
-        <div class="issue font-mono">VOL.04 — 2026 秋季学期</div>
-        <h1 class="font-serif">查课管理<br />工作台</h1>
+        <div class="term-badge font-mono">
+          <span class="dot"></span>
+          <span>{{ currentTermText }}</span>
+        </div>
+        <h1 class="font-serif">课堂教学考勤<br />管理工作台</h1>
         <p>
-          面向高校教学管理的线下查课排班、现场留痕与考勤闭环平台。
-          以编辑级的信息密度，呈现每一堂课的真实状态。
+          聚焦高校课堂教学秩序与学风建设，构建“任务生成 — 现场抽查 — 规范留痕 — 异议复核”全流程闭环教学质量监控与考勤保障系统。
         </p>
       </div>
+
       <div class="login-meta">
         <div>
-          <span class="num font-mono">112</span>
-          <span>API 接口契约</span>
+          <span class="num font-mono">100%</span>
+          <span>现场实景留痕</span>
         </div>
         <div>
-          <span class="num font-mono">18</span>
-          <span>覆盖教学班</span>
+          <span class="num font-mono">闭环</span>
+          <span>双审异议复核</span>
         </div>
         <div>
-          <span class="num font-mono">97.4%</span>
-          <span>本周到课率</span>
+          <span class="num font-mono">协同</span>
+          <span>多端实时互通</span>
         </div>
       </div>
     </div>
@@ -67,20 +80,31 @@ async function handleLogin() {
     <!-- 右侧登录表单 -->
     <div class="login-right">
       <div class="login-form">
-        <div class="form-tag font-mono">SIGN IN / 身份验证</div>
-        <h2 class="font-serif">欢迎回来</h2>
+        <!-- 移动端或卡片顶部的学院标识 -->
+        <div class="form-header">
+          <img :src="schoolLogo" alt="绍兴理工学院校徽" class="form-school-logo" />
+          <div class="form-header-text">
+            <div class="school-name font-serif">绍兴理工学院 · 人工智能学院</div>
+            <div class="platform-name font-mono">TEACHING QUALITY & ATTENDANCE SYSTEM</div>
+          </div>
+        </div>
+
+        <div class="form-welcome">
+          <h2 class="font-serif">管理工作台登录</h2>
+          <p class="form-subtitle">欢迎使用教学考勤管理系统，请验证身份以进入系统</p>
+        </div>
 
         <div v-if="errorMessage" class="login-error">{{ errorMessage }}</div>
 
         <form @submit.prevent="handleLogin">
           <div class="field">
-            <label>管理账号（工号 / 学号）</label>
+            <label>管理账号（工号 / 登录名）</label>
             <input
               v-model="username"
               type="text"
               required
               autocomplete="username"
-              placeholder="请输入管理员账号"
+              placeholder="请输入管理员或教师账号"
             />
           </div>
           <div class="field">
@@ -90,7 +114,7 @@ async function handleLogin() {
               type="password"
               required
               autocomplete="current-password"
-              placeholder="请输入密码"
+              placeholder="请输入登录密码"
             />
           </div>
           <button type="submit" class="btn btn-dark login-submit" :disabled="loading">
@@ -100,8 +124,10 @@ async function handleLogin() {
         </form>
 
         <div class="login-foot">
-          Web 访问令牌仅留存于内存，会话安全由 HttpOnly Cookie 保障。<br />
-          登录即代表同意《教学数据管理规范》与《隐私保护协议》。
+          <div class="foot-org">人工智能学院 · 教学科研与学生工作办公室</div>
+          <div class="foot-tip">
+            请遵守校园教学信息安全规范，妥善保管个人工作账号及权限密码。
+          </div>
         </div>
       </div>
     </div>
@@ -135,29 +161,61 @@ async function handleLogin() {
   background-size: 48px 48px;
   pointer-events: none;
 }
-.login-brand {
-  font-size: 12px;
-  letter-spacing: 0.15em;
-  opacity: 0.5;
+
+.login-brand-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+  z-index: 1;
 }
-.login-hero { position: relative; z-index: 1; }
-.login-hero .issue {
+.brand-school-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #ffffff;
+  padding: 1px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+}
+.brand-text .college-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--paper);
+  line-height: 1.3;
+}
+.brand-text .college-sub {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--paper-deep);
+  opacity: 0.65;
+  margin-top: 2px;
+}
+
+.login-hero {
+  position: relative;
+  z-index: 1;
+}
+.term-badge {
   font-size: 12px;
-  color: var(--accent);
-  letter-spacing: 0.1em;
+  color: var(--accent-soft);
+  letter-spacing: 0.08em;
   margin-bottom: 24px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
-.login-hero .issue::before {
-  content: '';
-  width: 32px;
-  height: 1px;
+.term-badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   background: var(--accent);
+  display: inline-block;
 }
 .login-hero h1 {
-  font-size: clamp(36px, 4vw, 52px);
+  font-size: clamp(34px, 3.8vw, 50px);
   font-weight: 700;
   line-height: 1.25;
   letter-spacing: 0.02em;
@@ -166,21 +224,22 @@ async function handleLogin() {
 .login-hero p {
   font-size: 15px;
   line-height: 1.9;
-  opacity: 0.55;
-  max-width: 400px;
+  opacity: 0.65;
+  max-width: 420px;
   font-weight: 300;
 }
+
 .login-meta {
   display: flex;
   gap: 48px;
   font-size: 12px;
-  opacity: 0.4;
+  opacity: 0.65;
   position: relative;
   z-index: 1;
 }
 .login-meta span { display: block; }
 .login-meta .num {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
   opacity: 1;
   color: var(--paper);
@@ -192,15 +251,57 @@ async function handleLogin() {
   align-items: center;
   justify-content: center;
   padding: 64px;
+  background: var(--paper);
 }
-.login-form { width: 100%; max-width: 380px; }
-.form-tag {
-  font-size: 11px;
+.login-form {
+  width: 100%;
+  max-width: 400px;
+}
+
+.form-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.form-school-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+.form-header-text .school-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.25;
+}
+.form-header-text .platform-name {
+  font-size: 10px;
   color: var(--ink-mute);
-  letter-spacing: 0.1em;
-  margin-bottom: 8px;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
 }
-.login-form h2 { font-size: 28px; font-weight: 600; margin-bottom: 40px; }
+
+.form-welcome {
+  margin-bottom: 32px;
+}
+.form-welcome h2 {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.25;
+}
+.form-subtitle {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+  line-height: 1.5;
+}
 
 .login-error {
   padding: 12px 16px;
@@ -212,7 +313,9 @@ async function handleLogin() {
   font-weight: 500;
 }
 
-.field { margin-bottom: 24px; }
+.field {
+  margin-bottom: 24px;
+}
 .field label {
   display: block;
   font-size: 12px;
@@ -233,22 +336,52 @@ async function handleLogin() {
   outline: none;
   transition: border-color 0.2s;
 }
-.field input:focus { border-bottom-color: var(--ink); }
-.field input::placeholder { color: var(--ink-mute); font-weight: 300; }
+.field input:focus {
+  border-bottom-color: var(--ink);
+}
+.field input::placeholder {
+  color: var(--ink-mute);
+  font-weight: 300;
+}
 
-.login-submit { width: 100%; padding: 14px; justify-content: center; margin-top: 8px; }
+.login-submit {
+  width: 100%;
+  padding: 14px;
+  justify-content: center;
+  margin-top: 8px;
+  font-size: 14px;
+}
 
 .login-foot {
-  margin-top: 40px;
-  padding-top: 24px;
+  margin-top: 36px;
+  padding-top: 20px;
   border-top: 1px solid var(--line);
   font-size: 11px;
   color: var(--ink-mute);
-  line-height: 1.8;
+  line-height: 1.7;
+}
+.foot-org {
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+.foot-tip {
+  color: var(--ink-mute);
+  font-size: 11px;
 }
 
 @media (max-width: 900px) {
-  .login-wrap { grid-template-columns: 1fr; }
-  .login-left { display: none; }
+  .login-wrap {
+    grid-template-columns: 1fr;
+  }
+  .login-left {
+    display: none;
+  }
+  .login-right {
+    padding: 36px 20px;
+  }
+  .login-form {
+    max-width: 100%;
+  }
 }
 </style>
