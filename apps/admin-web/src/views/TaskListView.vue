@@ -89,37 +89,14 @@ const weekDayOptions = computed(() => {
       dateLabel: `${mStr}-${dStr}`,
       isToday,
       count,
-      label: `${dayLabels[idx]} (${mStr}-${dStr}${todayMarker}) [${count}]`
+      label: `${dayLabels[idx]} (${mStr}-${dStr}${todayMarker}) [${count} 节查课]`
     }
   })
 })
 
-const todayInfo = computed(() => {
-  const todayStr = getTodayDateStr()
-  const found = weekDayOptions.value.find(d => d.isoDate === todayStr)
-  if (found) {
-    return {
-      dateLabel: found.dateLabel,
-      weekdayName: found.weekdayName,
-      count: found.count,
-      inCurrentWeek: true
-    }
-  }
-  const todayCount = tasks.value.filter(t => t.inspection_date === todayStr).length
-  return {
-    dateLabel: todayStr.slice(5),
-    weekdayName: '',
-    count: todayCount,
-    inCurrentWeek: false
-  }
-})
-
 const currentDayFilterLabel = computed(() => {
-  if (selectedDayFilter.value === 'TODAY') {
-    return `本日 (${todayInfo.value.dateLabel}${todayInfo.value.weekdayName ? ' ' + todayInfo.value.weekdayName : ''})`
-  }
   const found = weekDayOptions.value.find(d => d.value === selectedDayFilter.value)
-  return found ? `${found.weekdayName} (${found.dateLabel})` : '指定日期'
+  return found ? `${found.weekdayName} (${found.dateLabel}) · ${found.count} 节查课` : '指定日期'
 })
 
 async function fetchTasks() {
@@ -166,12 +143,9 @@ const statusAliasMap: Record<string, string[]> = {
 
 // 过滤后的任务列表
 const filteredTasks = computed(() => {
-  const todayStr = getTodayDateStr()
   return tasks.value.filter(t => {
     // 1. 日期 / 周几筛选
-    if (selectedDayFilter.value === 'TODAY') {
-      if (t.inspection_date !== todayStr) return false
-    } else if (selectedDayFilter.value !== 'ALL') {
+    if (selectedDayFilter.value !== 'ALL') {
       const targetWeekday = Number(selectedDayFilter.value)
       if (getTaskWeekday(t.inspection_date) !== targetWeekday) return false
     }
@@ -615,22 +589,10 @@ async function handleConfirmCancel() {
             style="width: 200px"
             placeholder="搜索课程 / 班级 / 教室…"
           />
-          <div class="inline-flex items-center gap-1.5">
-            <select v-model="selectedDayFilter" class="input" style="min-width: 155px">
-              <option value="ALL">本周全部 ({{ tasks.length }})</option>
-              <option value="TODAY">本日 / 今天 ({{ todayInfo.dateLabel }}{{ todayInfo.weekdayName ? ' ' + todayInfo.weekdayName : '' }} · {{ todayInfo.count }}节)</option>
-              <option v-for="d in weekDayOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
-            </select>
-            <button
-              type="button"
-              class="btn btn-sm"
-              :class="selectedDayFilter === 'TODAY' ? 'btn-dark font-medium' : 'btn-outline text-xs'"
-              :title="todayInfo.inCurrentWeek ? `仅看本日 (${todayInfo.dateLabel} ${todayInfo.weekdayName}) 任务` : '查看本日任务'"
-              @click="selectedDayFilter = selectedDayFilter === 'TODAY' ? 'ALL' : 'TODAY'"
-            >
-              本日
-            </button>
-          </div>
+          <select v-model="selectedDayFilter" class="input" style="min-width: 185px">
+            <option value="ALL">本周全部 ({{ tasks.length }} 节查课)</option>
+            <option v-for="d in weekDayOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
+          </select>
           <select v-model="selectedStatus" class="input">
             <option value="">全部状态</option>
             <option value="待执行">待执行</option>
