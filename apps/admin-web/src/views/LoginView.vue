@@ -118,7 +118,6 @@ async function handleLogin() {
         </form>
 
         <div class="login-foot">
-          <div class="foot-org">人工智能学院 · 教学科研与学生工作办公室</div>
           <div class="foot-tip">
             请遵守校园教学信息安全规范，妥善保管个人工作账号及权限密码。
           </div>
@@ -337,11 +336,6 @@ async function handleLogin() {
   font-size: 11px;
   color: var(--ink-mute);
   line-height: 1.7;
-}
-.foot-org {
-  font-weight: 600;
-  color: var(--ink-soft);
-  margin-bottom: 4px;
 }
 .foot-tip {
   color: var(--ink-mute);
