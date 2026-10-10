@@ -36,8 +36,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'reviews',
-        name: 'reviews',
-        component: () => import('../views/ReviewsView.vue')
+        redirect: '/dashboard/tasks'
       },
       {
         path: 'objections',
@@ -94,6 +93,16 @@ router.beforeEach(async (to, _from, next) => {
   }
 
   next()
+})
+
+router.onError((error: any) => {
+  const msg = error?.message || ''
+  if (
+    msg.includes('Failed to fetch dynamically imported module') ||
+    msg.includes('Importing a module script failed')
+  ) {
+    window.location.reload()
+  }
 })
 
 export default router

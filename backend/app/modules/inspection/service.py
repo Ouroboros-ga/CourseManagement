@@ -832,6 +832,8 @@ class InspectionService:
             deadline_at=day.deadline_at if day is not None else None,
             deadline_version_id=deadline_version_id,
             deadline_assessment=assessment_brief,
+            canceled_at=task.canceled_at,
+            cancel_reason=task.cancel_reason,
         )
 
     # ---- 计划核心算法（预览与生成共用，均不在此锁学期；调用方负责锁定/只读确认）----
@@ -952,6 +954,21 @@ class InspectionService:
                 else:
                     merged_class_name = tc_class_name.get(rep_s.teaching_class_id)
 
+                actual_week = _week_no_for_date(sem.first_monday, date_key)
+                display_class_name = merged_class_name
+                override_item = overrides.get(date_key)
+                if override_item is not None and override_item.override_type == OverrideType.MAKEUP.value:
+                    wd_names = {1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六", 7: "周日"}
+                    from_desc = (
+                        f"补第{eff_week}周{wd_names.get(eff_wd, '')}"
+                        if eff_week != actual_week
+                        else f"补{wd_names.get(eff_wd, '')}"
+                    )
+                    if display_class_name:
+                        display_class_name = f"{display_class_name} ({from_desc})"
+                    else:
+                        display_class_name = f"({from_desc})"
+
                 if len(sched_list) > 1:
                     norm_room, norm_course = grp_key[2], grp_key[3]
                     target_hash = hashlib.md5(f"{norm_room}:{norm_course}".encode("utf-8")).hexdigest()[:10]
@@ -972,7 +989,7 @@ class InspectionService:
                     task_key=key,
                     semester_id=sem.id,
                     inspection_date=date_key,
-                    week_no=eff_week,
+                    week_no=actual_week,
                     inspection_type=InspectionType.COURSE.value,
                     start_period=rep_s.start_period,
                     end_period=rep_s.end_period,
@@ -980,7 +997,7 @@ class InspectionService:
                     teaching_class_id=rep_s.teaching_class_id,
                     administrative_class_id=None,
                     course_name_snapshot=tc_course_name.get(rep_s.teaching_class_id),
-                    class_name_snapshot=merged_class_name,
+                    class_name_snapshot=display_class_name,
                     classroom_snapshot=rep_s.classroom,
                     require_photo_snapshot=body.require_photo,
                     student_ids=[st.id for st in merged_students],
@@ -2446,8 +2463,11 @@ class InspectionService:
             volunteer_user_id=actor.id,
             roster_version=task.roster_version,
             result=body.result,
-            review_status=ReviewStatus.PENDING.value,
+            review_status=ReviewStatus.APPROVED.value,
             submitted_at=now,
+            reviewed_by=actor.id,
+            reviewed_at=now,
+            review_comment="志愿者提交直接定稿生效",
             deadline_version_id=deadline_version_id,
             late_at_submission=late,
             note=body.note,
@@ -2465,6 +2485,11 @@ class InspectionService:
             )
         for fid in file_ids:
             self._repo.add(SubmissionFile(submission_id=sub.id, file_id=fid))
+
+        # 志愿者提交即最终版本：立即原子生成考勤事实并递增周报修订号
+        generated = self._generate_attendance(sub, actor.id)
+        SourceRevisionService.bump_for_task(self._session, task)
+
         task.lock_version += 1
         self._repo.flush()
         self._audit(
@@ -2476,16 +2501,17 @@ class InspectionService:
                 "task_id": task.id,
                 "attempt_no": attempt_no,
                 "result": body.result,
-                "review_status": ReviewStatus.PENDING.value,
+                "review_status": ReviewStatus.APPROVED.value,
                 "late_at_submission": late,
                 "abnormal_count": len(body.abnormal_items),
                 "file_count": len(file_ids),
+                "attendance_generated": generated,
                 "submitted_at": now.isoformat(),
             },
             reason=body.note,
             request_id=request_id,
         )
-        # 单一提交点：提交 + 异常明细 + 附件关联 + 结算快照 + 审计同事务原子生效。
+        # 单一提交点：提交 + 异常明细 + 附件关联 + 结算快照 + 考勤事实 + 审计同事务原子生效。
         self._session.commit()
         self._session.refresh(sub)
         return self._assemble_submissions([sub])[0]

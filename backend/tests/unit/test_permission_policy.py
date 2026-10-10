@@ -52,6 +52,7 @@ _EXPECTED_STUDENT_AFFAIRS_MANAGER = frozenset({
     "report.generate", "report.read", "identity.binding.manage", "student.read",
     "inspection.read", "inspection.roster.read", "submission_deadline.read", "attendance.read",
     "submission.read", "submission.review",
+    "attendance.correct", "attendance.expected_count_adjust",
 })
 _EXPECTED_VOLUNTEER = frozenset({
     "inspection.read", "inspection.roster.read", "assignment.change_request",
@@ -93,6 +94,7 @@ def test_registry_and_manager_defaults() -> None:
         "report.generate", "report.read", "identity.binding.manage", "student.read",
         "inspection.read", "inspection.roster.read", "submission_deadline.read", "attendance.read",
         "submission.read", "submission.review",
+        "attendance.correct", "attendance.expected_count_adjust",
     })
     assert frozenset({
         "statistics.read", "objection.initial_review",

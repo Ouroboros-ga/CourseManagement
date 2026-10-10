@@ -2,7 +2,6 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSessionStore } from '../stores/session'
-import { listManagementSubmissions } from '../api/submissions'
 import { listObjections } from '../api/objections'
 import schoolLogo from '../assets/school-logo.png'
 
@@ -10,7 +9,6 @@ const router = useRouter()
 const route = useRoute()
 const sessionStore = useSessionStore()
 
-const pendingReviewsCount = ref<number>(0)
 const pendingObjectionsCount = ref<number>(0)
 
 // 真实系统运行状态探测（通过 /health/ready 探针校验服务与数据库就绪度）
@@ -79,21 +77,7 @@ async function checkSystemHealth() {
 async function fetchBadgeCounts() {
   if (!sessionStore.currentUser) return
 
-  // 1. 待审核查课提交
-  if (sessionStore.hasPermission('submission.review')) {
-    try {
-      const res = await listManagementSubmissions({
-        semester_id: sessionStore.currentSemesterId || undefined,
-        review_status: 'PENDING',
-        page_size: 1
-      })
-      pendingReviewsCount.value = res.total || 0
-    } catch (e) {
-      console.warn('获取待审核徽标计数失败:', e)
-    }
-  }
-
-  // 2. 待终审考勤异议
+  // 待终审考勤异议
   if (sessionStore.hasPermission('objection.final_review') || sessionStore.hasPermission('objection.read')) {
     try {
       const res = await listObjections({
@@ -160,17 +144,8 @@ const menuItems = computed(() => {
       permission: 'inspection.read'
     },
     {
-      id: 'reviews',
-      idx: '03',
-      path: '/dashboard/reviews',
-      name: '提交管理审核',
-      badge: pendingReviewsCount.value > 0 ? String(pendingReviewsCount.value) : null,
-      badgeClass: 'badge-amber',
-      permission: 'submission.review'
-    },
-    {
       id: 'objections',
-      idx: '04',
+      idx: '03',
       path: '/dashboard/objections',
       name: '考勤异议处理',
       badge: pendingObjectionsCount.value > 0 ? String(pendingObjectionsCount.value) : null,
@@ -179,7 +154,7 @@ const menuItems = computed(() => {
     },
     {
       id: 'reports',
-      idx: '05',
+      idx: '04',
       path: '/dashboard/reports',
       name: '学院考勤周报',
       badge: null,
@@ -188,7 +163,7 @@ const menuItems = computed(() => {
     },
     {
       id: 'users',
-      idx: '06',
+      idx: '05',
       path: '/dashboard/users',
       name: '人员与权限管理',
       badge: null,
@@ -197,7 +172,7 @@ const menuItems = computed(() => {
     },
     {
       id: 'settings',
-      idx: '07',
+      idx: '06',
       path: '/dashboard/settings',
       name: '平台与学期设置',
       badge: null,

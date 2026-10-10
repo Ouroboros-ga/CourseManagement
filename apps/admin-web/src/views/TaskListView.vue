@@ -558,9 +558,9 @@ async function handleConfirmCancel() {
         <div class="note">支持手动按姓名指派</div>
       </div>
       <div class="stat-cell">
-        <div class="label">已审核完成</div>
+        <div class="label">已完成查课</div>
         <div class="value font-mono" style="color: var(--blue)">{{ stats.reviewed }}</div>
-        <div class="note">考勤结果已固化</div>
+        <div class="note">考勤结果已生效</div>
       </div>
     </div>
 
@@ -974,6 +974,7 @@ async function handleConfirmCancel() {
       :task="activeTask"
       @reassign="handleOpenAssignDialog"
       @delete="handleDeleteSingleTask"
+      @corrected="fetchTasks"
     />
   </div>
 </template>
