@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSessionStore } from '../stores/session'
 import { ElMessage } from 'element-plus'
@@ -12,8 +12,6 @@ const username = ref('')
 const password = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
-
-const currentTermText = computed(() => sessionStore.currentSemesterName || '2026-2027 学年第一学期')
 
 async function handleLogin() {
   if (!username.value || !password.value) {
@@ -46,15 +44,11 @@ async function handleLogin() {
         <img :src="schoolLogo" alt="绍兴理工学院校徽" class="brand-school-logo" />
         <div class="brand-text">
           <div class="college-title font-serif">绍兴理工学院 · 人工智能学院</div>
-          <div class="college-sub font-mono">SCHOOL OF ARTIFICIAL INTELLIGENCE</div>
+          <div class="college-sub font-mono">Shaoxing Institute of Technology</div>
         </div>
       </div>
 
       <div class="login-hero">
-        <div class="term-badge font-mono">
-          <span class="dot"></span>
-          <span>{{ currentTermText }}</span>
-        </div>
         <h1 class="font-serif">课堂教学考勤<br />管理工作台</h1>
         <p>
           聚焦高校课堂教学秩序与学风建设，构建“任务生成 — 现场抽查 — 规范留痕 — 异议复核”全流程闭环教学质量监控与考勤保障系统。
@@ -85,7 +79,7 @@ async function handleLogin() {
           <img :src="schoolLogo" alt="绍兴理工学院校徽" class="form-school-logo" />
           <div class="form-header-text">
             <div class="school-name font-serif">绍兴理工学院 · 人工智能学院</div>
-            <div class="platform-name font-mono">TEACHING QUALITY & ATTENDANCE SYSTEM</div>
+            <div class="platform-name font-mono">Shaoxing Institute of Technology</div>
           </div>
         </div>
 
@@ -187,32 +181,16 @@ async function handleLogin() {
   line-height: 1.3;
 }
 .brand-text .college-sub {
-  font-size: 10px;
-  letter-spacing: 0.12em;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   color: var(--paper-deep);
-  opacity: 0.65;
+  opacity: 0.75;
   margin-top: 2px;
 }
 
 .login-hero {
   position: relative;
   z-index: 1;
-}
-.term-badge {
-  font-size: 12px;
-  color: var(--accent-soft);
-  letter-spacing: 0.08em;
-  margin-bottom: 24px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.term-badge .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  display: inline-block;
 }
 .login-hero h1 {
   font-size: clamp(34px, 3.8vw, 50px);
@@ -281,9 +259,9 @@ async function handleLogin() {
   line-height: 1.25;
 }
 .form-header-text .platform-name {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--ink-mute);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   margin-top: 2px;
 }
 
