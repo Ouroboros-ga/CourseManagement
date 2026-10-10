@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSessionStore } from '../stores/session'
 import { listManagementSubmissions } from '../api/submissions'
@@ -12,6 +12,69 @@ const sessionStore = useSessionStore()
 
 const pendingReviewsCount = ref<number>(0)
 const pendingObjectionsCount = ref<number>(0)
+
+// 真实系统运行状态探测（通过 /health/ready 探针校验服务与数据库就绪度）
+interface SystemHealth {
+  state: 'healthy' | 'degraded' | 'down' | 'checking'
+  text: string
+  title: string
+}
+
+const systemHealth = ref<SystemHealth>({
+  state: 'checking',
+  text: '系统检测中…',
+  title: '正在检测服务与数据库就绪状态'
+})
+
+let healthTimer: number | null = null
+
+async function checkSystemHealth() {
+  try {
+    const res = await fetch('/health/ready', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store'
+    })
+    if (res.ok) {
+      const data = await res.json().catch(() => null)
+      if (data?.status === 'ok' && data?.database === 'up') {
+        systemHealth.value = {
+          state: 'healthy',
+          text: '系统运行正常',
+          title: `服务与数据库正常 (环境: ${data.env || 'prod'}) · 点击刷新`
+        }
+      } else {
+        systemHealth.value = {
+          state: 'degraded',
+          text: '数据库连接异常',
+          title: data?.reason ? `数据库异常: ${data.reason} · 点击重试` : '数据库未就绪 · 点击重试'
+        }
+      }
+    } else {
+      const data = await res.json().catch(() => null)
+      if (res.status === 503 && data?.database === 'down') {
+        systemHealth.value = {
+          state: 'degraded',
+          text: '数据库连接中断',
+          title: `数据库未就绪 (HTTP 503): ${data?.reason || '服务暂不可用'} · 点击重试`
+        }
+      } else {
+        systemHealth.value = {
+          state: 'down',
+          text: `服务异常 (${res.status})`,
+          title: `服务返回状态码 HTTP ${res.status} · 点击重试`
+        }
+      }
+    }
+  } catch (err: unknown) {
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '网络连接失败'
+    systemHealth.value = {
+      state: 'down',
+      text: '服务连接断开',
+      title: `无法连接服务器 (${msg}) · 点击重试`
+    }
+  }
+}
 
 async function fetchBadgeCounts() {
   if (!sessionStore.currentUser) return
@@ -49,6 +112,15 @@ onMounted(async () => {
     await sessionStore.fetchAcademicContext()
   }
   await fetchBadgeCounts()
+  await checkSystemHealth()
+  healthTimer = window.setInterval(checkSystemHealth, 30000)
+})
+
+onUnmounted(() => {
+  if (healthTimer) {
+    clearInterval(healthTimer)
+    healthTimer = null
+  }
 })
 
 watch(() => route.path, () => {
@@ -206,8 +278,15 @@ async function handleLogout() {
       </div>
 
       <div class="side-foot">
-        <div class="status"><span class="dot"></span>系统运行正常</div>
-        <div class="foot-sub">考勤数据实时同步 · 运行稳定</div>
+        <div
+          class="status"
+          :class="`status-${systemHealth.state}`"
+          :title="systemHealth.title"
+          @click="checkSystemHealth"
+        >
+          <span class="dot" :class="`dot-${systemHealth.state}`"></span>
+          <span>{{ systemHealth.text }}</span>
+        </div>
       </div>
     </aside>
 
@@ -441,19 +520,44 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 2px;
   color: var(--ink-soft);
   font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.2s;
+}
+.side-foot .status:hover {
+  opacity: 0.8;
 }
 .side-foot .dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  flex-shrink: 0;
+  transition: background-color 0.3s ease;
+}
+.side-foot .dot-healthy {
   background: var(--green);
 }
-.side-foot .foot-sub {
-  color: var(--ink-mute);
-  font-size: 11px;
+.side-foot .dot-degraded {
+  background: var(--amber);
+}
+.side-foot .dot-down {
+  background: var(--accent);
+}
+.side-foot .dot-checking {
+  background: var(--ink-mute);
+  opacity: 0.7;
+}
+
+.side-foot .status-healthy {
+  color: var(--ink-soft);
+}
+.side-foot .status-degraded {
+  color: var(--amber);
+}
+.side-foot .status-down {
+  color: var(--accent);
 }
 
 /* ---------- 顶栏 ---------- */
@@ -463,12 +567,12 @@ async function handleLogout() {
   min-width: 0;
 }
 .topbar {
-  height: 52px;
+  height: 48px;
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 48px;
+  padding: 0 32px;
   flex-shrink: 0;
   background: var(--paper);
 }
@@ -530,14 +634,14 @@ async function handleLogout() {
 /* ---------- 内容区 ---------- */
 .main {
   flex: 1;
-  padding: 40px 48px 80px;
+  padding: 18px 32px 36px;
   overflow-y: auto;
 }
 
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .topbar { padding: 0 24px; }
-  .main { padding: 24px; }
+  .topbar { padding: 0 16px; }
+  .main { padding: 16px; }
 }
 </style>
