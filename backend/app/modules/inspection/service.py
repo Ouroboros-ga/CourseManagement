@@ -2373,6 +2373,18 @@ class InspectionService:
         if task.canceled_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可提交")
 
+        # 查课日期校验：志愿者只能在查课当天及以后上传数据（禁止提前提交未来任务）
+        # 统一使用中国标准时间 (UTC+8) 的本地日历日期
+        from datetime import timedelta
+        local_today = (utcnow() + timedelta(hours=8)).date()
+        if local_today < task.inspection_date:
+            raise AppError(
+                ErrorCode.STATE_CONFLICT,
+                f"查课任务尚未开始（查课日期为 {task.inspection_date}），仅可在查课当天及以后上传数据",
+                http_status=422,
+                field_errors={"inspection_date": str(task.inspection_date)},
+            )
+
         # 当前受派：仅本人受派任务可提交；不存在受派或非本人 → 403（任务已确认存在 → 非 404）。
         assignment = self._repo.get_assignment_by_task(task.id)
         if assignment is None or assignment.volunteer_user_id != actor.id:

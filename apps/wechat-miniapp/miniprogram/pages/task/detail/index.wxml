@@ -9,7 +9,8 @@
   </view>
 
   <block wx:if="{{task.status === '待执行'}}">
-    <t-notice-bar wx:if="{{rejectedReason}}" visible="{{true}}" theme="error" content="上次提交已被驳回：{{rejectedReason}}" />
+    <t-notice-bar wx:if="{{task.isFuture}}" visible="{{true}}" theme="warning" content="该任务查课日期为 {{task.inspection_date || task.date}}，只能在查课当天及以后上传数据。" />
+    <t-notice-bar wx:elif="{{rejectedReason}}" visible="{{true}}" theme="error" content="上次提交已被驳回：{{rejectedReason}}" />
     
     <view class="section-title">查课结果</view>
     <view class="radio-card">
@@ -58,7 +59,9 @@
     </view>
 
     <view class="footer-btn">
-      <t-button theme="primary" size="large" block bind:tap="handleSubmit">提交记录</t-button>
+      <t-button theme="primary" size="large" block disabled="{{task.isFuture}}" bind:tap="handleSubmit">
+        {{task.isFuture ? '尚未到查课日期 (未开放上传)' : '提交记录'}}
+      </t-button>
     </view>
   </block>
 

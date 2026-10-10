@@ -64,6 +64,14 @@ Page({
         } else {
           task.deadlineStr = '当天最晚节次后自动计算或23:59';
         }
+
+        // 限制：只能在查课当天及以后上传数据
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        const todayStr = `${y}-${m}-${d}`;
+        task.isFuture = Boolean(dateStr && dateStr > todayStr);
       }
       this.setData({ task });
       this.fetchSubmission(id); // Always fetch to check for rejected submissions
@@ -160,6 +168,17 @@ Page({
 
   async handleSubmit() {
     const { resultType, abnormalList, fileList, task, taskId } = this.data;
+
+    const dateStr = task.inspection_date || task.date;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${y}-${m}-${d}`;
+    if (dateStr && dateStr > todayStr) {
+      Toast({ context: this, selector: '#t-toast', message: '尚未到查课日期，只能在查课当天及以后上传数据' });
+      return;
+    }
 
     if (resultType === 'ABNORMAL' && abnormalList.length === 0) {
       Toast({ context: this, selector: '#t-toast', message: '请添加异常学生名单' });
