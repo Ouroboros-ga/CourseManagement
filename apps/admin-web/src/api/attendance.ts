@@ -9,6 +9,21 @@ export interface AttendanceTaskBrief {
   inspection_type: string
   course_name_snapshot?: string | null
   class_name_snapshot?: string | null
+  classroom_snapshot?: string | null
+  start_period?: number | null
+  end_period?: number | null
+  period_text?: string | null
+  week_no?: number | null
+}
+
+export interface AttendanceObjectionBrief {
+  id: string
+  status: string
+  initial_status: string
+  final_status: string
+  desired_type: AttendanceType
+  reason?: string | null
+  created_at?: string | null
 }
 
 export interface AttendanceRecord {
@@ -22,6 +37,12 @@ export interface AttendanceRecord {
   source_submission_item_id?: string | null
   task?: AttendanceTaskBrief | null
   created_at: string
+  has_objection?: boolean
+  objection_id?: string | null
+  objection_status?: string | null
+  objection_summary?: AttendanceObjectionBrief | null
+  period?: string | null
+  classroom?: string | null
 }
 
 export interface AttendanceVersionItem {

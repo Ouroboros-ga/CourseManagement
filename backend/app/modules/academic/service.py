@@ -21,6 +21,7 @@ from datetime import time
 from sqlalchemy import select
 
 from app.common.pagination import PageParams
+from app.core.logging import get_logger
 from app.core.exceptions import (
     AppError,
     ConflictError,
@@ -111,6 +112,9 @@ def _sched_dto(s: CourseSchedule) -> CourseScheduleResponse:
     )
 
 
+logger = get_logger(__name__)
+
+
 class AcademicService:
     def __init__(self, session) -> None:  # noqa: ANN001 - Session 由依赖注入
         self._session = session
@@ -188,6 +192,8 @@ class AcademicService:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "学期代码已存在")
         if body.end_date < body.start_date:
             raise AppError(ErrorCode.VALIDATION_ERROR, "结束日期不得早于开始日期", http_status=422)
+        if body.first_monday.weekday() != 0:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "第一教学周周一必须是星期一", http_status=422)
         sem = Semester(
             code=body.code,
             name=body.name,
@@ -256,14 +262,32 @@ class AcademicService:
             sem.start_date = body.start_date
         if body.end_date is not None:
             sem.end_date = body.end_date
+        first_monday_changed = False
         if body.first_monday is not None:
-            sem.first_monday = body.first_monday
+            if body.first_monday.weekday() != 0:
+                raise AppError(ErrorCode.VALIDATION_ERROR, "第一教学周周一必须是星期一", http_status=422)
+            if body.first_monday != sem.first_monday:
+                first_monday_changed = True
+                sem.first_monday = body.first_monday
         if body.total_weeks is not None:
             sem.total_weeks = body.total_weeks
         if body.status is not None:
             sem.status = body.status
         if sem.end_date < sem.start_date:
             raise AppError(ErrorCode.VALIDATION_ERROR, "结束日期不得早于开始日期", http_status=422)
+
+        # 核心防呆：若管理员调整了第一教学周周一，级联原子重算本学期所有已生成查课任务的 week_no
+        if first_monday_changed:
+            from sqlalchemy import text
+            self._session.execute(
+                text("""
+                    UPDATE inspection_task 
+                    SET week_no = TIMESTAMPDIFF(DAY, :fm, inspection_date) DIV 7 + 1 
+                    WHERE semester_id = :sid
+                """),
+                {"fm": sem.first_monday, "sid": sem.id}
+            )
+
         self._record_audit(
             actor_user_id=actor.id,
             action="academic.semester.update",
@@ -1067,39 +1091,80 @@ class AcademicService:
     # ================================================================== #
     # 志愿者学期资格（含 VOLUNTEER 自动身份维护）
     # ================================================================== #
-    def _ensure_student_user_account(self, student_id: int) -> UserAccount:
+    def _ensure_student_user_account(self, student_id: int) -> UserAccount | None:
         """为学生预置系统查课账号（若尚未建立），无需强制等待微信小程序首次上线。"""
         acct = self._session.execute(
             select(UserAccount).where(UserAccount.student_id == student_id)
         ).scalar_one_or_none()
-        if acct is None:
-            stu = self._repo.get_student(student_id)
-            if stu is None:
-                raise NotFoundError("学生不存在")
-            username = stu.student_no
-            existing_user = self._session.execute(
-                select(UserAccount).where(UserAccount.username == username)
-            ).scalar_one_or_none()
-            if existing_user is not None:
-                username = f"stu_{stu.student_no}"
-            acct = UserAccount(
-                username=username,
-                password_hash=None,
-                student_id=stu.id,
-                display_name=stu.name,
-                status=UserStatus.ACTIVE.value,
+        if acct is not None:
+            return acct
+
+        stu = self._repo.get_student(student_id)
+        if stu is None:
+            return None
+
+        # 检查是否已有未绑定的原学号账号，若存在且未绑定微信则优先复用绑定
+        existing_by_no = self._session.execute(
+            select(UserAccount).where(
+                UserAccount.username == stu.student_no,
+                UserAccount.student_id.is_(None),
             )
-            self._session.add(acct)
-            self._session.flush()
+        ).scalar_one_or_none()
+        if existing_by_no is not None:
+            existing_by_no.student_id = stu.id
+            existing_by_no.display_name = stu.name
             student_role = self._identity.get_or_create_role(
                 RoleCode.STUDENT.value, RoleCode.STUDENT.value
             )
-            self._identity.grant_role(acct.id, student_role.id)
+            self._identity.grant_role(existing_by_no.id, student_role.id)
+            return existing_by_no
+
+        base_username = stu.student_no or f"stu_{stu.id}"
+        username = base_username
+        if (
+            self._session.execute(
+                select(UserAccount.id).where(UserAccount.username == username)
+            ).scalar_one_or_none()
+            is not None
+        ):
+            username = f"stu_{base_username}"
+            if (
+                self._session.execute(
+                    select(UserAccount.id).where(UserAccount.username == username)
+                ).scalar_one_or_none()
+                is not None
+            ):
+                username = f"stu_{base_username}_{stu.id}"
+                counter = 1
+                while (
+                    self._session.execute(
+                        select(UserAccount.id).where(UserAccount.username == username)
+                    ).scalar_one_or_none()
+                    is not None
+                ):
+                    username = f"stu_{base_username}_{stu.id}_{counter}"
+                    counter += 1
+
+        acct = UserAccount(
+            username=username,
+            password_hash=None,
+            student_id=stu.id,
+            display_name=stu.name,
+            status=UserStatus.ACTIVE.value,
+        )
+        self._session.add(acct)
+        self._session.flush()
+        student_role = self._identity.get_or_create_role(
+            RoleCode.STUDENT.value, RoleCode.STUDENT.value
+        )
+        self._identity.grant_role(acct.id, student_role.id)
         return acct
 
     def _grant_volunteer_role(self, student_id: int) -> bool:
         """确保志愿者拥有系统账号并持有 VOLUNTEER 角色（系统自动身份）。返回是否新授予。"""
         acct = self._ensure_student_user_account(student_id)
+        if acct is None:
+            return False
         if RoleCode.VOLUNTEER.value in self._identity.list_role_codes(acct.id):
             return False
         role = self._identity.get_or_create_role(RoleCode.VOLUNTEER.value, RoleCode.VOLUNTEER.value)
@@ -1171,10 +1236,17 @@ class AcademicService:
             ).all()
             changed = False
             for sid in qual_students:
-                if self._grant_volunteer_role(sid):
-                    changed = True
+                try:
+                    if self._grant_volunteer_role(sid):
+                        changed = True
+                except Exception as exc:
+                    logger.warning("Auto grant volunteer role failed for student %s: %s", sid, exc)
             if changed:
-                self._session.commit()
+                try:
+                    self._session.commit()
+                except Exception as exc:
+                    logger.warning("Commit volunteer role grants failed: %s", exc)
+                    self._session.rollback()
         rows, total = self._repo.list_volunteer_qualifications(
             params, semester_id=semester_id, enabled=enabled
         )

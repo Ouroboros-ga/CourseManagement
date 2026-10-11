@@ -346,7 +346,7 @@ def issue_binding_token(
         token_id=str(token_id),
         student_id=str(student_id),
         plaintext_code=code,
-        expires_at=expires_at.isoformat(),
+        expires_at=expires_at.isoformat() + "Z",
     )
     return success(result.model_dump(), rid)
 

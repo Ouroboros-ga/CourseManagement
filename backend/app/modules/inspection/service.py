@@ -833,6 +833,8 @@ class InspectionService:
             deadline_at=day.deadline_at if day is not None else None,
             deadline_version_id=deadline_version_id,
             deadline_assessment=assessment_brief,
+            canceled_at=task.canceled_at,
+            cancel_reason=task.cancel_reason,
         )
 
     # ---- 计划核心算法（预览与生成共用，均不在此锁学期；调用方负责锁定/只读确认）----
@@ -953,6 +955,21 @@ class InspectionService:
                 else:
                     merged_class_name = tc_class_name.get(rep_s.teaching_class_id)
 
+                actual_week = _week_no_for_date(sem.first_monday, date_key)
+                display_class_name = merged_class_name
+                override_item = overrides.get(date_key)
+                if override_item is not None and override_item.override_type == OverrideType.MAKEUP.value:
+                    wd_names = {1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六", 7: "周日"}
+                    from_desc = (
+                        f"补第{eff_week}周{wd_names.get(eff_wd, '')}"
+                        if eff_week != actual_week
+                        else f"补{wd_names.get(eff_wd, '')}"
+                    )
+                    if display_class_name:
+                        display_class_name = f"{display_class_name} ({from_desc})"
+                    else:
+                        display_class_name = f"({from_desc})"
+
                 if len(sched_list) > 1:
                     norm_room, norm_course = grp_key[2], grp_key[3]
                     target_hash = hashlib.md5(f"{norm_room}:{norm_course}".encode("utf-8")).hexdigest()[:10]
@@ -973,7 +990,7 @@ class InspectionService:
                     task_key=key,
                     semester_id=sem.id,
                     inspection_date=date_key,
-                    week_no=eff_week,
+                    week_no=actual_week,
                     inspection_type=InspectionType.COURSE.value,
                     start_period=rep_s.start_period,
                     end_period=rep_s.end_period,
@@ -981,7 +998,7 @@ class InspectionService:
                     teaching_class_id=rep_s.teaching_class_id,
                     administrative_class_id=None,
                     course_name_snapshot=tc_course_name.get(rep_s.teaching_class_id),
-                    class_name_snapshot=merged_class_name,
+                    class_name_snapshot=display_class_name,
                     classroom_snapshot=rep_s.classroom,
                     require_photo_snapshot=body.require_photo,
                     student_ids=[st.id for st in merged_students],
@@ -2374,6 +2391,18 @@ class InspectionService:
         if task.canceled_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可提交")
 
+        # 查课日期校验：志愿者只能在查课当天及以后上传数据（禁止提前提交未来任务）
+        # 统一使用中国标准时间 (UTC+8) 的本地日历日期
+        from datetime import timedelta
+        local_today = (utcnow() + timedelta(hours=8)).date()
+        if local_today < task.inspection_date:
+            raise AppError(
+                ErrorCode.STATE_CONFLICT,
+                f"查课任务尚未开始（查课日期为 {task.inspection_date}），仅可在查课当天及以后上传数据",
+                http_status=422,
+                field_errors={"inspection_date": str(task.inspection_date)},
+            )
+
         # 当前受派：仅本人受派任务可提交；不存在受派或非本人 → 403（任务已确认存在 → 非 404）。
         assignment = self._repo.get_assignment_by_task(task.id)
         if assignment is None or assignment.volunteer_user_id != actor.id:
@@ -2435,8 +2464,11 @@ class InspectionService:
             volunteer_user_id=actor.id,
             roster_version=task.roster_version,
             result=body.result,
-            review_status=ReviewStatus.PENDING.value,
+            review_status=ReviewStatus.APPROVED.value,
             submitted_at=now,
+            reviewed_by=actor.id,
+            reviewed_at=now,
+            review_comment="志愿者提交直接定稿生效",
             deadline_version_id=deadline_version_id,
             late_at_submission=late,
             note=body.note,
@@ -2454,6 +2486,11 @@ class InspectionService:
             )
         for fid in file_ids:
             self._repo.add(SubmissionFile(submission_id=sub.id, file_id=fid))
+
+        # 志愿者提交即最终版本：立即原子生成考勤事实并递增周报修订号
+        generated = self._generate_attendance(sub, actor.id)
+        SourceRevisionService.bump_for_task(self._session, task)
+
         task.lock_version += 1
         self._repo.flush()
         self._audit(
@@ -2465,16 +2502,17 @@ class InspectionService:
                 "task_id": task.id,
                 "attempt_no": attempt_no,
                 "result": body.result,
-                "review_status": ReviewStatus.PENDING.value,
+                "review_status": ReviewStatus.APPROVED.value,
                 "late_at_submission": late,
                 "abnormal_count": len(body.abnormal_items),
                 "file_count": len(file_ids),
+                "attendance_generated": generated,
                 "submitted_at": now.isoformat(),
             },
             reason=body.note,
             request_id=request_id,
         )
-        # 单一提交点：提交 + 异常明细 + 附件关联 + 结算快照 + 审计同事务原子生效。
+        # 单一提交点：提交 + 异常明细 + 附件关联 + 结算快照 + 考勤事实 + 审计同事务原子生效。
         self._session.commit()
         self._session.refresh(sub)
         return self._assemble_submissions([sub])[0]
@@ -2684,6 +2722,50 @@ class InspectionService:
         self._session.commit()
         self._session.refresh(sub)
         return self._assemble_submissions([sub])[0]
+
+    def batch_review_submissions(
+        self,
+        actor: CurrentUser,
+        submission_ids: list[int],
+        decision: str,
+        comment: str | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        """批量处理待审核提交（一键通过 / 批量勾选通过）。
+
+        逐笔独立处理并捕获单项冲突（如已被处理或已取消任务），
+        单项失败不阻断其余待审核项，保证批量操作的高容错与审计完整性。
+        """
+        self._require(actor.id, perms.SUBMISSION_REVIEW_PERMISSION)
+        results: list[dict[str, object]] = []
+        success_count = 0
+        failed_count = 0
+        req = SubmissionReviewRequest(decision=decision, comment=comment)  # type: ignore[arg-type]
+        for sid in submission_ids:
+            try:
+                res = self.review_submission(actor, sid, req, request_id)
+                results.append({
+                    "submission_id": str(sid),
+                    "success": True,
+                    "review_status": res.review_status,
+                })
+                success_count += 1
+            except Exception as e:
+                self._session.rollback()
+                err_msg = str(getattr(e, "detail", getattr(e, "message", str(e))))
+                results.append({
+                    "submission_id": str(sid),
+                    "success": False,
+                    "error": err_msg,
+                })
+                failed_count += 1
+
+        return {
+            "total": len(submission_ids),
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "results": results,
+        }
 
     def _generate_attendance(self, sub: InspectionSubmission, actor_id: int) -> int:
         """审核通过时按提交所用名单版本为每生建初始考勤 + 版本 1（技术方案 12、14）。

@@ -11,6 +11,7 @@ import {
   triggerAutoAssign,
   listSemesterVolunteers,
   assignTask,
+  cancelTask,
   type InspectionTaskItem,
   type SemesterVolunteerItem
 } from '../api/tasks'
@@ -27,6 +28,71 @@ const drawerVisible = ref(false)
 const activeTask = ref<InspectionTaskItem | null>(null)
 const searchQuery = ref('')
 const selectedStatus = ref('')
+const selectedDayFilter = ref<string>('ALL')
+
+function getTodayDateStr(): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function getTaskWeekday(dateStr?: string | null): number | null {
+  if (!dateStr) return null
+  try {
+    const parts = dateStr.split('-').map(Number)
+    if (parts.length !== 3) return null
+    const dt = new Date(parts[0], parts[1] - 1, parts[2])
+    const day = dt.getDay()
+    return isNaN(day) ? null : day
+  } catch {
+    return null
+  }
+}
+
+function formatTaskDateWithWeekday(dateStr?: string | null): string {
+  if (!dateStr) return '—'
+  const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  const weekday = getTaskWeekday(dateStr)
+  const weekdayText = weekday !== null ? ` ${dayNames[weekday]}` : ''
+  return `${dateStr}${weekdayText}`
+}
+
+const weekDayOptions = computed(() => {
+  const baseDate = sessionStore.currentSemester?.first_monday || sessionStore.currentSemester?.start_date
+  if (!baseDate) return []
+  const [y, m, d] = baseDate.split('-').map(Number)
+  const startDate = new Date(y, m - 1, d)
+  const offsetDays = (sessionStore.currentWeekNo - 1) * 7
+  const monday = new Date(startDate.getTime() + offsetDays * 86400000)
+
+  const todayStr = getTodayDateStr()
+  const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+  const weekdayNumbers = [1, 2, 3, 4, 5, 6, 0] // JS getDay() mapping: Mon=1, Sun=0
+
+  return weekdayNumbers.map((num, idx) => {
+    const curDate = new Date(monday.getTime() + idx * 86400000)
+    const mStr = String(curDate.getMonth() + 1).padStart(2, '0')
+    const dStr = String(curDate.getDate()).padStart(2, '0')
+    const isoDate = `${curDate.getFullYear()}-${mStr}-${dStr}`
+    const isToday = isoDate === todayStr
+
+    const count = tasks.value.filter(t => t.inspection_date === isoDate).length
+    const todayMarker = isToday ? ' · 今天' : ''
+
+    return {
+      value: String(num),
+      weekdayNum: num,
+      isoDate,
+      weekdayName: dayLabels[idx],
+      dateLabel: `${mStr}-${dStr}`,
+      isToday,
+      count,
+      label: `${dayLabels[idx]} (${mStr}-${dStr}${todayMarker}) [${count} 节查课]`
+    }
+  })
+})
 
 async function fetchTasks() {
   if (!sessionStore.currentSemesterId) return
@@ -49,18 +115,43 @@ watch(
   () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo],
   () => {
     selectedTaskIds.value = []
+    selectedDayFilter.value = 'ALL'
     fetchTasks()
   }
 )
+
+watch(selectedDayFilter, () => {
+  selectedTaskIds.value = []
+})
 
 onMounted(() => {
   fetchTasks()
 })
 
+const statusAliasMap: Record<string, string[]> = {
+  '待执行': ['待执行', 'NOT_STARTED'],
+  '已逾期': ['已逾期', 'OVERDUE'],
+  '待审核': ['待审核', 'SUBMITTED'],
+  '已完成': ['已完成', 'REVIEWED', '已审核'],
+  '已取消': ['已取消', 'CANCELLED']
+}
+
 // 过滤后的任务列表
 const filteredTasks = computed(() => {
   return tasks.value.filter(t => {
-    if (selectedStatus.value && t.status !== selectedStatus.value) return false
+    // 1. 日期 / 周几筛选
+    if (selectedDayFilter.value !== 'ALL') {
+      const targetWeekday = Number(selectedDayFilter.value)
+      if (getTaskWeekday(t.inspection_date) !== targetWeekday) return false
+    }
+
+    // 2. 状态筛选
+    if (selectedStatus.value) {
+      const allowed = statusAliasMap[selectedStatus.value] || [selectedStatus.value]
+      if (!allowed.includes(t.status)) return false
+    }
+
+    // 3. 关键字搜索
     if (!searchQuery.value.trim()) return true
     const q = searchQuery.value.trim().toLowerCase()
     return (
@@ -110,7 +201,7 @@ const stats = computed(() => {
   const total = tasks.value.length
   const assigned = tasks.value.filter(t => t.assigned_volunteer_id || (t as any).assignment).length
   const unassigned = total - assigned
-  const reviewed = tasks.value.filter(t => t.status === 'REVIEWED' || t.status === '已审核').length
+  const reviewed = tasks.value.filter(t => t.status === 'REVIEWED' || t.status === '已审核' || t.status === '已完成').length
   const assignRate = total > 0 ? ((assigned / total) * 100).toFixed(1) + '%' : '0%'
 
   return { total, assigned, unassigned, reviewed, assignRate }
@@ -241,8 +332,9 @@ function handleExportTasks() {
     const statusMap: Record<string, string> = {
       NOT_STARTED: '待执行',
       SUBMITTED: '待审核',
-      REVIEWED: '已审核',
-      CANCELLED: '已取消'
+      REVIEWED: '已完成',
+      CANCELLED: '已取消',
+      OVERDUE: '已逾期'
     }
     const statusStr = statusMap[t.status] || t.status || '待执行'
     return [
@@ -391,18 +483,57 @@ async function handleUpdateTask() {
     editSubmitting.value = false
   }
 }
+
+// ==================== 标记停课免计（教师单独停课/特殊免查） ====================
+const cancelDialogVisible = ref(false)
+const cancelingTask = ref<InspectionTaskItem | null>(null)
+const cancelPresetReason = ref('教师临时请假/停课')
+const cancelCustomReason = ref('')
+const cancelSubmitting = ref(false)
+
+function openCancelDialog(task: InspectionTaskItem) {
+  cancelingTask.value = task
+  cancelPresetReason.value = '教师临时请假/停课'
+  cancelCustomReason.value = ''
+  cancelDialogVisible.value = true
+}
+
+function onPresetReasonChange() {
+  if (cancelPresetReason.value !== 'CUSTOM') {
+    cancelCustomReason.value = ''
+  }
+}
+
+async function handleConfirmCancel() {
+  if (!cancelingTask.value) return
+  const finalReason = cancelPresetReason.value === 'CUSTOM'
+    ? cancelCustomReason.value.trim()
+    : cancelPresetReason.value
+  if (!finalReason) {
+    ElMessage.warning('请输入具体的停课/免计原因')
+    return
+  }
+  cancelSubmitting.value = true
+  try {
+    await cancelTask(cancelingTask.value.id, {
+      reason: finalReason,
+      lock_version: cancelingTask.value.lock_version || 0
+    })
+    ElMessage.success(`任务 #${cancelingTask.value.id} 已成功标记为「已取消（${finalReason}）」，不计入本周考勤统计！`)
+    cancelDialogVisible.value = false
+    await fetchTasks()
+  } catch (err: unknown) {
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '标记停课免计失败'
+    ElMessage.error(msg)
+  } finally {
+    cancelSubmitting.value = false
+  }
+}
 </script>
 
 <template>
   <div v-loading="loading">
     <header class="page-head">
-      <div class="crumb font-mono">
-        <span>{{ sessionStore.currentSemesterName }}</span>
-        <em>●</em>
-        <span>第 {{ sessionStore.currentWeekNo }} 周</span>
-        <em>●</em>
-        <span>{{ sessionStore.weekDateRange.text }}</span>
-      </div>
       <h1>查课任务与排班</h1>
       <p class="sub">
         当前周次真实数据库查课任务总览。支持查看任务点名名单、指派状态与考核事实，可人工搜索姓名分配/改派志愿者或批量删除任务。
@@ -427,16 +558,16 @@ async function handleUpdateTask() {
         <div class="note">支持手动按姓名指派</div>
       </div>
       <div class="stat-cell">
-        <div class="label">已审核完成</div>
+        <div class="label">已完成查课</div>
         <div class="value font-mono" style="color: var(--blue)">{{ stats.reviewed }}</div>
-        <div class="note">考勤结果已固化</div>
+        <div class="note">考勤结果已生效</div>
       </div>
     </div>
 
     <!-- 任务表 -->
     <div class="tbl-wrap">
       <div class="tbl-head">
-        <div>
+        <div class="tbl-head-title">
           <h3>任务总览（{{ filteredTasks.length }} / {{ tasks.length }}）</h3>
           <div class="meta">按检查日期与节次排序 · 数据库真实数据</div>
         </div>
@@ -444,44 +575,48 @@ async function handleUpdateTask() {
           <input
             v-model="searchQuery"
             type="text"
-            class="input"
-            style="width: 220px"
+            class="input search-input"
             placeholder="搜索课程 / 班级 / 教室…"
           />
-          <select v-model="selectedStatus" class="input">
+          <select v-model="selectedDayFilter" class="input day-filter-select">
+            <option value="ALL">本周全部 ({{ tasks.length }} 节查课)</option>
+            <option v-for="d in weekDayOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
+          </select>
+          <select v-model="selectedStatus" class="input status-select">
             <option value="">全部状态</option>
-            <option value="NOT_STARTED">待执行</option>
-            <option value="SUBMITTED">待审核</option>
-            <option value="REVIEWED">已审核</option>
-            <option value="CANCELLED">已取消</option>
+            <option value="待执行">待执行</option>
+            <option value="已逾期">已逾期</option>
+            <option value="待审核">待审核</option>
+            <option value="已完成">已完成</option>
+            <option value="已取消">已取消</option>
           </select>
           <button
-            class="btn btn-sm btn-primary inline-flex items-center gap-1.5 shadow-sm"
+            class="btn btn-sm btn-primary inline-flex items-center gap-1 shadow-sm flex-shrink-0"
             :disabled="autoAssigning"
             title="调用求解器防冲突算法，为当前未分配任务自动匹配在册志愿者"
             @click="handleAutoAssign"
           >
             <AppIcon name="sparkles" :size="13" class="text-amber-300" />
-            <span>{{ autoAssigning ? '排班中…' : (selectedTaskIds.length > 0 ? `智能自动排班 (${selectedTaskIds.length})` : '智能自动排班') }}</span>
+            <span>{{ autoAssigning ? '排班中…' : '智能排班' }}</span>
           </button>
           <button
-            class="btn btn-sm btn-danger inline-flex items-center gap-1"
+            class="btn btn-sm btn-danger inline-flex items-center gap-1 flex-shrink-0"
             :disabled="selectedTaskIds.length === 0"
             @click="handleBatchDelete"
           >
             <AppIcon name="trash" :size="13" />
-            <span>批量删除 ({{ selectedTaskIds.length }})</span>
+            <span>批量删除{{ selectedTaskIds.length > 0 ? ` (${selectedTaskIds.length})` : '' }}</span>
           </button>
           <button
-            class="btn btn-sm btn-outline inline-flex items-center gap-1"
+            class="btn btn-sm btn-outline inline-flex items-center gap-1 flex-shrink-0"
             :disabled="filteredTasks.length === 0"
             title="将当前周或筛选出的查课任务与受派人员导出为表格"
             @click="handleExportTasks"
           >
             <AppIcon name="download" :size="13" />
-            <span>导出排班 ({{ filteredTasks.length }})</span>
+            <span>导出排班</span>
           </button>
-          <button class="btn btn-sm" @click="fetchTasks">⟳ 刷新</button>
+          <button class="btn btn-sm flex-shrink-0" @click="fetchTasks">⟳ 刷新</button>
         </div>
       </div>
 
@@ -498,12 +633,12 @@ async function handleUpdateTask() {
                 @change="toggleSelectAll"
               />
             </th>
-            <th>任务 ID</th>
-            <th>时间与地点</th>
-            <th>课程与教学班</th>
-            <th>受派志愿者</th>
-            <th>状态</th>
-            <th style="text-align: right">操作</th>
+            <th style="width: 75px">任务 ID</th>
+            <th style="width: 200px">时间与地点</th>
+            <th style="min-width: 180px">课程与教学班</th>
+            <th style="width: 160px">受派志愿者</th>
+            <th style="width: 110px">状态</th>
+            <th style="width: 320px; text-align: right">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -522,7 +657,7 @@ async function handleUpdateTask() {
             </td>
             <td class="cell-mono tid">#{{ task.id }}</td>
             <td>
-              <div class="cell-main">{{ task.inspection_date }} {{ formatPeriodText(task.start_period, task.end_period) }}</div>
+              <div class="cell-main">{{ formatTaskDateWithWeekday(task.inspection_date) }} {{ formatPeriodText(task.start_period, task.end_period) }}</div>
               <div class="cell-sub">{{ task.classroom_snapshot || '未指定教室' }}</div>
             </td>
             <td>
@@ -548,8 +683,15 @@ async function handleUpdateTask() {
             </td>
             <td>
               <TaskStatusTag :status="task.status" :deadline-assessment="task.deadline_assessment" />
+              <div
+                v-if="task.cancel_reason"
+                class="cell-sub text-xs text-amber-700 mt-1 max-w-[140px] truncate"
+                :title="task.cancel_reason"
+              >
+                停课: {{ task.cancel_reason }}
+              </div>
             </td>
-            <td style="text-align: right">
+            <td style="text-align: right; white-space: nowrap">
               <button
                 class="btn btn-sm"
                 @click="handleOpenAssignDialog(task)"
@@ -557,12 +699,22 @@ async function handleUpdateTask() {
                 {{ (task as any).assignment || task.assigned_volunteer_id ? '改派' : '人工指派' }}
               </button>
               <button
-                v-if="task.status !== '已取消' && task.status !== '已完成'"
+                v-if="task.status !== '已取消' && task.status !== 'CANCELLED' && task.status !== '已完成' && task.status !== 'REVIEWED'"
                 class="btn btn-ghost btn-sm inline-flex items-center gap-1"
                 @click="openEditTask(task)"
               >
                 <AppIcon name="edit" :size="12" />
                 <span>编辑</span>
+              </button>
+              <button
+                v-if="task.status !== '已取消' && task.status !== 'CANCELLED' && task.status !== '已完成' && task.status !== 'REVIEWED'"
+                class="btn btn-ghost btn-sm text-amber-700 inline-flex items-center gap-1"
+                style="color: #b45309;"
+                title="标记为教师临时停课或免计（不计入考勤统计与周报，不影响志愿者）"
+                @click="openCancelDialog(task)"
+              >
+                <AppIcon name="slash" :size="12" />
+                <span>停课免计</span>
               </button>
               <button class="btn btn-ghost btn-sm" @click="openTaskDetail(task)">详情与名单</button>
               <button
@@ -770,19 +922,121 @@ async function handleUpdateTask() {
       </template>
     </el-dialog>
 
+    <!-- 弹窗 4：标记停课免计（教师单独停课或特殊免查） -->
+    <el-dialog
+      v-model="cancelDialogVisible"
+      :title="`标记停课免计 · 任务 #${cancelingTask?.id || ''}`"
+      width="460px"
+    >
+      <div v-if="cancelingTask" class="p-2 space-y-3">
+        <div class="p-2.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-xs leading-relaxed">
+          <b>⚡ 业务说明：</b>标记后，该查课任务将转为「已取消」，<b>不会计入本周周报与考勤到课率统计</b>。志愿者端将显示已取消，且截止结算时判定为豁免（不会被记为逾期违规）。
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-[var(--ink)] mb-1">选择停课 / 免查原因 *</label>
+          <select v-model="cancelPresetReason" class="input w-full" @change="onPresetReasonChange">
+            <option value="教师临时请假/停课">教师临时请假 / 停课</option>
+            <option value="班级外出实训/活动免查">班级外出实训 / 活动免查</option>
+            <option value="教室设备故障/停电">教室设备故障 / 停电</option>
+            <option value="教务处临时调整免查">教务处临时调整免查</option>
+            <option value="CUSTOM">其他原因（自定义输入）</option>
+          </select>
+        </div>
+
+        <div v-if="cancelPresetReason === 'CUSTOM'">
+          <label class="block text-xs font-bold text-[var(--ink)] mb-1">自定义具体原因 *</label>
+          <input
+            v-model="cancelCustomReason"
+            class="input w-full"
+            placeholder="例如: 教师因学术会议调课"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button class="btn btn-ghost" @click="cancelDialogVisible = false">取消</button>
+          <button
+            class="btn btn-dark"
+            style="background: #b45309; border-color: #b45309; color: #fff;"
+            :disabled="cancelSubmitting"
+            @click="handleConfirmCancel"
+          >
+            {{ cancelSubmitting ? '正在处理…' : '确认标记并免计' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
     <TaskDrawer
       v-model:visible="drawerVisible"
       :task="activeTask"
       @reassign="handleOpenAssignDialog"
       @delete="handleDeleteSingleTask"
+      @corrected="fetchTasks"
     />
   </div>
 </template>
 
 <style scoped>
-.stat-row { margin-bottom: 40px; }
+.stat-row { margin-bottom: 16px; }
 .tid { font-weight: 600; color: var(--blue); }
 .unassigned { color: var(--amber); font-weight: 600; }
+
+.tbl-head {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+.tbl-head-title {
+  flex-shrink: 0;
+  min-width: 160px;
+}
+.tbl-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+.search-input {
+  width: 155px;
+  min-width: 155px;
+  max-width: 155px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.day-filter-select {
+  width: 195px;
+  min-width: 195px;
+  max-width: 195px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  transition: border-color 0.15s ease;
+}
+.status-select {
+  width: 95px;
+  min-width: 95px;
+  max-width: 95px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.tbl {
+  table-layout: fixed;
+}
+.tbl th, .tbl td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cell-main, .cell-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .chk {
   width: 16px;
