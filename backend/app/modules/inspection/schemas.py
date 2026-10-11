@@ -111,7 +111,6 @@ InspectionTaskStatus = Literal["待执行", "待审核", "已完成", "已逾期
 
 
 class TaskAssignmentBrief(BaseModel):
-    id: IdStr
     volunteer_user_id: IdStr
     assign_method: str
     volunteer_name: str | None = None

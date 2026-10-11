@@ -787,7 +787,6 @@ class InspectionService:
     ) -> InspectionTaskResponse:
         brief = (
             TaskAssignmentBrief(
-                id=assignment.id,
                 volunteer_user_id=assignment.volunteer_user_id,
                 assign_method=assignment.assign_method,
                 volunteer_name=vol_info[0] if vol_info else None,
