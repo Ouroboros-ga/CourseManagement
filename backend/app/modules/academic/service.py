@@ -21,6 +21,7 @@ from datetime import time
 from sqlalchemy import select
 
 from app.common.pagination import PageParams
+from app.common.parsing.grid import extract_admin_class_names, normalize_class_name
 from app.core.logging import get_logger
 from app.core.exceptions import (
     AppError,
@@ -49,6 +50,7 @@ from app.modules.academic.models import (
 )
 from app.modules.academic.repository import AcademicRepository
 from app.modules.academic.schemas import (
+    AdminClassBrief,
     AdministrativeClassCreateRequest,
     AdministrativeClassDeleteResponse,
     AdministrativeClassResponse,
@@ -107,6 +109,7 @@ def _sched_dto(s: CourseSchedule) -> CourseScheduleResponse:
         start_period=s.start_period,
         end_period=s.end_period,
         classroom=s.classroom,
+        teacher=s.teacher,
         status=s.status,
         weeks=[w.week_no for w in s.weeks],
     )
@@ -207,12 +210,18 @@ class AcademicService:
         self._repo.flush()
         if getattr(body, "init_default_periods", True):
             default_periods = [
-                (1, time(8, 0), time(9, 35)),
-                (2, time(10, 5), time(11, 40)),
-                (3, time(13, 30), time(15, 5)),
-                (4, time(15, 25), time(17, 0)),
-                (5, time(18, 30), time(20, 5)),
-                (6, time(20, 15), time(21, 50)),
+                (1, time(8, 10), time(8, 55)),
+                (2, time(9, 0), time(9, 45)),
+                (3, time(10, 5), time(10, 50)),
+                (4, time(10, 55), time(11, 40)),
+                (5, time(13, 30), time(14, 15)),
+                (6, time(14, 20), time(15, 5)),
+                (7, time(15, 25), time(16, 10)),
+                (8, time(16, 15), time(17, 0)),
+                (9, time(17, 5), time(17, 50)),
+                (10, time(18, 50), time(19, 35)),
+                (11, time(19, 40), time(20, 25)),
+                (12, time(20, 30), time(21, 15)),
             ]
             for p_no, st, et in default_periods:
                 self._repo.add(
@@ -441,6 +450,68 @@ class AcademicService:
         )
         self._repo.add(co)
         self._repo.flush()
+
+        canceled_count = 0
+        if body.override_type == OverrideType.STOP.value and body.cascade_cancel_tasks:
+            from app.core.database import utcnow
+            from app.modules.inspection.models import (
+                DeadlineAssessmentResult,
+                InspectionTask,
+                SubmissionDeadlineDay,
+                TaskDeadlineAssessment,
+            )
+            from app.modules.report.source_revision import SourceRevisionService
+
+            existing_tasks = list(
+                self._session.execute(
+                    select(InspectionTask)
+                    .where(
+                        InspectionTask.semester_id == sem.id,
+                        InspectionTask.inspection_date == body.date,
+                        InspectionTask.canceled_at.is_(None),
+                    )
+                    .with_for_update()
+                ).scalars().all()
+            )
+            if existing_tasks:
+                now = utcnow()
+                for t in existing_tasks:
+                    t.canceled_at = now
+                    t.canceled_by = actor.id
+                    t.cancel_reason = f"校历停课自动联动取消: {body.reason or '节假日停课'}"
+                    t.lock_version += 1
+
+                    existing_asmt = self._session.execute(
+                        select(TaskDeadlineAssessment)
+                        .where(TaskDeadlineAssessment.task_id == t.id)
+                        .with_for_update()
+                    ).scalar_one_or_none()
+                    if existing_asmt is not None:
+                        existing_asmt.result = DeadlineAssessmentResult.CANCELED.value
+                        existing_asmt.evaluated_at = now
+                    else:
+                        day = self._session.execute(
+                            select(SubmissionDeadlineDay).where(
+                                SubmissionDeadlineDay.semester_id == sem.id,
+                                SubmissionDeadlineDay.inspection_date == t.inspection_date,
+                            )
+                        ).scalar_one_or_none()
+                        if day is not None:
+                            asmt = TaskDeadlineAssessment(
+                                task_id=t.id,
+                                deadline_version_id=None,
+                                deadline_at_snapshot=day.deadline_at,
+                                assignee_user_id_snapshot=None,
+                                result=DeadlineAssessmentResult.CANCELED.value,
+                                evaluated_at=now,
+                            )
+                            self._session.add(asmt)
+
+                    SourceRevisionService.bump_for_task(self._session, t)
+
+                canceled_count = len(existing_tasks)
+                self._repo.flush()
+
         self._record_audit(
             actor_user_id=actor.id,
             action="academic.calendar_override.create",
@@ -452,12 +523,15 @@ class AcademicService:
                 "override_type": co.override_type,
                 "source_teaching_week": co.source_teaching_week,
                 "source_teaching_weekday": co.source_teaching_weekday,
+                "canceled_tasks_count": canceled_count,
             },
             reason=body.reason,
             request_id=request_id,
         )
         self._session.commit()
-        return CalendarOverrideResponse.model_validate(co)
+        resp = CalendarOverrideResponse.model_validate(co)
+        resp.affected_tasks_count = canceled_count
+        return resp
 
     def list_calendar_overrides(self, semester_id: int) -> list[CalendarOverrideResponse]:
         if self._repo.get_semester(semester_id) is None:
@@ -514,6 +588,8 @@ class AcademicService:
             grade_year=body.grade_year,
             major_name=body.major_name,
             college=body.college,
+            head_teacher=body.head_teacher,
+            counselor=body.counselor,
             status=perms.RECORD_STATUS_ACTIVE,
         )
         self._repo.add(ac)
@@ -524,7 +600,12 @@ class AcademicService:
             resource_type="administrative_class",
             resource_id=str(ac.id),
             before=None,
-            after={"class_code": ac.class_code, "college": ac.college},
+            after={
+                "class_code": ac.class_code,
+                "college": ac.college,
+                "head_teacher": ac.head_teacher,
+                "counselor": ac.counselor,
+            },
             reason=body.reason,
             request_id=request_id,
         )
@@ -543,7 +624,13 @@ class AcademicService:
         ac = self._repo.get_admin_class_for_update(class_id)
         if ac is None:
             raise NotFoundError("行政班不存在")
-        before = {"class_name": ac.class_name, "status": ac.status, "college": ac.college}
+        before = {
+            "class_name": ac.class_name,
+            "status": ac.status,
+            "college": ac.college,
+            "head_teacher": ac.head_teacher,
+            "counselor": ac.counselor,
+        }
         if body.class_name is not None:
             ac.class_name = body.class_name
         if body.grade_year is not None:
@@ -552,6 +639,10 @@ class AcademicService:
             ac.major_name = body.major_name
         if body.college is not None:
             ac.college = body.college
+        if body.head_teacher is not None:
+            ac.head_teacher = body.head_teacher
+        if body.counselor is not None:
+            ac.counselor = body.counselor
         if body.status is not None:
             ac.status = body.status
         self._record_audit(
@@ -560,7 +651,13 @@ class AcademicService:
             resource_type="administrative_class",
             resource_id=str(ac.id),
             before=before,
-            after={"class_name": ac.class_name, "status": ac.status, "college": ac.college},
+            after={
+                "class_name": ac.class_name,
+                "status": ac.status,
+                "college": ac.college,
+                "head_teacher": ac.head_teacher,
+                "counselor": ac.counselor,
+            },
             reason=body.reason,
             request_id=request_id,
         )
@@ -801,6 +898,7 @@ class AcademicService:
             course_id=body.course_id,
             class_code=body.class_code,
             class_name=body.class_name,
+            teacher_name=body.teacher_name,
             status=perms.RECORD_STATUS_ACTIVE,
         )
         self._repo.add(tc)
@@ -815,6 +913,7 @@ class AcademicService:
                 "semester_id": tc.semester_id,
                 "course_id": tc.course_id,
                 "class_name": tc.class_name,
+                "teacher_name": tc.teacher_name,
             },
             reason=body.reason,
             request_id=request_id,
@@ -835,11 +934,17 @@ class AcademicService:
         if tc is None:
             raise NotFoundError("教学班不存在")
         self._require_active_semester(tc.semester_id)
-        before = {"class_name": tc.class_name, "status": tc.status}
+        before = {
+            "class_name": tc.class_name,
+            "status": tc.status,
+            "teacher_name": tc.teacher_name,
+        }
         if body.class_name is not None:
             tc.class_name = body.class_name
         if body.class_code is not None:
             tc.class_code = body.class_code
+        if body.teacher_name is not None:
+            tc.teacher_name = body.teacher_name
         if body.status is not None:
             tc.status = body.status
         self._record_audit(
@@ -848,7 +953,11 @@ class AcademicService:
             resource_type="teaching_class",
             resource_id=str(tc.id),
             before=before,
-            after={"class_name": tc.class_name, "status": tc.status},
+            after={
+                "class_name": tc.class_name,
+                "status": tc.status,
+                "teacher_name": tc.teacher_name,
+            },
             reason=body.reason,
             request_id=request_id,
         )
@@ -962,6 +1071,7 @@ class AcademicService:
             start_period=body.start_period,
             end_period=body.end_period,
             classroom=body.classroom,
+            teacher=body.teacher,
             status=perms.RECORD_STATUS_ACTIVE,
         )
         self._repo.add(s)
@@ -978,6 +1088,7 @@ class AcademicService:
                 "weekday": s.weekday,
                 "start_period": s.start_period,
                 "end_period": s.end_period,
+                "teacher": s.teacher,
                 "week_count": len(set(body.weeks)),
             },
             reason=body.reason,
@@ -1009,6 +1120,7 @@ class AcademicService:
             "start_period": s.start_period,
             "end_period": s.end_period,
             "status": s.status,
+            "teacher": s.teacher,
             "week_count": len(s.weeks),
         }
         if body.weekday is not None:
@@ -1019,6 +1131,8 @@ class AcademicService:
             s.end_period = body.end_period
         if body.classroom is not None:
             s.classroom = body.classroom
+        if body.teacher is not None:
+            s.teacher = body.teacher
         if body.status is not None:
             s.status = body.status
         if body.weeks is not None:
@@ -1302,12 +1416,15 @@ class AcademicService:
         tc_ids = [tc.id for _cs, tc, _c in schedules_raw]
         roster_counts: dict[int, int] = {tid: 0 for tid in tc_ids}
         roster_admin_classes: dict[int, set[str]] = {tid: set() for tid in tc_ids}
+        roster_admin_details: dict[int, dict[str, AdminClassBrief]] = {tid: {} for tid in tc_ids}
 
         if tc_ids:
             stu_rows = self._session.execute(
                 select(
                     TeachingClassStudent.teaching_class_id,
                     AdministrativeClass.class_name,
+                    AdministrativeClass.head_teacher,
+                    AdministrativeClass.counselor,
                 )
                 .join(Student, Student.id == TeachingClassStudent.student_id)
                 .outerjoin(
@@ -1319,23 +1436,77 @@ class AcademicService:
                     Student.status == "ACTIVE",
                 )
             ).all()
-            for tid, ac_name in stu_rows:
+            for tid, ac_name, ht, co in stu_rows:
                 roster_counts[tid] = roster_counts.get(tid, 0) + 1
                 if ac_name:
                     roster_admin_classes[tid].add(ac_name)
+                    if ac_name not in roster_admin_details[tid]:
+                        roster_admin_details[tid][ac_name] = AdminClassBrief(
+                            class_name=ac_name,
+                            head_teacher=ht,
+                            counselor=co,
+                        )
+
+        # 加载行政班基础信息索引，用于无名单时通过教学班名称穿透匹配班主任与辅导员
+        all_acs = self._session.execute(
+            select(AdministrativeClass).where(AdministrativeClass.status == "ACTIVE")
+        ).scalars().all()
+        ac_name_lookup = {ac.class_name: ac for ac in all_acs}
+        ac_code_lookup = {ac.class_code: ac for ac in all_acs}
+        ac_norm_lookup = {normalize_class_name(ac.class_name): ac for ac in all_acs}
 
         for cs, tc, c in schedules_raw:
             weeks = [w.week_no for w in cs.weeks]
             if week_no is not None and week_no not in weeks:
                 continue
 
+            admin_details_list = sorted(
+                roster_admin_details.get(tc.id, {}).values(),
+                key=lambda x: x.class_name,
+            )
+
+            # 无论是否已有学生花名册，均结合教学班名称补全合班行政班责任区信息
+            existing_admin_names = {d.class_name for d in admin_details_list}
+            if tc.class_name:
+                cnames = extract_admin_class_names(tc.class_name)
+                for cn in cnames:
+                    matched_ac = (
+                        ac_name_lookup.get(cn)
+                        or ac_code_lookup.get(cn)
+                        or ac_norm_lookup.get(normalize_class_name(cn))
+                    )
+                    if matched_ac and matched_ac.class_name not in existing_admin_names:
+                        admin_details_list.append(
+                            AdminClassBrief(
+                                class_name=matched_ac.class_name,
+                                head_teacher=matched_ac.head_teacher,
+                                counselor=matched_ac.counselor,
+                            )
+                        )
+                        existing_admin_names.add(matched_ac.class_name)
+            head_teachers = [d.head_teacher for d in admin_details_list if d.head_teacher]
+            ht_str = "、".join(dict.fromkeys(head_teachers)) if head_teachers else None
+            counselors = [d.counselor for d in admin_details_list if d.counselor]
+            co_str = "、".join(dict.fromkeys(counselors)) if counselors else None
+
+            sched_teacher = (cs.teacher or tc.teacher_name or "").strip()
+            if sched_teacher in ("", "未指定", "None"):
+                sched_teacher = None
+            eff_teacher = ht_str or sched_teacher
+
             if keyword:
                 kw = keyword.strip().lower()
+                ac_texts = " ".join([
+                    f"{d.class_name} {d.head_teacher or ''} {d.counselor or ''}"
+                    for d in admin_details_list
+                ]).lower()
                 matches_kw = (
                     kw in (c.course_name or "").lower()
                     or kw in (c.course_code or "").lower()
                     or kw in (tc.class_name or "").lower()
                     or kw in (cs.classroom or "").lower()
+                    or kw in (eff_teacher or "").lower()
+                    or kw in ac_texts
                 )
                 if not matches_kw:
                     continue
@@ -1354,6 +1525,9 @@ class AcademicService:
                     teaching_class_id=str(tc.id),
                     teaching_class_code=tc.class_code,
                     teaching_class_name=tc.class_name,
+                    teacher_name=eff_teacher,
+                    head_teacher=ht_str,
+                    counselor=co_str,
                     weekday=cs.weekday,
                     start_period=cs.start_period,
                     end_period=cs.end_period,
@@ -1364,6 +1538,7 @@ class AcademicService:
                     is_physical_education=is_pe,
                     is_inspectable=is_insp,
                     administrative_classes=sorted(roster_admin_classes.get(tc.id, set())),
+                    administrative_classes_details=admin_details_list,
                 )
             )
 

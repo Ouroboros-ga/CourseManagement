@@ -76,6 +76,18 @@ def _role(session: Session, code: str) -> Role:
 def _make_user(
     session: Session, username: str, role_codes: list[str], *, student_id: int | None = None
 ) -> UserAccount:
+    if student_id is not None:
+        existing = session.execute(
+            select(UserAccount).where(UserAccount.student_id == student_id)
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.username = username
+            existing.password_hash = hash_password(_PWD)
+            existing.display_name = username
+            existing.status = UserStatus.ACTIVE.value
+            existing.roles = [_role(session, c) for c in role_codes]
+            session.commit()
+            return existing
     user = UserAccount(
         username=username,
         password_hash=hash_password(_PWD),
@@ -459,6 +471,7 @@ def test_generate_list_and_download(
     assert ver["status"] == "PUBLISHED"
     assert ver["excel_available"] is True
     assert ver["snapshot_available"] is True
+    assert ver["word_available"] is True
     assert ver["behind_source"] is False
     rid = int(data["report_id"])
     vid = int(ver["id"])
@@ -474,6 +487,13 @@ def test_generate_list_and_download(
     assert x.content.startswith(b"PK")
     assert "attachment" in x.headers["content-disposition"]
     assert "xlsx" in x.headers["content-disposition"]
+
+    # Word：zip 魔术数 + 附件头
+    w = client.get(f"/api/v1/report-versions/{vid}/download", headers=h, params={"kind": "WORD"})
+    assert w.status_code == 200, w.text
+    assert w.content.startswith(b"PK")
+    assert "attachment" in w.headers["content-disposition"]
+    assert "docx" in w.headers["content-disposition"]
 
     # 明细 JSON：可解析并含与统计一致的聚合口径
     j = client.get(
@@ -671,6 +691,7 @@ def test_second_artifact_save_failure_marks_failed_and_removes_first(
     assert versions[0].status == ReportVersionStatus.FAILED.value
     assert versions[0].snapshot_file_id is None
     assert versions[0].excel_file_id is None
+    assert versions[0].word_file_id is None
     assert len(saved_keys) == 1
     assert report_storage.exists(saved_keys[0]) is False
 
@@ -701,7 +722,7 @@ def test_generated_files_are_report_category_and_future(
             ReportVersion.status == ReportVersionStatus.PUBLISHED.value,
         )
     ).scalar_one()
-    file_ids = [row.snapshot_file_id, row.excel_file_id]
+    file_ids = [row.snapshot_file_id, row.excel_file_id, row.word_file_id]
     assert all(fid is not None for fid in file_ids)
     files = (
         session.execute(select(FileObject).where(FileObject.id.in_([int(f) for f in file_ids])))

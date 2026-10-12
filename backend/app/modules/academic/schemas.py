@@ -100,6 +100,7 @@ class CalendarOverrideCreateRequest(BaseModel):
     source_teaching_week: int | None = Field(default=None, ge=1)
     source_teaching_weekday: int | None = Field(default=None, ge=1, le=7)
     reason: str | None = Field(default=None, max_length=255)
+    cascade_cancel_tasks: bool = Field(default=True)
 
     @model_validator(mode="after")
     def validate_stop_source(self) -> CalendarOverrideCreateRequest:
@@ -120,6 +121,7 @@ class CalendarOverrideResponse(BaseModel):
     source_teaching_week: int | None
     source_teaching_weekday: int | None
     reason: str | None
+    affected_tasks_count: int = 0
 
 
 # --------------------------------------------------------------------------- #
@@ -131,6 +133,8 @@ class AdministrativeClassCreateRequest(BaseModel):
     grade_year: int | None = Field(default=None, ge=1900, le=2999)
     major_name: str | None = Field(default=None, max_length=128)
     college: str | None = Field(default=None, max_length=128)
+    head_teacher: str | None = Field(default=None, max_length=64)
+    counselor: str | None = Field(default=None, max_length=64)
     reason: str | None = Field(default=None, max_length=512)
 
 
@@ -139,6 +143,8 @@ class AdministrativeClassUpdateRequest(BaseModel):
     grade_year: int | None = Field(default=None, ge=1900, le=2999)
     major_name: str | None = Field(default=None, max_length=128)
     college: str | None = Field(default=None, max_length=128)
+    head_teacher: str | None = Field(default=None, max_length=64)
+    counselor: str | None = Field(default=None, max_length=64)
     status: str | None = Field(default=None, max_length=16)
     reason: str | None = Field(default=None, max_length=512)
 
@@ -152,6 +158,8 @@ class AdministrativeClassResponse(BaseModel):
     grade_year: int | None
     major_name: str | None
     college: str | None
+    head_teacher: str | None = None
+    counselor: str | None = None
     status: str
 
 
@@ -217,12 +225,14 @@ class TeachingClassCreateRequest(BaseModel):
     course_id: int = Field(ge=1)
     class_code: str | None = Field(default=None, max_length=64)
     class_name: str = Field(min_length=1, max_length=128)
+    teacher_name: str | None = Field(default=None, max_length=128)
     reason: str | None = Field(default=None, max_length=512)
 
 
 class TeachingClassUpdateRequest(BaseModel):
     class_code: str | None = Field(default=None, max_length=64)
     class_name: str | None = Field(default=None, min_length=1, max_length=128)
+    teacher_name: str | None = Field(default=None, max_length=128)
     status: str | None = Field(default=None, max_length=16)
     reason: str | None = Field(default=None, max_length=512)
 
@@ -235,6 +245,7 @@ class TeachingClassResponse(BaseModel):
     course_id: IdStr
     class_code: str | None
     class_name: str
+    teacher_name: str | None = None
     status: str
 
 
@@ -261,6 +272,7 @@ class CourseScheduleCreateRequest(BaseModel):
     start_period: int = Field(ge=1, le=20)
     end_period: int = Field(ge=1, le=20)
     classroom: str | None = Field(default=None, max_length=128)
+    teacher: str | None = Field(default=None, max_length=128)
     weeks: list[int] = Field(default_factory=list, description="生效教学周次集合(1..total_weeks)")
     reason: str | None = Field(default=None, max_length=512)
 
@@ -270,6 +282,7 @@ class CourseScheduleUpdateRequest(BaseModel):
     start_period: int | None = Field(default=None, ge=1, le=20)
     end_period: int | None = Field(default=None, ge=1, le=20)
     classroom: str | None = Field(default=None, max_length=128)
+    teacher: str | None = Field(default=None, max_length=128)
     status: str | None = Field(default=None, max_length=16)
     weeks: list[int] | None = Field(default=None, description="提供则整体替换生效周次")
     reason: str | None = Field(default=None, max_length=512)
@@ -285,6 +298,7 @@ class CourseScheduleResponse(BaseModel):
     start_period: int
     end_period: int
     classroom: str | None
+    teacher: str | None = None
     status: str
     weeks: list[int] = Field(default_factory=list)
 
@@ -322,6 +336,12 @@ class PageResponse(BaseModel):
 # --------------------------------------------------------------------------- #
 # 全校教务总课表查询响应 MasterTimetable
 # --------------------------------------------------------------------------- #
+class AdminClassBrief(BaseModel):
+    class_name: str
+    head_teacher: str | None = None
+    counselor: str | None = None
+
+
 class MasterTimetableItemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -333,6 +353,9 @@ class MasterTimetableItemResponse(BaseModel):
     teaching_class_id: IdStr
     teaching_class_code: str | None
     teaching_class_name: str
+    teacher_name: str | None = None
+    head_teacher: str | None = None
+    counselor: str | None = None
     weekday: int
     start_period: int
     end_period: int
@@ -343,6 +366,7 @@ class MasterTimetableItemResponse(BaseModel):
     is_physical_education: bool = False
     is_inspectable: bool = True
     administrative_classes: list[str] = Field(default_factory=list)
+    administrative_classes_details: list[AdminClassBrief] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #

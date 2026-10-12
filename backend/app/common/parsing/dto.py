@@ -37,6 +37,7 @@ class CourseOccurrence:
     end_period: int
     week_no: int
     location: str = ""
+    teacher: str = ""
 
 
 @dataclass(frozen=True)

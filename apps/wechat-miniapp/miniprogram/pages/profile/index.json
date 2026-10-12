@@ -1,6 +1,8 @@
 {
   "navigationBarTitleText": "我的",
   "usingComponents": {
-    "t-button": "tdesign-miniprogram/button/button"
+    "t-button": "tdesign-miniprogram/button/button",
+    "t-toast": "tdesign-miniprogram/toast/toast",
+    "t-dialog": "tdesign-miniprogram/dialog/dialog"
   }
 }

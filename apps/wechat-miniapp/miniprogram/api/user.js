@@ -1,24 +1,51 @@
 import { request } from '../utils/request.js';
-import { clearSession, setSession } from '../utils/session.js';
 
-export async function login(data) {
-  const result = await request({ url: '/api/v1/auth/wechat/login', method: 'POST', data, auth: false });
-  setSession(result);
-  return result;
-}
+export const webLogin = (data) => {
+  return request({
+    url: '/api/v1/auth/web/login',
+    method: 'POST',
+    data
+  });
+};
 
-export function bindStudent(data) {
-  return request({ url: '/api/v1/me/student-binding', method: 'POST', data });
-}
+export const login = (data) => {
+  return request({
+    url: '/api/v1/auth/wechat/login',
+    method: 'POST',
+    data
+  });
+};
 
-export function getUserInfo() {
-  return request({ url: '/api/v1/me' });
-}
+export const bindStudent = (data) => {
+  const payload = {
+    student_no: data.student_no || data.studentId,
+    binding_code: data.binding_code || data.name || data.bindingCode,
+  };
 
-export async function logout() {
-  try {
-    return await request({ url: '/api/v1/auth/logout', method: 'POST' });
-  } finally {
-    clearSession();
-  }
-}
+  return request({
+    url: '/api/v1/me/student-binding',
+    method: 'POST',
+    data: payload
+  });
+};
+
+export const unbindStudent = () => {
+  return request({
+    url: '/api/v1/me/student-binding',
+    method: 'DELETE'
+  });
+};
+
+export const getUserInfo = () => {
+  return request({
+    url: '/api/v1/me',
+    method: 'GET'
+  });
+};
+
+export const logout = () => {
+  return request({
+    url: '/api/v1/auth/logout',
+    method: 'POST'
+  });
+};

@@ -34,6 +34,7 @@ from app.modules.report.schemas import (
     IncompleteTaskItem,
     IncompleteTasksResponse,
     TaskStatsItem,
+    AbnormalDetailItem,
 )
 
 
@@ -82,11 +83,16 @@ class StatisticsService:
         abnormal_total = type_totals["LEAVE"] + type_totals["LATE"] + type_totals["ABSENT"]
         overall = agg.build_overall(exp_total, type_totals, abnormal_total)
 
-        classes = agg.build_classes(expected, roster_by_tc, att_by_tc)
+        class_names = {cname for _tid, cname in (set(roster_by_tc) | set(att_by_tc)) if cname}
+        class_duties = self._repo.class_duties_map(class_names)
+        classes = agg.build_classes(expected, roster_by_tc, att_by_tc, class_duties=class_duties)
 
         tasks: list[TaskStatsItem] | None = None
+        details: list[AbnormalDetailItem] | None = None
         if include_tasks:
             tasks = agg.build_tasks(ids, expected, att_by_task, meta)
+            raw_details = self._repo.abnormal_details(ids)
+            details = [AbnormalDetailItem(**d) for d in raw_details]
 
         return AttendanceStatsResponse(
             semester_id=query.semester_id,
@@ -97,7 +103,96 @@ class StatisticsService:
             overall=overall,
             classes=classes,
             tasks=tasks,
+            details=details,
         )
+
+    # ================================================================== #
+    # GET /statistics/attendance/export
+    # ================================================================== #
+    def export_attendance_analytics(
+        self,
+        actor: CurrentUser,
+        query: AttendanceStatsQuery,
+    ) -> tuple[bytes, str]:
+        stats_resp = self.attendance_stats(actor, query, include_tasks=True)
+        meta = {
+            "semester_id": query.semester_id,
+            "week_no": query.week_no,
+            "date_from": str(query.date_from) if query.date_from else None,
+            "date_to": str(query.date_to) if query.date_to else None,
+            "eligible_task_count": stats_resp.eligible_task_count,
+        }
+        task_ids = [int(t.task_id) for t in (stats_resp.tasks or []) if t.task_id]
+        details = self._repo.abnormal_details(task_ids)
+        payload = {
+            "meta": meta,
+            "overall": stats_resp.overall.model_dump(),
+            "classes": [c.model_dump() for c in stats_resp.classes],
+            "tasks": [t.model_dump() for t in (stats_resp.tasks or [])],
+            "details": details,
+        }
+        from app.modules.report.artifacts import build_attendance_analytics_excel
+
+        excel_bytes = build_attendance_analytics_excel(payload)
+        if query.week_no:
+            filename = f"attendance_analytics_w{query.week_no}.xlsx"
+        else:
+            filename = f"attendance_analytics_{query.date_from}_{query.date_to}.xlsx"
+        return excel_bytes, filename
+
+    # ================================================================== #
+    # GET /statistics/attendance/export-detail-doc (独立 5 列详表 Word)
+    # ================================================================== #
+    def export_detail_word(
+        self,
+        actor: CurrentUser,
+        query: AttendanceStatsQuery,
+    ) -> tuple[bytes, str]:
+        stats_resp = self.attendance_stats(actor, query, include_tasks=True)
+        task_ids = [int(t.task_id) for t in (stats_resp.tasks or []) if t.task_id]
+        details = self._repo.abnormal_details(task_ids)
+        payload = {
+            "meta": {
+                "semester_id": query.semester_id,
+                "week_no": query.week_no,
+                "date_from": str(query.date_from) if query.date_from else None,
+                "date_to": str(query.date_to) if query.date_to else None,
+            },
+            "overall": stats_resp.overall.model_dump(),
+            "classes": [c.model_dump() for c in stats_resp.classes],
+            "details": details,
+        }
+        from app.modules.report.artifacts import build_detail_table_word_document
+
+        docx_bytes = build_detail_table_word_document(payload)
+        week_tag = f"第{query.week_no}周" if query.week_no else f"{query.date_from}至{query.date_to}"
+        filename = f"课堂考勤异常详表_{week_tag}.docx"
+        return docx_bytes, filename
+
+    # ================================================================== #
+    # GET /statistics/attendance/export-study-excel (独立 4 列自习与日常考勤 Excel)
+    # ================================================================== #
+    def export_study_attendance_excel(
+        self,
+        actor: CurrentUser,
+        query: AttendanceStatsQuery,
+    ) -> tuple[bytes, str]:
+        stats_resp = self.attendance_stats(actor, query, include_tasks=True)
+        task_ids = [int(t.task_id) for t in (stats_resp.tasks or []) if t.task_id]
+        details = self._repo.abnormal_details(task_ids)
+        payload = {
+            "meta": {
+                "semester_id": query.semester_id,
+                "week_no": query.week_no,
+            },
+            "details": details,
+        }
+        from app.modules.report.artifacts import build_study_attendance_excel
+
+        excel_bytes = build_study_attendance_excel(payload)
+        week_tag = f"第{query.week_no}周" if query.week_no else f"{query.date_from}至{query.date_to}"
+        filename = f"自习与日常考勤表_{week_tag}.xlsx"
+        return excel_bytes, filename
 
     # ================================================================== #
     # GET /statistics/incomplete-tasks

@@ -20,12 +20,12 @@ export interface PeriodSlotInfo {
 }
 
 export const STANDARD_PERIOD_SLOTS: Record<number, PeriodSlotInfo> = {
-  1: { slot: 1, sectionStart: 1, sectionEnd: 2, sectionLabel: '第 1-2 节', timeRange: '08:00 - 09:35', name: '上午一' },
+  1: { slot: 1, sectionStart: 1, sectionEnd: 2, sectionLabel: '第 1-2 节', timeRange: '08:10 - 09:45', name: '上午一' },
   2: { slot: 2, sectionStart: 3, sectionEnd: 4, sectionLabel: '第 3-4 节', timeRange: '10:05 - 11:40', name: '上午二' },
   3: { slot: 3, sectionStart: 5, sectionEnd: 6, sectionLabel: '第 5-6 节', timeRange: '13:30 - 15:05', name: '下午一' },
   4: { slot: 4, sectionStart: 7, sectionEnd: 8, sectionLabel: '第 7-8 节', timeRange: '15:25 - 17:00', name: '下午二' },
-  5: { slot: 5, sectionStart: 10, sectionEnd: 11, sectionLabel: '第 10-11 节', timeRange: '18:30 - 20:50', name: '晚上课' },
-  6: { slot: 6, sectionStart: 10, sectionEnd: 11, sectionLabel: '第 10-11 节', timeRange: '18:30 - 20:50', name: '晚上课' },
+  5: { slot: 5, sectionStart: 10, sectionEnd: 11, sectionLabel: '第 10-11 节', timeRange: '18:50 - 20:25', name: '晚上一' },
+  6: { slot: 6, sectionStart: 11, sectionEnd: 12, sectionLabel: '第 11-12 节', timeRange: '20:30 - 21:15', name: '晚上二' },
 }
 
 export const PERIOD_PRESET_OPTIONS = [
@@ -34,6 +34,7 @@ export const PERIOD_PRESET_OPTIONS = [
   { value: 3, label: '第 5-6 节' },
   { value: 4, label: '第 7-8 节' },
   { value: 5, label: '第 10-11 节' },
+  { value: 6, label: '第 11-12 节' },
 ]
 
 /**

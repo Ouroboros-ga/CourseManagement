@@ -402,13 +402,6 @@ onMounted(async () => {
   <div v-loading="loading">
     <!-- 纸面秩序标准页面头 -->
     <header class="page-head">
-      <div class="crumb font-mono">
-        <span>ACCOUNT & PERMISSION</span>
-        <em>●</em>
-        <span>人员与权限管理</span>
-        <em>●</em>
-        <span>教师管理员与学生负责人全景维护</span>
-      </div>
       <div class="head-row">
         <div>
           <h1 class="font-serif">人员与权限管理</h1>
@@ -443,7 +436,7 @@ onMounted(async () => {
     </header>
 
     <!-- 核心统计指标分栏 (纸面秩序标准 stat-row) -->
-    <div class="stat-row font-mono mb-6">
+    <div class="stat-row font-mono mb-4">
       <div class="stat-cell">
         <div class="label">教工与管理员</div>
         <div class="value">{{ stats.teachersCount }} <span class="text-xs font-normal text-[var(--ink-mute)]">位</span></div>
@@ -467,7 +460,7 @@ onMounted(async () => {
     </div>
 
     <!-- 顶部 Tab 切换 -->
-    <div class="tab-nav mb-6">
+    <div class="tab-nav mb-4">
       <button
         class="tab-btn"
         :class="{ active: activeTab === 'teachers' }"

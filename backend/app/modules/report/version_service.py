@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import secrets
 from datetime import timedelta
 from typing import Any
@@ -181,16 +182,20 @@ class ReportService:
         # ---- 阶段③：事务外渲染产物并落存储（不占业务事务）----
         json_key = self._build_object_key("json")
         excel_key = self._build_object_key("xlsx")
+        word_key = self._build_object_key("docx")
         try:
             json_bytes = artifacts.build_snapshot_json(payload)
             excel_bytes = artifacts.build_excel(payload)
+            word_bytes = artifacts.build_word_document(payload)
             self._storage.save(json_key, json_bytes, artifacts.JSON_CONTENT_TYPE)
             self._storage.save(excel_key, excel_bytes, artifacts.XLSX_CONTENT_TYPE)
+            self._storage.save(word_key, word_bytes, artifacts.DOCX_CONTENT_TYPE)
         except Exception:
             # 存储可能已写入部分对象；清理本次独占键，不碰其他版本产物。
             # 失败状态沿用 attempt_token 校验，不能覆盖接管者的结果。
             self._safe_delete(json_key)
             self._safe_delete(excel_key)
+            self._safe_delete(word_key)
             self._session.rollback()
             self._mark_failed(version_id=version.id, token=token, reason="周报产物生成失败")
             raise
@@ -204,6 +209,7 @@ class ReportService:
             source_revision=source_revision,
             json_artifact=(json_key, json_bytes),
             excel_artifact=(excel_key, excel_bytes),
+            word_artifact=(word_key, word_bytes),
             reason=reason,
             request_id=request_id,
         )
@@ -211,6 +217,7 @@ class ReportService:
             # 发布权已被他人（接管者）取得：清理本次孤儿对象，绝不重复发布。
             self._safe_delete(json_key)
             self._safe_delete(excel_key)
+            self._safe_delete(word_key)
             raise ConflictError(ErrorCode.STATE_CONFLICT, "生成已被接管，本次结果放弃发布")
 
         current_rev = self._repo.current_source_revision(semester_id, week_no)
@@ -287,6 +294,7 @@ class ReportService:
         source_revision: int,
         json_artifact: tuple[str, bytes],
         excel_artifact: tuple[str, bytes],
+        word_artifact: tuple[str, bytes],
         reason: str | None,
         request_id: str | None,
     ) -> ReportVersion | None:
@@ -309,9 +317,11 @@ class ReportService:
             return None
         snap_file = self._create_file_row(json_artifact, "report_snapshot.json")
         excel_file = self._create_file_row(excel_artifact, "report_weekly.xlsx")
+        word_file = self._create_file_row(word_artifact, "report_weekly.docx")
         self._session.flush()  # 取回文件行主键供版本行外键回填
         version.snapshot_file_id = snap_file.id
         version.excel_file_id = excel_file.id
+        version.word_file_id = word_file.id
         version.source_revision = source_revision
         version.status = ReportVersionStatus.PUBLISHED.value
         version.generated_at = utcnow()
@@ -328,6 +338,7 @@ class ReportService:
                 "source_revision": source_revision,
                 "snapshot_file_id": str(snap_file.id),
                 "excel_file_id": str(excel_file.id),
+                "word_file_id": str(word_file.id),
             },
             reason=reason,
             request_id=request_id,
@@ -398,6 +409,7 @@ class ReportService:
             reason=v.reason,
             snapshot_available=published and v.snapshot_file_id is not None,
             excel_available=published and v.excel_file_id is not None,
+            word_available=published and getattr(v, "word_file_id", None) is not None,
             behind_source=v.source_revision < current_rev,
             rule_outdated=v.rule_version < cur_rule,
             template_outdated=v.template_version < cur_tmpl,
@@ -413,7 +425,48 @@ class ReportService:
             raise NotFoundError()
         if version.status != ReportVersionStatus.PUBLISHED.value:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "版本未发布，不可下载")
-        file_id = version.excel_file_id if kind == "EXCEL" else version.snapshot_file_id
+        report = self._repo.get_report(version.report_id)
+        week_no = report.week_no if report else None
+        gen_dt = version.generated_at or version.created_at
+        gen_date = gen_dt.strftime("%Y%m%d") if gen_dt else "latest"
+        v_tag = f"v{version.version_no}.0"
+        prefix = f"第{week_no}周查课周报_{gen_date}_{v_tag}" if week_no else f"查课周报_{gen_date}_{v_tag}"
+
+        if kind == "EXCEL":
+            file_id = version.excel_file_id
+            filename = f"第{week_no}周考勤周报_{gen_date}_{v_tag}.xlsx" if week_no else f"考勤周报_{gen_date}_{v_tag}.xlsx"
+        elif kind == "WORD":
+            file_id = getattr(version, "word_file_id", None)
+            filename = f"{prefix}.docx"
+        elif kind == "DETAIL_WORD":
+            # 基于版本快照直接渲染独立 5 列详表 Word 文档（100% 对齐模板）
+            file_id = version.snapshot_file_id
+            if file_id is None:
+                raise NotFoundError()
+            file = self._session.get(FileObject, file_id)
+            if file is None or file.status in (FileStatus.PURGED.value, FileStatus.PURGE_PENDING.value):
+                raise FileExpiredError()
+            json_bytes = self._storage.read(file.object_key)
+            payload = json.loads(json_bytes.decode("utf-8"))
+            detail_docx_bytes = artifacts.build_detail_table_word_document(payload)
+            filename = f"第{week_no}周课堂考勤详表_{gen_date}_{v_tag}.docx" if week_no else f"课堂考勤详表_{gen_date}_{v_tag}.docx"
+            return detail_docx_bytes, artifacts.DOCX_CONTENT_TYPE, filename
+        elif kind == "STUDY_EXCEL":
+            # 基于版本快照直接渲染独立 4 列自习与日常考勤 Excel（100% 对齐模板）
+            file_id = version.snapshot_file_id
+            if file_id is None:
+                raise NotFoundError()
+            file = self._session.get(FileObject, file_id)
+            if file is None or file.status in (FileStatus.PURGED.value, FileStatus.PURGE_PENDING.value):
+                raise FileExpiredError()
+            json_bytes = self._storage.read(file.object_key)
+            payload = json.loads(json_bytes.decode("utf-8"))
+            study_xlsx_bytes = artifacts.build_study_attendance_excel(payload)
+            filename = f"第{week_no}周自习与日常考勤表_{gen_date}_{v_tag}.xlsx" if week_no else f"自习与日常考勤表_{gen_date}_{v_tag}.xlsx"
+            return study_xlsx_bytes, artifacts.XLSX_CONTENT_TYPE, filename
+        else:
+            file_id = version.snapshot_file_id
+            filename = f"第{week_no}周考勤快照_{gen_date}_{v_tag}.json" if week_no else f"考勤快照_{gen_date}_{v_tag}.json"
         if file_id is None:
             raise NotFoundError()
         file = self._session.get(FileObject, file_id)
@@ -424,7 +477,6 @@ class ReportService:
         if file.expires_at is not None and file.expires_at <= utcnow():
             raise FileExpiredError()
         data = self._storage.read(file.object_key)
-        filename = "report_weekly.xlsx" if kind == "EXCEL" else "report_snapshot.json"
         return data, file.content_type, filename
 
     # ------------------------------------------------------------------ #
@@ -442,11 +494,12 @@ class ReportService:
 
     def _create_file_row(self, artifact: tuple[str, bytes], original_name: str) -> FileObject:
         object_key, content = artifact
-        content_type = (
-            artifacts.XLSX_CONTENT_TYPE
-            if original_name.endswith(".xlsx")
-            else artifacts.JSON_CONTENT_TYPE
-        )
+        if original_name.endswith(".xlsx"):
+            content_type = artifacts.XLSX_CONTENT_TYPE
+        elif original_name.endswith(".docx"):
+            content_type = artifacts.DOCX_CONTENT_TYPE
+        else:
+            content_type = artifacts.JSON_CONTENT_TYPE
         file = FileObject(
             object_key=object_key,
             category=FileCategory.REPORT_FILE.value,

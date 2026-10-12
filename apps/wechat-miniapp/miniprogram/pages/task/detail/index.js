@@ -65,6 +65,16 @@ Page({
           task.deadlineStr = '当天最晚节次后自动计算或23:59';
         }
 
+        if (task.canceled_at) {
+          const ct = new Date(task.canceled_at);
+          const year = ct.getFullYear();
+          const month = String(ct.getMonth() + 1).padStart(2, '0');
+          const date = String(ct.getDate()).padStart(2, '0');
+          const hours = String(ct.getHours()).padStart(2, '0');
+          const minutes = String(ct.getMinutes()).padStart(2, '0');
+          task.canceledAtStr = `${year}-${month}-${date} ${hours}:${minutes}`;
+        }
+
         // 限制：只能在查课当天及以后上传数据
         const now = new Date();
         const y = now.getFullYear();

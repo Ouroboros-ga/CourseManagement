@@ -3,12 +3,12 @@
  * 全天划分为 1-11 小节，每两小节为一次正常课程时间（大节 1-6）：
  */
 const STANDARD_PERIOD_SLOTS = {
-  1: { sectionStart: 1, sectionEnd: 2, label: '第 1-2 节', time: '08:00-09:35' },
+  1: { sectionStart: 1, sectionEnd: 2, label: '第 1-2 节', time: '08:10-09:45' },
   2: { sectionStart: 3, sectionEnd: 4, label: '第 3-4 节', time: '10:05-11:40' },
   3: { sectionStart: 5, sectionEnd: 6, label: '第 5-6 节', time: '13:30-15:05' },
   4: { sectionStart: 7, sectionEnd: 8, label: '第 7-8 节', time: '15:25-17:00' },
-  5: { sectionStart: 10, sectionEnd: 11, label: '第 10-11 节', time: '18:30-20:50' },
-  6: { sectionStart: 10, sectionEnd: 11, label: '第 10-11 节', time: '18:30-20:50' },
+  5: { sectionStart: 10, sectionEnd: 11, label: '第 10-11 节', time: '18:50-20:25' },
+  6: { sectionStart: 11, sectionEnd: 12, label: '第 11-12 节', time: '20:30-21:15' },
 };
 
 function formatPeriodText(start, end, withTime = false) {

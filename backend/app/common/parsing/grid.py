@@ -189,18 +189,22 @@ def expand_grid_rows(
                         end_period=p,
                         week_no=w,
                         location=r.get("location", ""),
+                        teacher=r.get("teacher", "").strip(),
                     )
                 )
     return sorted(occurrences, key=lambda c: (c.course_key, c.week_no, c.start_period))
 
 
 CLASS_NAME_ALIASES: tuple[tuple[str, str], ...] = (
+    ("数据科学与大数据技术", "数科"),
     ("数据科学", "数科"),
+    ("计算机科学与技术", "计算机"),
     ("计算机类", "计算机"),
     ("机械设计制造及其自动化", "机自"),
     ("机械电子工程", "机电"),
     ("电气工程及其自动化", "电气"),
     ("智能制造工程", "智能制造"),
+    ("网络工程", "网工"),
 )
 
 
@@ -210,6 +214,38 @@ def normalize_class_name(name: str) -> str:
     for full, short in CLASS_NAME_ALIASES:
         s = s.replace(full, short)
     return s
+
+
+def extract_admin_class_names(text: str | None) -> list[str]:
+    """从教学班名称或快照字符串中提取组成行政班名称列表。
+    示例：
+    '数据科学2602-微积分A1' -> ['数据科学2602']
+    '机自2621-单片机应用技术, 机自2622-单片机应用技术 (合班)' -> ['机自2621', '机自2622']
+    '计算机2601-微积分A1, 计算机2602-微积分A1, 计算机类2603-微积分A1' -> ['计算机2601', '计算机2602', '计算机类2603']
+    '计算机2503-离散数学' -> ['计算机2503']
+    """
+    if not text:
+        return []
+    s = re.sub(r"[\(（].*?[\)）]", "", text).strip()
+    parts = re.split(r"[,，、/+\s]+", s)
+    found: list[str] = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        if "-" in p:
+            p = p.split("-")[0].strip()
+        elif "—" in p:
+            p = p.split("—")[0].strip()
+        elif ":" in p or "：" in p:
+            p = re.split(r"[:：]", p)[0].strip()
+
+        # 匹配包含专业名称和年级班级编号的班级串，如 机电2501、数据科学2602、机自2621
+        if re.search(r"[\u4e00-\u9fa5]+[类]?\d{3,5}", p):
+            found.append(p)
+        elif re.search(r"^[a-zA-Z\u4e00-\u9fa5]+\d{3,5}$", p):
+            found.append(p)
+    return list(dict.fromkeys(found))
 
 
 def load_xls_grid(data: bytes, sheet_index: int = 0) -> tuple[str, list[dict[str, str]]]:

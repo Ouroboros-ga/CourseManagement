@@ -19,6 +19,7 @@ export interface TeachingClassItem {
   course_id: string
   class_code?: string | null
   class_name: string
+  teacher_name?: string | null
   status: string
 }
 
@@ -29,6 +30,8 @@ export interface AdministrativeClassItem {
   grade_year?: number | null
   major_name?: string | null
   college?: string | null
+  head_teacher?: string | null
+  counselor?: string | null
   status: string
 }
 
@@ -200,6 +203,12 @@ export async function createSemester(payload: {
   })
 }
 
+export interface AdminClassBrief {
+  class_name: string
+  head_teacher?: string | null
+  counselor?: string | null
+}
+
 export interface MasterTimetableItem {
   id: string
   semester_id: string
@@ -209,6 +218,9 @@ export interface MasterTimetableItem {
   teaching_class_id: string
   teaching_class_code?: string | null
   teaching_class_name: string
+  teacher_name?: string | null
+  head_teacher?: string | null
+  counselor?: string | null
   weekday: number
   start_period: number
   end_period: number
@@ -219,6 +231,42 @@ export interface MasterTimetableItem {
   is_physical_education: boolean
   is_inspectable: boolean
   administrative_classes: string[]
+  administrative_classes_details?: AdminClassBrief[]
+}
+
+export async function createAdministrativeClass(payload: {
+  class_code: string
+  class_name: string
+  grade_year?: number | null
+  major_name?: string | null
+  college?: string | null
+  head_teacher?: string | null
+  counselor?: string | null
+  reason?: string
+}): Promise<AdministrativeClassItem> {
+  return request('/api/v1/academic/administrative-classes', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateAdministrativeClass(
+  classId: string | number,
+  payload: {
+    class_name?: string
+    grade_year?: number | null
+    major_name?: string | null
+    college?: string | null
+    head_teacher?: string | null
+    counselor?: string | null
+    status?: string
+    reason?: string
+  }
+): Promise<AdministrativeClassItem> {
+  return request(`/api/v1/academic/administrative-classes/${classId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  })
 }
 
 export async function getMasterTimetable(params: {
@@ -365,6 +413,7 @@ export interface CalendarOverrideItem {
   source_teaching_week?: number | null
   source_teaching_weekday?: number | null
   reason?: string | null
+  affected_tasks_count?: number
 }
 
 export async function listCalendarOverrides(semesterId: string | number): Promise<{ items: CalendarOverrideItem[] }> {
@@ -379,6 +428,7 @@ export async function createCalendarOverride(
     source_teaching_week?: number
     source_teaching_weekday?: number
     reason?: string
+    cascade_cancel_tasks?: boolean
   }
 ): Promise<CalendarOverrideItem> {
   return request(`/api/v1/academic/semesters/${semesterId}/calendar-overrides`, {

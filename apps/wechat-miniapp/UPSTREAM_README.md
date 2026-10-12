@@ -15,19 +15,19 @@ cd miniprogram -> npm install -> 微信开发者工具 -> 工具 -> 构建 npm
 graph TD
     A[登录页\n/pages/login] -->|1. wx.login 换取 Token\n2. 绑定姓名与学号| B(首页大盘\n/pages/index)
     B -->|请求用户信息\n判断用户权限| C{基于角色显示入口}
-
+    
     %% 志愿者查课流
     C -->|VOLUNTEER\nSUPER_ADMIN| D[查课任务列表\n/pages/task/list]
     D -->|查看待执行/已提交\n点击进入| E[查课录入详情\n/pages/task/detail]
     E -->|A. 全部正常| F[上传现场照片\n直接提交]
     E -->|B. 存在异常| G[添加异常学生\n/pages/task/abnormal]
     G -->|搜索学生\n选择类型:迟到/旷课/请假| E
-
+    
     %% 学生查课记录流
     C -->|ALL ROLES\n所有角色均可| H[查课记录查询\n/pages/record/list]
     H -->|查看本人查课结果\n若是异常且未申诉| I[提交异议\n/pages/record/appeal]
     I -->|填写异议理由\n上传证明材料并提交| H
-
+    
     %% 管理员审批流
     C -->|ADMIN\nSUPER_ADMIN| J[管理专区\n/pages/admin]
     J -->|审批列表| K[审批学生异议]

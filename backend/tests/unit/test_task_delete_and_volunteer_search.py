@@ -193,3 +193,70 @@ def test_list_semester_volunteers_and_delete_tasks(db_session: Session):
     assert (
         db_session.query(TaskRosterMember).filter_by(task_id=task1.id).first() is None
     )
+
+
+def test_task_assemble_with_head_teacher_and_counselor(db_session: Session):
+    from app.modules.academic.models import TeachingClass, TeachingClassStudent, Course
+
+    sem = Semester(
+        id=20,
+        code="2026-AUTUMN",
+        name="2026秋",
+        start_date=date(2026, 9, 1),
+        end_date=date(2027, 1, 15),
+        first_monday=date(2026, 9, 7),
+        status="ACTIVE",
+    )
+    ac = AdministrativeClass(
+        id=10,
+        class_code="SE2501",
+        class_name="软工2501",
+        head_teacher="张班主任",
+        counselor="李辅导员",
+        status="ACTIVE",
+    )
+    c = Course(id=1, course_code="CS101", course_name="算法分析", status="ACTIVE")
+    tc = TeachingClass(
+        id=100,
+        semester_id=sem.id,
+        course_id=c.id,
+        class_code="TC100",
+        class_name="软工2501-算法分析",
+        teacher_name=None,
+        status="ACTIVE",
+    )
+    s = Student(id=50, student_no="20260050", name="测试生", administrative_class_id=ac.id, status="ACTIVE")
+    tcs = TeachingClassStudent(teaching_class_id=tc.id, student_id=s.id)
+
+    task = InspectionTask(
+        id=500,
+        task_key="sem20_d2026-09-10_COURSE_p1_p2_cs1",
+        semester_id=sem.id,
+        inspection_date=date(2026, 9, 10),
+        week_no=1,
+        inspection_type="COURSE",
+        start_period=1,
+        end_period=2,
+        teaching_class_id=tc.id,
+        class_name_snapshot="软工2501-算法分析",
+        course_name_snapshot="算法分析",
+        classroom_snapshot="1-201",
+        teacher_name_snapshot=None,
+        expected_count_current=30,
+        expected_count_snapshot=30,
+        lock_version=0,
+    )
+
+    db_session.add_all([sem, ac, c, tc, s, tcs, task])
+    db_session.flush()
+
+    service = InspectionService(db_session)
+    res = service._assemble_tasks([task])
+    assert len(res) == 1
+    item = res[0]
+    assert item.head_teacher == "张班主任"
+    assert item.counselor == "李辅导员"
+    assert item.administrative_classes == ["软工2501"]
+    # 优先显示班主任兜底
+    assert item.effective_teacher == "张班主任"
+

@@ -1,6 +1,6 @@
 import { request } from '../utils/request.js';
 
-export const getTaskList = (params) => {
+export const getTaskList = (params = { page_size: 100, include_canceled: false }) => {
   return request({
     url: '/api/v1/me/inspection-tasks',
     method: 'GET',

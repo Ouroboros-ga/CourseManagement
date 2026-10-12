@@ -58,6 +58,20 @@ def _role(session: Session, code: str) -> Role:
 def _make_user(
     session: Session, username: str, role_codes: list[str], *, student_id: int | None = None
 ) -> UserAccount:
+    existing = None
+    if student_id is not None:
+        existing = session.execute(
+            select(UserAccount).where(UserAccount.student_id == student_id)
+        ).scalar_one_or_none()
+    if existing is not None:
+        existing.username = username
+        existing.password_hash = hash_password(_PWD)
+        existing.display_name = username
+        existing.status = UserStatus.ACTIVE.value
+        existing.roles = [_role(session, c) for c in role_codes]
+        session.commit()
+        return existing
+
     user = UserAccount(
         username=username,
         password_hash=hash_password(_PWD),
@@ -746,3 +760,55 @@ def test_window_missing_422(client: TestClient, session: Session) -> None:
     sc = _scene2(client, h, session)
     r = client.get(_STATS_ATT, headers=h, params={"semester_id": sc["sem_id"]})
     assert r.status_code == 422, r.text
+
+
+def test_export_attendance_analytics_excel(client: TestClient, session: Session) -> None:
+    import io
+    from openpyxl import load_workbook
+
+    h = _admin_headers(client, session)
+    sc = _scene2(client, h, session)
+    _approve_abnormal(
+        client,
+        h,
+        session,
+        sc["sem_id"],
+        sc["task_w1"],
+        [{"student_id": sc["s1"], "attendance_type": "LATE", "note": "迟到"}],
+    )
+
+    # 1. 验证统计接口包含新字段 attendance_rate 及 tasks 教学班明细
+    stats_res = client.get(
+        _STATS_ATT,
+        headers=h,
+        params={"semester_id": sc["sem_id"], "week_no": 1, "include_tasks": True},
+    )
+    assert stats_res.status_code == 200, stats_res.text
+    sdata = stats_res.json()["data"]
+    assert sdata["overall"]["attendance_rate"] is not None
+    assert len(sdata["classes"]) > 0
+    assert sdata["classes"][0]["attendance_rate"] is not None
+    assert len(sdata["tasks"]) == 1
+    t0 = sdata["tasks"][0]
+    assert t0["course_name_snapshot"] == "课程C001"
+    assert t0["class_name_snapshot"] == "班T1"
+    assert t0["classroom_snapshot"] == "A101"
+    assert t0["start_period"] == 1
+    assert t0["end_period"] == 2
+    assert t0["attendance_rate"] is not None
+
+    # 2. 验证 Excel 导出接口
+    export_res = client.get(
+        f"{_STATS_ATT}/export",
+        headers=h,
+        params={"semester_id": sc["sem_id"], "week_no": 1},
+    )
+    assert export_res.status_code == 200, export_res.text
+    assert "spreadsheetml" in export_res.headers.get("Content-Type", "")
+    assert "attachment" in export_res.headers.get("Content-Disposition", "")
+
+    # 解析导出的工作簿
+    wb = load_workbook(io.BytesIO(export_res.content))
+    assert "学院考勤总览与看板" in wb.sheetnames
+    assert "行政班到课率统计" in wb.sheetnames
+    assert "教学班与课堂到课率明细" in wb.sheetnames

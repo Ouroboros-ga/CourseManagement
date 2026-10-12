@@ -1,69 +1,65 @@
 import { getBaseURL } from './env.js';
-import { clearSession, getAccessToken, getRefreshToken, setSession } from './session.js';
 
-let refreshPromise = null;
-
-function backendError(response) {
-  const body = response.data || {};
-  const error = new Error(body.message || `请求失败 (${response.statusCode})`);
-  error.code = body.code || 'HTTP_ERROR';
-  error.status = response.statusCode;
-  error.fieldErrors = body.fieldErrors;
-  return error;
-}
-
-function send(options, token) {
-  if (!options.url.startsWith('/api/v1/')) {
-    return Promise.reject(new Error('只允许请求本系统的 /api/v1 接口'));
-  }
-  const header = { 'Content-Type': 'application/json', ...options.header };
-  if (token) header.Authorization = `Bearer ${token}`;
+/**
+ * 封装微信的 wx.request
+ * @param {Object} options 请求配置
+ * @returns {Promise}
+ */
+export const request = (options) => {
   return new Promise((resolve, reject) => {
+    const baseURL = getBaseURL();
+    const token = wx.getStorageSync('token');
+    const header = {
+      'Content-Type': 'application/json',
+      ...options.header
+    };
+
+    if (token) {
+      header['Authorization'] = `Bearer ${token}`;
+    }
+
     wx.request({
-      url: `${getBaseURL()}${options.url}`,
+      url: options.url.startsWith('http') ? options.url : `${baseURL}${options.url}`,
       method: options.method || 'GET',
       data: options.data,
-      header,
-      success: (response) => {
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          resolve(response.statusCode === 204 ? null : response.data?.data ?? null);
-        } else reject(backendError(response));
+      header: header,
+      success: (res) => {
+        // HTTP 状态码 2xx
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          // 真实后端返回 HTTP 200 即为成功，数据包在 res.data.data
+          resolve(res.data && res.data.data !== undefined ? res.data.data : res.data);
+        } else if (res.statusCode === 401) {
+          // Token 失效或未登录
+          wx.removeStorageSync('token');
+          wx.showToast({
+            title: '请重新登录',
+            icon: 'none'
+          });
+          wx.reLaunch({
+            url: '/pages/login/index'
+          });
+          reject(new Error('Unauthorized'));
+        } else {
+          let errorData = res.data;
+          if (errorData && typeof errorData === 'object') {
+            if (Array.isArray(errorData.detail)) {
+              // 处理 FastAPI 原生的 422 校验错误数组
+              errorData.message = errorData.detail.map(d => d.msg).join('; ');
+            } else if (typeof errorData.detail === 'string') {
+              // 处理 FastAPI 原生的 HTTPException 字符串错误
+              errorData.message = errorData.detail;
+            }
+          }
+          reject(errorData || new Error(`Server error: ${res.statusCode}`));
+        }
       },
-      fail: reject,
+      fail: (err) => {
+        wx.showToast({
+          title: '网络异常，请重试',
+          icon: 'none'
+        });
+        reject(err);
+      }
     });
   });
-}
-
-export function refreshSession() {
-  if (refreshPromise) return refreshPromise;
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return Promise.reject(new Error('登录已失效'));
-  refreshPromise = send({
-    url: '/api/v1/auth/refresh', method: 'POST', data: { refresh_token: refreshToken },
-  }, '').then((tokens) => {
-    setSession(tokens);
-    return tokens.access_token;
-  }).catch((error) => {
-    clearSession();
-    throw error;
-  }).finally(() => { refreshPromise = null; });
-  return refreshPromise;
-}
-
-export async function request(options) {
-  const token = options.auth === false ? '' : getAccessToken();
-  try {
-    return await send(options, token);
-  } catch (error) {
-    if (options.auth === false || error.status !== 401) throw error;
-    try {
-      // 已由并发请求完成轮换时直接使用新 access，避免旧 refresh 重放。
-      const nextToken = token !== getAccessToken() && getAccessToken()
-        ? getAccessToken() : await refreshSession();
-      return await send(options, nextToken);
-    } catch (retryError) {
-      if (retryError.status === 401) clearSession();
-      throw retryError;
-    }
-  }
-}
+};

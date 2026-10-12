@@ -156,6 +156,9 @@ class ReportVersion(CreateTimeMixin, Base):
     excel_file_id: Mapped[int | None] = mapped_column(
         ForeignKey("file_object.id", ondelete="SET NULL")
     )
+    word_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("file_object.id", ondelete="SET NULL")
+    )
     status: Mapped[str] = mapped_column(
         String(16),
         nullable=False,

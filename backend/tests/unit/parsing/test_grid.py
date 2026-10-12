@@ -143,3 +143,22 @@ def test_expand_course_key_is_order_independent():
     assert len({c.course_key for c in one}) == 1
     # 稳定 key 与 make_course_key 一致
     assert one[0].course_key == make_course_key("A", "课", parse_weeks("1-3周", 16), 2, [1], "楼1")
+
+
+def test_expand_grid_rows_retains_teacher():
+    rows = [
+        {
+            "class_id": "机电2401",
+            "course_name": "PLC技术与工控组态",
+            "weeks": "1-2周",
+            "weekday": "周一",
+            "period": "1-2节",
+            "location": "教学楼14-402",
+            "teacher": "黄朝阳",
+        }
+    ]
+    occ = expand_grid_rows(rows, 16)
+    assert len(occ) == 2
+    assert occ[0].teacher == "黄朝阳"
+    assert occ[1].teacher == "黄朝阳"
+

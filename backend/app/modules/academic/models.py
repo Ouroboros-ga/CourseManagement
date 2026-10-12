@@ -149,6 +149,8 @@ class AdministrativeClass(TimestampMixin, Base):
     grade_year: Mapped[int | None] = mapped_column(Integer)
     major_name: Mapped[str | None] = mapped_column(String(128))
     college: Mapped[str | None] = mapped_column(String(128))
+    head_teacher: Mapped[str | None] = mapped_column(String(64))
+    counselor: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="ACTIVE", server_default=text("'ACTIVE'")
     )
@@ -216,6 +218,7 @@ class TeachingClass(TimestampMixin, Base):
     )
     class_code: Mapped[str | None] = mapped_column(String(64))
     class_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    teacher_name: Mapped[str | None] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="ACTIVE", server_default=text("'ACTIVE'")
     )
@@ -263,6 +266,7 @@ class CourseSchedule(TimestampMixin, Base):
     start_period: Mapped[int] = mapped_column(Integer, nullable=False)
     end_period: Mapped[int] = mapped_column(Integer, nullable=False)
     classroom: Mapped[str | None] = mapped_column(String(128))
+    teacher: Mapped[str | None] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="ACTIVE", server_default=text("'ACTIVE'")
     )

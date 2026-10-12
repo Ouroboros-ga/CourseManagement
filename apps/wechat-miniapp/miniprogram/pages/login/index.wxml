@@ -1,20 +1,37 @@
 <view class="login-container">
   <view class="header">
     <view class="title">查课管理系统</view>
-    <view class="subtitle">使用微信身份登录后查看查课任务</view>
+    <view class="subtitle">{{needBinding ? '欢迎首次使用，请先绑定学号' : '请使用微信登录以验证身份'}}</view>
   </view>
-
-  <view class="form-container" wx:if="{{!needBinding}}">
-    <t-button theme="primary" size="large" block disabled="{{busy}}" bind:tap="handleWechatLogin">微信登录</t-button>
+  
+  <view class="form-container" wx:if="{{needBinding}}">
+    <view class="notice" style="font-size: 28rpx; color: #666; margin-bottom: 20rpx; text-align: center;">检测到当前微信未绑定身份，请先绑定学号</view>
+    <t-input
+      label="学号"
+      placeholder="请输入学号"
+      value="{{studentId}}"
+      bind:change="onStudentIdChange"
+    />
+    <t-input
+      label="绑定码"
+      placeholder="请输入一次性绑定码"
+      value="{{name}}"
+      bind:change="onNameChange"
+    />
+    <view class="btn-container">
+      <t-button theme="primary" size="large" block bind:tap="handleBind">确认绑定</t-button>
+    </view>
+    <view class="switch-account-container" style="text-align: center; margin-top: 30rpx;">
+      <text bind:tap="cancelBindAndLogout" style="color: #0052d9; font-size: 28rpx;">取消绑定</text>
+    </view>
   </view>
 
   <view class="form-container" wx:else>
-    <view class="subtitle">首次登录须使用管理员发放的一次性绑定码核验学号</view>
-    <t-input label="学号" placeholder="请输入学号" value="{{studentNo}}" bind:change="onStudentNoChange" />
-    <t-input label="绑定码" type="password" placeholder="请输入一次性绑定码" value="{{bindingCode}}" bind:change="onBindingCodeChange" />
     <view class="btn-container">
-      <t-button theme="primary" size="large" block disabled="{{busy}}" bind:tap="handleBind">完成绑定</t-button>
+      <t-button theme="primary" size="large" block bind:tap="handleLogin">微信一键登录</t-button>
     </view>
   </view>
+
+  <t-toast id="t-toast" />
   <t-message id="t-message" />
 </view>

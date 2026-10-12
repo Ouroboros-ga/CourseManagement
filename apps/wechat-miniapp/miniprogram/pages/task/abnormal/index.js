@@ -6,19 +6,21 @@ Page({
     taskId: '',
     keyword: '',
     allStudents: [],
-    searchResults: [],
-    selectedList: [] // { studentId, name, type }
+    selectedList: [],
+    displayList: []
   },
 
   onLoad(options) {
     if (options.taskId) {
       this.setData({ taskId: options.taskId });
-      this.fetchAllStudents();
     }
     const current = wx.getStorageSync('currentAbnormal');
     if (current && Array.isArray(current)) {
       this.setData({ selectedList: current });
       wx.removeStorageSync('currentAbnormal');
+    }
+    if (this.data.taskId) {
+      this.fetchAllStudents();
     }
   },
   
@@ -32,7 +34,8 @@ Page({
         studentNo: item.student_no || item.studentNo,
         name: item.name
       }));
-      this.setData({ allStudents: results, searchResults: results });
+      this.setData({ allStudents: results });
+      this.updateDisplayList();
     } catch (err) {
       Toast({ context: this, selector: '#t-toast', message: '加载名单失败' });
     } finally {
@@ -40,65 +43,66 @@ Page({
     }
   },
 
-  onKeywordChange(e) {
-    const keyword = e.detail.value || '';
-    this.setData({ keyword });
-    this.filterStudents(keyword);
-  },
-  
-  filterStudents(keyword) {
-    if (!keyword.trim()) {
-      this.setData({ searchResults: this.data.allStudents });
-      return;
+  updateDisplayList() {
+    const { keyword, allStudents, selectedList } = this.data;
+    
+    let unselectedFiltered = allStudents.filter(s => !selectedList.some(sel => sel.studentId === s.studentId));
+    if (keyword.trim()) {
+      const lowerKey = keyword.trim().toLowerCase();
+      unselectedFiltered = unselectedFiltered.filter(s => 
+        (s.name && s.name.toLowerCase().includes(lowerKey)) || 
+        (s.studentNo && s.studentNo.toLowerCase().includes(lowerKey))
+      );
     }
-    const lowerKey = keyword.trim().toLowerCase();
-    const filtered = this.data.allStudents.filter(s => 
-      (s.name && s.name.toLowerCase().includes(lowerKey)) || 
-      (s.studentNo && s.studentNo.toLowerCase().includes(lowerKey))
-    );
-    this.setData({ searchResults: filtered });
+    
+    const displayList = [
+      ...selectedList.map(s => ({ ...s, _selected: true })),
+      ...unselectedFiltered.map(s => ({ ...s, _selected: false }))
+    ];
+    
+    this.setData({ displayList });
+  },
+
+  onKeywordChange(e) {
+    this.setData({ keyword: e.detail.value || '' });
+    this.updateDisplayList();
   },
 
   handleSearch() {
-    this.filterStudents(this.data.keyword);
+    this.updateDisplayList();
   },
 
-  addStudent(e) {
+  toggleStudent(e) {
     const student = e.currentTarget.dataset.item;
     const { selectedList } = this.data;
     
-    // 判断是否已存在
-    const exists = selectedList.some(s => s.studentId === student.studentId);
-    if (exists) {
-      Toast({ context: this, selector: '#t-toast', message: '该学生已在列表中' });
-      return;
+    const index = selectedList.findIndex(s => s.studentId === student.studentId);
+    if (index > -1) {
+      // 移除
+      selectedList.splice(index, 1);
+    } else {
+      // 添加到最前，保证置顶效果
+      selectedList.unshift({
+        ...student,
+        type: '旷课'
+      });
     }
-
-    selectedList.push({
-      ...student,
-      type: '旷课' // 默认类型
-    });
-
-    this.setData({ 
-      selectedList,
-      keyword: '',
-      searchResults: [] 
-    });
-  },
-
-  removeStudent(e) {
-    const { index } = e.currentTarget.dataset;
-    const { selectedList } = this.data;
-    selectedList.splice(index, 1);
+    
     this.setData({ selectedList });
+    this.updateDisplayList();
   },
 
   onTypeChange(e) {
-    const { index } = e.currentTarget.dataset;
+    const { studentid } = e.currentTarget.dataset;
     const { value } = e.detail;
     const { selectedList } = this.data;
-    selectedList[index].type = value;
-    this.setData({ selectedList });
+    
+    const student = selectedList.find(s => s.studentId === studentid);
+    if (student) {
+      student.type = value;
+      this.setData({ selectedList });
+      this.updateDisplayList();
+    }
   },
 
   handleConfirm() {

@@ -192,7 +192,7 @@ def _scene(client: TestClient, headers: dict[str, str]) -> dict:
             "start_period": 1,
             "end_period": 2,
             "classroom": "A101",
-            "weeks": [1, 2, 3, 4, 5],
+            "weeks": [1, 2, 3, 4, 5, 6],
         },
     ).json()["data"]
     return {
@@ -399,7 +399,7 @@ def test_cancel_then_restore_future_task_without_reusing_assignment(
         json={
             "semester_id": sc["semester_id"],
             "inspection_type": "COURSE",
-            "week_nos": [5],
+            "week_nos": [6],
             "teaching_class_ids": [sc["tc_id"]],
         },
     )
@@ -807,3 +807,45 @@ def test_volunteer_scope_only_assigned(client: TestClient, session: Session) -> 
     lst = client.get(_TASKS, headers=vh)
     assert lst.status_code == 200, lst.text
     assert lst.json()["data"]["items"] == []
+
+
+def test_makeup_cross_week_task_aligned_with_actual_execution_week(
+    client: TestClient, session: Session
+) -> None:
+    from app.modules.academic.models import CalendarOverride
+
+    h = _admin_headers(client, session)
+    sc = _scene(client, h)
+    sem_id = sc["semester_id"]
+
+    # 模拟在第2周周日(2026-09-20)补第1周周一的课
+    ov = CalendarOverride(
+        semester_id=sem_id,
+        date=date(2026, 9, 20),
+        override_type="MAKEUP",
+        source_teaching_week=1,
+        source_teaching_weekday=1,
+        reason="补第1周周一",
+    )
+    session.add(ov)
+    session.commit()
+
+    body = {
+        "semester_id": sem_id,
+        "inspection_type": "COURSE",
+        "week_nos": [2],
+        "teaching_class_ids": [sc["tc_id"]],
+    }
+    res = client.post(_GEN, headers=h, json=body)
+    assert res.status_code == 200, res.text
+
+    session.expire_all()
+    task = session.execute(
+        select(InspectionTask).where(
+            InspectionTask.semester_id == sem_id,
+            InspectionTask.inspection_date == date(2026, 9, 20),
+        )
+    ).scalar_one()
+    # 核心验证：任务周次对齐实际执行周（第2周）
+    assert task.week_no == 2
+    assert "补第1周周一" in (task.class_name_snapshot or "")

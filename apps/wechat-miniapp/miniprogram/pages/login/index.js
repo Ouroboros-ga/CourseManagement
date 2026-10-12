@@ -1,79 +1,123 @@
-import { bindStudent, getUserInfo, login } from '../../api/user';
-import { hasSession } from '../../utils/session';
+import { login, bindStudent, logout } from '../../api/user';
+import Toast from 'tdesign-miniprogram/toast/index';
 import Message from 'tdesign-miniprogram/message/index';
-
-function wxLoginCode() {
-  return new Promise((resolve, reject) => {
-    wx.login({
-      success: (result) => result.code ? resolve(result.code) : reject(new Error('微信登录未返回 code')),
-      fail: reject,
-    });
-  });
-}
 
 Page({
   data: {
     needBinding: false,
-    studentNo: '',
-    bindingCode: '',
-    busy: false,
+    name: '',
+    studentId: ''
   },
 
-  async onLoad() {
-    if (!hasSession()) return;
-    try {
-      const me = await getUserInfo();
-      if (me.binding_required) this.setData({ needBinding: true });
-      else wx.switchTab({ url: '/pages/index/index' });
-    } catch {
-      // 旧会话失效时保留登录入口，用户可重新发起微信登录。
+  onLoad(options) {
+    if (options.rebind === 'true') {
+      // 携带 rebind 参数进入时，自动触发微信登录，以获取需要绑定的状态
+      this.handleLogin();
     }
   },
 
-  onStudentNoChange(event) {
-    this.setData({ studentNo: event.detail.value });
+  onNameChange(e) {
+    this.setData({ name: e.detail.value });
   },
 
-  onBindingCodeChange(event) {
-    this.setData({ bindingCode: event.detail.value });
+  onStudentIdChange(e) {
+    this.setData({ studentId: e.detail.value });
   },
 
-  async handleWechatLogin() {
-    if (this.data.busy) return;
-    this.setData({ busy: true });
+  async handleLogin() {
     try {
-      const code = await wxLoginCode();
-      const auth = await login({ code });
-      const me = await getUserInfo();
-      if (auth.need_binding || me.binding_required) {
-        this.setData({ needBinding: true });
-      } else {
-        wx.switchTab({ url: '/pages/index/index' });
+      wx.showLoading({ title: '登录中...' });
+      const loginRes = await wx.login();
+      if (!loginRes.code) {
+        throw new Error('微信登录失败');
       }
-    } catch (error) {
-      Message.error({ context: this, content: error.message || '登录失败，请重试' });
-    } finally {
-      this.setData({ busy: false });
+
+      const authData = await login({ code: loginRes.code });
+      const token = authData?.token || authData?.access_token;
+      if (token) {
+         wx.setStorageSync('token', token);
+      }
+
+      wx.hideLoading();
+
+      // 如果后端明确返回无需绑定，或者不是新号，直接进首页
+      if (authData?.need_binding === false) {
+        Toast({ context: this, selector: '#t-toast', message: '登录成功', theme: 'success' });
+        setTimeout(() => {
+          wx.switchTab({ url: '/pages/index/index' });
+        }, 1000);
+      } else {
+        // 否则显示绑定表单
+        this.setData({ needBinding: true });
+        Message.info({
+          context: this,
+          offset: [20, 32],
+          duration: 3000,
+          content: '请先绑定学号',
+        });
+      }
+    } catch (err) {
+      wx.hideLoading();
+      Message.error({
+        context: this,
+        offset: [20, 32],
+        duration: 3000,
+        content: err.msg || err.message || err.detail || '登录失败，请重试',
+      });
     }
   },
 
   async handleBind() {
-    const studentNo = this.data.studentNo.trim();
-    const bindingCode = this.data.bindingCode.trim();
-    if (!studentNo || !bindingCode) {
-      Message.warning({ context: this, content: '请输入学号和一次性绑定码' });
+    const { name, studentId } = this.data;
+    if (!name || !studentId) {
+      Message.warning({
+        context: this,
+        offset: [20, 32],
+        duration: 3000,
+        content: '请完整填写绑定码和学号',
+      });
       return;
     }
-    if (this.data.busy) return;
-    this.setData({ busy: true });
+
     try {
-      await bindStudent({ student_no: studentNo, binding_code: bindingCode });
-      this.setData({ bindingCode: '' });
-      wx.switchTab({ url: '/pages/index/index' });
-    } catch (error) {
-      Message.error({ context: this, content: error.message || '绑定失败，请重试' });
-    } finally {
-      this.setData({ busy: false });
+      wx.showLoading({ title: '绑定中...' });
+      
+      await bindStudent({ name, studentId });
+      
+      wx.hideLoading();
+      Toast({
+        context: this,
+        selector: '#t-toast',
+        message: '绑定成功',
+        theme: 'success', 
+      });
+
+      setTimeout(() => {
+        wx.switchTab({
+          url: '/pages/index/index',
+        });
+      }, 1000);
+    } catch (err) {
+      wx.hideLoading();
+      Message.error({
+        context: this,
+        offset: [20, 32],
+        duration: 3000,
+        content: err.msg || err.message || err.detail || '绑定失败，请重试',
+      });
     }
   },
+
+  async cancelBindAndLogout() {
+    try {
+      wx.showLoading({ title: '取消中...' });
+      await logout();
+    } catch (e) {
+      // 忽略
+    } finally {
+      wx.removeStorageSync('token');
+      this.setData({ needBinding: false });
+      wx.hideLoading();
+    }
+  }
 });

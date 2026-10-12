@@ -219,6 +219,7 @@ const close = () => {
     title="查课任务详情与点名册"
     direction="rtl"
     size="600px"
+    :lock-scroll="false"
     destroy-on-close
     @close="close"
   >
@@ -249,6 +250,33 @@ const close = () => {
           <div>
             <span class="d-label">教学班级</span>
             <p class="d-value">{{ task.class_name_snapshot || task.teaching_class_name || '未指定教学班' }}</p>
+          </div>
+          <div>
+            <span class="d-label">任课老师</span>
+            <p class="d-value text-indigo-700 font-medium">
+              {{ task.effective_teacher || task.teacher_name_snapshot || '未指定' }}
+              <span
+                v-if="task.head_teacher && (task.effective_teacher === task.head_teacher) && (!task.teacher_name_snapshot || task.teacher_name_snapshot === '未指定')"
+                class="text-xs font-normal text-emerald-600 ml-1"
+                title="优先采用行政班班主任兜底呈现"
+              >
+                (班主任代)
+              </span>
+            </p>
+          </div>
+          <div>
+            <span class="d-label">班主任</span>
+            <p class="d-value text-emerald-700 font-medium">{{ task.head_teacher || '未指定' }}</p>
+          </div>
+          <div>
+            <span class="d-label">责任区辅导员</span>
+            <p class="d-value text-blue-700 font-medium">{{ task.counselor || '未指定' }}</p>
+          </div>
+          <div>
+            <span class="d-label">组成行政班</span>
+            <p class="d-value text-slate-700">
+              {{ (task.administrative_classes && task.administrative_classes.length > 0) ? task.administrative_classes.join(', ') : '—' }}
+            </p>
           </div>
         </div>
       </section>
@@ -395,6 +423,7 @@ const close = () => {
       v-model="correctDialogVisible"
       title="更正学生考勤状态（管理端二次修改）"
       width="440px"
+      :lock-scroll="false"
       append-to-body
     >
       <div v-if="correctingRecord" class="p-2 space-y-3">

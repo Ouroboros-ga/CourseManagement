@@ -103,6 +103,7 @@ def _create_semester(client: TestClient, headers: dict[str, str], code: str, **o
         "end_date": over.get("end_date", "2027-01-31"),
         "first_monday": over.get("first_monday", "2026-09-07"),
         "total_weeks": over.get("total_weeks", 20),
+        "init_default_periods": over.get("init_default_periods", True),
     }
     resp = client.post(f"{_AC}/semesters", headers=headers, json=payload)
     assert resp.status_code == 200, resp.text
@@ -257,7 +258,7 @@ def test_semester_illegal_status_422(client: TestClient, session: Session) -> No
 # --------------------------------------------------------------------------- #
 def test_period_definition_upsert_list_delete(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sem = _create_semester(client, h, "2026-PD")
+    sem = _create_semester(client, h, "2026-PD", init_default_periods=False)
     up = client.put(
         f"{_AC}/semesters/{sem['id']}/period-definitions/1",
         headers=h,
@@ -333,6 +334,47 @@ def test_calendar_override_create_and_duplicate(client: TestClient, session: Ses
         json={"date": "2026-10-01", "override_type": "STOP"},
     )
     assert dup.status_code == 409
+
+
+def test_calendar_override_stop_cascade_cancels_existing_tasks(
+    client: TestClient, session: Session
+) -> None:
+    from datetime import date
+    from app.modules.inspection.models import InspectionTask
+
+    h = _admin_headers(client, session)
+    sem = _create_semester(client, h, "2026-CASCADE")
+    t = InspectionTask(
+        task_key=f"{sem['id']}:2026-10-01:COURSE:1:2:cs999",
+        semester_id=sem["id"],
+        inspection_date=date(2026, 10, 1),
+        week_no=3,
+        inspection_type="COURSE",
+        start_period=1,
+        end_period=2,
+    )
+    session.add(t)
+    session.commit()
+
+    res = client.post(
+        f"{_AC}/semesters/{sem['id']}/calendar-overrides",
+        headers=h,
+        json={
+            "date": "2026-10-01",
+            "override_type": "STOP",
+            "reason": "台风停课",
+            "cascade_cancel_tasks": True,
+        },
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]
+    assert data["affected_tasks_count"] == 1
+
+    session.expire_all()
+    updated = session.get(InspectionTask, t.id)
+    assert updated is not None
+    assert updated.canceled_at is not None
+    assert "校历停课自动联动取消" in (updated.cancel_reason or "")
 
 
 # --------------------------------------------------------------------------- #

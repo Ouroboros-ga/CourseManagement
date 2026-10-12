@@ -73,6 +73,70 @@ def _read_xls_tabular_rows(
     return rows
 
 
+def read_any_matrix(data: bytes) -> list[list[str]]:
+    """将 xlsx / xls / csv / 文本格式数据统一读取为行二维字符串矩阵 list[list[str]]。
+
+    支持自动探测编码（utf-8-sig, utf-8, gb18030, gbk）与分隔符。
+    """
+    if not data:
+        return []
+
+    # 1. xls 复合文档
+    if data.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        import xlrd
+
+        wb = xlrd.open_workbook(file_contents=data)
+        ws = wb.sheet_by_index(0)
+        return [
+            [_clean(ws.cell_value(r, c)) for c in range(ws.ncols)]
+            for r in range(ws.nrows)
+        ]
+
+    # 2. xlsx (PK zip)
+    if data.startswith(b"PK\x03\x04"):
+        from openpyxl import load_workbook
+
+        wb = load_workbook(filename=io.BytesIO(bytes(data)), data_only=True)
+        try:
+            ws = wb.worksheets[0]
+            return [[_clean(c) for c in row] for row in ws.iter_rows(values_only=True)]
+        finally:
+            wb.close()
+
+    # 3. 文本 / CSV 格式探测与解析
+    import csv
+
+    for enc in ("utf-8-sig", "gb18030", "gbk", "utf-8"):
+        try:
+            text = data.decode(enc)
+            sample = text[:4096]
+            dialect: type[csv.Dialect] | csv.Dialect = csv.excel
+            try:
+                sniffer = csv.Sniffer()
+                dialect = sniffer.sniff(sample, delimiters=",\t;")
+            except Exception:
+                pass
+            reader = csv.reader(io.StringIO(text), dialect=dialect)
+            return [[_clean(c) for c in row] for row in reader]
+        except Exception:
+            continue
+
+    # 4. 兜底尝试 openpyxl
+    try:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(filename=io.BytesIO(bytes(data)), data_only=True)
+        try:
+            ws = wb.worksheets[0]
+            return [[_clean(c) for c in row] for row in ws.iter_rows(values_only=True)]
+        finally:
+            wb.close()
+    except Exception:
+        pass
+
+    raise ValueError("无法识别的表格文件格式，请上传 .xlsx、.xls 或 .csv 文件")
+
+
 def read_tabular_rows(
     data: bytes,
     *,
@@ -132,7 +196,7 @@ def read_tabular_rows(
         finally:
             wb.close()
     except Exception:
-        # 若 openpyxl 无法解析（例如文件为改名的 .xls），兜底尝试 xlrd
+        # 若 openpyxl 无法解析（例如文件为改名的 .xls 或 csv），兜底尝试 xlrd 或文本矩阵
         try:
             return _read_xls_tabular_rows(
                 data,
@@ -140,6 +204,40 @@ def read_tabular_rows(
                 header_row=header_row,
                 required_headers=required_headers,
             )
+        except Exception:
+            pass
+
+        try:
+            matrix = read_any_matrix(data)
+            h_idx = header_row - 1
+            if h_idx >= len(matrix):
+                raise ValueError("表头行超出数据行数")
+            headers = matrix[h_idx]
+            if not any(headers):
+                raise ValueError("表头行为空")
+            normalized = [normalize_header(h) for h in headers]
+            if required_headers is not None:
+                missing = [
+                    req
+                    for req in required_headers
+                    if normalize_header(req) not in normalized
+                ]
+                if missing:
+                    raise ValueError(f"缺少必需列：{', '.join(missing)}")
+            rows = []
+            for r_row in matrix[h_idx + 1:]:
+                record = {}
+                non_empty = False
+                for c, h in enumerate(headers):
+                    if not h:
+                        continue
+                    v = r_row[c] if c < len(r_row) else ""
+                    record[h] = v
+                    if v:
+                        non_empty = True
+                if non_empty:
+                    rows.append(record)
+            return rows
         except Exception:
             raise
 

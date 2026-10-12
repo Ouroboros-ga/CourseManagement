@@ -1,40 +1,79 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
+import AppIcon from '../components/AppIcon.vue'
+import {
+  listStudents,
+  listAdministrativeClasses,
+  type StudentItem
+} from '../api/academic'
 import {
   listReports,
   listReportVersions,
   generateWeeklyReportVersion,
   getAttendanceStats,
   downloadReportVersionFile,
+  exportAttendanceAnalytics,
+  exportAttendanceDetailWord,
   type ReportSummaryItem,
   type ReportVersionSummary,
   type ReportVersionsResponse,
-  type AttendanceStatsResponse
+  type AttendanceStatsResponse,
+  type ClassStatsItem,
+  type TaskStatsItem,
+  type AbnormalDetailItem
 } from '../api/reports'
 
+const route = useRoute()
 const sessionStore = useSessionStore()
 
 const loading = ref(false)
-const generateLoading = ref(false)
 const downloadLoading = ref(false)
+const exportLoading = ref(false)
 
+const activeTab = ref<'class' | 'task' | 'report'>('class')
 const selectedWeek = ref<number>(1)
 const reportSummary = ref<ReportSummaryItem | null>(null)
 const reportVersionsMeta = ref<ReportVersionsResponse | null>(null)
 const reportVersions = ref<ReportVersionSummary[]>([])
 const attendanceStats = ref<AttendanceStatsResponse | null>(null)
 
+// 行政班看板筛选与排序状态
+const classSearch = ref('')
+const selectedGrade = ref('ALL')
+const selectedTier = ref('ALL')
+const classSort = ref<'rate_desc' | 'rate_asc' | 'exp_desc'>('rate_asc')
+
+// 教学班/课堂看板筛选状态
+const taskSearch = ref('')
+const taskOnlyAbnormal = ref(false)
+const taskSort = ref<'time_asc' | 'rate_asc' | 'rate_desc'>('time_asc')
+
 // 初始化周次
 onMounted(() => {
-  if (sessionStore.currentWeekNo) {
+  if (route.query.week) {
+    selectedWeek.value = Number(route.query.week)
+  } else if (sessionStore.currentWeekNo) {
     selectedWeek.value = sessionStore.currentWeekNo
+  }
+  if (route.query.tab && ['class', 'task', 'report'].includes(String(route.query.tab))) {
+    activeTab.value = route.query.tab as 'class' | 'task' | 'report'
   }
   if (sessionStore.currentSemesterId) {
     fetchReportData()
   }
 })
+
+watch(
+  () => sessionStore.currentWeekNo,
+  (wn) => {
+    if (wn && !route.query.week) {
+      selectedWeek.value = wn
+    }
+  }
+)
 
 // 学期或周次切换时刷新
 watch(
@@ -53,20 +92,19 @@ async function fetchReportData() {
     const semId = Number(sessionStore.currentSemesterId)
     const week = selectedWeek.value
 
-    // 1. 获取当周出勤统计口径
+    // 1. 获取当周出勤统计（含行政班与教学班明细）
     try {
-      const statsRes = await getAttendanceStats({ semester_id: semId, week_no: week })
+      const statsRes = await getAttendanceStats({ semester_id: semId, week_no: week, include_tasks: true })
       attendanceStats.value = statsRes
     } catch (e) {
       console.warn('获取考勤统计失败:', e)
       attendanceStats.value = null
     }
 
-    // 2. 获取周报主条目
+    // 2. 获取周报主条目与版本
     const repRes = await listReports({ semester_id: semId, week_no: week, page_size: 1 })
     if (repRes.items && repRes.items.length > 0) {
       reportSummary.value = repRes.items[0]
-      // 3. 获取版本列表
       const verRes = await listReportVersions(reportSummary.value.report_id)
       reportVersionsMeta.value = verRes
       reportVersions.value = verRes.items || []
@@ -76,72 +114,235 @@ async function fetchReportData() {
       reportVersions.value = []
     }
   } catch (err: unknown) {
-    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '获取周报数据失败'
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '获取数据失败'
     ElMessage.error(msg)
   } finally {
     loading.value = false
   }
 }
 
-// 是否需要生成新版本（源考勤有变动，或者尚未生成任何版本）
+// ---------------- 计算属性：全院看板宏观洞察 ----------------
+const overallRate = computed<number | null>(() => {
+  if (!attendanceStats.value || !attendanceStats.value.overall) return null
+  const o = attendanceStats.value.overall
+  if (o.attendance_rate !== undefined && o.attendance_rate !== null) return o.attendance_rate
+  return o.expected_count > 0 ? o.normal_count / o.expected_count : null
+})
+
+// 提取行政班级中出现的年级列表
+const gradeOptions = computed<string[]>(() => {
+  if (!attendanceStats.value?.classes) return []
+  const set = new Set<string>()
+  for (const c of attendanceStats.value.classes) {
+    const m = c.class_name.match(/(20\d{2}|\d{2})/)
+    if (m) {
+      const g = m[1].length === 2 ? `20${m[1]}级` : `${m[1]}级`
+      set.add(g)
+    }
+  }
+  return Array.from(set).sort().reverse()
+})
+
+// 辅助方法：解析班级出勤率与梯队
+function getClassRate(c: ClassStatsItem): number | null {
+  if (c.attendance_rate !== undefined && c.attendance_rate !== null) return c.attendance_rate
+  return c.expected_count > 0 ? c.normal_count / c.expected_count : null
+}
+
+function getClassTier(rate: number | null): 'EXCELLENT' | 'GOOD' | 'ATTENTION' | 'WARNING' | 'NONE' {
+  if (rate === null) return 'NONE'
+  if (rate >= 0.98) return 'EXCELLENT'
+  if (rate >= 0.95) return 'GOOD'
+  if (rate >= 0.90) return 'ATTENTION'
+  return 'WARNING'
+}
+
+function getTierMeta(tier: string): { label: string; cls: string } {
+  switch (tier) {
+    case 'EXCELLENT': return { label: '优秀', cls: 'tag-green' }
+    case 'GOOD': return { label: '正常', cls: 'tag-blue' }
+    case 'ATTENTION': return { label: '关注', cls: 'tag-amber' }
+    case 'WARNING': return { label: '预警', cls: 'tag-red' }
+    default: return { label: '无数据', cls: 'tag-gray' }
+  }
+}
+
+// 宏观梯队统计
+const tierDistribution = computed(() => {
+  const classes = attendanceStats.value?.classes || []
+  let excellent = 0
+  let good = 0
+  let attention = 0
+  let warning = 0
+
+  for (const c of classes) {
+    const t = getClassTier(getClassRate(c))
+    if (t === 'EXCELLENT') excellent++
+    else if (t === 'GOOD') good++
+    else if (t === 'ATTENTION') attention++
+    else if (t === 'WARNING') warning++
+  }
+
+  return { total: classes.length, excellent, good, attention, warning }
+})
+
+// 最高与最低到课率行政班（有效班级）
+const classHighlights = computed(() => {
+  const classes = (attendanceStats.value?.classes || []).filter(c => c.expected_count > 0)
+  if (classes.length === 0) return { highest: null, lowest: null }
+  const sorted = [...classes].sort((a, b) => (getClassRate(b) ?? 0) - (getClassRate(a) ?? 0))
+  return {
+    highest: sorted[0],
+    lowest: sorted[sorted.length - 1]
+  }
+})
+
+// 过滤与排序后的行政班列表
+const filteredClasses = computed(() => {
+  let list = [...(attendanceStats.value?.classes || [])]
+
+  if (classSearch.value.trim()) {
+    const kw = classSearch.value.trim().toLowerCase()
+    list = list.filter(c =>
+      c.class_name.toLowerCase().includes(kw) ||
+      (c.head_teacher && c.head_teacher.toLowerCase().includes(kw)) ||
+      (c.counselor && c.counselor.toLowerCase().includes(kw))
+    )
+  }
+
+  if (selectedGrade.value !== 'ALL') {
+    const target = selectedGrade.value.replace('级', '')
+    list = list.filter(c => c.class_name.includes(target) || c.class_name.includes(target.slice(2)))
+  }
+
+  if (selectedTier.value !== 'ALL') {
+    list = list.filter(c => getClassTier(getClassRate(c)) === selectedTier.value)
+  }
+
+  if (classSort.value === 'rate_desc') {
+    list.sort((a, b) => (getClassRate(b) ?? -1) - (getClassRate(a) ?? -1))
+  } else if (classSort.value === 'rate_asc') {
+    list.sort((a, b) => (getClassRate(a) ?? 999) - (getClassRate(b) ?? 999))
+  } else if (classSort.value === 'exp_desc') {
+    list.sort((a, b) => b.expected_count - a.expected_count)
+  }
+
+  return list
+})
+
+// 教学班 / 课堂出勤率与过滤
+function getTaskRate(t: TaskStatsItem): number | null {
+  if (t.attendance_rate !== undefined && t.attendance_rate !== null) return t.attendance_rate
+  return t.expected_count > 0 ? t.normal_count / t.expected_count : null
+}
+
+const filteredTasks = computed(() => {
+  let list = [...(attendanceStats.value?.tasks || [])]
+
+  if (taskSearch.value.trim()) {
+    const kw = taskSearch.value.trim().toLowerCase()
+    list = list.filter(t =>
+      (t.course_name_snapshot || '').toLowerCase().includes(kw) ||
+      (t.class_name_snapshot || '').toLowerCase().includes(kw) ||
+      (t.classroom_snapshot || '').toLowerCase().includes(kw) ||
+      (t.teacher_name_snapshot || '').toLowerCase().includes(kw)
+    )
+  }
+
+  if (taskOnlyAbnormal.value) {
+    list = list.filter(t => (t.abnormal_count || 0) > 0)
+  }
+
+  if (taskSort.value === 'time_asc') {
+    list.sort((a, b) => {
+      const dc = a.inspection_date.localeCompare(b.inspection_date)
+      if (dc !== 0) return dc
+      return (a.start_period || 0) - (b.start_period || 0)
+    })
+  } else if (taskSort.value === 'rate_asc') {
+    list.sort((a, b) => (getTaskRate(a) ?? 999) - (getTaskRate(b) ?? 999))
+  } else if (taskSort.value === 'rate_desc') {
+    list.sort((a, b) => (getTaskRate(b) ?? -1) - (getTaskRate(a) ?? -1))
+  }
+
+  return list
+})
+
+// ---------------- 周报归档状态 ----------------
 const isBehindSource = computed(() => {
-  if (reportVersionsMeta.value) {
-    return reportVersionsMeta.value.latest_behind_source
-  }
-  if (reportSummary.value) {
-    return reportSummary.value.source_changed
-  }
+  if (reportVersionsMeta.value) return reportVersionsMeta.value.latest_behind_source
+  if (reportSummary.value) return reportSummary.value.source_changed
   return false
 })
 
-const nextVersionNo = computed(() => {
-  if (reportVersionsMeta.value && reportVersionsMeta.value.latest_version_no) {
-    return reportVersionsMeta.value.latest_version_no + 1
-  }
-  return 1
-})
 
 const latestPublishedVersion = computed(() => {
   return reportVersions.value.find(v => v.status === 'PUBLISHED') || null
 })
 
-// 触发生成新版本
-async function triggerRegenerate() {
+// 格式化版本标注：生成日期 + 版本号vX.0
+function formatVersionLabel(ver: ReportVersionSummary | null | undefined): string {
+  if (!ver) return '未发布'
+  const rawDate = ver.generated_at || ver.created_at || ''
+  const dateStr = rawDate ? rawDate.substring(0, 10) : ''
+  const vTag = `v${ver.version_no}.0`
+  return dateStr ? `${dateStr} ${vTag}` : vTag
+}
+
+// ---------------- 操作：多维分析 Excel 导出 ----------------
+async function handleExportAnalytics() {
   if (!sessionStore.currentSemesterId) return
+  exportLoading.value = true
   try {
-    let reason = ''
-    if (reportVersions.value.length > 0) {
-      const promptRes = await ElMessageBox.prompt(
-        `确定要生成第 ${selectedWeek.value} 周周报 Version ${nextVersionNo.value}.0 吗？请输入生成说明（选填，入库审计）：`,
-        '生成周报新版本',
-        {
-          confirmButtonText: '立即生成',
-          cancelButtonText: '取消',
-          inputValue: isBehindSource.value ? '源考勤数据更新后重新生成' : '例行发布考勤周报'
-        }
-      )
-      reason = promptRes.value || ''
-    }
-
-    generateLoading.value = true
-    const res = await generateWeeklyReportVersion({
+    const { blob, filename } = await exportAttendanceAnalytics({
       semester_id: Number(sessionStore.currentSemesterId),
-      week_no: selectedWeek.value,
-      scope: 'COLLEGE',
-      reason: reason || undefined
+      week_no: selectedWeek.value
     })
-
-    ElMessage.success(`成功生成第 ${selectedWeek.value} 周考勤周报 Version ${res.version.version_no}.0！历史版本仍永久归档可查阅与下载。`)
-    await fetchReportData()
-  } catch (e) {
-    // cancelled or error
+    const blobUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(blobUrl)
+    ElMessage.success(`多维考勤分析报表【${filename}】已开始下载`)
+  } catch (err: unknown) {
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '导出失败'
+    ElMessage.error(msg)
   } finally {
-    generateLoading.value = false
+    exportLoading.value = false
   }
 }
 
-// 下载周报文件（XLSX 或 JSON 快照）
-async function handleDownload(versionId: string, kind: 'EXCEL' | 'SNAPSHOT') {
+// ---------------- 操作：直接导出课堂考勤详表 (Word) ----------------
+async function handleExportDetailWord() {
+  if (!sessionStore.currentSemesterId) return
+  downloadLoading.value = true
+  try {
+    const { blob, filename } = await exportAttendanceDetailWord({
+      semester_id: Number(sessionStore.currentSemesterId),
+      week_no: selectedWeek.value
+    })
+    const blobUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(blobUrl)
+    ElMessage.success(`独立课堂考勤详表【${filename}】已开始下载`)
+  } catch (err: unknown) {
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '导出详表失败'
+    ElMessage.error(msg)
+  } finally {
+    downloadLoading.value = false
+  }
+}
+
+// ---------------- 操作：下载周报 ----------------
+async function handleDownload(versionId: string, kind: 'EXCEL' | 'SNAPSHOT' | 'WORD' | 'DETAIL_WORD' | 'STUDY_EXCEL') {
   downloadLoading.value = true
   try {
     const { blob, filename } = await downloadReportVersionFile(versionId, kind)
@@ -153,7 +354,7 @@ async function handleDownload(versionId: string, kind: 'EXCEL' | 'SNAPSHOT') {
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(blobUrl)
-    ElMessage.success(`周报文件【${filename}】已开始下载`)
+    ElMessage.success(`文件【${filename}】已开始下载`)
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '下载失败'
     ElMessage.error(msg)
@@ -162,331 +363,1658 @@ async function handleDownload(versionId: string, kind: 'EXCEL' | 'SNAPSHOT') {
   }
 }
 
-// 下载最新周报
-async function handleDownloadLatest() {
-  if (!latestPublishedVersion.value) {
-    ElMessage.warning('当前暂无可供下载的周报已发布版本，请先生成周报')
-    return
+// 数据变化时自动生成新一版并下载，否则下载已有版本
+async function handleExportReport(kind: 'WORD' | 'EXCEL') {
+  if (!sessionStore.currentSemesterId) return
+  downloadLoading.value = true
+  try {
+    const semId = Number(sessionStore.currentSemesterId)
+    const week = selectedWeek.value
+
+    let targetVersionId = latestPublishedVersion.value?.id
+
+    // 尚未生成过周报，或数据发生变化已落后于事实，自动生成新一版并下载
+    if (!latestPublishedVersion.value || isBehindSource.value) {
+      ElMessage.info('检测到考勤数据有变动，正在自动生成最新版本周报…')
+      const genRes = await generateWeeklyReportVersion({
+        semester_id: semId,
+        week_no: week,
+        scope: 'COLLEGE',
+        reason: isBehindSource.value ? '导出时检测到数据变动自动更新' : '首次导出自动生成初始版本'
+      })
+      targetVersionId = genRes.version.id
+      await fetchReportData()
+    }
+
+    if (!targetVersionId) {
+      ElMessage.warning('未能获取有效的周报版本')
+      return
+    }
+
+    await handleDownload(targetVersionId, kind)
+  } catch (err: unknown) {
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '导出下载失败'
+    ElMessage.error(msg)
+  } finally {
+    downloadLoading.value = false
   }
-  await handleDownload(latestPublishedVersion.value.id, 'EXCEL')
+}
+
+async function handleDownloadLatest() {
+  await handleExportReport('EXCEL')
+}
+
+async function handleDownloadLatestWord() {
+  await handleExportReport('WORD')
+}
+
+// ---------------- 班级明细抽屉状态与数据处理 ----------------
+const showClassDetailDrawer = ref(false)
+const selectedClass = ref<ClassStatsItem | null>(null)
+const classStudentsLoading = ref(false)
+const classStudents = ref<StudentItem[]>([])
+const classStudentKeyword = ref('')
+const classStudentStatusFilter = ref<'ALL' | 'ABNORMAL' | 'NORMAL'>('ALL')
+const detailTab = ref<'students' | 'tasks'>('students')
+
+async function openClassDetail(c: ClassStatsItem) {
+  selectedClass.value = c
+  showClassDetailDrawer.value = true
+  classStudentKeyword.value = ''
+  classStudentStatusFilter.value = 'ALL'
+  detailTab.value = 'students'
+  classStudents.value = []
+
+  // 异步获取该行政班在学籍库中的全量底册名单
+  classStudentsLoading.value = true
+  try {
+    let classId = c.class_id
+    if (!classId) {
+      const res = await listAdministrativeClasses({ keyword: c.class_name })
+      const matched = res.items?.find(it => it.class_name === c.class_name)
+      if (matched) {
+        classId = matched.id
+      }
+    }
+    if (classId) {
+      const stuRes = await listStudents({ administrative_class_id: classId, page_size: 200 })
+      classStudents.value = stuRes.items || []
+    }
+  } catch (err) {
+    console.warn('获取班级学生底册失败:', err)
+  } finally {
+    classStudentsLoading.value = false
+  }
+}
+
+export interface StudentAttendanceRow {
+  student_no: string
+  name: string
+  is_abnormal: boolean
+  absent_count: number
+  late_count: number
+  leave_count: number
+  total_abnormal: number
+  records: AbnormalDetailItem[]
+}
+
+// 当周该行政班在所有巡查课堂中产生的非 NORMAL 违纪考勤记录
+const classAbnormalDetails = computed<AbnormalDetailItem[]>(() => {
+  if (!selectedClass.value || !attendanceStats.value?.details) return []
+  const cname = selectedClass.value.class_name
+  return attendanceStats.value.details.filter(d => d.class_name_snapshot === cname)
+})
+
+// 班级完整考勤名单：融合学籍底册与当周违纪记录，【置顶有情况的同学】
+const classStudentRoster = computed<StudentAttendanceRow[]>(() => {
+  if (!selectedClass.value) return []
+
+  // 1. 归并当周此班级所有有情况（旷课/迟到/请假）的同学
+  const abnormalMap = new Map<string, {
+    student_no: string
+    name: string
+    absent_count: number
+    late_count: number
+    leave_count: number
+    records: AbnormalDetailItem[]
+  }>()
+
+  for (const d of classAbnormalDetails.value) {
+    const key = d.student_no || d.name
+    let item = abnormalMap.get(key)
+    if (!item) {
+      item = {
+        student_no: d.student_no,
+        name: d.name,
+        absent_count: 0,
+        late_count: 0,
+        leave_count: 0,
+        records: []
+      }
+      abnormalMap.set(key, item)
+    }
+    if (d.attendance_type === 'ABSENT') item.absent_count++
+    else if (d.attendance_type === 'LATE') item.late_count++
+    else if (d.attendance_type === 'LEAVE') item.leave_count++
+    item.records.push(d)
+  }
+
+  // 2. 结合行政班全量底册学生
+  const rows: StudentAttendanceRow[] = []
+  const processedKeys = new Set<string>()
+
+  for (const stu of classStudents.value) {
+    const key = stu.student_no || stu.name
+    processedKeys.add(key)
+    const ab = abnormalMap.get(key)
+    if (ab) {
+      rows.push({
+        student_no: stu.student_no,
+        name: stu.name || ab.name,
+        is_abnormal: true,
+        absent_count: ab.absent_count,
+        late_count: ab.late_count,
+        leave_count: ab.leave_count,
+        total_abnormal: ab.absent_count + ab.late_count + ab.leave_count,
+        records: ab.records
+      })
+    } else {
+      rows.push({
+        student_no: stu.student_no,
+        name: stu.name,
+        is_abnormal: false,
+        absent_count: 0,
+        late_count: 0,
+        leave_count: 0,
+        total_abnormal: 0,
+        records: []
+      })
+    }
+  }
+
+  // 补充存在违纪但在底册中未匹配到的学生（确保有情况的同学绝不遗漏）
+  for (const [key, ab] of abnormalMap.entries()) {
+    if (!processedKeys.has(key)) {
+      rows.push({
+        student_no: ab.student_no,
+        name: ab.name,
+        is_abnormal: true,
+        absent_count: ab.absent_count,
+        late_count: ab.late_count,
+        leave_count: ab.leave_count,
+        total_abnormal: ab.absent_count + ab.late_count + ab.leave_count,
+        records: ab.records
+      })
+    }
+  }
+
+  // 3. 【核心置顶排序算法】
+  // 有情况（旷课/迟到/请假）的同学在名单最上方自动置顶！
+  // 其次按违纪严重程度（旷课数降序 -> 迟到数降序 -> 请假数降序），全勤同学排在下方。
+  rows.sort((a, b) => {
+    // 违纪置顶
+    if (a.is_abnormal !== b.is_abnormal) {
+      return a.is_abnormal ? -1 : 1
+    }
+    // 旷课严重程度优先
+    if (a.absent_count !== b.absent_count) {
+      return b.absent_count - a.absent_count
+    }
+    // 迟到次数优先
+    if (a.late_count !== b.late_count) {
+      return b.late_count - a.late_count
+    }
+    // 请假次数优先
+    if (a.leave_count !== b.leave_count) {
+      return b.leave_count - a.leave_count
+    }
+    // 学号排序
+    return (a.student_no || '').localeCompare(b.student_no || '')
+  })
+
+  return rows
+})
+
+const abnormalStudentCount = computed(() => classStudentRoster.value.filter(s => s.is_abnormal).length)
+const normalStudentCount = computed(() => classStudentRoster.value.filter(s => !s.is_abnormal).length)
+
+const filteredClassStudents = computed(() => {
+  let list = classStudentRoster.value
+
+  if (classStudentStatusFilter.value === 'ABNORMAL') {
+    list = list.filter(s => s.is_abnormal)
+  } else if (classStudentStatusFilter.value === 'NORMAL') {
+    list = list.filter(s => !s.is_abnormal)
+  }
+
+  if (classStudentKeyword.value.trim()) {
+    const kw = classStudentKeyword.value.trim().toLowerCase()
+    list = list.filter(s =>
+      s.name.toLowerCase().includes(kw) ||
+      s.student_no.toLowerCase().includes(kw)
+    )
+  }
+
+  return list
+})
+
+// 该班级当周关联的巡查课堂
+const selectedClassTasks = computed(() => {
+  if (!selectedClass.value || !attendanceStats.value?.tasks) return []
+  const cname = selectedClass.value.class_name
+  const abnormalTaskIds = new Set(classAbnormalDetails.value.map(d => String(d.task_id)))
+  return attendanceStats.value.tasks.filter(t =>
+    (t.class_name_snapshot && t.class_name_snapshot.includes(cname)) ||
+    abnormalTaskIds.has(String(t.task_id))
+  )
+})
+
+function formatViolationType(type: string): string {
+  switch (type) {
+    case 'ABSENT': return '旷课'
+    case 'LATE': return '迟到'
+    case 'LEAVE': return '请假'
+    case 'NORMAL': return '正常'
+    default: return type
+  }
 }
 </script>
 
 <template>
-  <div v-loading="loading">
+  <div class="report-page" v-loading="loading">
+    <!-- 页头 -->
     <header class="page-head">
       <div class="crumb font-mono">
-        <span>REPORT</span>
+        <span>{{ sessionStore.currentSemesterName || '当前学期' }}</span>
         <em>●</em>
         <span>第 {{ selectedWeek }} 周</span>
         <em>●</em>
-        <span>版本归档中心</span>
+        <span>REPORTS</span>
       </div>
-      <div class="head-row">
-        <div>
-          <h1>学院考勤周报中心</h1>
-          <p class="sub">
-            周报版本不可物理篡改或覆盖，每次生成均永久归档并保留完整考勤汇总快照。终审改判或考勤事实更正后系统自动检测并提示重新生成。
-          </p>
-        </div>
+      <h1>考勤周报与多维数据看板</h1>
+      <p class="sub">
+        覆盖行政班到课率、教学班与课堂出勤明细的全院宏观分析，支持多维数据穿透、Excel 分析表导出与官方周报版本归档。
+      </p>
 
-        <!-- 顶部周次切换器 -->
+      <div class="head-actions">
         <div class="week-picker">
-          <label class="wp-label font-mono">周次选择：</label>
+          <span class="wp-label font-mono">WEEK</span>
           <select v-model="selectedWeek" class="wp-select font-mono">
             <option v-for="w in sessionStore.totalWeeks" :key="w" :value="w">
               第 {{ w }} 周
             </option>
           </select>
-          <button class="btn btn-sm btn-ghost" @click="fetchReportData">⟳ 刷新</button>
         </div>
+        <button
+          class="btn btn-dark btn-sm"
+          :disabled="downloadLoading || !attendanceStats"
+          :title="isBehindSource ? '检测到数据变动，点击将自动生成新版本并下载' : '下载当前最新 Word 周报'"
+          @click="handleDownloadLatestWord"
+        >
+          <AppIcon v-if="!downloadLoading" name="download" :size="13" />
+          <span>{{ downloadLoading ? '正在处理…' : (isBehindSource || !latestPublishedVersion ? '导出 Word 周报 (自动更新)' : '导出 Word 周报') }}</span>
+        </button>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="downloadLoading || !attendanceStats"
+          title="导出100%对齐模板格式的独立【课堂考勤详表】Word文档（居中标题+5列考勤明细）"
+          @click="handleExportDetailWord"
+        >
+          <AppIcon v-if="!downloadLoading" name="download" :size="13" />
+          <span>导出考勤详表 (Word)</span>
+        </button>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="exportLoading || !attendanceStats"
+          title="导出包含全院看板、行政班与教学班明细的多 Sheet 分析 Excel"
+          @click="handleExportAnalytics"
+        >
+          <AppIcon v-if="!exportLoading" name="download" :size="13" />
+          <span>{{ exportLoading ? '正在导出…' : '导出多维分析 Excel' }}</span>
+        </button>
+        <button class="btn btn-ghost btn-sm" @click="fetchReportData">刷新数据</button>
       </div>
     </header>
 
-    <!-- 当周考勤事实聚合概览卡片 (真实统计) -->
-    <div v-if="attendanceStats" class="stats-grid">
-      <div class="stat-card">
-        <div class="sc-label">已审核任务</div>
-        <div class="sc-value font-mono">{{ attendanceStats.eligible_task_count }} <span class="sc-unit">堂</span></div>
-        <div class="sc-sub cell-sub">已通过且未取消任务</div>
-      </div>
-      <div class="stat-card">
-        <div class="sc-label">应到总人次</div>
-        <div class="sc-value font-mono">{{ attendanceStats.overall.expected_count }} <span class="sc-unit">人次</span></div>
-        <div class="sc-sub cell-sub">计入统计的有效分母</div>
-      </div>
-      <div class="stat-card">
-        <div class="sc-label">正常出勤人次</div>
-        <div class="sc-value font-mono text-green">{{ attendanceStats.overall.normal_count }} <span class="sc-unit">人次</span></div>
-        <div class="sc-sub cell-sub">清点正常或改判正常</div>
-      </div>
-      <div class="stat-card">
-        <div class="sc-label">请假 / 迟到 / 旷课</div>
-        <div class="sc-value font-mono text-amber">
-          {{ attendanceStats.overall.leave_count }} / {{ attendanceStats.overall.late_count }} / {{ attendanceStats.overall.absent_count }}
+    <!-- 宏观统计分栏（无边框 · 细线分隔） -->
+    <section v-if="attendanceStats" class="stat-row kpi-row">
+      <div class="stat-cell">
+        <div class="label">全院综合到课率</div>
+        <div class="value" :class="overallRate !== null && overallRate < 0.95 ? 'c-accent' : ''">
+          {{ overallRate !== null ? (overallRate * 100).toFixed(1) + '%' : '—' }}
         </div>
-        <div class="sc-sub cell-sub">异常人次分类汇总</div>
-      </div>
-      <div class="stat-card highlight">
-        <div class="sc-label">全院综合到课率</div>
-        <div class="sc-value font-mono text-accent">
-          {{
-            attendanceStats.overall.statistics_available && attendanceStats.overall.expected_count > 0
-              ? (((attendanceStats.overall.normal_count) / attendanceStats.overall.expected_count) * 100).toFixed(1) + '%'
-              : '暂无'
-          }}
+        <div class="prog kpi-prog">
+          <i
+            :style="{
+              width: `${Math.min(100, (overallRate || 0) * 100)}%`,
+              background: overallRate !== null && overallRate < 0.95 ? 'var(--accent)' : 'var(--green)'
+            }"
+          ></i>
         </div>
-        <div class="sc-sub cell-sub">
-          异常率: {{ attendanceStats.overall.abnormal_rate != null ? (attendanceStats.overall.abnormal_rate * 100).toFixed(1) + '%' : '-' }}
+        <div class="note">
+          应到 <b class="font-mono">{{ attendanceStats.overall.expected_count }}</b> · 实到
+          <b class="font-mono">{{ attendanceStats.overall.normal_count }}</b> 人次
         </div>
       </div>
-    </div>
 
-    <!-- 新鲜度警示横幅：当周报尚未生成或源考勤已更新时展示 -->
-    <div v-if="reportVersions.length === 0" class="banner banner-empty">
-      <div>
-        <div class="b-title">第 {{ selectedWeek }} 周尚未生成周报归档版本</div>
-        <div class="b-desc">
-          当前学期第 {{ selectedWeek }} 周已有 {{ attendanceStats?.eligible_task_count || 0 }} 堂查课任务完成审核，可随时生成初始版本 Version 1.0 工作簿与快照。
+      <div class="stat-cell">
+        <div class="label">考勤异常人次</div>
+        <div class="value" :class="attendanceStats.overall.abnormal_count > 0 ? 'c-amber' : 'c-green'">
+          {{ attendanceStats.overall.abnormal_count }}
+        </div>
+        <div class="note font-mono">
+          旷课 <b class="c-accent">{{ attendanceStats.overall.absent_count }}</b> · 迟到
+          <b class="c-amber">{{ attendanceStats.overall.late_count }}</b> · 请假
+          <b class="c-blue">{{ attendanceStats.overall.leave_count }}</b>
+        </div>
+        <div class="note">
+          异常率
+          <b class="font-mono">{{
+            attendanceStats.overall.abnormal_rate !== null && attendanceStats.overall.abnormal_rate !== undefined
+              ? (attendanceStats.overall.abnormal_rate * 100).toFixed(1) + '%'
+              : '0.0%'
+          }}</b>
         </div>
       </div>
-      <button
-        class="btn btn-accent"
-        style="flex-shrink: 0"
-        :disabled="generateLoading"
-        @click="triggerRegenerate"
-      >
-        {{ generateLoading ? '正在生成…' : '生成 Version 1.0 周报' }}
+
+      <div class="stat-cell">
+        <div class="label">行政班表现梯队</div>
+        <div class="value">{{ tierDistribution.total }}<em class="unit">个班级</em></div>
+        <div class="tier-strip">
+          <i class="ts ts-green" :style="{ flex: tierDistribution.excellent || 0.01 }" title="优秀 ≥98%"></i>
+          <i class="ts ts-blue" :style="{ flex: tierDistribution.good || 0.01 }" title="正常 95–98%"></i>
+          <i class="ts ts-amber" :style="{ flex: tierDistribution.attention || 0.01 }" title="关注 90–95%"></i>
+          <i class="ts ts-red" :style="{ flex: tierDistribution.warning || 0.01 }" title="预警 <90%"></i>
+        </div>
+        <div class="note font-mono">
+          优 {{ tierDistribution.excellent }} · 良 {{ tierDistribution.good }} · 关
+          {{ tierDistribution.attention }} · 警 {{ tierDistribution.warning }}
+        </div>
+      </div>
+
+      <div class="stat-cell">
+        <div class="label">有效查课课堂</div>
+        <div class="value">{{ attendanceStats.eligible_task_count }}<em class="unit">堂</em></div>
+        <div class="note">
+          平均每堂应到
+          <b class="font-mono">{{
+            attendanceStats.eligible_task_count > 0
+              ? (attendanceStats.overall.expected_count / attendanceStats.eligible_task_count).toFixed(0)
+              : '—'
+          }}</b>
+          人
+        </div>
+        <div class="note">已审核通过 · 纳入统计分母</div>
+      </div>
+
+      <div class="stat-cell">
+        <div class="label">官方周报状态</div>
+        <div class="value kpi-version-val" :class="latestPublishedVersion ? '' : 'c-amber'">
+          {{ formatVersionLabel(latestPublishedVersion) }}
+        </div>
+        <div class="note">
+          <span v-if="!latestPublishedVersion" class="tag tag-amber">待生成</span>
+          <span v-else-if="isBehindSource" class="tag tag-amber">考勤已更新</span>
+          <span v-else class="tag tag-green">最新归档</span>
+        </div>
+        <div class="note">
+          已沉淀归档 <b class="font-mono">{{ reportVersions.length }}</b> 个历史版本
+        </div>
+      </div>
+    </section>
+
+    <!-- 编号 Tab 导航 -->
+    <nav class="tab-nav">
+      <button class="tab-btn" :class="{ active: activeTab === 'class' }" @click="activeTab = 'class'">
+        <span class="tab-no font-mono">01</span>
+        <span>行政班到课率</span>
+        <span class="tab-count font-mono">{{ attendanceStats?.classes.length || 0 }}</span>
       </button>
-    </div>
-
-    <div v-else-if="isBehindSource" class="banner banner-warn">
-      <div>
-        <div class="b-title">周报源考勤数据已发生更新（behind_source: true）</div>
-        <div class="b-desc">
-          检测到本周考勤数据发生变动（存在新审核提交或考勤异议终审改判），当前最新周报（Version {{ reportVersionsMeta?.latest_version_no }}.0）已落后于最新考勤事实。
-        </div>
-      </div>
-      <button
-        class="btn btn-accent"
-        style="flex-shrink: 0"
-        :disabled="generateLoading"
-        @click="triggerRegenerate"
-      >
-        {{ generateLoading ? '正在生成…' : `重新生成 Version ${nextVersionNo}.0` }}
+      <button class="tab-btn" :class="{ active: activeTab === 'task' }" @click="activeTab = 'task'">
+        <span class="tab-no font-mono">02</span>
+        <span>教学班与课堂</span>
+        <span class="tab-count font-mono">{{ attendanceStats?.tasks?.length || attendanceStats?.eligible_task_count || 0 }}</span>
       </button>
-    </div>
-
-    <div v-else class="banner banner-ok">
-      <div>
-        <div class="b-title text-green">第 {{ selectedWeek }} 周周报为最新考勤事实（已归档）</div>
-        <div class="b-desc">
-          当前归档版本与考勤库源修订号（rev_{{ reportVersionsMeta?.current_source_revision }}）保持一致，各班级考勤比例完全对齐。
-        </div>
-      </div>
-      <button
-        class="btn btn-ghost"
-        style="flex-shrink: 0"
-        :disabled="generateLoading"
-        @click="triggerRegenerate"
-      >
-        {{ generateLoading ? '正在生成…' : `再次生成新版本 (Version ${nextVersionNo}.0)` }}
+      <button class="tab-btn" :class="{ active: activeTab === 'report' }" @click="activeTab = 'report'">
+        <span class="tab-no font-mono">03</span>
+        <span>周报生成与归档</span>
+        <span v-if="isBehindSource" class="tab-dot" title="考勤数据已更新，建议重新生成"></span>
       </button>
+    </nav>
+
+    <!-- ============ TAB 01 · 行政班到课率 ============ -->
+    <div v-show="activeTab === 'class'">
+      <!-- 洞察提要 -->
+      <div v-if="classHighlights.highest || classHighlights.lowest" class="insight-strip">
+        <div class="is-item">
+          <span class="tag tag-green">榜首</span>
+          <span class="is-name">{{ classHighlights.highest?.class_name }}</span>
+          <span class="is-val font-mono c-green">
+            {{ ((getClassRate(classHighlights.highest!) ?? 0) * 100).toFixed(1) }}%
+          </span>
+          <span class="is-sub">
+            应到 {{ classHighlights.highest?.expected_count }} · 实到 {{ classHighlights.highest?.normal_count }}
+          </span>
+        </div>
+        <template v-if="classHighlights.lowest && getClassRate(classHighlights.lowest!) !== null && getClassRate(classHighlights.lowest!)! < 0.95">
+          <div class="is-sep"></div>
+          <div class="is-item">
+            <span class="tag tag-red">需帮扶</span>
+            <span class="is-name">{{ classHighlights.lowest?.class_name }}</span>
+            <span class="is-val font-mono c-accent">
+              {{ ((getClassRate(classHighlights.lowest!) ?? 0) * 100).toFixed(1) }}%
+            </span>
+            <span class="is-sub">
+              旷课 {{ classHighlights.lowest?.absent_count }} · 迟到 {{ classHighlights.lowest?.late_count }}
+            </span>
+          </div>
+        </template>
+      </div>
+
+      <!-- 筛选条 -->
+      <div class="filter-bar">
+        <div class="fgroup fgroup-grow">
+          <AppIcon name="search" :size="13" />
+          <input v-model="classSearch" type="text" class="f-input" placeholder="搜索班级 / 班主任 / 辅导员…" />
+        </div>
+        <div class="fsep"></div>
+        <div class="fgroup">
+          <label>年级</label>
+          <select v-model="selectedGrade" class="input">
+            <option value="ALL">全部年级</option>
+            <option v-for="g in gradeOptions" :key="g" :value="g">{{ g }}</option>
+          </select>
+        </div>
+        <div class="fsep"></div>
+        <div class="fgroup">
+          <label>梯队</label>
+          <select v-model="selectedTier" class="input">
+            <option value="ALL">全部状态</option>
+            <option value="EXCELLENT">优秀 ≥98%</option>
+            <option value="GOOD">正常 95–98%</option>
+            <option value="ATTENTION">关注 90–95%</option>
+            <option value="WARNING">预警 &lt;90%</option>
+          </select>
+        </div>
+        <div class="fsep"></div>
+        <div class="fgroup">
+          <label>排序</label>
+          <select v-model="classSort" class="input">
+            <option value="rate_desc">到课率 高 → 低</option>
+            <option value="rate_asc">到课率 低 → 高</option>
+            <option value="exp_desc">应到规模 大 → 小</option>
+          </select>
+        </div>
+        <div class="f-count font-mono">展示 {{ filteredClasses.length }} / {{ attendanceStats?.classes.length || 0 }} 班</div>
+      </div>
+
+      <!-- 行政班表格 -->
+      <div class="tbl-wrap">
+        <div v-if="filteredClasses.length === 0" class="empty-text">无匹配的行政班级考勤数据。</div>
+        <table v-else class="tbl">
+          <thead>
+            <tr>
+              <th style="width: 52px;">排名</th>
+              <th>行政班级</th>
+              <th>梯队状态</th>
+              <th class="ta-r">应到</th>
+              <th class="ta-r">实到</th>
+              <th class="ta-r">迟到</th>
+              <th class="ta-r">旷课</th>
+              <th class="ta-r">请假</th>
+              <th style="width: 180px;">到课率</th>
+              <th class="ta-r">缺勤率</th>
+              <th class="ta-c">数据有效性</th>
+              <th class="ta-c" style="width: 72px;">明细</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(c, idx) in filteredClasses"
+              :key="c.class_name"
+              class="clickable-row"
+              @click="openClassDetail(c)"
+            >
+              <td class="cell-mono rank">{{ String(idx + 1).padStart(2, '0') }}</td>
+              <td>
+                <div class="cell-main-row">
+                  <span class="cell-main fw-600">{{ c.class_name }}</span>
+                  <span class="class-click-hint font-mono">详情 &rarr;</span>
+                </div>
+                <div v-if="c.head_teacher || c.counselor" class="cell-sub">
+                  <template v-if="c.head_teacher">班主任 {{ c.head_teacher }}</template>
+                  <template v-if="c.head_teacher && c.counselor"> · </template>
+                  <template v-if="c.counselor">辅导员 {{ c.counselor }}</template>
+                </div>
+              </td>
+              <td>
+                <span class="tag" :class="getTierMeta(getClassTier(getClassRate(c))).cls">
+                  {{ getTierMeta(getClassTier(getClassRate(c))).label }}
+                </span>
+              </td>
+              <td class="cell-mono ta-r">{{ c.expected_count }}</td>
+              <td class="cell-mono ta-r c-green fw-600">{{ c.normal_count }}</td>
+              <td class="cell-mono ta-r" :class="c.late_count > 0 ? 'c-amber fw-600' : 'cell-sub'">{{ c.late_count }}</td>
+              <td class="cell-mono ta-r" :class="c.absent_count > 0 ? 'c-accent fw-600' : 'cell-sub'">{{ c.absent_count }}</td>
+              <td class="cell-mono ta-r cell-sub">{{ c.leave_count }}</td>
+              <td>
+                <div class="rate-cell">
+                  <span
+                    class="rate-val font-mono"
+                    :class="getClassRate(c) !== null && getClassRate(c)! < 0.90 ? 'c-accent fw-600' : (getClassRate(c) !== null && getClassRate(c)! >= 0.98 ? 'c-green fw-600' : '')"
+                  >
+                    {{ getClassRate(c) !== null ? (getClassRate(c)! * 100).toFixed(1) + '%' : '—' }}
+                  </span>
+                  <div class="prog rate-prog">
+                    <i
+                      :style="{
+                        width: `${Math.min(100, (getClassRate(c) ?? 0) * 100)}%`,
+                        background: getClassRate(c) !== null && getClassRate(c)! < 0.90 ? 'var(--accent)' : (getClassRate(c) !== null && getClassRate(c)! >= 0.98 ? 'var(--green)' : 'var(--blue)')
+                      }"
+                    ></i>
+                  </div>
+                </div>
+              </td>
+              <td class="cell-mono ta-r cell-sub">
+                {{ c.abnormal_rate !== null && c.abnormal_rate !== undefined ? (c.abnormal_rate * 100).toFixed(1) + '%' : '—' }}
+              </td>
+              <td class="ta-c">
+                <span v-if="c.class_ratio_available" class="tag tag-green" title="名单及分母完全对齐">有效</span>
+                <span v-else class="tag tag-amber" :title="`人工只调总数剔除 ${c.excluded_task_count} 堂`">剔除 {{ c.excluded_task_count }}</span>
+              </td>
+              <td class="ta-c">
+                <button class="btn-text font-mono" @click.stop="openClassDetail(c)">
+                  查看 &rarr;
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
-    <!-- 版本归档表 -->
-    <div class="panel">
-      <div class="panel-head">
-        <div>
-          <h3 class="panel-title font-serif">版本归档历史</h3>
-          <div class="cell-sub">
-            第 {{ selectedWeek }} 周已归档 {{ reportVersions.length }} 个版本，按生成时间倒序排列
+    <!-- ============ TAB 02 · 教学班与课堂 ============ -->
+    <div v-show="activeTab === 'task'">
+      <div class="filter-bar">
+        <div class="fgroup fgroup-grow">
+          <AppIcon name="search" :size="13" />
+          <input v-model="taskSearch" type="text" class="f-input" placeholder="搜索课程 / 教学班 / 教室 / 教师…" />
+        </div>
+        <div class="fsep"></div>
+        <label class="fgroup chk-row">
+          <input v-model="taskOnlyAbnormal" type="checkbox" class="chk" />
+          <span>仅看有缺勤异常课堂</span>
+        </label>
+        <div class="fsep"></div>
+        <div class="fgroup">
+          <label>排序</label>
+          <select v-model="taskSort" class="input">
+            <option value="time_asc">查课时间 先 → 后</option>
+            <option value="rate_asc">到课率 低 → 高（找异常）</option>
+            <option value="rate_desc">到课率 高 → 低</option>
+          </select>
+        </div>
+        <div class="f-count font-mono">展示 {{ filteredTasks.length }} / {{ attendanceStats?.tasks?.length || 0 }} 堂</div>
+      </div>
+
+      <div class="tbl-wrap">
+        <div v-if="filteredTasks.length === 0" class="empty-text">无匹配的教学班或巡查课堂数据。</div>
+        <table v-else class="tbl">
+          <thead>
+            <tr>
+              <th style="width: 150px;">查课日期 / 节次</th>
+              <th>课程名称</th>
+              <th>教学班 / 合班</th>
+              <th>教室</th>
+              <th class="ta-r">应到</th>
+              <th class="ta-r">实到</th>
+              <th class="ta-r">异常</th>
+              <th style="width: 170px;">课堂到课率</th>
+              <th class="ta-c">出勤状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in filteredTasks" :key="t.task_id">
+              <td>
+                <div class="cell-main font-mono">{{ t.inspection_date }}</div>
+                <div class="cell-sub font-mono">
+                  {{ t.start_period && t.end_period ? `第 ${t.start_period}–${t.end_period} 节` : '全天' }}
+                </div>
+              </td>
+              <td>
+                <div class="cell-main">{{ t.course_name_snapshot || '—' }}</div>
+                <div v-if="t.teacher_name_snapshot" class="cell-sub">授课教师 {{ t.teacher_name_snapshot }}</div>
+              </td>
+              <td class="cell-sub">{{ t.class_name_snapshot || '—' }}</td>
+              <td><span class="room-pill font-mono">{{ t.classroom_snapshot || '—' }}</span></td>
+              <td class="cell-mono ta-r">{{ t.expected_count }}</td>
+              <td class="cell-mono ta-r c-green fw-600">{{ t.normal_count }}</td>
+              <td class="cell-mono ta-r">
+                <span v-if="t.abnormal_count > 0" class="c-accent fw-600">{{ t.abnormal_count }}</span>
+                <span v-else class="cell-sub">0</span>
+              </td>
+              <td>
+                <div class="rate-cell">
+                  <span
+                    class="rate-val font-mono"
+                    :class="getTaskRate(t) !== null && getTaskRate(t)! < 0.90 ? 'c-accent fw-600' : (getTaskRate(t) !== null && getTaskRate(t)! >= 0.98 ? 'c-green fw-600' : '')"
+                  >
+                    {{ getTaskRate(t) !== null ? (getTaskRate(t)! * 100).toFixed(1) + '%' : '—' }}
+                  </span>
+                  <div class="prog rate-prog">
+                    <i
+                      :style="{
+                        width: `${Math.min(100, (getTaskRate(t) ?? 0) * 100)}%`,
+                        background: getTaskRate(t) !== null && getTaskRate(t)! < 0.90 ? 'var(--accent)' : (getTaskRate(t) !== null && getTaskRate(t)! >= 0.98 ? 'var(--green)' : 'var(--blue)')
+                      }"
+                    ></i>
+                  </div>
+                </div>
+              </td>
+              <td class="ta-c">
+                <span v-if="t.absent_count > 0" class="tag tag-red">旷课 {{ t.absent_count }}</span>
+                <span v-else-if="t.late_count > 0" class="tag tag-amber">迟到 {{ t.late_count }}</span>
+                <span v-else-if="t.leave_count > 0" class="tag tag-blue">请假 {{ t.leave_count }}</span>
+                <span v-else class="tag tag-green">全勤</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ TAB 03 · 周报生成与归档 ============ -->
+    <div v-show="activeTab === 'report'">
+      <!-- 版本归档表 -->
+      <div class="tbl-wrap">
+        <div class="tbl-head">
+          <div>
+            <h3>版本归档历史</h3>
+            <div class="meta">第 {{ selectedWeek }} 周已归档 {{ reportVersions.length }} 个版本，按生成时间倒序</div>
+          </div>
+          <div class="tbl-tools">
+            <button
+              class="btn btn-sm"
+              :disabled="downloadLoading"
+              :title="isBehindSource ? '检测到数据变动，点击将自动生成新版本并下载' : '下载当前最新 XLSX 周报'"
+              @click="handleDownloadLatest"
+            >
+              <AppIcon name="download" :size="12" />
+              <span>{{ isBehindSource || !latestPublishedVersion ? '导出最新 XLSX (自动更新)' : '最新 XLSX' }}</span>
+            </button>
+            <button
+              class="btn btn-dark btn-sm"
+              :disabled="downloadLoading"
+              :title="isBehindSource ? '检测到数据变动，点击将自动生成新版本并下载' : '下载当前最新 Word 周报'"
+              @click="handleDownloadLatestWord"
+            >
+              <AppIcon name="download" :size="12" />
+              <span>{{ isBehindSource || !latestPublishedVersion ? '导出最新 Word 周报 (自动更新)' : '最新 Word 周报' }}</span>
+            </button>
           </div>
         </div>
-        <button
-          class="btn btn-sm btn-dark"
-          :disabled="!latestPublishedVersion || downloadLoading"
-          @click="handleDownloadLatest"
-        >
-          ⬇ 下载最新 XLSX 周报
-        </button>
-      </div>
 
-      <div v-if="reportVersions.length === 0" class="empty-text cell-sub">
-        暂无版本记录，请点击上方按钮生成初始周报。
+        <div v-if="reportVersions.length === 0" class="empty-text">暂无已归档版本，点击“导出最新 Word 周报”或“最新 XLSX”即可自动生成并下载。</div>
+        <table v-else class="tbl">
+          <thead>
+            <tr>
+              <th>版本标注</th>
+              <th>生成时间</th>
+              <th>操作人</th>
+              <th>源修订号</th>
+              <th>状态</th>
+              <th>新鲜度</th>
+              <th>生成事由</th>
+              <th class="ta-r">下载产物</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="ver in reportVersions" :key="ver.id">
+              <td class="cell-mono fw-600">{{ formatVersionLabel(ver) }}</td>
+              <td class="cell-mono cell-sub">
+                {{ ver.generated_at ? ver.generated_at.substring(0, 19).replace('T', ' ') : ver.created_at.substring(0, 19).replace('T', ' ') }}
+              </td>
+              <td>
+                <span class="cell-main">{{ ver.generated_by ? '用户 #' + ver.generated_by : '管理员' }}</span>
+                <span class="cell-sub font-mono role-tag">ADMIN</span>
+              </td>
+              <td class="cell-mono cell-sub">rev_{{ ver.source_revision }}</td>
+              <td>
+                <span
+                  class="tag"
+                  :class="{
+                    'tag-green': ver.status === 'PUBLISHED',
+                    'tag-amber': ver.status === 'GENERATING',
+                    'tag-red': ver.status === 'FAILED'
+                  }"
+                >
+                  {{ ver.status === 'PUBLISHED' ? '已发布' : (ver.status === 'GENERATING' ? '生成中' : '失败') }}
+                </span>
+              </td>
+              <td>
+                <span v-if="ver.behind_source" class="tag tag-amber">落后于事实</span>
+                <span v-else class="tag tag-green">最新快照</span>
+              </td>
+              <td class="cell-sub reason-cell">{{ ver.reason || '例行生成' }}</td>
+              <td class="ta-r">
+                <div class="dl-group">
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    :disabled="!ver.snapshot_available || downloadLoading"
+                    title="下载原始 JSON 快照"
+                    @click="handleDownload(ver.id, 'SNAPSHOT')"
+                  >JSON</button>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    :disabled="!ver.excel_available || downloadLoading"
+                    title="下载包含汇总、班级、任务、详表与自习表的多 Sheet 周报 Excel"
+                    @click="handleDownload(ver.id, 'EXCEL')"
+                  >周报 XLSX</button>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    :disabled="!ver.word_available || downloadLoading"
+                    title="下载包含通报概况与详表的完整 Word 周报"
+                    @click="handleDownload(ver.id, 'WORD')"
+                  >周报 DOCX</button>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    :disabled="!ver.snapshot_available || downloadLoading"
+                    title="下载100%对齐模板的单张独立考勤详表 Word"
+                    @click="handleDownload(ver.id, 'DETAIL_WORD')"
+                  >详表 DOCX</button>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    :disabled="!ver.snapshot_available || downloadLoading"
+                    title="下载100%对齐模板的4列自习与日常考勤 Excel"
+                    @click="handleDownload(ver.id, 'STUDY_EXCEL')"
+                  >自习 XLSX</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-
-      <table v-else class="tbl">
-        <thead>
-          <tr>
-            <th>版本号</th>
-            <th>生成时间</th>
-            <th>操作人</th>
-            <th>源修订号</th>
-            <th>状态</th>
-            <th>新鲜度状态</th>
-            <th>生成事由</th>
-            <th style="text-align: right">下载产物</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="ver in reportVersions" :key="ver.id">
-            <td class="cell-mono ver">
-              Version {{ ver.version_no }}.0
-            </td>
-            <td class="cell-mono cell-sub">
-              {{ ver.generated_at ? ver.generated_at.substring(0, 19).replace('T', ' ') : ver.created_at.substring(0, 19).replace('T', ' ') }}
-            </td>
-            <td>
-              <span class="cell-main">{{ ver.generated_by ? '用户 #' + ver.generated_by : '管理员' }}</span>
-              <span class="cell-sub role font-mono">ADMIN</span>
-            </td>
-            <td class="cell-mono cell-sub">rev_{{ ver.source_revision }}</td>
-            <td>
-              <span
-                class="tag"
-                :class="{
-                  'tag-green': ver.status === 'PUBLISHED',
-                  'tag-amber': ver.status === 'GENERATING',
-                  'tag-red': ver.status === 'FAILED'
-                }"
-              >
-                {{ ver.status === 'PUBLISHED' ? '已发布' : (ver.status === 'GENERATING' ? '生成中' : '失败') }}
-              </span>
-            </td>
-            <td>
-              <span v-if="ver.behind_source" class="tag tag-amber">已落后于考勤事实</span>
-              <span v-else class="tag tag-green">最新有效快照</span>
-            </td>
-            <td class="cell-sub" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              {{ ver.reason || '例行生成' }}
-            </td>
-            <td style="text-align: right">
-              <button
-                class="btn btn-ghost btn-sm dl-json"
-                :disabled="!ver.snapshot_available || downloadLoading"
-                @click="handleDownload(ver.id, 'SNAPSHOT')"
-              >
-                JSON 快照
-              </button>
-              <button
-                class="btn btn-ghost btn-sm dl-xlsx"
-                :disabled="!ver.excel_available || downloadLoading"
-                @click="handleDownload(ver.id, 'EXCEL')"
-              >
-                XLSX 表格
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
     </div>
+
+    <!-- ============ 行政班详细数据与学生考勤置顶抽屉 ============ -->
+    <el-drawer
+      v-model="showClassDetailDrawer"
+      direction="rtl"
+      size="740px"
+      :lock-scroll="false"
+      destroy-on-close
+    >
+      <template #header>
+        <div v-if="selectedClass" class="drawer-header-wrap">
+          <div class="dh-title-row">
+            <span class="dh-title font-serif">{{ selectedClass.class_name }}</span>
+            <span class="tag" :class="getTierMeta(getClassTier(getClassRate(selectedClass))).cls">
+              {{ getTierMeta(getClassTier(getClassRate(selectedClass))).label }}
+            </span>
+            <span
+              class="tag font-mono"
+              :class="getClassRate(selectedClass) !== null && getClassRate(selectedClass)! < 0.90 ? 'tag-red' : (getClassRate(selectedClass) !== null && getClassRate(selectedClass)! >= 0.98 ? 'tag-green' : 'tag-blue')"
+            >
+              到课率 {{ getClassRate(selectedClass) !== null ? (getClassRate(selectedClass)! * 100).toFixed(1) + '%' : '—' }}
+            </span>
+          </div>
+          <div class="dh-sub">
+            <template v-if="selectedClass.head_teacher">班主任 {{ selectedClass.head_teacher }}</template>
+            <template v-if="selectedClass.head_teacher && selectedClass.counselor"> · </template>
+            <template v-if="selectedClass.counselor">辅导员 {{ selectedClass.counselor }}</template>
+            <span class="dh-sep">|</span>
+            <span class="dh-week font-mono">第 {{ selectedWeek }} 周考勤明细</span>
+          </div>
+        </div>
+      </template>
+
+      <div v-if="selectedClass" class="drawer-inner">
+        <!-- 班级核心考勤指标看板 -->
+        <div class="d-kpi-grid">
+          <div class="d-kpi-card">
+            <div class="dk-label">有效应到</div>
+            <div class="dk-val font-mono">{{ selectedClass.expected_count }}<span class="dk-unit">人次</span></div>
+          </div>
+          <div class="d-kpi-card">
+            <div class="dk-label">正常实到</div>
+            <div class="dk-val font-mono c-green">{{ selectedClass.normal_count }}<span class="dk-unit">人次</span></div>
+          </div>
+          <div class="d-kpi-card" :class="{ 'card-warn': selectedClass.absent_count > 0 }">
+            <div class="dk-label">旷课缺勤</div>
+            <div class="dk-val font-mono" :class="selectedClass.absent_count > 0 ? 'c-accent' : 'c-mute'">
+              {{ selectedClass.absent_count }}<span class="dk-unit">人次</span>
+            </div>
+          </div>
+          <div class="d-kpi-card" :class="{ 'card-amber': selectedClass.late_count > 0 }">
+            <div class="dk-label">迟到人次</div>
+            <div class="dk-val font-mono" :class="selectedClass.late_count > 0 ? 'c-amber' : 'c-mute'">
+              {{ selectedClass.late_count }}<span class="dk-unit">人次</span>
+            </div>
+          </div>
+          <div class="d-kpi-card">
+            <div class="dk-label">请假备案</div>
+            <div class="dk-val font-mono c-blue">{{ selectedClass.leave_count }}<span class="dk-unit">人次</span></div>
+          </div>
+        </div>
+
+        <!-- 抽屉内二级导航切换 -->
+        <div class="d-tab-bar">
+          <button
+            class="d-tab-btn"
+            :class="{ active: detailTab === 'students' }"
+            @click="detailTab = 'students'"
+          >
+            学生考勤名单
+            <span class="d-tab-badge font-mono">{{ classStudentRoster.length }}</span>
+            <span v-if="abnormalStudentCount > 0" class="d-tab-warn font-mono">{{ abnormalStudentCount }} 人异常</span>
+          </button>
+          <button
+            class="d-tab-btn"
+            :class="{ active: detailTab === 'tasks' }"
+            @click="detailTab = 'tasks'"
+          >
+            本周抽查课堂
+            <span class="d-tab-badge font-mono">{{ selectedClassTasks.length }}</span>
+          </button>
+        </div>
+
+        <!-- TAB 1: 学生名单（置顶有情况的同学） -->
+        <div v-show="detailTab === 'students'" class="d-tab-content">
+          <!-- 置顶规则提示条 -->
+          <div class="pin-hint-bar">
+            <div class="ph-icon">
+              <AppIcon name="alert-triangle" :size="13" />
+            </div>
+            <div class="ph-text">
+              <strong>智能置顶名单：</strong>已将本周存在违纪异常（旷课、迟到、请假）的同学<b>排在名单最上方置顶显示</b>；下方为全勤在籍同学。
+            </div>
+          </div>
+
+          <!-- 筛选与搜索工具栏 -->
+          <div class="d-toolbar">
+            <div class="d-search">
+              <AppIcon name="search" :size="13" />
+              <input
+                v-model="classStudentKeyword"
+                type="text"
+                class="d-search-input"
+                placeholder="搜索学生姓名 / 学号…"
+              />
+            </div>
+            <div class="d-chips">
+              <button
+                class="chip-btn"
+                :class="{ active: classStudentStatusFilter === 'ALL' }"
+                @click="classStudentStatusFilter = 'ALL'"
+              >
+                全部 <span class="font-mono">({{ classStudentRoster.length }})</span>
+              </button>
+              <button
+                class="chip-btn chip-warn"
+                :class="{ active: classStudentStatusFilter === 'ABNORMAL' }"
+                @click="classStudentStatusFilter = 'ABNORMAL'"
+              >
+                有情况 <span class="font-mono">({{ abnormalStudentCount }})</span>
+              </button>
+              <button
+                class="chip-btn chip-ok"
+                :class="{ active: classStudentStatusFilter === 'NORMAL' }"
+                @click="classStudentStatusFilter = 'NORMAL'"
+              >
+                全勤 <span class="font-mono">({{ normalStudentCount }})</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 学生列表加载或为空状态 -->
+          <div v-if="classStudentsLoading && classStudentRoster.length === 0" class="d-loading font-mono">
+            正在载入班级名单及考勤记录…
+          </div>
+          <div v-else-if="filteredClassStudents.length === 0" class="empty-text">
+            未找到匹配的学生记录。
+          </div>
+
+          <!-- 学生考勤明细列表 -->
+          <div v-else class="stu-list">
+            <div
+              v-for="(stu, sIdx) in filteredClassStudents"
+              :key="stu.student_no"
+              class="stu-card"
+              :class="{ 'stu-card-abnormal': stu.is_abnormal }"
+            >
+              <div class="stu-top">
+                <div class="stu-ident">
+                  <span class="stu-pin-index font-mono" :class="{ 'pin-active': stu.is_abnormal }">
+                    {{ stu.is_abnormal ? '📌 置顶 ' + (sIdx + 1) : String(sIdx + 1).padStart(2, '0') }}
+                  </span>
+                  <span class="stu-name">{{ stu.name }}</span>
+                  <span class="stu-no font-mono">{{ stu.student_no }}</span>
+                </div>
+
+                <!-- 状态徽章 -->
+                <div class="stu-status-badges">
+                  <template v-if="stu.is_abnormal">
+                    <span v-if="stu.absent_count > 0" class="tag tag-red">
+                      旷课 {{ stu.absent_count }} 次
+                    </span>
+                    <span v-if="stu.late_count > 0" class="tag tag-amber">
+                      迟到 {{ stu.late_count }} 次
+                    </span>
+                    <span v-if="stu.leave_count > 0" class="tag tag-blue">
+                      请假 {{ stu.leave_count }} 次
+                    </span>
+                  </template>
+                  <template v-else>
+                    <span class="tag tag-green">全勤</span>
+                  </template>
+                </div>
+              </div>
+
+              <!-- 违纪或考勤轨迹明细 -->
+              <div v-if="stu.is_abnormal && stu.records.length > 0" class="stu-records">
+                <div
+                  v-for="(rec, rIdx) in stu.records"
+                  :key="rIdx"
+                  class="violation-pill"
+                  :class="{
+                    'vp-red': rec.attendance_type === 'ABSENT',
+                    'vp-amber': rec.attendance_type === 'LATE',
+                    'vp-blue': rec.attendance_type === 'LEAVE'
+                  }"
+                >
+                  <span class="vp-date font-mono">{{ rec.date_display || rec.inspection_date }}</span>
+                  <span v-if="rec.start_period" class="vp-period font-mono">
+                    第 {{ rec.start_period }}–{{ rec.end_period }} 节
+                  </span>
+                  <span class="vp-course">{{ rec.course_name || '课堂考勤' }}</span>
+                  <span v-if="rec.classroom" class="vp-room font-mono">{{ rec.classroom }}</span>
+                  <span v-if="rec.teacher_name" class="vp-teacher">{{ rec.teacher_name }}</span>
+                  <span class="vp-badge font-mono">{{ formatViolationType(rec.attendance_type) }}</span>
+                </div>
+              </div>
+              <div v-else class="stu-ok-hint">
+                <span class="cell-sub">本周查课无缺勤异常记录，全勤在籍</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: 本周抽查课堂 -->
+        <div v-show="detailTab === 'tasks'" class="d-tab-content">
+          <div v-if="selectedClassTasks.length === 0" class="empty-text">
+            本周未查到该班级作为主要受检对象的课堂记录。
+          </div>
+          <div v-else class="task-list">
+            <div v-for="t in selectedClassTasks" :key="t.task_id" class="task-card">
+              <div class="tc-top">
+                <div class="tc-time font-mono">
+                  {{ t.inspection_date }} · {{ t.start_period && t.end_period ? `第 ${t.start_period}–${t.end_period} 节` : '全天' }}
+                </div>
+                <div class="tc-badges">
+                  <span v-if="t.absent_count > 0" class="tag tag-red">旷课 {{ t.absent_count }} 人</span>
+                  <span v-if="t.late_count > 0" class="tag tag-amber">迟到 {{ t.late_count }} 人</span>
+                  <span v-if="t.leave_count > 0" class="tag tag-blue">请假 {{ t.leave_count }} 人</span>
+                  <span v-if="t.abnormal_count === 0" class="tag tag-green">全勤</span>
+                </div>
+              </div>
+              <div class="tc-course-row">
+                <span class="tc-course">{{ t.course_name_snapshot || '未命名课程' }}</span>
+                <span v-if="t.teacher_name_snapshot" class="tc-teacher">教师: {{ t.teacher_name_snapshot }}</span>
+                <span v-if="t.classroom_snapshot" class="room-pill font-mono">{{ t.classroom_snapshot }}</span>
+              </div>
+              <div class="tc-meta">
+                <span class="cell-sub">应到 {{ t.expected_count }} · 实到 {{ t.normal_count }} · 到课率 </span>
+                <strong
+                  class="font-mono"
+                  :class="getTaskRate(t) !== null && getTaskRate(t)! < 0.90 ? 'c-accent' : (getTaskRate(t) !== null && getTaskRate(t)! >= 0.98 ? 'c-green' : 'c-blue')"
+                >
+                  {{ getTaskRate(t) !== null ? (getTaskRate(t)! * 100).toFixed(1) + '%' : '—' }}
+                </strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <style scoped>
-.page-head { margin-bottom: 24px; }
-.head-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-.crumb em { margin: 0 8px; color: var(--ink-mute); }
+.report-page { padding-bottom: 32px; }
 
+/* ---------- 页头周次选择 ---------- */
 .week-picker {
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: var(--paper-deep);
-  padding: 8px 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-}
-.wp-label { font-size: 12px; color: var(--ink-soft); }
-.wp-select {
-  padding: 4px 8px;
-  border-radius: 4px;
+  gap: 8px;
   border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0 10px;
+  height: 34px;
   background: var(--paper);
+}
+.wp-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink-mute);
+}
+.wp-select {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  outline: none;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ---------- 统计分栏（复用全局 stat-row，改为 5 列） ---------- */
+.kpi-row {
+  grid-template-columns: repeat(5, 1fr);
+  margin-bottom: 28px;
+}
+.kpi-row .stat-cell { padding: 20px 22px; }
+.kpi-row .unit {
+  font-style: normal;
+  font-family: 'Noto Sans SC', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-mute);
+  margin-left: 4px;
+}
+.kpi-prog {
+  width: 100%;
+  margin: 10px 0 10px;
+}
+.tier-strip {
+  display: flex;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  gap: 2px;
+  margin: 12px 0 10px;
+}
+.ts { display: block; height: 100%; border-radius: 1px; }
+.ts-green { background: var(--green); }
+.ts-blue { background: var(--blue); }
+.ts-amber { background: var(--amber); }
+.ts-red { background: var(--accent); }
+
+/* ---------- 编号 Tab 导航 ---------- */
+.tab-nav {
+  display: flex;
+  gap: 8px;
+  padding: 0 4px;
+  border-bottom: 2px solid var(--line);
+  margin-bottom: 20px;
+}
+.tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
   font-size: 13px;
   font-weight: 600;
+  font-family: inherit;
+  color: var(--ink-mute);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
   cursor: pointer;
+  transition: color 0.15s;
+}
+.tab-btn:hover { color: var(--ink); }
+.tab-btn.active { color: var(--ink); border-bottom-color: var(--ink); }
+.tab-no {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ink-mute);
+}
+.tab-btn.active .tab-no { color: var(--accent); }
+.tab-count {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+}
+.tab-btn.active .tab-count { background: var(--ink); color: var(--paper); }
+.tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
-/* 考勤事实指标栅格 */
-.stats-grid {
+/* ---------- 洞察提要条 ---------- */
+.insight-strip {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper-deep);
+  margin-bottom: 0;
+}
+.is-item { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.is-name { font-weight: 700; color: var(--ink); }
+.is-val { font-size: 14px; font-weight: 700; }
+.is-sub { font-size: 11px; color: var(--ink-mute); }
+.is-sep { width: 1px; height: 18px; background: var(--line-strong); }
+
+/* ---------- 筛选条（与 ScheduleView 同构） ---------- */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  font-size: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.fgroup { display: flex; align-items: center; gap: 8px; color: var(--ink-mute); }
+.fgroup label { color: var(--ink-mute); font-weight: 500; white-space: nowrap; }
+.fgroup-grow { flex: 1; min-width: 180px; }
+.f-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--ink);
+  outline: none;
+}
+.f-input::placeholder { color: var(--ink-mute); }
+.fsep { width: 1px; height: 16px; background: var(--line-strong); flex-shrink: 0; }
+.f-count { margin-left: auto; font-size: 11px; color: var(--ink-mute); white-space: nowrap; }
+.chk-row { cursor: pointer; user-select: none; color: var(--ink-soft); }
+.filter-bar .input { font-size: 12px; padding: 6px 10px; }
+
+/* ---------- 表格 ---------- */
+.ta-r { text-align: right; }
+.ta-c { text-align: center; }
+.fw-600 { font-weight: 600; }
+.rank { color: var(--ink-mute); }
+.empty-text { padding: 48px 0; text-align: center; font-size: 12px; color: var(--ink-mute); }
+
+.rate-cell { display: flex; align-items: center; gap: 10px; }
+.rate-val { font-size: 12px; min-width: 48px; text-align: right; }
+.rate-prog { flex: 1; width: auto; margin-right: 0; }
+
+.room-pill {
+  font-size: 11px;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  padding: 2px 7px;
+  border-radius: 2px;
+  color: var(--ink-soft);
+}
+
+
+/* ---------- 版本表 ---------- */
+.role-tag { margin-left: 8px; font-size: 10px; }
+.reason-cell {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-group { display: inline-flex; gap: 2px; }
+
+/* ---------- 语义色工具 ---------- */
+.c-green { color: var(--green); }
+.c-amber { color: var(--amber); }
+.c-accent { color: var(--accent); }
+.c-blue { color: var(--blue); }
+.kpi-version-val {
+  font-size: 19px !important;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  line-height: 1.3;
+  word-break: break-all;
+}
+
+@media (max-width: 1200px) {
+  .kpi-row { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 768px) {
+  .kpi-row { grid-template-columns: 1fr; }
+}
+
+/* ---------- 行政班列表行可点击 ---------- */
+.clickable-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.clickable-row:hover {
+  background-color: var(--paper-deep);
+}
+.cell-main-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.class-click-hint {
+  font-size: 11px;
+  color: var(--ink-mute);
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+}
+.clickable-row:hover .class-click-hint {
+  opacity: 1;
+  color: var(--blue);
+}
+.btn-text {
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--blue);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s;
+}
+.btn-text:hover {
+  background-color: rgba(59, 130, 246, 0.08);
+  color: var(--ink);
+}
+
+/* ---------- 班级详情抽屉样式 ---------- */
+.drawer-header-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dh-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dh-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.dh-sub {
+  font-size: 12px;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dh-sep {
+  color: var(--line-strong);
+}
+.dh-week {
+  color: var(--ink-mute);
+}
+
+.drawer-inner {
+  padding: 0 4px 24px;
+}
+
+/* 班级考勤指标小卡片 */
+.d-kpi-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 10px;
+  margin-bottom: 20px;
 }
-.stat-card {
-  background: var(--paper);
+.d-kpi-card {
+  padding: 12px 14px;
+  background: var(--paper-deep);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.stat-card.highlight {
-  background: #fdfbf7;
+.d-kpi-card.card-warn {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.03);
+}
+.d-kpi-card.card-amber {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.03);
+}
+.dk-label {
+  font-size: 11px;
+  color: var(--ink-mute);
+}
+.dk-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.dk-unit {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-mute);
+  margin-left: 2px;
+}
+.c-mute {
+  color: var(--ink-mute);
+}
+
+/* 抽屉内二级导航 */
+.d-tab-bar {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+.d-tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-mute);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: -1px;
+  transition: all 0.15s;
+}
+.d-tab-btn:hover {
+  color: var(--ink);
+}
+.d-tab-btn.active {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+.d-tab-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--line);
+  color: var(--ink-soft);
+}
+.d-tab-btn.active .d-tab-badge {
+  background: var(--ink);
+  color: var(--paper);
+}
+.d-tab-warn {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* 智能置顶提示条 */
+.pin-hint-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.04);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-bottom: 14px;
+}
+.ph-icon {
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+}
+.ph-text strong {
+  color: var(--accent);
+}
+.ph-text b {
+  color: var(--ink);
+}
+
+/* 工具栏 */
+.d-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.d-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+  flex: 1;
+  max-width: 260px;
+}
+.d-search-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 12px;
+  color: var(--ink);
+  width: 100%;
+}
+.d-search-input::placeholder {
+  color: var(--ink-mute);
+}
+.d-chips {
+  display: flex;
+  gap: 6px;
+}
+.chip-btn {
+  border: 1px solid var(--line);
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.chip-btn:hover {
+  background: var(--paper);
+  border-color: var(--line-strong);
+}
+.chip-btn.active {
+  background: var(--ink);
+  color: var(--paper);
   border-color: var(--ink);
 }
-.sc-label { font-size: 12px; color: var(--ink-soft); font-weight: 500; margin-bottom: 8px; }
-.sc-value { font-size: 22px; font-weight: 700; color: var(--ink); line-height: 1.1; margin-bottom: 4px; }
-.sc-unit { font-size: 12px; font-weight: normal; color: var(--ink-mute); }
-.sc-sub { font-size: 11px; }
+.chip-btn.chip-warn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.chip-btn.chip-ok.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
 
-/* 警示横幅 */
-.banner {
+.d-loading {
+  text-align: center;
+  padding: 32px 0;
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+
+/* 学生列表与置顶卡片 */
+.stu-list {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 18px 24px;
+  flex-direction: column;
+  gap: 10px;
+}
+.stu-card {
+  padding: 12px 16px;
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  margin-bottom: 24px;
-  gap: 20px;
-  flex-wrap: wrap;
+  background: var(--paper);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.banner-empty {
-  background: #f8fafc;
-  border: 1px solid #cbd5e1;
+.stu-card-abnormal {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.02);
+  border-left: 3px solid var(--accent);
 }
-.banner-warn {
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-left: 4px solid var(--accent);
-}
-.banner-ok {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-left: 4px solid var(--green);
-}
-.b-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
-.b-desc { font-size: 13px; color: var(--ink-soft); line-height: 1.5; }
-
-.panel-head {
+.stu-top {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 6px;
 }
-.ver { font-weight: 600; }
-.role { display: inline-block; margin-left: 8px; }
-.dl-json { color: var(--blue); }
-.dl-xlsx { color: var(--green); font-weight: 600; }
-.empty-text { padding: 32px 0; text-align: center; }
-
-.text-green { color: var(--green); }
-.text-amber { color: #d97706; }
-.text-accent { color: var(--accent); }
-
-@media (max-width: 1024px) {
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+.stu-ident {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-@media (max-width: 640px) {
-  .stats-grid { grid-template-columns: 1fr; }
+.stu-pin-index {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-mute);
+}
+.stu-pin-index.pin-active {
+  color: var(--accent);
+  background: rgba(239, 68, 68, 0.08);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.stu-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.stu-no {
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+.stu-status-badges {
+  display: flex;
+  gap: 6px;
+}
+
+/* 违纪记录列表药丸 */
+.stu-records {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(239, 68, 68, 0.15);
+}
+.violation-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+}
+.violation-pill.vp-red {
+  background: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #991b1b;
+}
+.violation-pill.vp-amber {
+  background: rgba(245, 158, 11, 0.06);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: #92400e;
+}
+.violation-pill.vp-blue {
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: #1e40af;
+}
+.vp-date {
+  font-weight: 700;
+}
+.vp-period {
+  opacity: 0.85;
+}
+.vp-course {
+  font-weight: 600;
+}
+.vp-room {
+  opacity: 0.8;
+}
+.vp-teacher {
+  opacity: 0.8;
+}
+.vp-badge {
+  margin-left: auto;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.06);
+}
+.stu-ok-hint {
+  font-size: 11px;
+  color: var(--ink-mute);
+  margin-top: 2px;
+}
+
+/* 课堂列表卡片 */
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.task-card {
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tc-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.tc-badges {
+  display: flex;
+  gap: 6px;
+}
+.tc-course-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tc-course {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.tc-teacher {
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+.tc-meta {
+  font-size: 12px;
+  color: var(--ink-soft);
 }
 </style>

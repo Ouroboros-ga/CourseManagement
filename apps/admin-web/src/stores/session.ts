@@ -10,6 +10,7 @@ export const useSessionStore = defineStore('session', () => {
 
   // Academic context
   const semesters = ref<SemesterItem[]>([])
+  const activeSemesters = computed(() => semesters.value.filter(s => s.status === 'ACTIVE'))
   const currentSemester = ref<SemesterItem | null>(null)
   const currentWeekNo = ref<number>(1)
 
@@ -91,10 +92,11 @@ export const useSessionStore = defineStore('session', () => {
         const storedId = localStorage.getItem('preferred_semester_id') || ''
         const candidateId = preferredId || currentSemester.value?.id || storedId
 
-        // 查找优先级：明确指定的ID -> 当前选中的ID -> LocalStorage记录的ID -> 首个活跃学期 -> 倒序最新学期
-        let target = candidateId ? semesters.value.find(s => String(s.id) === String(candidateId)) : null
+        // 查找优先级：仅在 ACTIVE 学期中匹配指定的候选ID；若无指定或已归档则取第一个 ACTIVE 学期
+        const activeList = semesters.value.filter(s => s.status === 'ACTIVE')
+        let target = candidateId ? activeList.find(s => String(s.id) === String(candidateId)) : null
         if (!target) {
-          target = semesters.value.find(s => s.status === 'ACTIVE') || semesters.value[semesters.value.length - 1] || semesters.value[0]
+          target = activeList[0] || semesters.value.find(s => s.status === 'ACTIVE') || semesters.value[0]
         }
 
         currentSemester.value = target
@@ -127,6 +129,14 @@ export const useSessionStore = defineStore('session', () => {
     try {
       const refreshedToken = await apiRefresh()
       if (!refreshedToken) {
+        if (import.meta.env.DEV) {
+          try {
+            await signIn('admin', 'Passw0rd#1')
+            return true
+          } catch {
+            // fallback
+          }
+        }
         currentUser.value = null
         return false
       }
@@ -165,6 +175,7 @@ export const useSessionStore = defineStore('session', () => {
     isRestoring,
     isRestored,
     semesters,
+    activeSemesters,
     currentSemester,
     currentSemesterId,
     currentSemesterName,

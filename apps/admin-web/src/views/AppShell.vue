@@ -277,9 +277,9 @@ async function handleLogout() {
               :value="sessionStore.currentSemesterId"
               @change="e => sessionStore.setSemester((e.target as HTMLSelectElement).value)"
             >
-              <option v-if="!sessionStore.semesters.length" value="">加载学期中...</option>
+              <option v-if="!sessionStore.activeSemesters.length" value="">加载学期中...</option>
               <option
-                v-for="s in sessionStore.semesters"
+                v-for="s in sessionStore.activeSemesters"
                 :key="s.id"
                 :value="s.id"
               >

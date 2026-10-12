@@ -10,6 +10,8 @@ import {
   listRoleTargets,
   createStudent,
   listAdministrativeClasses,
+  createAdministrativeClass,
+  updateAdministrativeClass,
   deleteAdministrativeClass,
   deleteStudent,
   batchDeleteStudents,
@@ -184,6 +186,93 @@ async function doDeleteAdminClass(cls: AdministrativeClassItem, cascadeStudents:
   }
 }
 
+// 行政班新增 / 编辑表单状态
+const adminClassFormVisible = ref(false)
+const editingAdminClassId = ref<string | null>(null)
+const adminClassForm = ref({
+  class_code: '',
+  class_name: '',
+  grade_year: undefined as number | undefined,
+  major_name: '',
+  college: '人工智能学院',
+  head_teacher: '',
+  counselor: '',
+})
+const savingAdminClass = ref(false)
+
+function openCreateAdminClassDialog() {
+  editingAdminClassId.value = null
+  adminClassForm.value = {
+    class_code: '',
+    class_name: '',
+    grade_year: new Date().getFullYear(),
+    major_name: '',
+    college: '人工智能学院',
+    head_teacher: '',
+    counselor: '',
+  }
+  adminClassFormVisible.value = true
+}
+
+function openEditAdminClassDialog(cls: AdministrativeClassItem) {
+  editingAdminClassId.value = String(cls.id)
+  adminClassForm.value = {
+    class_code: cls.class_code || '',
+    class_name: cls.class_name || '',
+    grade_year: cls.grade_year ?? undefined,
+    major_name: cls.major_name || '',
+    college: cls.college || '人工智能学院',
+    head_teacher: cls.head_teacher || '',
+    counselor: cls.counselor || '',
+  }
+  adminClassFormVisible.value = true
+}
+
+async function handleSaveAdminClass() {
+  if (!adminClassForm.value.class_name.trim()) {
+    ElMessage.warning('请填写班级名称')
+    return
+  }
+  if (!editingAdminClassId.value && !adminClassForm.value.class_code.trim()) {
+    ElMessage.warning('请填写班级代码')
+    return
+  }
+  savingAdminClass.value = true
+  try {
+    if (editingAdminClassId.value) {
+      await updateAdministrativeClass(editingAdminClassId.value, {
+        class_name: adminClassForm.value.class_name.trim(),
+        grade_year: adminClassForm.value.grade_year ? Number(adminClassForm.value.grade_year) : undefined,
+        major_name: adminClassForm.value.major_name.trim() || undefined,
+        college: adminClassForm.value.college.trim() || undefined,
+        head_teacher: adminClassForm.value.head_teacher.trim() || undefined,
+        counselor: adminClassForm.value.counselor.trim() || undefined,
+        reason: '管理端手动修改行政班信息',
+      })
+      ElMessage.success(`行政班【${adminClassForm.value.class_name}】信息已更新！`)
+    } else {
+      await createAdministrativeClass({
+        class_code: adminClassForm.value.class_code.trim(),
+        class_name: adminClassForm.value.class_name.trim(),
+        grade_year: adminClassForm.value.grade_year ? Number(adminClassForm.value.grade_year) : undefined,
+        major_name: adminClassForm.value.major_name.trim() || undefined,
+        college: adminClassForm.value.college.trim() || undefined,
+        head_teacher: adminClassForm.value.head_teacher.trim() || undefined,
+        counselor: adminClassForm.value.counselor.trim() || undefined,
+        reason: '管理端手动新建行政班',
+      })
+      ElMessage.success(`行政班【${adminClassForm.value.class_name}】创建成功！`)
+    }
+    adminClassFormVisible.value = false
+    await loadClasses()
+    await loadData()
+  } catch (err: any) {
+    ElMessage.error(err.message || '保存行政班失败')
+  } finally {
+    savingAdminClass.value = false
+  }
+}
+
 // 候选学生列表（用于添加志愿者弹窗远程搜索）
 const candidateStudents = ref<StudentItem[]>([])
 const searchingCandidate = ref(false)
@@ -226,6 +315,7 @@ const selectedStudentId = ref<string>('')
 const newStudentForm = ref({
   student_no: '',
   name: '',
+  administrative_class_id: '' as string | number,
   set_as_volunteer: true,
   issue_token_now: true
 })
@@ -357,11 +447,19 @@ onMounted(() => {
   loadData()
 })
 
-// 映射班级 ID 到名称
+// 映射班级 ID 到名称与实体
 const adminClassMap = computed(() => {
   const map = new Map<string, string>()
   adminClasses.value.forEach(c => {
     map.set(String(c.id), c.class_name)
+  })
+  return map
+})
+
+const adminClassObjMap = computed(() => {
+  const map = new Map<string, AdministrativeClassItem>()
+  adminClasses.value.forEach(c => {
+    map.set(String(c.id), c)
   })
   return map
 })
@@ -569,6 +667,7 @@ function openAddDialog() {
   newStudentForm.value = {
     student_no: '',
     name: '',
+    administrative_class_id: selectedAdminClassId.value || '',
     set_as_volunteer: true,
     issue_token_now: true
   }
@@ -603,6 +702,7 @@ async function handleAddConfirm() {
       const newStu = await createStudent({
         student_no: newStudentForm.value.student_no.trim(),
         name: newStudentForm.value.name.trim(),
+        administrative_class_id: newStudentForm.value.administrative_class_id ? Number(newStudentForm.value.administrative_class_id) : undefined,
         reason: '管理端手动录入'
       })
 
@@ -637,13 +737,6 @@ async function handleAddConfirm() {
 <template>
   <div v-loading="loading">
     <header class="page-head">
-      <div class="crumb font-mono">
-        <span>PREPARATION</span>
-        <em>●</em>
-        <span>{{ sessionStore.currentSemesterName }}</span>
-        <em>●</em>
-        <span>第 {{ sessionStore.currentWeekNo }} 周</span>
-      </div>
       <div class="title-row">
         <div>
           <h1>志愿者与学生绑定管理</h1>
@@ -852,12 +945,30 @@ async function handleAddConfirm() {
             <td class="cell-mono font-bold">{{ stu.student_no }}</td>
             <td class="cell-main font-bold">{{ stu.name }}</td>
             <td class="cell-sub">
-              <span
-                v-if="stu.administrative_class_name || adminClassMap.get(String(stu.administrative_class_id))"
-                class="class-badge"
-              >
-                {{ stu.administrative_class_name || adminClassMap.get(String(stu.administrative_class_id)) }}
-              </span>
+              <div v-if="stu.administrative_class_name || adminClassMap.get(String(stu.administrative_class_id))" class="space-y-1">
+                <span class="class-badge">
+                  {{ stu.administrative_class_name || adminClassMap.get(String(stu.administrative_class_id)) }}
+                </span>
+                <div
+                  v-if="adminClassObjMap.get(String(stu.administrative_class_id)) && (adminClassObjMap.get(String(stu.administrative_class_id))?.head_teacher || adminClassObjMap.get(String(stu.administrative_class_id))?.counselor)"
+                  class="text-[11px] text-gray-500 flex items-center gap-1.5 flex-wrap"
+                >
+                  <span
+                    v-if="adminClassObjMap.get(String(stu.administrative_class_id))?.head_teacher"
+                    class="text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-100"
+                    title="行政班班主任"
+                  >
+                    班主任: {{ adminClassObjMap.get(String(stu.administrative_class_id))?.head_teacher }}
+                  </span>
+                  <span
+                    v-if="adminClassObjMap.get(String(stu.administrative_class_id))?.counselor"
+                    class="text-blue-700 bg-blue-50 px-1 py-0.2 rounded border border-blue-100"
+                    title="责任区辅导员"
+                  >
+                    辅导员: {{ adminClassObjMap.get(String(stu.administrative_class_id))?.counselor }}
+                  </span>
+                </div>
+              </div>
               <span v-else-if="stu.administrative_class_id" class="text-xs text-slate-400 font-mono">
                 行政班 #{{ stu.administrative_class_id }}
               </span>
@@ -1099,6 +1210,15 @@ async function handleAddConfirm() {
               placeholder="例如：张三"
             />
           </div>
+          <div class="form-item">
+            <label class="form-label">所属行政班：</label>
+            <select v-model="newStudentForm.administrative_class_id" class="input">
+              <option value="">未指定班级</option>
+              <option v-for="c in adminClasses" :key="c.id" :value="c.id">
+                {{ c.class_name }} {{ c.head_teacher ? `(班主任: ${c.head_teacher})` : '' }}
+              </option>
+            </select>
+          </div>
           <div class="form-options">
             <label class="chk-label">
               <input type="checkbox" v-model="newStudentForm.set_as_volunteer" />
@@ -1174,44 +1294,74 @@ async function handleAddConfirm() {
     <!-- 行政班管理与整班删除弹窗 -->
     <el-dialog
       v-model="adminClassDialogVisible"
-      title="行政班级管理与整班清理"
-      width="640px"
+      title="行政班级管理与责任人配置"
+      width="780px"
       append-to-body
     >
       <div class="space-y-4">
-        <div class="p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900 leading-relaxed">
-          <b>整班清理说明</b>：如导入了错误的班级或多余的班级花名册，可在此一键删除行政班。<br />
-          删除时可选择【连带清空班内学生并删除】，一键彻底清理该班底册数据（若已有正式考勤记录则自动拦截保护）。
+        <div class="flex items-center justify-between">
+          <div class="p-2.5 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900 leading-relaxed flex-1 mr-3">
+            <b>责任区与整班管理说明</b>：支持手动维护各行政班的班主任与责任区辅导员，或整班清理底册数据。<br />
+            若班内学生已有正式考勤记录，系统将严格阻止误删保护历史数据。
+          </div>
+          <button
+            class="btn btn-sm btn-dark shrink-0 inline-flex items-center gap-1.5"
+            @click="openCreateAdminClassDialog"
+          >
+            <AppIcon name="plus" :size="13" />
+            <span>新增行政班</span>
+          </button>
         </div>
 
-        <div class="max-h-[380px] overflow-y-auto border border-slate-200 rounded">
+        <div class="max-h-[420px] overflow-y-auto border border-slate-200 rounded">
           <table class="w-full text-left text-sm">
             <thead class="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase font-mono">
               <tr>
                 <th class="p-2.5">班级名称</th>
                 <th class="p-2.5">班级代码</th>
+                <th class="p-2.5">班主任</th>
+                <th class="p-2.5">辅导员</th>
                 <th class="p-2.5">年级/学院</th>
-                <th class="p-2.5 text-right">操作</th>
+                <th class="p-2.5 text-right" style="min-width: 140px;">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
               <tr v-for="cls in adminClasses" :key="cls.id" class="hover:bg-slate-50">
                 <td class="p-2.5 font-bold text-slate-800">{{ cls.class_name }}</td>
                 <td class="p-2.5 font-mono text-xs text-slate-600">{{ cls.class_code }}</td>
+                <td class="p-2.5 text-xs">
+                  <span v-if="cls.head_teacher" class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 font-medium">
+                    {{ cls.head_teacher }}
+                  </span>
+                  <span v-else class="text-slate-400 italic">未指定</span>
+                </td>
+                <td class="p-2.5 text-xs">
+                  <span v-if="cls.counselor" class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-medium">
+                    {{ cls.counselor }}
+                  </span>
+                  <span v-else class="text-slate-400 italic">未指定</span>
+                </td>
                 <td class="p-2.5 text-xs text-slate-500">{{ cls.college || '默认' }} {{ cls.grade_year ? `(${cls.grade_year}级)` : '' }}</td>
-                <td class="p-2.5 text-right">
+                <td class="p-2.5 text-right space-x-1.5">
+                  <button
+                    class="btn btn-xs btn-ghost border border-slate-200 inline-flex items-center gap-1 text-slate-700 hover:bg-slate-100"
+                    @click="openEditAdminClassDialog(cls)"
+                  >
+                    <AppIcon name="edit" :size="11" />
+                    <span>编辑</span>
+                  </button>
                   <button
                     class="btn btn-xs text-rose-600 hover:bg-rose-50 border border-rose-200 inline-flex items-center gap-1"
                     :disabled="deletingClassId === String(cls.id)"
                     @click="handleDeleteAdminClass(cls)"
                   >
                     <AppIcon name="trash" :size="11" />
-                    <span>{{ deletingClassId === String(cls.id) ? '正在删除…' : '删除班级' }}</span>
+                    <span>{{ deletingClassId === String(cls.id) ? '正在删除…' : '删除' }}</span>
                   </button>
                 </td>
               </tr>
               <tr v-if="adminClasses.length === 0">
-                <td colspan="4" class="p-4 text-center text-slate-400">暂无行政班级数据</td>
+                <td colspan="6" class="p-4 text-center text-slate-400">暂无行政班级数据</td>
               </tr>
             </tbody>
           </table>
@@ -1220,6 +1370,94 @@ async function handleAddConfirm() {
       <template #footer>
         <div class="dialog-footer">
           <button class="btn btn-ghost" @click="adminClassDialogVisible = false">关闭</button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 弹窗：新建 / 编辑行政班级 -->
+    <el-dialog
+      v-model="adminClassFormVisible"
+      :title="editingAdminClassId ? '编辑行政班级信息与责任人' : '新建行政班级'"
+      width="500px"
+      append-to-body
+    >
+      <div v-loading="savingAdminClass" class="space-y-3.5">
+        <div class="form-item">
+          <label class="form-label">班级名称 *：</label>
+          <input
+            v-model="adminClassForm.class_name"
+            type="text"
+            class="input"
+            placeholder="例如：24人工智能1班"
+          />
+        </div>
+        <div class="form-item">
+          <label class="form-label">班级代码 *：</label>
+          <input
+            v-model="adminClassForm.class_code"
+            type="text"
+            class="input font-mono"
+            :disabled="!!editingAdminClassId"
+            placeholder="例如：24AI01"
+          />
+          <div v-if="editingAdminClassId" class="text-[11px] text-slate-400 mt-1">班级唯一代码不可修改</div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="form-item">
+            <label class="form-label">班主任：</label>
+            <input
+              v-model="adminClassForm.head_teacher"
+              type="text"
+              class="input"
+              placeholder="例如：李老师"
+            />
+          </div>
+          <div class="form-item">
+            <label class="form-label">责任区辅导员：</label>
+            <input
+              v-model="adminClassForm.counselor"
+              type="text"
+              class="input"
+              placeholder="例如：王老师"
+            />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="form-item">
+            <label class="form-label">所属二级学院：</label>
+            <input
+              v-model="adminClassForm.college"
+              type="text"
+              class="input"
+              placeholder="例如：人工智能学院"
+            />
+          </div>
+          <div class="form-item">
+            <label class="form-label">入学年份 (年级)：</label>
+            <input
+              v-model.number="adminClassForm.grade_year"
+              type="number"
+              class="input font-mono"
+              placeholder="例如：2024"
+            />
+          </div>
+        </div>
+        <div class="form-item">
+          <label class="form-label">专业名称：</label>
+          <input
+            v-model="adminClassForm.major_name"
+            type="text"
+            class="input"
+            placeholder="例如：人工智能技术应用"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <button class="btn btn-ghost" @click="adminClassFormVisible = false">取消</button>
+          <button class="btn btn-dark" :disabled="savingAdminClass" @click="handleSaveAdminClass">
+            {{ savingAdminClass ? '正在保存…' : '确认保存' }}
+          </button>
         </div>
       </template>
     </el-dialog>
@@ -1232,7 +1470,7 @@ async function handleAddConfirm() {
   justify-content: space-between;
   align-items: flex-end;
   gap: 16px;
-  margin-top: 6px;
+  margin-top: 0;
 }
 .head-actions {
   display: flex;
@@ -1243,21 +1481,21 @@ async function handleAddConfirm() {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 .stat-cell {
   background: var(--paper-deep);
   border: 1px solid var(--line);
-  padding: 16px 20px;
+  padding: 12px 18px;
 }
 .stat-cell .label {
   font-size: 11px;
   color: var(--ink-mute);
   text-transform: uppercase;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .stat-cell .value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   color: var(--ink);
   line-height: 1.2;
@@ -1270,14 +1508,14 @@ async function handleAddConfirm() {
 .stat-cell .note {
   font-size: 11px;
   color: var(--ink-mute);
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .guide-banner {
   background: var(--paper-deep);
   border: 1px solid var(--line);
-  padding: 18px 24px;
-  margin-bottom: 28px;
+  padding: 14px 20px;
+  margin-bottom: 16px;
 }
 .g-title {
   font-size: 13px;

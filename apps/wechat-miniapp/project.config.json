@@ -40,7 +40,7 @@
     ],
     "minifyWXSS": true,
     "compileWorklet": false,
-    "minifyWXML": false,
+    "minifyWXML": true,
     "localPlugins": false,
     "disableUseStrict": false,
     "useCompilerPlugins": false,

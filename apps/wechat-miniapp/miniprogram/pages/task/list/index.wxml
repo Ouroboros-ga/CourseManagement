@@ -10,11 +10,15 @@
       <view class="task-card" wx:for="{{tasks}}" wx:key="id" bind:tap="goToDetail" data-id="{{item.id}}">
         <view class="task-header">
           <view class="task-title">{{item.courseName}}</view>
-          <t-tag theme="{{item.status === '待执行' ? 'primary' : (item.status === '已逾期' ? 'danger' : 'success')}}">
+          <t-tag theme="{{item.status === '待执行' ? 'primary' : (item.status === '已逾期' ? 'danger' : (item.status === '已取消' ? 'warning' : 'success'))}}">
             {{item.status}}
           </t-tag>
         </view>
         <view class="task-info">
+          <view class="info-row" wx:if="{{item.status === '已取消'}}">
+            <t-icon name="close-circle-filled" size="32rpx" color="#F59E0B" />
+            <text class="info-text cancel-reason-text">{{item.cancel_reason ? '停课免查：' + item.cancel_reason : '已停课免查'}}</text>
+          </view>
           <view class="info-row">
             <t-icon name="time" size="32rpx" color="#94A3B8" />
             <text class="info-text">{{item.timeStr}}</text>

@@ -109,3 +109,33 @@
   color: #334155;
   padding: 16rpx 32rpx;
 }
+
+.cancel-card {
+  background-color: #ffffff;
+  border-radius: 20rpx;
+  padding: 32rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.02);
+}
+
+.cancel-desc {
+  font-size: 28rpx;
+  line-height: 1.6;
+  margin-bottom: 16rpx;
+}
+
+.cancel-title {
+  color: #64748B;
+}
+
+.cancel-detail {
+  color: #D97706;
+  font-weight: 500;
+}
+
+.cancel-tip {
+  font-size: 26rpx;
+  color: #94A3B8;
+  line-height: 1.5;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #F1F5F9;
+}

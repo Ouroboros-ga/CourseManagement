@@ -329,14 +329,19 @@ async function handleCreateOverride() {
   }
   overrideSubmitting.value = true
   try {
-    await createCalendarOverride(sessionStore.currentSemesterId, {
+    const res = await createCalendarOverride(sessionStore.currentSemesterId, {
       date: overrideForm.value.date,
       override_type: overrideForm.value.override_type,
       source_teaching_week: overrideForm.value.override_type === 'MAKEUP' ? overrideForm.value.source_teaching_week : undefined,
       source_teaching_weekday: overrideForm.value.override_type === 'MAKEUP' ? overrideForm.value.source_teaching_weekday : undefined,
-      reason: overrideForm.value.reason || undefined
+      reason: overrideForm.value.reason || undefined,
+      cascade_cancel_tasks: true
     })
-    ElMessage.success('校历停补课规则添加成功！')
+    if (res.affected_tasks_count && res.affected_tasks_count > 0) {
+      ElMessage.success(`校历停课添加成功！已自动联动取消当日已生成的 ${res.affected_tasks_count} 个查课任务，避免志愿者考核异常。`)
+    } else {
+      ElMessage.success('校历停补课规则添加成功！')
+    }
     showCreateOverrideDialog.value = false
     await fetchCalendarOverrides()
   } catch (err: unknown) {
@@ -390,20 +395,20 @@ const periodCoverageText = computed(() => {
   if (periods.value.length === 0) return ''
   const firstObj = periods.value[0]
   const lastObj = periods.value[periods.value.length - 1]
-  const first = firstObj && firstObj.start_time ? firstObj.start_time.slice(0, 5) : '08:00'
-  const last = lastObj && lastObj.end_time ? lastObj.end_time.slice(0, 5) : '21:00'
+  const first = firstObj && firstObj.start_time ? firstObj.start_time.slice(0, 5) : '08:10'
+  const last = lastObj && lastObj.end_time ? lastObj.end_time.slice(0, 5) : '21:15'
   return `覆盖 ${first} 至 ${last} 高校标准作息`
 })
 
 function getPeriodSlotName(pNo: number): string {
   if (pNo <= 4) return '上午'
-  if (pNo <= 8) return '下午'
+  if (pNo <= 9) return '下午'
   return '晚间'
 }
 
 function getPeriodTagClass(pNo: number): string {
   if (pNo <= 4) return 'tag-blue'
-  if (pNo <= 8) return 'tag-amber'
+  if (pNo <= 9) return 'tag-amber'
   return 'tag-red'
 }
 
@@ -471,23 +476,24 @@ async function handleInitDefaultPeriods() {
   if (!sessionStore.currentSemesterId) return
   try {
     await ElMessageBox.confirm(
-      '一键重置将根据高校标准作息表覆盖本学期第 1 至 11 节的上下课时间。确定继续吗？',
+      '一键重置将根据高校标准作息表覆盖本学期第 1 至 12 节的上下课时间。确定继续吗？',
       '标准作息重置确认',
       { confirmButtonText: '确认重置', cancelButtonText: '取消', type: 'info' }
     )
     periodsLoading.value = true
     const standardPeriods = [
-      { no: 1, start: '08:00:00', end: '08:45:00' },
-      { no: 2, start: '08:50:00', end: '09:35:00' },
-      { no: 3, start: '09:55:00', end: '10:40:00' },
-      { no: 4, start: '10:45:00', end: '11:30:00' },
+      { no: 1, start: '08:10:00', end: '08:55:00' },
+      { no: 2, start: '09:00:00', end: '09:45:00' },
+      { no: 3, start: '10:05:00', end: '10:50:00' },
+      { no: 4, start: '10:55:00', end: '11:40:00' },
       { no: 5, start: '13:30:00', end: '14:15:00' },
       { no: 6, start: '14:20:00', end: '15:05:00' },
       { no: 7, start: '15:25:00', end: '16:10:00' },
       { no: 8, start: '16:15:00', end: '17:00:00' },
-      { no: 9, start: '18:30:00', end: '19:15:00' },
-      { no: 10, start: '19:20:00', end: '20:05:00' },
-      { no: 11, start: '20:15:00', end: '21:00:00' }
+      { no: 9, start: '17:05:00', end: '17:50:00' },
+      { no: 10, start: '18:50:00', end: '19:35:00' },
+      { no: 11, start: '19:40:00', end: '20:25:00' },
+      { no: 12, start: '20:30:00', end: '21:15:00' }
     ]
 
     await Promise.all(
@@ -499,7 +505,7 @@ async function handleInitDefaultPeriods() {
         })
       )
     )
-    ElMessage.success('已成功写入高校标准 1–11 节作息时间表！')
+    ElMessage.success('已成功写入高校标准 1–12 节作息时间表！')
     await fetchPeriods()
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '重置作息时间表失败'
@@ -593,7 +599,7 @@ onMounted(async () => {
           <button
             v-if="periods.length === 0"
             class="text-[11px] text-blue-700 hover:underline font-normal cursor-pointer"
-            title="一键为当前学期生成高校标准1至11节上下课作息"
+            title="一键为当前学期生成高校标准1至12节上下课作息"
             @click="handleInitDefaultPeriods"
           >
             + 一键写入标准作息
@@ -807,7 +813,7 @@ onMounted(async () => {
           <div class="tbl-tools">
             <button class="btn btn-sm btn-ghost" @click="handleInitDefaultPeriods">
               <AppIcon name="refresh" :size="12" />
-              <span>一键恢复高校标准作息 (1–11节)</span>
+              <span>一键恢复高校标准作息 (1–12节)</span>
             </button>
             <button class="btn btn-sm btn-dark" @click="openCreatePeriodDialog">
               <AppIcon name="plus" :size="12" />
@@ -958,7 +964,7 @@ onMounted(async () => {
         <div class="pt-2">
           <label class="inline-flex items-center gap-2 text-sm text-[var(--ink-soft)] font-medium cursor-pointer">
             <input v-model="semesterCreateForm.init_default_periods" type="checkbox" class="chk" />
-            <span>自动初始化标准时段定义 (覆盖 1–11 节，08:00 - 21:50)</span>
+            <span>自动初始化标准时段定义 (覆盖 1–12 节，08:10 - 21:15)</span>
           </label>
         </div>
       </div>
@@ -1129,6 +1135,9 @@ onMounted(async () => {
         <div>
           <label class="block text-xs font-bold text-[var(--ink)] mb-1">规则说明 / 节日名称</label>
           <input v-model="overrideForm.reason" class="input w-full" placeholder="例如: 国庆节放假停课 或 补上周二课" />
+        </div>
+        <div v-if="overrideForm.override_type === 'STOP'" class="p-2.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-xs leading-relaxed">
+          <b>⚡ 联动保护：</b>若该停课日期在系统内已下发查课任务，系统将自动联动取消这些任务，避免志愿者到期未查被判逾期。
         </div>
       </div>
       <template #footer>

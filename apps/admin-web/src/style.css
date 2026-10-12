@@ -72,6 +72,13 @@ body {
   line-height: 1.6;
 }
 
+/* 阻止 Element Plus 弹窗锁定滚动条导致的页面横向位移/抽搐 */
+html.el-popup-parent--hidden,
+body.el-popup-parent--hidden {
+  overflow: auto !important;
+  padding-right: 0 !important;
+}
+
 /* ---------- 字体工具 ---------- */
 .font-serif { font-family: 'Noto Serif SC', serif; }
 .font-mono { font-family: 'JetBrains Mono', monospace; }

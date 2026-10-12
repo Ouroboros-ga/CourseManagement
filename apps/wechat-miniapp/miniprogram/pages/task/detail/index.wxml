@@ -5,9 +5,11 @@
     <view class="desc" wx:if="{{task.timeStr}}">{{task.timeStr}} · {{task.classroom}}</view>
     <view class="desc">班级：{{task.className}}</view>
     <view class="desc">应到人数：{{task.expectedCount}}人</view>
-    <view class="desc" wx:if="{{task.deadlineStr}}">截止时间：{{task.deadlineStr}}</view>
+    <view class="desc" wx:if="{{task.status === '已取消' && task.canceledAtStr}}">取消时间：{{task.canceledAtStr}}</view>
+    <view class="desc" wx:elif="{{task.deadlineStr}}">截止时间：{{task.deadlineStr}}</view>
   </view>
 
+  <!-- 待执行状态 -->
   <block wx:if="{{task.status === '待执行'}}">
     <t-notice-bar wx:if="{{task.isFuture}}" visible="{{true}}" theme="warning" content="该任务查课日期为 {{task.inspection_date || task.date}}，只能在查课当天及以后上传数据。" />
     <t-notice-bar wx:elif="{{rejectedReason}}" visible="{{true}}" theme="error" content="上次提交已被驳回：{{rejectedReason}}" />
@@ -64,6 +66,26 @@
       </t-button>
     </view>
   </block>
+
+  <!-- 已取消 (停课免查) -->
+  <view wx:elif="{{task.status === '已取消'}}" class="readonly-mode">
+    <t-notice-bar visible="{{true}}" theme="warning" content="【停课免查】{{task.cancel_reason ? '原因：' + task.cancel_reason : '该任务因校历/教师停课已取消免查，无需前往。'}}" />
+    
+    <view class="section-title">停课免查说明</view>
+    <view class="cancel-card">
+      <view class="cancel-desc">
+        <text class="cancel-title">免查原因：</text>
+        <text class="cancel-detail">{{task.cancel_reason || '教务处/校历停课安排'}}</text>
+      </view>
+      <view class="cancel-desc" wx:if="{{task.canceledAtStr}}">
+        <text class="cancel-title">取消时间：</text>
+        <text class="cancel-detail">{{task.canceledAtStr}}</text>
+      </view>
+      <view class="cancel-tip">
+        本任务已被系统标记为停课免查，不计入考勤违规或逾期未检，无需前往现场查课。
+      </view>
+    </view>
+  </view>
 
   <view wx:else class="readonly-mode">
     <t-notice-bar visible="{{true}}" theme="warning" content="当前任务状态为「{{task.status}}」，已归档或锁定，无法修改。" />

@@ -48,6 +48,7 @@ def sum_type_totals(att_by_task: dict[int, dict[str, int]]) -> dict[str, int]:
 def build_overall(exp_total: int, type_totals: dict[str, int], abnormal_total: int) -> OverallStats:
     available = exp_total > 0
     rate = (abnormal_total / exp_total) if available else None
+    att_rate = (type_totals["NORMAL"] / exp_total) if available else None
     return OverallStats(
         statistics_available=available,
         expected_count=exp_total,
@@ -57,6 +58,7 @@ def build_overall(exp_total: int, type_totals: dict[str, int], abnormal_total: i
         late_count=type_totals["LATE"],
         absent_count=type_totals["ABSENT"],
         abnormal_rate=rate,
+        attendance_rate=att_rate,
     )
 
 
@@ -64,6 +66,7 @@ def build_classes(
     expected: dict[int, tuple[int, int]],
     roster_by_tc: dict[tuple[int, str | None], int],
     att_by_tc: dict[tuple[int, str | None], dict[str, int]],
+    class_duties: dict[str, tuple[str | None, str | None]] | None = None,
 ) -> list[ClassStatsItem]:
     """按班级名跨任务聚合。人工只调总数任务（cur≠snap）整任务从班级比例剔除。"""
     excluded_by_class: dict[str, int] = {}
@@ -95,9 +98,19 @@ def build_classes(
         abnormal = bucket["LEAVE"] + bucket["LATE"] + bucket["ABSENT"]
         excluded = excluded_by_class.get(cname, 0)
         available = exp > 0
+        ht, co, cid = None, None, None
+        if class_duties and cname in class_duties:
+            duty_info = class_duties[cname]
+            if len(duty_info) >= 3:
+                ht, co, cid = duty_info[0], duty_info[1], duty_info[2]
+            elif len(duty_info) >= 2:
+                ht, co = duty_info[0], duty_info[1]
         items.append(
             ClassStatsItem(
+                class_id=cid,
                 class_name=cname,
+                head_teacher=ht,
+                counselor=co,
                 expected_count=exp,
                 abnormal_count=abnormal,
                 normal_count=bucket["NORMAL"],
@@ -105,6 +118,7 @@ def build_classes(
                 late_count=bucket["LATE"],
                 absent_count=bucket["ABSENT"],
                 abnormal_rate=(abnormal / exp) if available else None,
+                attendance_rate=(bucket["NORMAL"] / exp) if available else None,
                 class_ratio_available=(excluded == 0 and available),
                 excluded_task_count=excluded,
             )
@@ -122,18 +136,32 @@ def build_tasks(
     for tid in ids:
         cur, snap = expected.get(tid, (0, 0))
         counts = att_by_task.get(tid, {})
-        abnormal = sum(
-            counts.get(t.value, 0)
-            for t in (AttendanceType.LEAVE, AttendanceType.LATE, AttendanceType.ABSENT)
-        )
+        normal = counts.get(AttendanceType.NORMAL.value, 0)
+        leave = counts.get(AttendanceType.LEAVE.value, 0)
+        late = counts.get(AttendanceType.LATE.value, 0)
+        absent = counts.get(AttendanceType.ABSENT.value, 0)
+        abnormal = leave + late + absent
         m = meta.get(tid, {})
+        available = cur > 0
+        att_rate = (normal / cur) if available else None
         out.append(
             TaskStatsItem(
                 task_id=tid,
                 inspection_date=m["inspection_date"],
                 week_no=int(m.get("week_no", 0)),
+                course_name_snapshot=m.get("course_name_snapshot"),
+                class_name_snapshot=m.get("class_name_snapshot"),
+                classroom_snapshot=m.get("classroom_snapshot"),
+                teacher_name_snapshot=m.get("teacher_name_snapshot"),
+                start_period=m.get("start_period"),
+                end_period=m.get("end_period"),
                 expected_count=cur,
+                normal_count=normal,
+                leave_count=leave,
+                late_count=late,
+                absent_count=absent,
                 abnormal_count=abnormal,
+                attendance_rate=att_rate,
                 expected_count_adjusted=(cur != snap),
                 class_ratio_available=(cur == snap),
             )

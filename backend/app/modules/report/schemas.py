@@ -64,6 +64,7 @@ class OverallStats(BaseModel):
     late_count: int
     absent_count: int
     abnormal_rate: float | None  # abnormal/expected；expected≤0→null 且 available=false
+    attendance_rate: float | None = None  # normal/expected；expected≤0→null 且 available=false
 
 
 class ClassStatsItem(BaseModel):
@@ -73,7 +74,10 @@ class ClassStatsItem(BaseModel):
     不均摊、不臆造分母（技术方案 17 第 554 行）。
     """
 
+    class_id: IdStr | None = None
     class_name: str
+    head_teacher: str | None = None
+    counselor: str | None = None
     expected_count: int
     abnormal_count: int
     normal_count: int
@@ -81,20 +85,50 @@ class ClassStatsItem(BaseModel):
     late_count: int
     absent_count: int
     abnormal_rate: float | None
+    attendance_rate: float | None = None
     class_ratio_available: bool
     excluded_task_count: int
 
 
 class TaskStatsItem(BaseModel):
-    """单任务聚合明细（可选 include_tasks=true 时返回）。"""
+    """单任务/教学班聚合明细（可选 include_tasks=true 时返回）。"""
 
     task_id: IdStr
     inspection_date: date_type
     week_no: int
+    course_name_snapshot: str | None = None
+    class_name_snapshot: str | None = None
+    classroom_snapshot: str | None = None
+    teacher_name_snapshot: str | None = None
+    start_period: int | None = None
+    end_period: int | None = None
     expected_count: int
+    normal_count: int = 0
+    leave_count: int = 0
+    late_count: int = 0
+    absent_count: int = 0
     abnormal_count: int
+    attendance_rate: float | None = None
     expected_count_adjusted: bool  # 当前应到≠初始快照
     class_ratio_available: bool
+
+
+class AbnormalDetailItem(BaseModel):
+    """异常考勤个人明细项（旷课/迟到/请假）。"""
+
+    task_id: IdStr
+    attendance_type: str
+    student_no: str
+    name: str
+    class_name_snapshot: str | None = None
+    inspection_date: str = ""
+    date_display: str = ""
+    course_name: str = ""
+    inspection_type: str = "COURSE"
+    start_period: int | None = None
+    end_period: int | None = None
+    classroom: str | None = None
+    teacher_name: str | None = None
 
 
 class AttendanceStatsResponse(BaseModel):
@@ -111,6 +145,7 @@ class AttendanceStatsResponse(BaseModel):
     overall: OverallStats
     classes: list[ClassStatsItem]
     tasks: list[TaskStatsItem] | None = None
+    details: list[AbnormalDetailItem] | None = None
 
 
 class IncompleteTaskItem(BaseModel):
@@ -190,6 +225,7 @@ class ReportVersionSummary(BaseModel):
     reason: str | None
     snapshot_available: bool  # 是否已落明细 JSON 快照文件
     excel_available: bool  # 是否已落 Excel 文件
+    word_available: bool = False  # 是否已落 Word 周报文件
     behind_source: bool
     rule_outdated: bool
     template_outdated: bool
@@ -230,6 +266,7 @@ __all__ = [
     "OverallStats",
     "ClassStatsItem",
     "TaskStatsItem",
+    "AbnormalDetailItem",
     "AttendanceStatsResponse",
     "IncompleteTaskItem",
     "IncompleteTasksResponse",

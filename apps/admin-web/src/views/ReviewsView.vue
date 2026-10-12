@@ -368,19 +368,12 @@ const typeMap: Record<string, string> = {
 <template>
   <div v-loading="loading || batchLoading">
     <!-- 页头 -->
-    <header class="page-head">
-      <div class="crumb font-mono">
-        <span>SUBMISSIONS REVIEW</span>
-        <em>●</em>
-        <span>待初审 {{ pendingCount }} 笔</span>
-        <em>●</em>
-        <span>总记录 {{ submissions.length }} 笔</span>
-      </div>
-      <h1>查课提交管理审核</h1>
-      <p class="sub">
-        双栏审单工作台：左侧快速切换待审队列，右侧深度审查到课清点事实与现场照片。支持快捷键极速连审与一键安全批量通过。
-      </p>
-    </header>
+      <header class="page-head">
+        <h1>查课提交管理审核</h1>
+        <p class="sub">
+          双栏审单工作台：左侧快速切换待审队列，右侧深度审查到课清点事实与现场照片。支持快捷键极速连审与一键安全批量通过。
+        </p>
+      </header>
 
     <!-- 统计指标卡行 -->
     <div class="stat-row">
@@ -814,12 +807,12 @@ const typeMap: Record<string, string> = {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 .stat-cell {
   background: var(--paper);
   border: 1px solid var(--line);
-  padding: 16px 20px;
+  padding: 12px 18px;
   border-radius: var(--radius);
   transition: border-color 0.2s;
 }
@@ -832,10 +825,10 @@ const typeMap: Record<string, string> = {
   color: var(--ink-mute);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .stat-cell .value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   line-height: 1.1;
   margin-bottom: 4px;

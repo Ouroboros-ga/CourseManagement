@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, computed, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import {
@@ -103,11 +103,21 @@ const bulkAllFailed = computed(() => {
 })
 
 // ---- 智能抽查推荐状态 ----
+interface TargetClassItem {
+  class_id: number
+  class_name: string
+  max_tasks: number
+}
+
 const showSmartSampleDialog = ref(false)
 const smartSampling = ref(false)
 const smartSampleResult = ref<SmartSampleResult | null>(null)
+const smartSampleScopeMode = ref<'all' | 'targeted'>('all')
+const targetClasses = ref<TargetClassItem[]>([])
+const selectedClassToAdd = ref<string>('')
+const targetClassQuota = ref<number>(1)
 const smartSampleForm = ref({
-  morning_only: true,
+  morning_only: false,
   max_tasks_per_class: 1,
   sample_ratio: 0.35,
   exclude_already_generated: true
@@ -231,6 +241,36 @@ onMounted(() => {
 })
 
 const selectableOccurrences = computed(() => occurrences.value.filter(o => o.selectable))
+
+/**
+ * 课次列表展示计算属性：被选中的课次自动置顶显示，未选中的课次保留在下方。
+ * 两组各自保持自然时序（按日期与节次稳定排序）。
+ */
+const displayOccurrences = computed(() => {
+  if (occurrences.value.length === 0) return []
+  if (selectedKeys.value.length === 0) return occurrences.value
+
+  const selectedSet = new Set(selectedKeys.value)
+  const selectedList: CourseOccurrence[] = []
+  const unselectedList: CourseOccurrence[] = []
+
+  for (const item of occurrences.value) {
+    const key = `${item.course_schedule_id}_${item.inspection_date}`
+    if (selectedSet.has(key)) {
+      selectedList.push(item)
+    } else {
+      unselectedList.push(item)
+    }
+  }
+
+  return [...selectedList, ...unselectedList]
+})
+
+const selectedOccurrencesCount = computed(() => {
+  if (occurrences.value.length === 0 || selectedKeys.value.length === 0) return 0
+  const selectedSet = new Set(selectedKeys.value)
+  return occurrences.value.filter(o => selectedSet.has(`${o.course_schedule_id}_${o.inspection_date}`)).length
+})
 
 const isAllSelected = computed(() => {
   if (selectableOccurrences.value.length === 0) return false
@@ -497,25 +537,90 @@ async function submitBulkImport() {
 function openSmartSampleDialog() {
   smartSampleResult.value = null
   showSmartSampleDialog.value = true
+
+  // 智能上下文联动：若主页面已筛选了某个行政班，且尚未配置指定班级，则自动预置该班并切入指定模式
+  if (selectedAdminClassId.value) {
+    const currentCls = adminClasses.value.find(c => String(c.id) === String(selectedAdminClassId.value))
+    if (currentCls && targetClasses.value.length === 0) {
+      targetClasses.value = [{
+        class_id: Number(currentCls.id),
+        class_name: currentCls.class_name,
+        max_tasks: targetClassQuota.value
+      }]
+      smartSampleScopeMode.value = 'targeted'
+    }
+  }
+}
+
+async function handleAddTargetClass(val: string) {
+  if (!val) return
+  const found = adminClasses.value.find(c => String(c.id) === String(val))
+  if (found) {
+    if (!targetClasses.value.some(t => t.class_id === Number(found.id))) {
+      targetClasses.value.push({
+        class_id: Number(found.id),
+        class_name: found.class_name,
+        max_tasks: targetClassQuota.value
+      })
+    }
+  }
+  await nextTick()
+  selectedClassToAdd.value = ''
+}
+
+function removeTargetClass(index: number) {
+  targetClasses.value.splice(index, 1)
+}
+
+function handleTargetQuotaChange(quota: number) {
+  for (const c of targetClasses.value) {
+    c.max_tasks = quota
+  }
 }
 
 async function runSmartSample() {
   if (!sessionStore.currentSemesterId) return
+
+  if (smartSampleScopeMode.value === 'targeted') {
+    if (targetClasses.value.length === 0) {
+      ElMessage.warning('请至少添加一个重点抽查班级，或切换为全校班级模式')
+      return
+    }
+  }
+
   smartSampling.value = true
   try {
-    const res = await smartSampleOccurrences({
+    const payload: Parameters<typeof smartSampleOccurrences>[0] = {
       semester_id: Number(sessionStore.currentSemesterId),
       week_no: sessionStore.currentWeekNo,
       morning_only: smartSampleForm.value.morning_only,
       max_tasks_per_class: smartSampleForm.value.max_tasks_per_class,
-      sample_ratio: smartSampleForm.value.sample_ratio,
       exclude_already_generated: smartSampleForm.value.exclude_already_generated
-    })
+    }
+
+    if (smartSampleScopeMode.value === 'targeted') {
+      payload.target_class_ids = targetClasses.value.map(c => c.class_id)
+      payload.class_quotas = targetClasses.value.map(c => ({
+        class_id: c.class_id,
+        class_name: c.class_name,
+        max_tasks: targetClassQuota.value
+      }))
+      payload.max_tasks_per_class = targetClassQuota.value
+      // 指定重点班级模式下，不使用全局百分比截断，以严格满足各班设定的节数上限
+      payload.sample_ratio = undefined
+    } else {
+      payload.sample_ratio = smartSampleForm.value.sample_ratio
+    }
+
+    const res = await smartSampleOccurrences(payload)
     smartSampleResult.value = res
     if (res.sampled_count === 0) {
       ElMessage.info('未筛选出待查课次（可能已全部下发或无符合条件的早八课）')
     } else {
-      ElMessage.success(`智能推荐算法已就绪！共精选 ${res.sampled_count} 门重点查课课次`)
+      const modeDesc = smartSampleScopeMode.value === 'targeted'
+        ? `针对 ${targetClasses.value.length} 个重点班级精选 ${res.sampled_count} 门重点课次`
+        : `共精选 ${res.sampled_count} 门重点查课课次`
+      ElMessage.success(`智能推荐算法已就绪！${modeDesc}`)
     }
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '抽查算法计算失败'
@@ -528,50 +633,56 @@ async function runSmartSample() {
 function applySmartSample() {
   if (!smartSampleResult.value || smartSampleResult.value.sampled_count === 0) return
   const newKeys = smartSampleResult.value.occurrences.map(o => `${o.course_schedule_id}_${o.inspection_date}`)
-  const keySet = new Set([...selectedKeys.value, ...newKeys])
-  selectedKeys.value = Array.from(keySet)
-  showSmartSampleDialog.value = false
-  ElMessage.success(`已为您自动勾选推荐的 ${newKeys.length} 门课次！您可以直接核对并点击【确认下发并排班】`)
+  
+  if (smartSampleScopeMode.value === 'targeted') {
+    // 定向班级抽查：仅勾选推荐的目标班级课程
+    selectedKeys.value = newKeys
+    showSmartSampleDialog.value = false
+    const targetNames = targetClasses.value.map(c => c.class_name).join('、')
+    ElMessage.success(`已为您勾选重点班级【${targetNames}】推荐的 ${newKeys.length} 门课次！`)
+  } else {
+    const keySet = new Set([...selectedKeys.value, ...newKeys])
+    selectedKeys.value = Array.from(keySet)
+    showSmartSampleDialog.value = false
+    ElMessage.success(`已为您自动勾选推荐的 ${newKeys.length} 门课次！您可以直接核对并点击【确认下发并排班】`)
+  }
 }
 </script>
 
 <template>
   <div v-loading="loading">
     <header class="page-head">
-      <div class="crumb font-mono">
-        <span>{{ sessionStore.currentSemesterName }}</span>
-        <em>●</em>
-        <span>第 {{ sessionStore.currentWeekNo }} 周</span>
-        <em>●</em>
-        <span>{{ sessionStore.weekDateRange.text }}</span>
-      </div>
-      <h1>教务课表与查课下发调度</h1>
-      <p class="sub">
-        统一整合全校教务课表数据库、行政班级花名册、选修课导入以及多教学班人员关联追踪，按教学周精准下发查课任务。
-      </p>
+      <div class="head-row">
+        <div>
+          <h1>教务课表与查课下发调度</h1>
+          <p class="sub">
+            统一整合全校教务课表数据库、行政班级花名册、选修课导入以及多教学班人员关联追踪，按教学周精准下发查课任务。
+          </p>
+        </div>
 
-      <div class="head-actions flex items-center gap-3">
-        <button class="btn btn-outline" @click="openImportDialog">
-          <AppIcon name="upload" :size="14" />
-          <span>批量导入教务数据</span>
-        </button>
-        <button
-          v-if="activeTab === 'dispatch'"
-          class="btn btn-outline border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100 font-semibold"
-          @click="openSmartSampleDialog"
-        >
-          <AppIcon name="sparkles" :size="14" class="text-amber-700" />
-          <span>智能抽查推荐</span>
-        </button>
-        <button
-          v-if="activeTab === 'dispatch'"
-          class="btn btn-dark"
-          :disabled="dispatchLoading || selectedKeys.length === 0"
-          @click="triggerDispatch"
-        >
-          <AppIcon name="send" :size="14" />
-          <span>{{ dispatchLoading ? '正在下发…' : `确认下发并排班 (${selectedKeys.length})` }}</span>
-        </button>
+        <div class="head-actions flex items-center gap-2">
+          <button class="btn btn-outline" @click="openImportDialog">
+            <AppIcon name="upload" :size="14" />
+            <span>批量导入教务数据</span>
+          </button>
+          <button
+            v-if="activeTab === 'dispatch'"
+            class="btn btn-outline border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100 font-semibold"
+            @click="openSmartSampleDialog"
+          >
+            <AppIcon name="sparkles" :size="14" class="text-amber-700" />
+            <span>智能抽查推荐</span>
+          </button>
+          <button
+            v-if="activeTab === 'dispatch'"
+            class="btn btn-dark"
+            :disabled="dispatchLoading || selectedKeys.length === 0"
+            @click="triggerDispatch"
+          >
+            <AppIcon name="send" :size="14" />
+            <span>{{ dispatchLoading ? '正在下发…' : `确认下发并排班 (${selectedKeys.length})` }}</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -619,7 +730,7 @@ function applySmartSample() {
       <div v-if="occurrences.length > 0">
         <div class="table-header-bar flex items-center justify-between">
           <div class="section-title">
-            当周待下发课次（共 {{ occurrences.length }} 节，已勾选 {{ selectedKeys.length }} 节）
+            当周待下发课次（共 {{ occurrences.length }} 节<template v-if="selectedOccurrencesCount > 0">，已勾选 {{ selectedOccurrencesCount }} 节已置顶</template>）
           </div>
           <div class="table-actions flex items-center gap-2 pr-6 py-2">
             <button
@@ -664,60 +775,84 @@ function applySmartSample() {
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="item in occurrences"
+            <template
+              v-for="(item, idx) in displayOccurrences"
               :key="`${item.course_schedule_id}_${item.inspection_date}`"
-              class="selectable-row"
-              :class="{
-                'row-disabled': !item.selectable,
-                'row-selected': isSelected(item)
-              }"
-              @click="onRowClick(item)"
             >
-              <td class="cell-checkbox">
-                <div class="checkbox-wrapper">
-                  <input
-                    type="checkbox"
-                    class="checkbox-lg"
-                    :disabled="!item.selectable"
-                    :checked="isSelected(item)"
-                    @click.stop
-                    @change="toggleSelect(`${item.course_schedule_id}_${item.inspection_date}`)"
-                  />
-                </div>
-              </td>
-              <td class="cell-mono font-medium">{{ item.inspection_date }}</td>
-              <td>
-                <div class="font-bold">周{{ formatWeekday(item.inspection_date) }}</div>
-                <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period) }}</div>
-              </td>
-              <td>
-                <div class="cell-main font-semibold">{{ item.course_name }}</div>
-                <div class="cell-sub font-mono text-xs">#{{ item.course_schedule_id }}</div>
-              </td>
-              <td>
-                <div class="cell-main flex items-center gap-1.5 flex-wrap">
-                  <span>{{ item.class_name || item.teaching_class_name || '—' }}</span>
-                  <span
-                    v-if="(item.class_name || item.teaching_class_name || '').includes('合班') || (item.class_name || item.teaching_class_name || '').includes('+')"
-                    class="px-1.5 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200"
-                    title="相同教室与时段自动合班查课"
-                  >
-                    合班
+              <!-- 当有选中项且未全选时，在置顶列表与剩余课次间呈现清晰的分割提示条 -->
+              <tr
+                v-if="selectedOccurrencesCount > 0 && idx === selectedOccurrencesCount && selectedOccurrencesCount < occurrences.length"
+                :key="`divider_${selectedOccurrencesCount}`"
+                class="pinned-divider-row"
+              >
+                <td colspan="7" class="pinned-divider-cell">
+                  <div class="flex items-center gap-2 text-xs text-slate-400 py-1 font-mono">
+                    <span class="h-px bg-slate-200 flex-1"></span>
+                    <span>⬆ 以上为已选课次（共 {{ selectedOccurrencesCount }} 节已置顶）· ⬇ 以下为未勾选课次</span>
+                    <span class="h-px bg-slate-200 flex-1"></span>
+                  </div>
+                </td>
+              </tr>
+
+              <tr
+                class="selectable-row"
+                :class="{
+                  'row-disabled': !item.selectable,
+                  'row-selected': isSelected(item)
+                }"
+                @click="onRowClick(item)"
+              >
+                <td class="cell-checkbox">
+                  <div class="checkbox-wrapper">
+                    <input
+                      type="checkbox"
+                      class="checkbox-lg"
+                      :disabled="!item.selectable"
+                      :checked="isSelected(item)"
+                      @click.stop
+                      @change="toggleSelect(`${item.course_schedule_id}_${item.inspection_date}`)"
+                    />
+                  </div>
+                </td>
+                <td class="cell-mono font-medium">{{ item.inspection_date }}</td>
+                <td>
+                  <div class="font-bold">周{{ formatWeekday(item.inspection_date) }}</div>
+                  <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period) }}</div>
+                </td>
+                <td>
+                  <div class="cell-main font-semibold">{{ item.course_name }}</div>
+                  <div class="cell-sub text-xs flex items-center gap-1.5 flex-wrap">
+                    <span class="font-mono">#{{ item.course_schedule_id }}</span>
+                    <span v-if="item.teacher_name" class="px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-medium">
+                      {{ item.teacher_name }}
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <div class="cell-main flex items-center gap-1.5 flex-wrap">
+                    <span>{{ item.class_name || item.teaching_class_name || '—' }}</span>
+                    <span
+                      v-if="(item.class_name || item.teaching_class_name || '').includes('合班') || (item.class_name || item.teaching_class_name || '').includes('+')"
+                      class="px-1.5 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200"
+                      title="相同教室与时段自动合班查课"
+                    >
+                      合班
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <div class="cell-main">{{ item.classroom || item.classroom_name || '未指定教室' }}</div>
+                </td>
+                <td>
+                  <span v-if="item.existing_task_id" class="tag tag-green">已下发任务</span>
+                  <span v-else-if="!item.selectable" class="tag tag-amber" :title="item.disabled_reason || ''">
+                    {{ item.disabled_reason || '不可下发' }}
                   </span>
-                </div>
-              </td>
-              <td>
-                <div class="cell-main">{{ item.classroom || item.classroom_name || '未指定教室' }}</div>
-              </td>
-              <td>
-                <span v-if="item.existing_task_id" class="tag tag-green">已下发任务</span>
-                <span v-else-if="!item.selectable" class="tag tag-amber" :title="item.disabled_reason || ''">
-                  {{ item.disabled_reason || '不可下发' }}
-                </span>
-                <span v-else class="tag tag-gray">待下发</span>
-              </td>
-            </tr>
+                  <span v-else-if="isSelected(item)" class="tag tag-blue font-semibold">已选置顶</span>
+                  <span v-else class="tag tag-gray">待下发</span>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -836,7 +971,7 @@ function applySmartSample() {
             <tr>
               <th>时间</th>
               <th>课程信息</th>
-              <th>教学班 / 关联行政班</th>
+              <th>教学班</th>
               <th>上课地点</th>
               <th>生效周次</th>
               <th>人员与考勤追踪</th>
@@ -851,6 +986,14 @@ function applySmartSample() {
               <td>
                 <div class="cell-main font-bold">{{ item.course_name }}</div>
                 <div class="cell-sub font-mono text-xs text-gray-400">代码: {{ item.course_code }}</div>
+                <div
+                  v-if="item.teacher_name"
+                  class="inline-flex items-center gap-1 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded mt-1 font-medium"
+                  :title="item.head_teacher && (item.teacher_name === item.head_teacher) ? '优先采用班主任兜底呈现' : (item.head_teacher ? `班主任: ${item.head_teacher}` : undefined)"
+                >
+                  <AppIcon name="user" :size="11" />
+                  <span>教师: {{ item.teacher_name }}</span>
+                </div>
               </td>
               <td>
                 <div class="cell-main text-blue-700 font-medium flex items-center gap-1.5 flex-wrap">
@@ -863,7 +1006,7 @@ function applySmartSample() {
                     合班
                   </span>
                 </div>
-                <div v-if="item.administrative_classes && item.administrative_classes.length > 0" class="cell-sub text-xs">
+                <div v-if="item.administrative_classes && item.administrative_classes.length > 0" class="cell-sub text-xs text-gray-500 mt-1">
                   行政班: {{ item.administrative_classes.join(', ') }}
                 </div>
               </td>
@@ -974,14 +1117,14 @@ function applySmartSample() {
           <input
             ref="bulkFileInputRef"
             type="file"
-            accept=".zip,.xlsx,.xls"
+            accept=".zip,.xlsx,.xls,.csv"
             multiple
             class="hidden"
             @change="handleBulkFileSelect"
           />
           <div class="dz-icon"><AppIcon name="cloud-upload" :size="22" /></div>
           <div class="dz-title">点击选择文件，或将文件拖拽至此处</div>
-          <div class="dz-sub">支持整包 .zip 压缩包（内含花名册及课表），或按住 Ctrl 多选 .xlsx / .xls 表格</div>
+          <div class="dz-sub">支持整包 .zip 压缩包（内含花名册、责任区名单及课表），或按住 Ctrl 多选 .xlsx / .xls / .csv 表格</div>
         </div>
 
         <!-- 待处理文件清单 -->
@@ -1101,7 +1244,7 @@ function applySmartSample() {
         <div class="step-block">
           <div class="step-label font-mono">STEP 1 · 选择导入目标</div>
           <select v-model="importTarget" class="input dlg-select" @change="importPreview = null">
-            <option value="admin_roster">行政班花名册（.xlsx / .xls）— 自动建班与学生建档</option>
+            <option value="admin_roster">责任区班主任辅导员名单 / 行政班花名册（.xlsx / .xls / .csv）</option>
             <option value="grid_timetable">学校网格课表（.xls / .xlsx）— 提取排课并关联行政班名单</option>
             <option value="elective_course">选修课 / 分班课名单（.xlsx）— 多教学班选课与课表录入</option>
           </select>
@@ -1120,13 +1263,13 @@ function applySmartSample() {
             <input
               ref="fileInputRef"
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx,.xls,.csv"
               class="hidden"
               @change="handleFileSelect"
             />
             <div class="dz-icon"><AppIcon name="file-text" :size="20" /></div>
-            <div class="dz-title">{{ importFile ? importFile.name : '点击选择单个 Excel 表格，或拖拽至此' }}</div>
-            <div class="dz-sub">支持 .xlsx / .xls 格式单个花名册或课表</div>
+            <div class="dz-title">{{ importFile ? importFile.name : '点击选择表格文件（.xlsx / .xls / .csv），或拖拽至此' }}</div>
+            <div class="dz-sub">支持 .xlsx / .xls / .csv 格式花名册、责任区名单或课表</div>
           </div>
         </div>
 
@@ -1204,36 +1347,130 @@ function applySmartSample() {
       :close-on-click-modal="false"
       class="sample-dialog"
     >
-      <p class="dlg-intro">按教务规范算法从当周候选课次中筛选重点查课对象，确认后一键勾选并下发。</p>
+      <!-- 范围模式切换 -->
+      <div class="scope-mode-tabs">
+        <button
+          type="button"
+          class="scope-tab"
+          :class="{ active: smartSampleScopeMode === 'all' }"
+          @click="smartSampleScopeMode = 'all'"
+        >
+          全校班级均衡抽查
+        </button>
+        <button
+          type="button"
+          class="scope-tab"
+          :class="{ active: smartSampleScopeMode === 'targeted' }"
+          @click="smartSampleScopeMode = 'targeted'"
+        >
+          指定重点班级抽查
+        </button>
+      </div>
 
-      <!-- 算法策略 -->
-      <div class="policy-block">
-        <div class="pb-title">
-          <AppIcon name="sliders" :size="14" />
-          <span>算法策略 · 教务规范</span>
+      <!-- 如果是指定重点班级模式 -->
+      <div v-if="smartSampleScopeMode === 'targeted'" class="targeted-box-block">
+        <!-- 顶部选择控制栏: 行政班级选择框 + 统一抽查上限配置选择框 -->
+        <div class="target-controls-row">
+          <div class="tc-ctrl-item class-select-wrapper">
+            <label class="ctrl-label">重点行政班级</label>
+            <el-select
+              v-model="selectedClassToAdd"
+              placeholder="搜索或选择行政班级加入..."
+              filterable
+              clearable
+              class="w-full"
+              @change="handleAddTargetClass"
+            >
+              <el-option
+                v-for="c in adminClasses"
+                :key="c.id"
+                :label="c.class_name"
+                :value="String(c.id)"
+                :disabled="targetClasses.some(t => t.class_id === Number(c.id))"
+              >
+                <div class="flex items-center justify-between w-full">
+                  <span>{{ c.class_name }}</span>
+                  <span
+                    v-if="targetClasses.some(t => t.class_id === Number(c.id))"
+                    class="text-xs text-slate-400 font-mono"
+                  >
+                    已添加
+                  </span>
+                </div>
+              </el-option>
+            </el-select>
+          </div>
+
+          <div class="tc-ctrl-item quota-select-wrapper">
+            <label class="ctrl-label">抽查上限</label>
+            <el-select
+              v-model="targetClassQuota"
+              placeholder="每班上限"
+              class="w-full"
+              @change="handleTargetQuotaChange"
+            >
+              <el-option :value="1" label="1 节 / 周 (推荐)" />
+              <el-option :value="2" label="2 节 / 周" />
+              <el-option :value="3" label="3 节 / 周" />
+              <el-option :value="4" label="4 节 / 周" />
+              <el-option :value="5" label="5 节 / 周" />
+            </el-select>
+          </div>
         </div>
-        <div class="pb-grid">
-          <div class="pb-item">
-            <b>全周随机均衡</b>
-            <span>周一至周五随机均衡分散，杜绝星期偏差</span>
+
+        <!-- 已选重点班级列表（结构与样式完全对齐推荐查课清单） -->
+        <div class="target-list-section">
+          <div class="rb-head">
+            <div class="rb-title">
+              <AppIcon name="usergroup" :size="15" />
+              <span>已选重点班级</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="rb-meta font-mono">已选 {{ targetClasses.length }} 个班 · 每班上限 {{ targetClassQuota }} 节</span>
+              <button
+                v-if="targetClasses.length > 0"
+                type="button"
+                class="btn btn-sm"
+                style="padding: 2px 8px; font-size: 11px; height: 24px; border: 1px solid #cbd5e1; background: #fff; color: #ef4444; cursor: pointer;"
+                title="清空所有已选班级"
+                @click="targetClasses = []"
+              >
+                清空
+              </button>
+            </div>
           </div>
-          <div class="pb-item">
-            <b>早八重点查</b>
-            <span>优先筛选早八与午前课，精准抓取考勤重点</span>
-          </div>
-          <div class="pb-item">
-            <b>免查规则过滤</b>
-            <span>自动剔除体育、实验、网课</span>
-          </div>
-          <div class="pb-item">
-            <b>班级均衡配额</b>
-            <span>每班按每周上限合理抽查</span>
+
+          <div class="rb-files target-classes-files">
+            <div
+              v-for="(tc, idx) in targetClasses"
+              :key="tc.class_id"
+              class="course-row class-item-row"
+            >
+              <div class="cr-left">
+                <span class="cr-course font-mono">{{ tc.class_name }}</span>
+                <span class="cr-class">重点抽查班级</span>
+              </div>
+              <div class="cr-right" style="display: flex; align-items: center; gap: 10px;">
+                <span class="font-mono text-xs text-slate-500">上限 {{ targetClassQuota }} 节/周</span>
+                <button
+                  type="button"
+                  class="btn-remove-class"
+                  title="移除该班级"
+                  @click="removeTargetClass(idx)"
+                >
+                  <AppIcon name="close" :size="12" />
+                </button>
+              </div>
+            </div>
+            <div v-if="targetClasses.length === 0" class="more-row font-mono" style="padding: 28px 12px; color: var(--ink-mute);">
+              暂未添加重点班级，请在上方选择行政班级加入
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 抽查参数 -->
-      <div class="param-grid">
+      <!-- 全校模式抽查参数 -->
+      <div v-else class="param-grid">
         <div class="param">
           <label>每班每周抽查上限（节）</label>
           <input
@@ -1259,18 +1496,6 @@ function applySmartSample() {
         </div>
       </div>
 
-      <!-- 筛选开关 -->
-      <div class="opt-list">
-        <label class="opt-row">
-          <input v-model="smartSampleForm.morning_only" type="checkbox" class="chk" />
-          <span class="opt-text">仅抽查上午 1–2 节<em>早八课堂高优考勤</em></span>
-        </label>
-        <label class="opt-row">
-          <input v-model="smartSampleForm.exclude_already_generated" type="checkbox" class="chk" />
-          <span class="opt-text">排除当周已下发任务的课次<em>避免重复下发</em></span>
-        </label>
-      </div>
-
       <button
         class="btn btn-dark dlg-primary"
         :disabled="smartSampling"
@@ -1278,7 +1503,15 @@ function applySmartSample() {
       >
         <AppIcon v-if="!smartSampling" name="search" :size="14" />
         <span v-if="smartSampling" class="spin">⟳</span>
-        <span>{{ smartSampling ? '正在运算推荐课次…' : '计算智能推荐课次' }}</span>
+        <span>
+          {{
+            smartSampling
+              ? '正在运算推荐课次…'
+              : (smartSampleScopeMode === 'targeted'
+                  ? `计算重点推荐课次 (${targetClasses.length} 个班级 · 每班上限 ${targetClassQuota} 节)`
+                  : '计算智能推荐课次')
+          }}
+        </span>
       </button>
 
       <!-- 计算结果预览 -->
@@ -1419,6 +1652,13 @@ function applySmartSample() {
 
 .selectable-row.row-selected:hover {
   background-color: #dbeafe !important;
+}
+
+.pinned-divider-row td {
+  background: #f8fafc !important;
+  padding: 4px 16px !important;
+  border-top: 1px dashed #cbd5e1;
+  border-bottom: 1px dashed #cbd5e1;
 }
 
 .row-disabled {
@@ -1716,13 +1956,16 @@ function applySmartSample() {
 .rb-stat .s-value.hl-green { color: var(--green); }
 
 .rb-files {
-  max-height: 176px;
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  background: #ffffff;
   margin-bottom: 12px;
 }
-.rb-files.tall { max-height: 220px; }
+.rb-files.tall {
+  height: 195px;
+  max-height: 195px;
+}
 .rb-file-row {
   display: flex;
   align-items: center;
@@ -1808,42 +2051,6 @@ function applySmartSample() {
 .note-block ul { padding-left: 18px; }
 .note-block li { margin-bottom: 2px; }
 
-/* ---------- 智能抽查：策略区 ---------- */
-.policy-block {
-  border-top: 1px solid var(--line-strong);
-  border-bottom: 1px solid var(--line);
-  padding: 14px 2px;
-  margin-bottom: 16px;
-}
-.pb-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink);
-  margin-bottom: 10px;
-}
-.pb-title svg { color: var(--ink-soft); }
-.pb-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 20px;
-}
-.pb-item {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 12px;
-}
-.pb-item b {
-  color: var(--ink);
-  font-weight: 700;
-  white-space: nowrap;
-}
-.pb-item b::after { content: '·'; margin-left: 8px; color: var(--line-strong); }
-.pb-item span { color: var(--ink-mute); font-size: 11px; }
-
 /* ---------- 智能抽查：参数区 ---------- */
 .param-grid {
   display: grid;
@@ -1918,5 +2125,94 @@ function applySmartSample() {
   text-align: center;
   font-size: 11px;
   color: var(--ink-mute);
+}
+
+/* ---------- 智能抽查：模式切换与指定班级 ---------- */
+.scope-mode-tabs {
+  display: flex;
+  background: var(--paper-deep);
+  padding: 3px;
+  border-radius: var(--radius);
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.scope-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.scope-tab.active {
+  background: #ffffff;
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+/* ---------- 智能抽查：重点行政班级与配额控制 ---------- */
+.targeted-box-block {
+  margin-bottom: 14px;
+}
+.target-controls-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.tc-ctrl-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tc-ctrl-item.class-select-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+.tc-ctrl-item.quota-select-wrapper {
+  width: 175px;
+  flex-shrink: 0;
+}
+.ctrl-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
+}
+
+/* 重点班级列表（结构与样式对齐推荐查课清单） */
+.target-list-section {
+  margin-top: 14px;
+}
+.rb-files.target-classes-files {
+  height: 135px;
+  max-height: 135px;
+  background: #ffffff;
+  margin-bottom: 0;
+}
+.btn-remove-class {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-remove-class:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+:deep(.sample-dialog .el-dialog__body) {
+  max-height: 80vh;
+  overflow-y: auto;
 }
 </style>

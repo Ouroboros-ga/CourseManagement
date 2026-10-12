@@ -45,6 +45,11 @@
   color: #64748B;
 }
 
+.cancel-reason-text {
+  color: #D97706;
+  font-weight: 500;
+}
+
 .empty-wrap {
   margin-top: 120rpx;
 }

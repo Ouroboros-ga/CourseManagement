@@ -97,6 +97,81 @@ def attendance_statistics(
     return success(result.model_dump(), _rid(request))
 
 
+@router.get("/statistics/attendance/export")
+def export_attendance_statistics(
+    actor: StatisticsReadDep,
+    service: ServiceDep,
+    semester_id: Annotated[int, Query(ge=1)],
+    week_no: Annotated[int | None, Query(ge=1)] = None,
+    date_from: Annotated[date_ | None, Query()] = None,
+    date_to: Annotated[date_ | None, Query()] = None,
+) -> Response:
+    from app.modules.report.artifacts import XLSX_CONTENT_TYPE
+    from urllib.parse import quote
+
+    query = _build_window_query(semester_id, week_no, date_from, date_to)
+    excel_bytes, filename = service.export_attendance_analytics(actor, query)
+    quoted = quote(filename)
+    return Response(
+        content=excel_bytes,
+        media_type=XLSX_CONTENT_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="{quoted}"; filename*=UTF-8\'\'{quoted}',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get("/statistics/attendance/export-detail-doc")
+def export_attendance_detail_doc(
+    actor: StatisticsReadDep,
+    service: ServiceDep,
+    semester_id: Annotated[int, Query(ge=1)],
+    week_no: Annotated[int | None, Query(ge=1)] = None,
+    date_from: Annotated[date_ | None, Query()] = None,
+    date_to: Annotated[date_ | None, Query()] = None,
+) -> Response:
+    from app.modules.report.artifacts import DOCX_CONTENT_TYPE
+    from urllib.parse import quote
+
+    query = _build_window_query(semester_id, week_no, date_from, date_to)
+    doc_bytes, filename = service.export_detail_word(actor, query)
+    quoted = quote(filename)
+    return Response(
+        content=doc_bytes,
+        media_type=DOCX_CONTENT_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="{quoted}"; filename*=UTF-8\'\'{quoted}',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get("/statistics/attendance/export-study-excel")
+def export_study_attendance_excel(
+    actor: StatisticsReadDep,
+    service: ServiceDep,
+    semester_id: Annotated[int, Query(ge=1)],
+    week_no: Annotated[int | None, Query(ge=1)] = None,
+    date_from: Annotated[date_ | None, Query()] = None,
+    date_to: Annotated[date_ | None, Query()] = None,
+) -> Response:
+    from app.modules.report.artifacts import XLSX_CONTENT_TYPE
+    from urllib.parse import quote
+
+    query = _build_window_query(semester_id, week_no, date_from, date_to)
+    excel_bytes, filename = service.export_study_attendance_excel(actor, query)
+    quoted = quote(filename)
+    return Response(
+        content=excel_bytes,
+        media_type=XLSX_CONTENT_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="{quoted}"; filename*=UTF-8\'\'{quoted}',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 # ---- 未完成清单（当前状态派生 + 截止时快照，两指标不混名）----
 @router.get("/statistics/incomplete-tasks")
 def incomplete_tasks(
@@ -175,11 +250,15 @@ def download_report_version(
     actor: ReportReadDep,
     service: ReportServiceDep,
     version_id: Annotated[int, Path(ge=1)],
-    kind: Annotated[Literal["EXCEL", "SNAPSHOT"], Query()] = "EXCEL",
+    kind: Annotated[
+        Literal["EXCEL", "SNAPSHOT", "WORD", "DETAIL_WORD", "STUDY_EXCEL"], Query()
+    ] = "EXCEL",
 ) -> Response:
     data, content_type, filename = service.download(actor, version_id, kind=kind)
+    from urllib.parse import quote
+    quoted = quote(filename)
     return Response(
         content=data,
         media_type=content_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{quoted}"; filename*=UTF-8\'\'{quoted}'},
     )

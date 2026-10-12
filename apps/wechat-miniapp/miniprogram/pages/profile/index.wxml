@@ -9,6 +9,9 @@
   </view>
   
   <view class="action-list">
+    <t-button theme="primary" variant="outline" block size="large" bind:tap="handleRebind" style="margin-bottom: 30rpx;">重新绑定账号</t-button>
     <t-button theme="danger" block size="large" bind:tap="handleLogout">退出登录</t-button>
   </view>
+  <t-toast id="t-toast" />
+  <t-dialog id="t-dialog" />
 </view>

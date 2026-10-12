@@ -41,7 +41,6 @@ Page({
       }
       
       let name = data.display_name || data.name || '';
-      if (name === '微信用户') name = '';
       
       let surname = name ? name.charAt(0) : '';
       

@@ -19,6 +19,11 @@ export interface InspectionTaskItem {
   course_name_snapshot?: string | null
   class_name_snapshot?: string | null
   classroom_snapshot?: string | null
+  teacher_name_snapshot?: string | null
+  effective_teacher?: string | null
+  head_teacher?: string | null
+  counselor?: string | null
+  administrative_classes?: string[]
   require_photo_snapshot?: boolean
   expected_count_snapshot?: number
   expected_count_current?: number
@@ -34,6 +39,8 @@ export interface InspectionTaskItem {
     assigned_at?: string
   } | null
   lock_version?: number
+  canceled_at?: string | null
+  cancel_reason?: string | null
   created_at?: string
 }
 
@@ -207,6 +214,12 @@ export async function updateTask(
   })
 }
 
+export interface ClassQuotaConfig {
+  class_id: number
+  class_name?: string
+  max_tasks: number
+}
+
 export interface SmartSampleResult {
   semester_id: number
   week_no: number
@@ -234,6 +247,8 @@ export async function smartSampleOccurrences(body: {
   sample_ratio?: number
   exclude_already_generated?: boolean
   random_seed?: number
+  target_class_ids?: number[]
+  class_quotas?: ClassQuotaConfig[]
 }): Promise<SmartSampleResult> {
   return request<SmartSampleResult>('/api/v1/inspection-course-occurrences/smart-sample', {
     method: 'POST',
@@ -295,6 +310,16 @@ export async function assignTask(
 ): Promise<InspectionTaskItem> {
   return request<InspectionTaskItem>(`/api/v1/inspection-tasks/${taskId}/assignment`, {
     method: 'PUT',
+    body: JSON.stringify(body)
+  })
+}
+
+export async function cancelTask(
+  taskId: string | number,
+  body: { reason: string; lock_version: number }
+): Promise<InspectionTaskItem> {
+  return request<InspectionTaskItem>(`/api/v1/inspection-tasks/${taskId}/cancel`, {
+    method: 'POST',
     body: JSON.stringify(body)
   })
 }

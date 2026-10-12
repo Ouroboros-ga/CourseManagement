@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import re
 
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date as date_
@@ -27,6 +28,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
 from app.common.pagination import PageParams
+from app.common.parsing.grid import extract_admin_class_names, normalize_class_name
 from app.core.config import get_settings
 from app.core.database import utcnow
 from app.core.exceptions import (
@@ -158,6 +160,7 @@ class PlanItem:
     class_name_snapshot: str | None
     classroom_snapshot: str | None
     require_photo_snapshot: bool
+    teacher_name_snapshot: str | None = None
     student_ids: list[int] = field(default_factory=list)
     roster: list[TaskRosterMember] = field(default_factory=list)
     constituent_schedule_ids: list[int] = field(default_factory=list)
@@ -483,6 +486,7 @@ class InspectionService:
                 course_name_snapshot=it.course_name_snapshot,
                 class_name_snapshot=it.class_name_snapshot,
                 classroom_snapshot=it.classroom_snapshot,
+                teacher_name_snapshot=it.teacher_name_snapshot,
                 require_photo_snapshot=it.require_photo_snapshot,
                 expected_count_snapshot=len(it.roster),
                 expected_count_current=len(it.roster),
@@ -723,6 +727,81 @@ class InspectionService:
                 real_name = s_name or u_disp or f"志愿者#{uid}"
                 vol_info_map[uid] = (real_name, s_no, c_name)
 
+        # 批量获取教学班/行政班对应的行政班、班主任与辅导员
+        tc_ids = {t.teaching_class_id for t in tasks if t.teaching_class_id is not None}
+        tc_admin_map: dict[int, list[tuple[str, str | None, str | None]]] = defaultdict(list)
+        if tc_ids:
+            stu_rows = self._session.execute(
+                select(
+                    TeachingClassStudent.teaching_class_id,
+                    AdministrativeClass.class_name,
+                    AdministrativeClass.head_teacher,
+                    AdministrativeClass.counselor,
+                )
+                .join(Student, Student.id == TeachingClassStudent.student_id)
+                .outerjoin(
+                    AdministrativeClass,
+                    AdministrativeClass.id == Student.administrative_class_id,
+                )
+                .where(
+                    TeachingClassStudent.teaching_class_id.in_(tc_ids),
+                    Student.status == "ACTIVE",
+                )
+            ).all()
+            for tid, ac_name, ht, co in stu_rows:
+                if ac_name:
+                    tc_admin_map[tid].append((ac_name, ht, co))
+
+        ac_ids = {t.administrative_class_id for t in tasks if t.administrative_class_id is not None}
+        ac_admin_map: dict[int, tuple[str, str | None, str | None]] = {}
+        if ac_ids:
+            admin_rows = self._session.execute(
+                select(
+                    AdministrativeClass.id,
+                    AdministrativeClass.class_name,
+                    AdministrativeClass.head_teacher,
+                    AdministrativeClass.counselor,
+                )
+                .where(AdministrativeClass.id.in_(ac_ids))
+            ).all()
+            for aid, ac_name, ht, co in admin_rows:
+                ac_admin_map[aid] = (ac_name, ht, co)
+
+        # 针对未匹配到教学班学生的任务，使用 TaskRosterMember 备用兜底
+        unresolved_task_ids = [
+            t.id for t in tasks
+            if not (t.teaching_class_id and tc_admin_map.get(t.teaching_class_id))
+            and not (t.administrative_class_id and ac_admin_map.get(t.administrative_class_id))
+        ]
+        task_roster_admin_map: dict[int, list[tuple[str, str | None, str | None]]] = defaultdict(list)
+        if unresolved_task_ids:
+            roster_rows = self._session.execute(
+                select(
+                    TaskRosterMember.task_id,
+                    AdministrativeClass.class_name,
+                    AdministrativeClass.head_teacher,
+                    AdministrativeClass.counselor,
+                )
+                .join(Student, TaskRosterMember.student_id == Student.id)
+                .outerjoin(
+                    AdministrativeClass,
+                    AdministrativeClass.id == Student.administrative_class_id,
+                )
+                .where(TaskRosterMember.task_id.in_(unresolved_task_ids))
+                .distinct()
+            ).all()
+            for tid, ac_name, ht, co in roster_rows:
+                if ac_name:
+                    task_roster_admin_map[tid].append((ac_name, ht, co))
+
+        # 加载行政班基础信息索引，用于无名单时通过班级快照名称穿透匹配班主任与辅导员
+        all_acs = self._session.execute(
+            select(AdministrativeClass).where(AdministrativeClass.status == "ACTIVE")
+        ).scalars().all()
+        ac_name_lookup = {ac.class_name: ac for ac in all_acs}
+        ac_code_lookup = {ac.class_code: ac for ac in all_acs}
+        ac_norm_lookup = {normalize_class_name(ac.class_name): ac for ac in all_acs}
+
         result: list[InspectionTaskResponse] = []
         for t in tasks:
             day = deadline_by_date.get((t.semester_id, t.inspection_date))
@@ -736,6 +815,41 @@ class InspectionService:
             vol_info = (
                 vol_info_map.get(asgn.volunteer_user_id) if asgn is not None else None
             )
+
+            admin_info_list: list[tuple[str, str | None, str | None]] = []
+            if t.teaching_class_id and t.teaching_class_id in tc_admin_map:
+                admin_info_list = list(tc_admin_map[t.teaching_class_id])
+            elif t.administrative_class_id and t.administrative_class_id in ac_admin_map:
+                admin_info_list = [ac_admin_map[t.administrative_class_id]]
+            elif t.id in task_roster_admin_map:
+                admin_info_list = list(task_roster_admin_map[t.id])
+
+            # 无论是否已有学生级花名册关联，均结合教学班快照名称补全合班/别名行政班的责任区信息
+            existing_cnames = {x[0] for x in admin_info_list if x[0]}
+            if t.class_name_snapshot:
+                cnames = extract_admin_class_names(t.class_name_snapshot)
+                for cn in cnames:
+                    matched_ac = (
+                        ac_name_lookup.get(cn)
+                        or ac_code_lookup.get(cn)
+                        or ac_norm_lookup.get(normalize_class_name(cn))
+                    )
+                    if matched_ac and matched_ac.class_name not in existing_cnames:
+                        admin_info_list.append((matched_ac.class_name, matched_ac.head_teacher, matched_ac.counselor))
+                        existing_cnames.add(matched_ac.class_name)
+
+            admin_classes = sorted({x[0] for x in admin_info_list if x[0]})
+            hts = [x[1] for x in admin_info_list if x[1]]
+            ht_str = "、".join(dict.fromkeys(hts)) if hts else None
+            cos = [x[2] for x in admin_info_list if x[2]]
+            co_str = "、".join(dict.fromkeys(cos)) if cos else None
+
+            # 优先显示班主任兜底
+            raw_teacher = (t.teacher_name_snapshot or "").strip()
+            if raw_teacher in ("", "未指定", "None"):
+                raw_teacher = None
+            eff_teacher = ht_str or raw_teacher
+
             result.append(
                 self._to_task_dto(
                     t,
@@ -745,6 +859,10 @@ class InspectionService:
                     version_id,
                     sub_flags.get(t.id, (False, False)),
                     vol_info=vol_info,
+                    effective_teacher=eff_teacher,
+                    head_teacher=ht_str,
+                    counselor=co_str,
+                    administrative_classes=admin_classes,
                 )
             )
         return result
@@ -784,6 +902,10 @@ class InspectionService:
         deadline_version_id: int | None = None,
         submission_flags: tuple[bool, bool] = (False, False),
         vol_info: tuple[str, str | None, str | None] | None = None,
+        effective_teacher: str | None = None,
+        head_teacher: str | None = None,
+        counselor: str | None = None,
+        administrative_classes: list[str] | None = None,
     ) -> InspectionTaskResponse:
         brief = (
             TaskAssignmentBrief(
@@ -822,6 +944,11 @@ class InspectionService:
             course_name_snapshot=task.course_name_snapshot,
             class_name_snapshot=task.class_name_snapshot,
             classroom_snapshot=task.classroom_snapshot,
+            teacher_name_snapshot=task.teacher_name_snapshot,
+            effective_teacher=effective_teacher,
+            head_teacher=head_teacher,
+            counselor=counselor,
+            administrative_classes=administrative_classes or [],
             require_photo_snapshot=task.require_photo_snapshot,
             expected_count_snapshot=task.expected_count_snapshot,
             expected_count_current=task.expected_count_current,
@@ -884,6 +1011,7 @@ class InspectionService:
         )
         tc_course_name = {t.id: course_name_by_id.get(t.course_id) for t in tcs}
         tc_class_name = {t.id: t.class_name for t in tcs}
+        tc_teacher_name = {t.id: t.teacher_name for t in tcs}
         # 候选页需要计算整个选择范围摘要；批量取名单，避免每个教学班一次查询。
         tc_roster: dict[int, list[Student]] = {t.id: [] for t in tcs}
         if found_ids:
@@ -985,6 +1113,7 @@ class InspectionService:
                 if key in items:
                     continue
 
+                rep_teacher = rep_s.teacher or tc_teacher_name.get(rep_s.teaching_class_id)
                 items[key] = PlanItem(
                     task_key=key,
                     semester_id=sem.id,
@@ -999,6 +1128,7 @@ class InspectionService:
                     course_name_snapshot=tc_course_name.get(rep_s.teaching_class_id),
                     class_name_snapshot=display_class_name,
                     classroom_snapshot=rep_s.classroom,
+                    teacher_name_snapshot=rep_teacher,
                     require_photo_snapshot=body.require_photo,
                     student_ids=[st.id for st in merged_students],
                     constituent_schedule_ids=c_sched_ids,
@@ -2474,20 +2604,22 @@ class InspectionService:
         )
         self._repo.add(sub)
         self._repo.flush()  # 取得 submission.id 供明细与附件外键
+        created_items: list[SubmissionAbnormalItem] = []
         for item in body.abnormal_items:
-            self._repo.add(
-                SubmissionAbnormalItem(
-                    submission_id=sub.id,
-                    student_id=item.student_id,
-                    attendance_type=item.attendance_type,
-                    note=item.note,
-                )
+            sai = SubmissionAbnormalItem(
+                submission_id=sub.id,
+                student_id=item.student_id,
+                attendance_type=item.attendance_type,
+                note=item.note,
             )
+            self._repo.add(sai)
+            created_items.append(sai)
         for fid in file_ids:
             self._repo.add(SubmissionFile(submission_id=sub.id, file_id=fid))
+        self._repo.flush()
 
         # 志愿者提交即最终版本：立即原子生成考勤事实并递增周报修订号
-        generated = self._generate_attendance(sub, actor.id)
+        generated = self._generate_attendance(sub, actor.id, abnormal_items=created_items)
         SourceRevisionService.bump_for_task(self._session, task)
 
         task.lock_version += 1
@@ -2766,44 +2898,96 @@ class InspectionService:
             "results": results,
         }
 
-    def _generate_attendance(self, sub: InspectionSubmission, actor_id: int) -> int:
+    def _generate_attendance(
+        self,
+        sub: InspectionSubmission,
+        actor_id: int,
+        abnormal_items: list[SubmissionAbnormalItem] | None = None,
+    ) -> int:
         """审核通过时按提交所用名单版本为每生建初始考勤 + 版本 1（技术方案 12、14）。
 
         列异常者取该明细类型并回填 source_submission_item_id，未列者 NORMAL（明细引用为空）；
-        一次批量插入并单次 flush 取得各行主键再补版本行，避免逐行往返。"至多一个审核通过
-        提交"不变式保证同一任务考勤只生成一次，无需去重既有记录。返回生成的考勤条数。
+        一次批量插入并单次 flush 取得各行主键再补版本行，避免逐行往返。
+        若考勤记录已存在（如重交或数据补偿），则更新状态并递增版本。
         """
-        abnormal = {i.student_id: i for i in sub.abnormal_items}
+        if abnormal_items is None:
+            self._session.flush()
+            abnormal_items = list(
+                self._session.execute(
+                    select(SubmissionAbnormalItem).where(
+                        SubmissionAbnormalItem.submission_id == sub.id
+                    )
+                ).scalars().all()
+            )
+            if not abnormal_items and sub.abnormal_items:
+                abnormal_items = list(sub.abnormal_items)
+
+        abnormal = {i.student_id: i for i in abnormal_items}
         members = self._repo.list_roster_members(sub.task_id, sub.roster_version)
-        pending: list[tuple[AttendanceRecord, str, int | None]] = []
+
+        existing_recs = {
+            rec.student_id: rec
+            for rec in self._session.execute(
+                select(AttendanceRecord).where(AttendanceRecord.task_id == sub.task_id)
+            ).scalars().all()
+        }
+
+        new_pending: list[tuple[AttendanceRecord, str, int | None]] = []
+        updated_pending: list[tuple[AttendanceRecord, str, int | None, int]] = []
+
         for m in members:
             item = abnormal.get(m.student_id)
             eff = item.attendance_type if item is not None else AttendanceType.NORMAL.value
             item_id = item.id if item is not None else None
-            rec = AttendanceRecord(
-                task_id=sub.task_id,
-                student_id=m.student_id,
-                effective_type=eff,
-                current_version=1,
-                source_submission_item_id=item_id,
-            )
-            self._repo.add(rec)
-            pending.append((rec, eff, item_id))
-        self._repo.flush()  # 取得各 AttendanceRecord.id 供版本行外键
-        for rec, eff, item_id in pending:
+
+            if m.student_id in existing_recs:
+                rec = existing_recs[m.student_id]
+                if rec.effective_type != eff or rec.source_submission_item_id != item_id:
+                    rec.effective_type = eff
+                    rec.source_submission_item_id = item_id
+                    rec.current_version += 1
+                    updated_pending.append((rec, eff, item_id, rec.current_version))
+            else:
+                rec = AttendanceRecord(
+                    task_id=sub.task_id,
+                    student_id=m.student_id,
+                    effective_type=eff,
+                    current_version=1,
+                    source_submission_item_id=item_id,
+                )
+                self._repo.add(rec)
+                new_pending.append((rec, eff, item_id))
+
+        if new_pending:
+            self._repo.flush()  # 取得各 AttendanceRecord.id 供版本行外键
+            for rec, eff, item_id in new_pending:
+                self._repo.add(
+                    AttendanceRecordVersion(
+                        attendance_record_id=rec.id,
+                        version_no=1,
+                        attendance_type=eff,
+                        source_type=AttendanceSourceType.SUBMISSION.value,
+                        source_id=item_id,
+                        changed_by=actor_id,
+                        reason=None,
+                    )
+                )
+
+        for rec, eff, item_id, ver_no in updated_pending:
             self._repo.add(
                 AttendanceRecordVersion(
                     attendance_record_id=rec.id,
-                    version_no=1,
+                    version_no=ver_no,
                     attendance_type=eff,
                     source_type=AttendanceSourceType.SUBMISSION.value,
                     source_id=item_id,
                     changed_by=actor_id,
-                    reason=None,
+                    reason="提交更新或考勤重算",
                 )
             )
+
         self._repo.flush()
-        return len(pending)
+        return len(new_pending) + len(updated_pending)
 
     # ---- 应到人数调整（attendance.expected_count_adjust）：改当前值、留快照（技术方案 14）----
     def update_expected_count(

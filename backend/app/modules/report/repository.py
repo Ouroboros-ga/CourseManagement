@@ -20,6 +20,7 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from app.modules.academic.models import AdministrativeClass
 from app.modules.attendance.models import AttendanceRecord, AttendanceType
 from app.modules.inspection.models import (
     InspectionSubmission,
@@ -131,7 +132,7 @@ class ReportRepository:
         return out
 
     def task_meta(self, task_ids: list[int]) -> dict[int, dict[str, Any]]:
-        """任务展示元数据：日期 / 周次 / 班级快照 / 课程快照。"""
+        """任务展示元数据：日期 / 周次 / 班级快照 / 课程快照 / 教室 / 节次 / 教师。"""
         if not task_ids:
             return {}
         rows = self._session.execute(
@@ -141,6 +142,10 @@ class ReportRepository:
                 InspectionTask.week_no,
                 InspectionTask.class_name_snapshot,
                 InspectionTask.course_name_snapshot,
+                InspectionTask.classroom_snapshot,
+                InspectionTask.start_period,
+                InspectionTask.end_period,
+                InspectionTask.teacher_name_snapshot,
             ).where(InspectionTask.id.in_(task_ids))
         ).all()
         return {
@@ -149,8 +154,31 @@ class ReportRepository:
                 "week_no": int(wn),
                 "class_name_snapshot": cname,
                 "course_name_snapshot": course,
+                "classroom_snapshot": classroom,
+                "start_period": int(sp) if sp is not None else None,
+                "end_period": int(ep) if ep is not None else None,
+                "teacher_name_snapshot": teacher,
             }
-            for tid, idate, wn, cname, course in rows
+            for tid, idate, wn, cname, course, classroom, sp, ep, teacher in rows
+        }
+
+    def class_duties_map(
+        self, class_names: set[str]
+    ) -> dict[str, tuple[str | None, str | None, int | None]]:
+        """班级名集合 -> (班主任, 辅导员, 班级ID)。"""
+        if not class_names:
+            return {}
+        rows = self._session.execute(
+            select(
+                AdministrativeClass.class_name,
+                AdministrativeClass.head_teacher,
+                AdministrativeClass.counselor,
+                AdministrativeClass.id,
+            ).where(AdministrativeClass.class_name.in_(class_names))
+        ).all()
+        return {
+            str(name): (ht, co, int(cid) if cid is not None else None)
+            for name, ht, co, cid in rows
         }
 
     # ---- 班级维度（按名单快照分组，技术方案 17 第 554 行）----
@@ -379,9 +407,6 @@ class ReportRepository:
         """
         if not task_ids:
             return []
-        rv = select(InspectionTask.roster_version).where(
-            InspectionTask.id == TaskRosterMember.task_id
-        )
         rows = self._session.execute(
             select(
                 AttendanceRecord.task_id,
@@ -389,13 +414,24 @@ class ReportRepository:
                 TaskRosterMember.student_no,
                 TaskRosterMember.name,
                 TaskRosterMember.class_name_snapshot,
+                InspectionTask.inspection_date,
+                InspectionTask.course_name_snapshot,
+                InspectionTask.inspection_type,
+                InspectionTask.start_period,
+                InspectionTask.end_period,
+                InspectionTask.classroom_snapshot,
+                InspectionTask.teacher_name_snapshot,
+            )
+            .join(
+                InspectionTask,
+                InspectionTask.id == AttendanceRecord.task_id,
             )
             .join(
                 TaskRosterMember,
                 and_(
                     TaskRosterMember.task_id == AttendanceRecord.task_id,
                     TaskRosterMember.student_id == AttendanceRecord.student_id,
-                    TaskRosterMember.roster_version == rv.scalar_subquery(),
+                    TaskRosterMember.roster_version == InspectionTask.roster_version,
                 ),
             )
             .where(
@@ -408,7 +444,12 @@ class ReportRepository:
                     ]
                 ),
             )
-            .order_by(AttendanceRecord.task_id, TaskRosterMember.student_no)
+            .order_by(
+                InspectionTask.inspection_date,
+                TaskRosterMember.class_name_snapshot,
+                InspectionTask.course_name_snapshot,
+                TaskRosterMember.student_no,
+            )
         ).all()
         return [
             {
@@ -417,6 +458,14 @@ class ReportRepository:
                 "student_no": r[2],
                 "name": r[3],
                 "class_name_snapshot": r[4],
+                "inspection_date": r[5].isoformat() if r[5] else "",
+                "date_display": f"{r[5].month}.{r[5].day}" if r[5] else "",
+                "course_name": r[6] or "",
+                "inspection_type": str(r[7]) if len(r) > 7 and r[7] else "COURSE",
+                "start_period": int(r[8]) if len(r) > 8 and r[8] is not None else None,
+                "end_period": int(r[9]) if len(r) > 9 and r[9] is not None else None,
+                "classroom": str(r[10]) if len(r) > 10 and r[10] else "",
+                "teacher_name": str(r[11]) if len(r) > 11 and r[11] else "",
             }
             for r in rows
         ]

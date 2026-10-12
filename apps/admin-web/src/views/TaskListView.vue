@@ -159,6 +159,11 @@ const filteredTasks = computed(() => {
       (t.course_name_snapshot && t.course_name_snapshot.toLowerCase().includes(q)) ||
       (t.class_name_snapshot && t.class_name_snapshot.toLowerCase().includes(q)) ||
       (t.classroom_snapshot && t.classroom_snapshot.toLowerCase().includes(q)) ||
+      (t.teacher_name_snapshot && t.teacher_name_snapshot.toLowerCase().includes(q)) ||
+      (t.effective_teacher && t.effective_teacher.toLowerCase().includes(q)) ||
+      (t.head_teacher && t.head_teacher.toLowerCase().includes(q)) ||
+      (t.counselor && t.counselor.toLowerCase().includes(q)) ||
+      (t.administrative_classes && t.administrative_classes.some(ac => ac.toLowerCase().includes(q))) ||
       (t.assigned_volunteer_name && t.assigned_volunteer_name.toLowerCase().includes(q)) ||
       ((t as any).assignment?.volunteer_name && (t as any).assignment.volunteer_name.toLowerCase().includes(q))
     )
@@ -222,7 +227,8 @@ async function handleDeleteSingleTask(task: InspectionTaskItem) {
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
         type: 'warning',
-        confirmButtonClass: 'el-button--danger'
+        confirmButtonClass: 'el-button--danger',
+        lockScroll: false
       }
     )
     loading.value = true
@@ -254,7 +260,8 @@ async function handleBatchDelete() {
         confirmButtonText: `确认删除 (${selectedTaskIds.value.length}项)`,
         cancelButtonText: '取消',
         type: 'warning',
-        confirmButtonClass: 'el-button--danger'
+        confirmButtonClass: 'el-button--danger',
+        lockScroll: false
       }
     )
     loading.value = true
@@ -292,7 +299,8 @@ async function handleAutoAssign() {
     await ElMessageBox.confirm(confirmText, '智能自动排班确认', {
       confirmButtonText: '立即执行排班',
       cancelButtonText: '取消',
-      type: 'info'
+      type: 'info',
+      lockScroll: false
     })
     autoAssigning.value = true
     const payload = isSelectedScope
@@ -424,7 +432,7 @@ async function handleConfirmAssign() {
   }
 }
 
-// ==================== 编辑任务弹窗（方式 A） ====================
+// ==================== 编辑任务弹窗（方式 A，整合停课免计） ====================
 const editDialogVisible = ref(false)
 const editingTask = ref<InspectionTaskItem | null>(null)
 const editForm = ref({
@@ -436,6 +444,10 @@ const editForm = ref({
 })
 const editSubmitting = ref(false)
 const editPeriodPreset = ref<number>(1)
+const showCancelSectionInEdit = ref(false)
+const cancelPresetReason = ref('教师临时请假/停课')
+const cancelCustomReason = ref('')
+const cancelSubmitting = ref(false)
 
 function onPeriodPresetChange(val: number) {
   if (val > 0) {
@@ -446,6 +458,9 @@ function onPeriodPresetChange(val: number) {
 
 function openEditTask(task: InspectionTaskItem) {
   editingTask.value = task
+  showCancelSectionInEdit.value = false
+  cancelPresetReason.value = '教师临时请假/停课'
+  cancelCustomReason.value = ''
   const sp = task.start_period || 1
   const ep = task.end_period || 1
   editForm.value = {
@@ -484,28 +499,14 @@ async function handleUpdateTask() {
   }
 }
 
-// ==================== 标记停课免计（教师单独停课/特殊免查） ====================
-const cancelDialogVisible = ref(false)
-const cancelingTask = ref<InspectionTaskItem | null>(null)
-const cancelPresetReason = ref('教师临时请假/停课')
-const cancelCustomReason = ref('')
-const cancelSubmitting = ref(false)
-
-function openCancelDialog(task: InspectionTaskItem) {
-  cancelingTask.value = task
-  cancelPresetReason.value = '教师临时请假/停课'
-  cancelCustomReason.value = ''
-  cancelDialogVisible.value = true
-}
-
 function onPresetReasonChange() {
   if (cancelPresetReason.value !== 'CUSTOM') {
     cancelCustomReason.value = ''
   }
 }
 
-async function handleConfirmCancel() {
-  if (!cancelingTask.value) return
+async function handleConfirmCancelFromEdit() {
+  if (!editingTask.value) return
   const finalReason = cancelPresetReason.value === 'CUSTOM'
     ? cancelCustomReason.value.trim()
     : cancelPresetReason.value
@@ -515,12 +516,12 @@ async function handleConfirmCancel() {
   }
   cancelSubmitting.value = true
   try {
-    await cancelTask(cancelingTask.value.id, {
+    await cancelTask(editingTask.value.id, {
       reason: finalReason,
-      lock_version: cancelingTask.value.lock_version || 0
+      lock_version: editingTask.value.lock_version || 0
     })
-    ElMessage.success(`任务 #${cancelingTask.value.id} 已成功标记为「已取消（${finalReason}）」，不计入本周考勤统计！`)
-    cancelDialogVisible.value = false
+    ElMessage.success(`任务 #${editingTask.value.id} 已成功标记为「已取消（${finalReason}）」，不计入本周考勤统计！`)
+    editDialogVisible.value = false
     await fetchTasks()
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '标记停课免计失败'
@@ -620,116 +621,149 @@ async function handleConfirmCancel() {
         </div>
       </div>
 
-      <table v-if="filteredTasks.length > 0" class="tbl">
-        <thead>
-          <tr>
-            <th style="width: 44px; text-align: center">
-              <input
-                type="checkbox"
-                :checked="isAllSelected"
-                :indeterminate="isIndeterminate"
-                class="chk"
-                title="全选 / 取消全选"
-                @change="toggleSelectAll"
-              />
-            </th>
-            <th style="width: 75px">任务 ID</th>
-            <th style="width: 200px">时间与地点</th>
-            <th style="min-width: 180px">课程与教学班</th>
-            <th style="width: 160px">受派志愿者</th>
-            <th style="width: 110px">状态</th>
-            <th style="width: 320px; text-align: right">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="task in filteredTasks"
-            :key="task.id"
-            :class="{ 'row-selected': selectedTaskIds.includes(task.id) }"
-          >
-            <td style="text-align: center">
-              <input
-                type="checkbox"
-                :checked="selectedTaskIds.includes(task.id)"
-                class="chk"
-                @change="toggleSelectTask(task.id)"
-              />
-            </td>
-            <td class="cell-mono tid">#{{ task.id }}</td>
-            <td>
-              <div class="cell-main">{{ formatTaskDateWithWeekday(task.inspection_date) }} {{ formatPeriodText(task.start_period, task.end_period) }}</div>
-              <div class="cell-sub">{{ task.classroom_snapshot || '未指定教室' }}</div>
-            </td>
-            <td>
-              <div class="cell-main">{{ task.course_name_snapshot || '—' }}</div>
-              <div class="cell-sub">{{ task.class_name_snapshot || '—' }}</div>
-            </td>
-            <td>
-              <template v-if="(task as any).assignment?.volunteer_user_id || task.assigned_volunteer_id">
-                <div class="cell-main font-bold text-slate-800">
-                  {{ (task as any).assignment?.volunteer_name || task.assigned_volunteer_name || '志愿者' }}
+      <div v-if="filteredTasks.length > 0" class="tbl-scroll overflow-x-auto w-full">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="width: 38px; text-align: center">
+                <input
+                  type="checkbox"
+                  :checked="isAllSelected"
+                  :indeterminate="isIndeterminate"
+                  class="chk"
+                  title="全选 / 取消全选"
+                  @change="toggleSelectAll"
+                />
+              </th>
+              <th style="width: 210px">时间与地点</th>
+              <th style="width: 260px">课程与教学班</th>
+              <th style="width: 130px">班主任</th>
+              <th style="width: 140px">受派志愿者</th>
+              <th style="width: 95px">状态</th>
+              <th style="width: 310px; text-align: right">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="task in filteredTasks"
+              :key="task.id"
+              :class="{ 'row-selected': selectedTaskIds.includes(task.id) }"
+            >
+              <td style="text-align: center">
+                <input
+                  type="checkbox"
+                  :checked="selectedTaskIds.includes(task.id)"
+                  class="chk"
+                  @change="toggleSelectTask(task.id)"
+                />
+              </td>
+              <td>
+                <div
+                  class="cell-main font-medium"
+                  :title="`${formatTaskDateWithWeekday(task.inspection_date)} ${formatPeriodText(task.start_period, task.end_period)}`"
+                >
+                  {{ formatTaskDateWithWeekday(task.inspection_date) }} {{ formatPeriodText(task.start_period, task.end_period) }}
                 </div>
-                <div class="cell-sub cell-mono text-xs text-slate-500">
-                  <span v-if="(task as any).assignment?.volunteer_class_name" class="mr-1">
-                    {{ (task as any).assignment.volunteer_class_name }} ·
+                <div class="cell-sub" :title="task.classroom_snapshot || ''">
+                  {{ task.classroom_snapshot || '未指定教室' }}
+                </div>
+              </td>
+              <td>
+                <div class="cell-main" :title="task.course_name_snapshot || ''">{{ task.course_name_snapshot || '—' }}</div>
+                <div class="cell-sub flex items-center gap-1.5 flex-wrap">
+                  <span>{{ task.class_name_snapshot || '—' }}</span>
+                  <span
+                    v-if="task.effective_teacher || task.teacher_name_snapshot"
+                    class="px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-normal"
+                    :title="task.head_teacher && (task.effective_teacher === task.head_teacher) ? '优先采用班主任兜底呈现' : '任课教师'"
+                  >
+                    {{ task.effective_teacher || task.teacher_name_snapshot }}
                   </span>
-                  UID: {{ (task as any).assignment?.volunteer_user_id || task.assigned_volunteer_id }}
                 </div>
-              </template>
-              <template v-else>
-                <div class="unassigned text-slate-400">未分配</div>
-                <div class="cell-sub cell-mono text-xs text-slate-400">可人工指定</div>
-              </template>
-            </td>
-            <td>
-              <TaskStatusTag :status="task.status" :deadline-assessment="task.deadline_assessment" />
-              <div
-                v-if="task.cancel_reason"
-                class="cell-sub text-xs text-amber-700 mt-1 max-w-[140px] truncate"
-                :title="task.cancel_reason"
-              >
-                停课: {{ task.cancel_reason }}
-              </div>
-            </td>
-            <td style="text-align: right; white-space: nowrap">
-              <button
-                class="btn btn-sm"
-                @click="handleOpenAssignDialog(task)"
-              >
-                {{ (task as any).assignment || task.assigned_volunteer_id ? '改派' : '人工指派' }}
-              </button>
-              <button
-                v-if="task.status !== '已取消' && task.status !== 'CANCELLED' && task.status !== '已完成' && task.status !== 'REVIEWED'"
-                class="btn btn-ghost btn-sm inline-flex items-center gap-1"
-                @click="openEditTask(task)"
-              >
-                <AppIcon name="edit" :size="12" />
-                <span>编辑</span>
-              </button>
-              <button
-                v-if="task.status !== '已取消' && task.status !== 'CANCELLED' && task.status !== '已完成' && task.status !== 'REVIEWED'"
-                class="btn btn-ghost btn-sm text-amber-700 inline-flex items-center gap-1"
-                style="color: #b45309;"
-                title="标记为教师临时停课或免计（不计入考勤统计与周报，不影响志愿者）"
-                @click="openCancelDialog(task)"
-              >
-                <AppIcon name="slash" :size="12" />
-                <span>停课免计</span>
-              </button>
-              <button class="btn btn-ghost btn-sm" @click="openTaskDetail(task)">详情与名单</button>
-              <button
-                class="btn btn-ghost btn-sm text-red-600 inline-flex items-center gap-1"
-                style="color: #dc2626;"
-                title="删除此查课任务"
-                @click="handleDeleteSingleTask(task)"
-              >
-                <AppIcon name="trash" :size="12" />
-                <span>删除</span>
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+              </td>
+              <td>
+                <div class="cell-main font-medium text-slate-800">
+                  {{ task.head_teacher || '—' }}
+                </div>
+                <div
+                  v-if="task.counselor"
+                  class="cell-sub text-xs text-blue-600 mt-0.5 truncate max-w-[130px]"
+                  :title="`责任区辅导员: ${task.counselor}`"
+                >
+                  辅导员: {{ task.counselor }}
+                </div>
+              </td>
+              <td>
+                <template v-if="(task as any).assignment?.volunteer_user_id || task.assigned_volunteer_id">
+                  <div class="cell-main font-bold text-slate-800">
+                    {{ (task as any).assignment?.volunteer_name || task.assigned_volunteer_name || '志愿者' }}
+                  </div>
+                  <div
+                    v-if="(task as any).assignment?.volunteer_class_name"
+                    class="cell-sub text-xs text-slate-500 truncate"
+                    :title="(task as any).assignment?.volunteer_class_name"
+                  >
+                    {{ (task as any).assignment.volunteer_class_name }}
+                  </div>
+                  <div v-else class="cell-sub text-xs text-slate-400">
+                    已指派
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="unassigned text-slate-400">未分配</div>
+                  <div class="cell-sub cell-mono text-xs text-slate-400">可人工指定</div>
+                </template>
+              </td>
+              <td>
+                <TaskStatusTag :status="task.status" :deadline-assessment="task.deadline_assessment" />
+                <div
+                  v-if="task.cancel_reason"
+                  class="cell-sub text-xs text-amber-700 mt-1 max-w-[140px] truncate"
+                  :title="task.cancel_reason"
+                >
+                  停课: {{ task.cancel_reason }}
+                </div>
+              </td>
+              <td style="text-align: right; white-space: nowrap">
+                <div class="inline-flex items-center justify-end gap-1 flex-nowrap">
+                  <button
+                    class="btn btn-action"
+                    @click="handleOpenAssignDialog(task)"
+                  >
+                    {{ (task as any).assignment || task.assigned_volunteer_id ? '改派' : '人工指派' }}
+                  </button>
+                  <button
+                    v-if="task.status !== '已取消' && task.status !== 'CANCELLED' && task.status !== '已完成' && task.status !== 'REVIEWED'"
+                    class="btn btn-ghost btn-action inline-flex items-center gap-1"
+                    @click="openEditTask(task)"
+                  >
+                    <AppIcon name="edit" :size="12" />
+                    <span>编辑</span>
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-action text-blue-700 inline-flex items-center gap-1"
+                    style="color: var(--blue);"
+                    title="展开查课任务详情与点名册卡片"
+                    @click="openTaskDetail(task)"
+                  >
+                    <AppIcon name="file-text" :size="12" />
+                    <span>详情与点名册</span>
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-action text-red-600 inline-flex items-center gap-1"
+                    style="color: #dc2626;"
+                    title="删除此查课任务"
+                    @click="handleDeleteSingleTask(task)"
+                  >
+                    <AppIcon name="trash" :size="12" />
+                    <span>删除</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <div v-else class="empty-box">
         <div class="empty-icon flex justify-center mb-2">
@@ -745,6 +779,7 @@ async function handleConfirmCancel() {
       v-model="assignDialogVisible"
       :title="`人工指派志愿者 · 任务 #${assigningTask?.id || ''}`"
       width="580px"
+      :lock-scroll="false"
       destroy-on-close
     >
       <div v-loading="assignSubmitting" class="assign-dialog-body">
@@ -789,7 +824,6 @@ async function handleConfirmCancel() {
                 <div class="vol-option-tags">
                   <span v-if="v.has_wechat" class="tag tag-green tag-mini">微信已绑定</span>
                   <span v-else class="tag tag-blue tag-mini">账号就绪</span>
-                  <span class="vol-option-uid font-mono">UID:{{ v.user_id }}</span>
                 </div>
               </div>
             </el-option>
@@ -805,7 +839,7 @@ async function handleConfirmCancel() {
               <span class="vol-sno font-mono">{{ selectedVolunteer.student_no }}</span>
             </div>
             <div class="vol-class font-mono">
-              {{ selectedVolunteer.class_name || '行政班未分配' }} · 系统 UID: {{ selectedVolunteer.user_id }}
+              {{ selectedVolunteer.class_name || '行政班未分配' }}
             </div>
           </div>
           <div class="vol-status-badge">
@@ -848,6 +882,7 @@ async function handleConfirmCancel() {
       v-model="editDialogVisible"
       :title="`编辑查课任务 #${editingTask?.id || ''}`"
       width="480px"
+      :lock-scroll="false"
       destroy-on-close
     >
       <div v-loading="editSubmitting" class="edit-dialog-body">
@@ -911,59 +946,80 @@ async function handleConfirmCancel() {
             placeholder="例如：任课教师申请临时调换教室"
           />
         </div>
+
+        <!-- 停课免计整合操作区 -->
+        <div class="mt-4 pt-3 border-t border-slate-200">
+          <div v-if="editingTask?.status === '已取消' || editingTask?.status === 'CANCELLED'" class="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs text-gray-600 flex items-center gap-2">
+            <AppIcon name="info" :size="14" class="text-amber-600 shrink-0" />
+            <span>当前任务已标记为停课免计（原因：{{ editingTask?.cancel_reason || '未备注' }}）</span>
+          </div>
+          <div v-else>
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-xs font-bold text-amber-800 flex items-center gap-1">
+                  <AppIcon name="slash" :size="13" class="text-amber-600" />
+                  停课 / 特殊免计
+                </span>
+                <p class="text-[11.5px] text-slate-500 mt-0.5">
+                  若本节课教师临时请假或班级外出，可直接标记为停课免计（不计入到课率与周报）。
+                </p>
+              </div>
+              <button
+                v-if="!showCancelSectionInEdit"
+                type="button"
+                class="btn btn-outline btn-xs text-amber-700 border-amber-300 hover:bg-amber-50"
+                @click="showCancelSectionInEdit = true"
+              >
+                办理停课免计
+              </button>
+            </div>
+
+            <div v-if="showCancelSectionInEdit" class="p-3 bg-amber-50/70 border border-amber-200 rounded-lg space-y-2.5 mt-2.5">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">选择停课 / 免查原因 *</label>
+                <select v-model="cancelPresetReason" class="input w-full text-xs" @change="onPresetReasonChange">
+                  <option value="教师临时请假/停课">教师临时请假 / 停课</option>
+                  <option value="班级外出实训/活动免查">班级外出实训 / 活动免查</option>
+                  <option value="教室设备故障/停电">教室设备故障 / 停电</option>
+                  <option value="教务处临时调整免查">教务处临时调整免查</option>
+                  <option value="CUSTOM">其他原因（自定义输入）</option>
+                </select>
+              </div>
+              <div v-if="cancelPresetReason === 'CUSTOM'">
+                <label class="block text-xs font-semibold text-slate-700 mb-1">自定义原因说明 *</label>
+                <input
+                  v-model="cancelCustomReason"
+                  type="text"
+                  class="input w-full text-xs"
+                  placeholder="请输入具体停课免计原因"
+                />
+              </div>
+              <div class="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs text-slate-500"
+                  @click="showCancelSectionInEdit = false"
+                >
+                  收起
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm text-xs bg-amber-600 hover:bg-amber-700 text-white border-none"
+                  :disabled="cancelSubmitting"
+                  @click="handleConfirmCancelFromEdit"
+                >
+                  {{ cancelSubmitting ? '正在标记…' : '确认标记停课免计' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <template #footer>
         <div style="display: flex; justify-content: flex-end; gap: 10px;">
           <button class="btn btn-ghost" @click="editDialogVisible = false">取消</button>
-          <button class="btn btn-primary" :disabled="editSubmitting" @click="handleUpdateTask">
+          <button class="btn btn-primary" :disabled="editSubmitting || cancelSubmitting" @click="handleUpdateTask">
             {{ editSubmitting ? '保存中…' : '保存修改' }}
-          </button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <!-- 弹窗 4：标记停课免计（教师单独停课或特殊免查） -->
-    <el-dialog
-      v-model="cancelDialogVisible"
-      :title="`标记停课免计 · 任务 #${cancelingTask?.id || ''}`"
-      width="460px"
-    >
-      <div v-if="cancelingTask" class="p-2 space-y-3">
-        <div class="p-2.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-xs leading-relaxed">
-          <b>⚡ 业务说明：</b>标记后，该查课任务将转为「已取消」，<b>不会计入本周周报与考勤到课率统计</b>。志愿者端将显示已取消，且截止结算时判定为豁免（不会被记为逾期违规）。
-        </div>
-
-        <div>
-          <label class="block text-xs font-bold text-[var(--ink)] mb-1">选择停课 / 免查原因 *</label>
-          <select v-model="cancelPresetReason" class="input w-full" @change="onPresetReasonChange">
-            <option value="教师临时请假/停课">教师临时请假 / 停课</option>
-            <option value="班级外出实训/活动免查">班级外出实训 / 活动免查</option>
-            <option value="教室设备故障/停电">教室设备故障 / 停电</option>
-            <option value="教务处临时调整免查">教务处临时调整免查</option>
-            <option value="CUSTOM">其他原因（自定义输入）</option>
-          </select>
-        </div>
-
-        <div v-if="cancelPresetReason === 'CUSTOM'">
-          <label class="block text-xs font-bold text-[var(--ink)] mb-1">自定义具体原因 *</label>
-          <input
-            v-model="cancelCustomReason"
-            class="input w-full"
-            placeholder="例如: 教师因学术会议调课"
-          />
-        </div>
-      </div>
-
-      <template #footer>
-        <div style="display: flex; justify-content: flex-end; gap: 10px;">
-          <button class="btn btn-ghost" @click="cancelDialogVisible = false">取消</button>
-          <button
-            class="btn btn-dark"
-            style="background: #b45309; border-color: #b45309; color: #fff;"
-            :disabled="cancelSubmitting"
-            @click="handleConfirmCancel"
-          >
-            {{ cancelSubmitting ? '正在处理…' : '确认标记并免计' }}
           </button>
         </div>
       </template>
@@ -1027,10 +1083,21 @@ async function handleConfirmCancel() {
 }
 .tbl {
   table-layout: fixed;
+  width: 100%;
+  min-width: 1180px;
 }
-.tbl th, .tbl td {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.tbl thead th {
+  padding: 10px 10px;
+}
+.tbl tbody td {
+  padding: 12px 10px;
+}
+.btn-action {
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  height: 28px;
+  line-height: 1.4;
+  box-sizing: border-box;
 }
 .cell-main, .cell-sub {
   overflow: hidden;

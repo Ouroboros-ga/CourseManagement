@@ -23,7 +23,7 @@ Page({
   async fetchTasks() {
     try {
       wx.showLoading({ title: '加载中' });
-      const res = await getTaskList();
+      const res = await getTaskList({ page_size: 100, include_canceled: true });
       const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
       const listData = Array.isArray(res) ? res : (res?.items || []);
       const allTasks = listData.map(item => {
@@ -39,7 +39,8 @@ Page({
           courseName: item.course_name_snapshot || item.courseName,
           classroom: item.classroom_snapshot || item.classroom,
           className: item.class_name_snapshot || item.className,
-          status: item.status, // 后端已经返回中文如 '待执行', '已逾期'
+          status: item.status, // 后端已经返回中文如 '待执行', '已逾期', '已取消'
+          cancel_reason: item.cancel_reason,
           timeStr: `第${week}周${dayStr} ${periodText || (item.period ? item.period + '节' : '')}`
         };
       });
@@ -51,7 +52,7 @@ Page({
         } else if (currentTab === 'DONE') {
           return item.status === '待审核' || item.status === '已完成';
         } else if (currentTab === 'CLOSED') {
-          return item.status === '已逾期';
+          return item.status === '已逾期' || item.status === '已取消';
         }
         return false;
       });

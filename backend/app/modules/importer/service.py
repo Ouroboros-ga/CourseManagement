@@ -31,7 +31,7 @@ from app.common.parsing.grid import (
     normalize_class_name,
 )
 from app.common.parsing.time_slots import parse_period, parse_weekday, parse_weeks
-from app.common.parsing.xlsx_tabular import pick, read_tabular_rows
+from app.common.parsing.xlsx_tabular import _clean, pick, read_any_matrix, read_tabular_rows
 from app.core.config import get_settings
 from app.core.database import utcnow
 from app.core.exceptions import (
@@ -331,6 +331,7 @@ class ImporterService:
             end_raw = pick(raw, "结束大节", "end_period", "止节")
             weeks_raw = pick(raw, "周次", "weeks", "上课周")
             classroom = pick(raw, "上课地点", "地点", "classroom")
+            teacher = pick(raw, "任课老师", "授课教师", "任课教师", "教师", "老师", "teacher")
             row_issue = self._validate_timetable_row(
                 idx, class_code, course_code, weekday_raw, start_raw, end_raw, weeks_raw,
                 total_weeks, issues,
@@ -338,7 +339,7 @@ class ImporterService:
             if row_issue is None:
                 continue
             weekday, start, end, weeks = row_issue
-            key = (class_code, course_code, weekday, start, end, tuple(weeks), classroom)
+            key = (class_code, course_code, weekday, start, end, tuple(weeks), classroom, teacher)
             if key in seen:
                 issues.append(
                     _issue("duplicate_entry", "重复课表行，已合并", field=None, row=idx,
@@ -356,6 +357,7 @@ class ImporterService:
                     "end_period": end,
                     "weeks": list(weeks),
                     "classroom": classroom,
+                    "teacher": teacher or None,
                 }
             )
         payload = {"semester_id": semester_id, "rows": entries}
@@ -637,11 +639,14 @@ class ImporterService:
                     course_id=course.id,
                     class_code=e["class_code"],
                     class_name=e["course_name"],
+                    teacher_name=e.get("teacher"),
                     status="ACTIVE",
                 )
                 self._academic.add(tc)
                 self._academic.flush()
                 tcs_created += 1
+            elif e.get("teacher") and not tc.teacher_name:
+                tc.teacher_name = e.get("teacher")
             schedule = CourseSchedule(
                 semester_id=sem.id,
                 teaching_class_id=tc.id,
@@ -649,6 +654,7 @@ class ImporterService:
                 start_period=e["start_period"],
                 end_period=e["end_period"],
                 classroom=e["classroom"] or None,
+                teacher=e.get("teacher"),
                 status="ACTIVE",
             )
             self._academic.add(schedule)
@@ -709,18 +715,21 @@ class ImporterService:
         default_grade = None
 
         if filename:
-            clean_fn = re.sub(r"\.(xlsx|xls)$", "", filename, flags=re.IGNORECASE).strip()
-            default_class_name = re.sub(r"(考勤表|课表|名单).*$", "", clean_fn).strip()
+            clean_fn = re.sub(r"\.(xlsx|xls|csv)$", "", filename, flags=re.IGNORECASE).strip()
+            default_class_name = re.sub(r"(考勤表|课表|名单|责任区).*$", "", clean_fn).strip()
 
         parsed_rows: list[dict[str, str]] = []
+        class_duties: list[dict] = []
 
-        # 1. 尝试以带标题格式（例如学校考勤表格式：第一行可能包含 "学院 班级 年"）
         try:
-            from openpyxl import load_workbook
+            matrix = read_any_matrix(content)
+        except Exception as exc:
+            issues.append(_issue("parse_failed", f"文件解析失败：{exc}"))
+            return {"students": [], "class_duties": []}, issues, {"row_total": 0, "student_count": 0}
 
-            wb = load_workbook(io.BytesIO(content), data_only=True)
-            ws = wb.active
-            r1_val = str(ws.cell(1, 1).value or "").strip()
+        # 1. 扫描第一行可能的标题（例如 "二级学院学生责任区辅导员、班主任名单" 或 "人工智能学院 机自2621 班级2026年"）
+        if matrix and len(matrix) > 0 and matrix[0]:
+            r1_val = " ".join([_clean(c) for c in matrix[0]]).strip()
             m = re.search(r"([\u4e00-\u9fa5]+学院)\s+([\u4e00-\u9fa5\w]+)\s+班级(\d+)年", r1_val)
             if m:
                 default_college = m.group(1).strip()
@@ -732,48 +741,106 @@ class ImporterService:
                     default_college = m2.group(1).strip()
                     default_class_name = m2.group(2).strip()
 
-            header_row = -1
-            sno_col, name_col, class_col, college_col, grade_col = -1, -1, -1, -1, -1
-            for r in range(1, 10):
-                for c in range(1, 15):
-                    val = str(ws.cell(r, c).value or "").strip()
-                    if val in ("学号", "student_no", "no"):
-                        header_row = r
-                        sno_col = c
-                    elif val in ("姓名", "name"):
-                        name_col = c
-                    elif val in ("班级", "班级名称", "行政班", "class_name", "class"):
-                        class_col = c
-                    elif val in ("学院", "所属学院", "college"):
-                        college_col = c
-                    elif val in ("年级", "grade_year", "grade"):
-                        grade_col = c
-                if header_row > 0:
-                    break
+        # 2. 扫描前 15 行寻找表头
+        header_row_idx = -1
+        sno_col, name_col, class_col, college_col, grade_col = -1, -1, -1, -1, -1
+        head_teacher_col, counselor_col = -1, -1
 
-            if header_row > 0 and sno_col > 0:
-                for r in range(header_row + 1, ws.max_row + 1):
-                    sno = str(ws.cell(r, sno_col).value or "").strip()
-                    if sno.endswith(".0"):
-                        sno = sno[:-2]
-                    name = str(ws.cell(r, name_col).value or "").strip() if name_col > 0 else ""
-                    cname = str(ws.cell(r, class_col).value or "").strip() if class_col > 0 else default_class_name
-                    college = str(ws.cell(r, college_col).value or "").strip() if college_col > 0 else default_college
-                    grade_val = ws.cell(r, grade_col).value if grade_col > 0 else default_grade
-                    grade_year = int(grade_val) if grade_val and str(grade_val).isdigit() else default_grade
-                    if sno and re.match(r"^\d{6,20}$", sno):
-                        parsed_rows.append({
-                            "student_no": sno,
-                            "name": name,
-                            "class_name": cname or default_class_name,
-                            "college": college,
-                            "grade_year": str(grade_year or ""),
-                        })
-        except Exception:
-            pass
+        for r_idx, row in enumerate(matrix[:15]):
+            cur_sno, cur_name, cur_class, cur_college, cur_grade = -1, -1, -1, -1, -1
+            cur_ht, cur_co = -1, -1
+            for c_idx, val in enumerate(row):
+                cell = _clean(val)
+                if cell in ("学号", "student_no", "studentno", "no"):
+                    cur_sno = c_idx
+                elif cell in ("姓名", "学生姓名", "name", "student_name"):
+                    cur_name = c_idx
+                elif cell in ("班级", "班级名称", "行政班", "行政班级", "class_name", "class"):
+                    cur_class = c_idx
+                elif cell in ("学院", "二级学院", "所属学院", "college", "department"):
+                    cur_college = c_idx
+                elif cell in ("年级", "grade_year", "grade"):
+                    cur_grade = c_idx
+                elif cell in ("班主任", "班主任姓名", "head_teacher", "headteacher"):
+                    cur_ht = c_idx
+                elif cell in ("辅导员", "辅导员姓名", "counselor"):
+                    cur_co = c_idx
 
-        # 2. 若上面未能提取，则通过通用表格式解析
-        if not parsed_rows:
+            if cur_sno >= 0 or (cur_class >= 0 and (cur_ht >= 0 or cur_co >= 0)):
+                header_row_idx = r_idx
+                sno_col = cur_sno
+                name_col = cur_name
+                class_col = cur_class
+                college_col = cur_college
+                grade_col = cur_grade
+                head_teacher_col = cur_ht
+                counselor_col = cur_co
+                break
+
+        def derive_grade(cname: str, grade_raw: str | None = None) -> int | None:
+            if grade_raw and str(grade_raw).isdigit():
+                y = int(grade_raw)
+                if y > 2000:
+                    return y
+                if 20 <= y <= 99:
+                    return 2000 + y
+            m_4d = re.search(r"20(\d{2})\d{2}$", cname)
+            if m_4d:
+                return 2000 + int(m_4d.group(1))
+            m_2d = re.search(r"(\d{2})\d{2}$", cname)
+            if m_2d:
+                return 2000 + int(m_2d.group(1))
+            return default_grade
+
+        if header_row_idx >= 0 and sno_col >= 0:
+            # 学生级花名册
+            for r_idx in range(header_row_idx + 1, len(matrix)):
+                row = matrix[r_idx]
+                if not row or all(not str(c).strip() for c in row):
+                    continue
+                sno = _clean(row[sno_col]) if sno_col < len(row) else ""
+                if sno.endswith(".0"):
+                    sno = sno[:-2]
+                name = _clean(row[name_col]) if name_col >= 0 and name_col < len(row) else ""
+                cname = _clean(row[class_col]) if class_col >= 0 and class_col < len(row) else default_class_name
+                college = _clean(row[college_col]) if college_col >= 0 and college_col < len(row) else default_college
+                raw_grade = _clean(row[grade_col]) if grade_col >= 0 and grade_col < len(row) else None
+                grade_year = derive_grade(cname, raw_grade)
+                ht = _clean(row[head_teacher_col]) if head_teacher_col >= 0 and head_teacher_col < len(row) else None
+                co = _clean(row[counselor_col]) if counselor_col >= 0 and counselor_col < len(row) else None
+                if sno and re.match(r"^\d{6,20}$", sno):
+                    parsed_rows.append({
+                        "student_no": sno,
+                        "name": name,
+                        "class_name": cname or default_class_name,
+                        "college": college,
+                        "grade_year": str(grade_year or ""),
+                        "head_teacher": ht or None,
+                        "counselor": co or None,
+                    })
+        elif header_row_idx >= 0 and class_col >= 0:
+            # 纯班级责任区表（如《二级学院学生责任区辅导员、班主任名单》）
+            for r_idx in range(header_row_idx + 1, len(matrix)):
+                row = matrix[r_idx]
+                if not row or all(not str(c).strip() for c in row):
+                    continue
+                cname = _clean(row[class_col]) if class_col < len(row) else ""
+                if not cname:
+                    continue
+                college = _clean(row[college_col]) if college_col >= 0 and college_col < len(row) else default_college
+                raw_grade = _clean(row[grade_col]) if grade_col >= 0 and grade_col < len(row) else None
+                grade_year = derive_grade(cname, raw_grade)
+                ht = _clean(row[head_teacher_col]) if head_teacher_col >= 0 and head_teacher_col < len(row) else None
+                co = _clean(row[counselor_col]) if counselor_col >= 0 and counselor_col < len(row) else None
+                class_duties.append({
+                    "class_name": cname,
+                    "college": college or None,
+                    "grade_year": grade_year,
+                    "head_teacher": ht or None,
+                    "counselor": co or None,
+                })
+        else:
+            # 尝试降级兼容键值对通用格式
             try:
                 raw_rows = read_tabular_rows(content)
                 for raw in raw_rows:
@@ -782,6 +849,8 @@ class ImporterService:
                     cname = pick(raw, "班级", "班级名称", "行政班", "class_name", "class") or default_class_name
                     college = pick(raw, "学院", "所属学院", "college") or default_college
                     grade = pick(raw, "年级", "grade_year", "grade") or (str(default_grade) if default_grade else "")
+                    ht = pick(raw, "班主任", "head_teacher", "班主任姓名")
+                    co = pick(raw, "辅导员", "counselor", "辅导员姓名")
                     if sno:
                         parsed_rows.append({
                             "student_no": sno,
@@ -789,10 +858,20 @@ class ImporterService:
                             "class_name": cname,
                             "college": college,
                             "grade_year": grade,
+                            "head_teacher": ht or None,
+                            "counselor": co or None,
+                        })
+                    elif cname and (ht or co):
+                        class_duties.append({
+                            "class_name": cname,
+                            "college": college or None,
+                            "grade_year": derive_grade(cname, grade),
+                            "head_teacher": ht or None,
+                            "counselor": co or None,
                         })
             except Exception as exc:
                 issues.append(_issue("parse_failed", f"花名册解析失败：{exc}"))
-                return {"students": []}, issues, {"row_total": 0, "student_count": 0}
+                return {"students": [], "class_duties": []}, issues, {"row_total": 0, "student_count": 0}
 
         class_names: set[str] = set()
         for idx, row in enumerate(parsed_rows, start=2):
@@ -826,12 +905,18 @@ class ImporterService:
                 "class_name": cname,
                 "college": row.get("college") or None,
                 "grade_year": grade_y,
+                "head_teacher": row.get("head_teacher") or None,
+                "counselor": row.get("counselor") or None,
             })
 
-        payload = {"students": students}
+        for cd in class_duties:
+            class_names.add(cd["class_name"])
+
+        payload = {"students": students, "class_duties": class_duties}
         summary = {
-            "row_total": len(parsed_rows),
+            "row_total": len(parsed_rows) + len(class_duties),
             "student_count": len(students),
+            "class_duties_count": len(class_duties),
             "classes_count": len(class_names),
             "class_names": sorted(class_names),
         }
@@ -841,20 +926,62 @@ class ImporterService:
         self, actor: CurrentUser, batch: ImportBatch, payload: dict, request_id: str | None
     ) -> dict:
         students_data: list[dict] = payload.get("students") or []
-        if not students_data:
+        class_duties: list[dict] = payload.get("class_duties") or []
+        if not students_data and not class_duties:
             return {"students_created": 0, "students_updated": 0, "classes_created": 0}
 
         ac_map: dict[str, AdministrativeClass] = {}
         classes_created = 0
+        duties_updated = 0
 
         existing_acs = list(self._session.execute(select(AdministrativeClass)).scalars().all())
         ac_by_exact = {ac.class_name: ac for ac in existing_acs}
         ac_by_code = {ac.class_code: ac for ac in existing_acs}
         ac_by_norm = {normalize_class_name(ac.class_name): ac for ac in existing_acs}
 
+        # 先处理纯责任区班主任辅导员名单
+        for duty in class_duties:
+            cname = duty["class_name"]
+            target_ac = (
+                ac_by_exact.get(cname)
+                or ac_by_code.get(cname)
+                or ac_by_norm.get(normalize_class_name(cname))
+            )
+            if target_ac is None:
+                target_ac = AdministrativeClass(
+                    class_code=cname,
+                    class_name=cname,
+                    college=duty.get("college"),
+                    grade_year=duty.get("grade_year"),
+                    head_teacher=duty.get("head_teacher"),
+                    counselor=duty.get("counselor"),
+                    status="ACTIVE",
+                )
+                self._academic.add(target_ac)
+                self._academic.flush()
+                classes_created += 1
+                ac_by_exact[cname] = target_ac
+                ac_by_code[cname] = target_ac
+                ac_by_norm[normalize_class_name(cname)] = target_ac
+            else:
+                if duty.get("head_teacher"):
+                    target_ac.head_teacher = duty["head_teacher"]
+                if duty.get("counselor"):
+                    target_ac.counselor = duty["counselor"]
+                if duty.get("college") and not target_ac.college:
+                    target_ac.college = duty["college"]
+                self._academic.flush()
+            duties_updated += 1
+            ac_map[cname] = target_ac
+
         for item in students_data:
             cname = item["class_name"]
             if cname in ac_map:
+                target_ac = ac_map[cname]
+                if item.get("head_teacher") and not target_ac.head_teacher:
+                    target_ac.head_teacher = item["head_teacher"]
+                if item.get("counselor") and not target_ac.counselor:
+                    target_ac.counselor = item["counselor"]
                 continue
             target_ac = (
                 ac_by_exact.get(cname)
@@ -867,6 +994,8 @@ class ImporterService:
                     class_name=cname,
                     college=item.get("college"),
                     grade_year=item.get("grade_year"),
+                    head_teacher=item.get("head_teacher"),
+                    counselor=item.get("counselor"),
                     status="ACTIVE",
                 )
                 self._academic.add(target_ac)
@@ -880,6 +1009,10 @@ class ImporterService:
                     target_ac.college = item.get("college")
                 if not target_ac.grade_year and item.get("grade_year"):
                     target_ac.grade_year = item.get("grade_year")
+                if item.get("head_teacher") and not target_ac.head_teacher:
+                    target_ac.head_teacher = item["head_teacher"]
+                if item.get("counselor") and not target_ac.counselor:
+                    target_ac.counselor = item["counselor"]
                 self._academic.flush()
             ac_map[cname] = target_ac
 
@@ -1039,6 +1172,7 @@ class ImporterService:
                 self._academic.flush()
                 courses_created += 1
 
+            t_name = item.get("teacher") or None
             tc_code = f"{target_ac.class_code}_{course.course_code}"
             tc = self._academic.get_teaching_class_by_key(sem.id, course.id, tc_code)
             if tc is None:
@@ -1047,11 +1181,14 @@ class ImporterService:
                     course_id=course.id,
                     class_code=tc_code,
                     class_name=f"{target_ac.class_name}-{cname}",
+                    teacher_name=t_name,
                     status="ACTIVE",
                 )
                 self._academic.add(tc)
                 self._academic.flush()
                 tcs_created += 1
+            elif t_name and not tc.teacher_name:
+                tc.teacher_name = t_name
 
             schedule = CourseSchedule(
                 semester_id=sem.id,
@@ -1060,6 +1197,7 @@ class ImporterService:
                 start_period=item["start_period"],
                 end_period=item["end_period"],
                 classroom=item["classroom"] or None,
+                teacher=t_name,
                 status="ACTIVE",
             )
             self._academic.add(schedule)
@@ -1278,16 +1416,16 @@ class ImporterService:
                                 except Exception:
                                     clean_name = info.filename
                             base_name = clean_name.replace("\\", "/").split("/")[-1]
-                            if base_name and base_name.lower().endswith((".xlsx", ".xls")):
+                            if base_name and base_name.lower().endswith((".xlsx", ".xls", ".csv")):
                                 expanded_files.append((base_name, z.read(info)))
                 except Exception as exc:
                     raise AppError(ErrorCode.VALIDATION_ERROR, f"ZIP压缩包解析失败：{exc}", http_status=422)
-            elif filename.lower().endswith((".xlsx", ".xls")):
+            elif filename.lower().endswith((".xlsx", ".xls", ".csv")):
                 base_name = filename.replace("\\", "/").split("/")[-1]
                 expanded_files.append((base_name, data))
 
         if not expanded_files:
-            raise AppError(ErrorCode.VALIDATION_ERROR, "未找到任何有效的 Excel 表格文件", http_status=422)
+            raise AppError(ErrorCode.VALIDATION_ERROR, "未找到任何有效的表格文件（.xlsx / .xls / .csv）", http_status=422)
 
         # 2. 分类：名单类文件 vs 课表类文件
         roster_files: list[tuple[str, bytes]] = []
@@ -1296,7 +1434,7 @@ class ImporterService:
             lower_fn = fn.lower()
             if "课表" in fn or "排课" in fn or "timetable" in lower_fn:
                 timetable_files.append((fn, data))
-            elif "考勤" in fn or "花名册" in fn or "名单" in fn or "学生" in fn or "roster" in lower_fn:
+            elif "考勤" in fn or "花名册" in fn or "名单" in fn or "学生" in fn or "责任区" in fn or "班主任" in fn or "辅导员" in fn or "roster" in lower_fn:
                 roster_files.append((fn, data))
             else:
                 # 尝试通过内容关键字做轻量嗅探

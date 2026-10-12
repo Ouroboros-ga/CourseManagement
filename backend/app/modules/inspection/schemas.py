@@ -148,6 +148,11 @@ class InspectionTaskResponse(BaseModel):
     course_name_snapshot: str | None
     class_name_snapshot: str | None
     classroom_snapshot: str | None
+    teacher_name_snapshot: str | None = None
+    effective_teacher: str | None = None
+    head_teacher: str | None = None
+    counselor: str | None = None
+    administrative_classes: list[str] = Field(default_factory=list)
     require_photo_snapshot: bool
     expected_count_snapshot: int
     expected_count_current: int
@@ -159,6 +164,8 @@ class InspectionTaskResponse(BaseModel):
     deadline_at: datetime | None = None
     deadline_version_id: OptIdStr = None
     deadline_assessment: DeadlineAssessmentBrief | None = None
+    canceled_at: datetime | None = None
+    cancel_reason: str | None = None
 
 
 class TaskRosterMemberResponse(BaseModel):
@@ -592,6 +599,14 @@ class InspectionTaskUpdateRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 # 智能抽查生成器
 # --------------------------------------------------------------------------- #
+class ClassQuotaConfig(BaseModel):
+    """单个行政班级的自定义抽查配额配置。"""
+
+    class_id: int = Field(ge=1, description="行政班级ID")
+    class_name: str | None = Field(default=None, description="行政班级名称（供核对）")
+    max_tasks: int = Field(default=1, ge=1, le=10, description="该班每周抽查节数上限")
+
+
 class SmartSampleRequest(BaseModel):
     """POST /inspection-course-occurrences/smart-sample 请求体：智能推荐下发课次。"""
 
@@ -602,6 +617,14 @@ class SmartSampleRequest(BaseModel):
     sample_ratio: float | None = Field(default=None, ge=0.05, le=1.0)
     exclude_already_generated: bool = True
     random_seed: int | None = None
+    target_class_ids: list[int] | None = Field(
+        default=None,
+        description="指定抽查的行政班级ID列表。若为 null 或空，则对全校班级均衡抽查",
+    )
+    class_quotas: list[ClassQuotaConfig] | None = Field(
+        default=None,
+        description="各班自定义抽查频次配置；未单独配置的班级继承 max_tasks_per_class",
+    )
 
 
 class SmartSampleItemBrief(BaseModel):

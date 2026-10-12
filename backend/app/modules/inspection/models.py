@@ -164,6 +164,7 @@ class InspectionTask(TimestampMixin, Base):
     course_name_snapshot: Mapped[str | None] = mapped_column(String(128))
     class_name_snapshot: Mapped[str | None] = mapped_column(String(128))
     classroom_snapshot: Mapped[str | None] = mapped_column(String(128))
+    teacher_name_snapshot: Mapped[str | None] = mapped_column(String(128))
     require_photo_snapshot: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("0")
     )
