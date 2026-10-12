@@ -156,7 +156,7 @@ const menuItems = computed(() => {
       id: 'reports',
       idx: '04',
       path: '/dashboard/reports',
-      name: '学院考勤周报',
+      name: '考勤看板与详表',
       badge: null,
       badgeClass: '',
       permission: 'report.read'

@@ -961,7 +961,7 @@ async function handleConfirmCancelFromEdit() {
                   停课 / 特殊免计
                 </span>
                 <p class="text-[11.5px] text-slate-500 mt-0.5">
-                  若本节课教师临时请假或班级外出，可直接标记为停课免计（不计入到课率与周报）。
+                  若本节课教师临时请假或班级外出，可直接标记为停课免计（不计入到课率与考勤统计）。
                 </p>
               </div>
               <button

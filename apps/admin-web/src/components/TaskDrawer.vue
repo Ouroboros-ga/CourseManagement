@@ -428,7 +428,7 @@ const close = () => {
     >
       <div v-if="correctingRecord" class="p-2 space-y-3">
         <div class="p-2.5 rounded bg-blue-50 border border-blue-200 text-blue-900 text-xs leading-relaxed">
-          <b>ℹ️ 变更留痕说明：</b>修改后将新增一条版本认定记录（来源为 <code>CORRECTION</code>），并同步刷新本周周报与到课率统计，全过程计入审计日志。
+          <b>ℹ️ 变更留痕说明：</b>修改后将新增一条版本认定记录（来源为 <code>CORRECTION</code>），并同步刷新本周到课率统计与考勤详表，全过程计入审计日志。
         </div>
 
         <div>

@@ -10,16 +10,10 @@ import {
   type StudentItem
 } from '../api/academic'
 import {
-  listReports,
-  listReportVersions,
-  generateWeeklyReportVersion,
   getAttendanceStats,
-  downloadReportVersionFile,
   exportAttendanceAnalytics,
   exportAttendanceDetailWord,
-  type ReportSummaryItem,
-  type ReportVersionSummary,
-  type ReportVersionsResponse,
+  exportStudyAttendanceExcel,
   type AttendanceStatsResponse,
   type ClassStatsItem,
   type TaskStatsItem,
@@ -33,11 +27,8 @@ const loading = ref(false)
 const downloadLoading = ref(false)
 const exportLoading = ref(false)
 
-const activeTab = ref<'class' | 'task' | 'report'>('class')
+const activeTab = ref<'class' | 'task' | 'detail'>('class')
 const selectedWeek = ref<number>(1)
-const reportSummary = ref<ReportSummaryItem | null>(null)
-const reportVersionsMeta = ref<ReportVersionsResponse | null>(null)
-const reportVersions = ref<ReportVersionSummary[]>([])
 const attendanceStats = ref<AttendanceStatsResponse | null>(null)
 
 // 行政班看板筛选与排序状态
@@ -58,8 +49,10 @@ onMounted(() => {
   } else if (sessionStore.currentWeekNo) {
     selectedWeek.value = sessionStore.currentWeekNo
   }
-  if (route.query.tab && ['class', 'task', 'report'].includes(String(route.query.tab))) {
-    activeTab.value = route.query.tab as 'class' | 'task' | 'report'
+  if (route.query.tab) {
+    const t = String(route.query.tab)
+    if (t === 'class' || t === 'task') activeTab.value = t
+    else if (t === 'detail' || t === 'report') activeTab.value = 'detail'
   }
   if (sessionStore.currentSemesterId) {
     fetchReportData()
@@ -92,26 +85,13 @@ async function fetchReportData() {
     const semId = Number(sessionStore.currentSemesterId)
     const week = selectedWeek.value
 
-    // 1. 获取当周出勤统计（含行政班与教学班明细）
+    // 获取当周出勤统计（含行政班、教学班与详细考勤明细）
     try {
       const statsRes = await getAttendanceStats({ semester_id: semId, week_no: week, include_tasks: true })
       attendanceStats.value = statsRes
     } catch (e) {
       console.warn('获取考勤统计失败:', e)
       attendanceStats.value = null
-    }
-
-    // 2. 获取周报主条目与版本
-    const repRes = await listReports({ semester_id: semId, week_no: week, page_size: 1 })
-    if (repRes.items && repRes.items.length > 0) {
-      reportSummary.value = repRes.items[0]
-      const verRes = await listReportVersions(reportSummary.value.report_id)
-      reportVersionsMeta.value = verRes
-      reportVersions.value = verRes.items || []
-    } else {
-      reportSummary.value = null
-      reportVersionsMeta.value = null
-      reportVersions.value = []
     }
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '获取数据失败'
@@ -268,25 +248,65 @@ const filteredTasks = computed(() => {
   return list
 })
 
-// ---------------- 周报归档状态 ----------------
-const isBehindSource = computed(() => {
-  if (reportVersionsMeta.value) return reportVersionsMeta.value.latest_behind_source
-  if (reportSummary.value) return reportSummary.value.source_changed
-  return false
+// ---------------- 详细考勤表筛选与数据处理 ----------------
+const detailSearch = ref('')
+const detailTypeFilter = ref<string>('ALL')
+const detailSort = ref<'date_desc' | 'date_asc' | 'type'>('date_desc')
+
+const allAbnormalDetails = computed<AbnormalDetailItem[]>(() => {
+  return attendanceStats.value?.details || []
 })
 
-
-const latestPublishedVersion = computed(() => {
-  return reportVersions.value.find(v => v.status === 'PUBLISHED') || null
+const totalAbnormalCount = computed(() => {
+  return allAbnormalDetails.value.length || attendanceStats.value?.overall.abnormal_count || 0
 })
 
-// 格式化版本标注：生成日期 + 版本号vX.0
-function formatVersionLabel(ver: ReportVersionSummary | null | undefined): string {
-  if (!ver) return '未发布'
-  const rawDate = ver.generated_at || ver.created_at || ''
-  const dateStr = rawDate ? rawDate.substring(0, 10) : ''
-  const vTag = `v${ver.version_no}.0`
-  return dateStr ? `${dateStr} ${vTag}` : vTag
+const filteredDetails = computed<AbnormalDetailItem[]>(() => {
+  let list = [...allAbnormalDetails.value]
+
+  if (detailTypeFilter.value !== 'ALL') {
+    list = list.filter(d => d.attendance_type === detailTypeFilter.value)
+  }
+
+  if (detailSearch.value.trim()) {
+    const kw = detailSearch.value.trim().toLowerCase()
+    list = list.filter(d =>
+      (d.name && d.name.toLowerCase().includes(kw)) ||
+      (d.student_no && d.student_no.toLowerCase().includes(kw)) ||
+      (d.class_name_snapshot && d.class_name_snapshot.toLowerCase().includes(kw)) ||
+      (d.course_name && d.course_name.toLowerCase().includes(kw)) ||
+      (d.teacher_name && d.teacher_name.toLowerCase().includes(kw)) ||
+      (d.classroom && d.classroom.toLowerCase().includes(kw))
+    )
+  }
+
+  if (detailSort.value === 'date_desc') {
+    list.sort((a, b) => {
+      const da = (a.inspection_date || '') + String(a.start_period || 0).padStart(2, '0')
+      const db = (b.inspection_date || '') + String(b.start_period || 0).padStart(2, '0')
+      return db.localeCompare(da)
+    })
+  } else if (detailSort.value === 'date_asc') {
+    list.sort((a, b) => {
+      const da = (a.inspection_date || '') + String(a.start_period || 0).padStart(2, '0')
+      const db = (b.inspection_date || '') + String(b.start_period || 0).padStart(2, '0')
+      return da.localeCompare(db)
+    })
+  } else if (detailSort.value === 'type') {
+    const order: Record<string, number> = { ABSENT: 1, LATE: 2, LEAVE: 3 }
+    list.sort((a, b) => (order[a.attendance_type] || 9) - (order[b.attendance_type] || 9))
+  }
+
+  return list
+})
+
+function formatDetailTypeBadge(type: string) {
+  switch (type) {
+    case 'ABSENT': return { label: '旷', cls: 'tag-red' }
+    case 'LATE': return { label: '迟到', cls: 'tag-amber' }
+    case 'LEAVE': return { label: '请假', cls: 'tag-blue' }
+    default: return { label: type, cls: 'tag-gray' }
+  }
 }
 
 // ---------------- 操作：多维分析 Excel 导出 ----------------
@@ -341,11 +361,15 @@ async function handleExportDetailWord() {
   }
 }
 
-// ---------------- 操作：下载周报 ----------------
-async function handleDownload(versionId: string, kind: 'EXCEL' | 'SNAPSHOT' | 'WORD' | 'DETAIL_WORD' | 'STUDY_EXCEL') {
+// ---------------- 操作：直接导出自习与日常考勤表 (Excel) ----------------
+async function handleExportStudyExcel() {
+  if (!sessionStore.currentSemesterId) return
   downloadLoading.value = true
   try {
-    const { blob, filename } = await downloadReportVersionFile(versionId, kind)
+    const { blob, filename } = await exportStudyAttendanceExcel({
+      semester_id: Number(sessionStore.currentSemesterId),
+      week_no: selectedWeek.value
+    })
     const blobUrl = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = blobUrl
@@ -354,58 +378,13 @@ async function handleDownload(versionId: string, kind: 'EXCEL' | 'SNAPSHOT' | 'W
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(blobUrl)
-    ElMessage.success(`文件【${filename}】已开始下载`)
+    ElMessage.success(`自习与日常考勤表【${filename}】已开始下载`)
   } catch (err: unknown) {
-    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '下载失败'
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '导出自习考勤表失败'
     ElMessage.error(msg)
   } finally {
     downloadLoading.value = false
   }
-}
-
-// 数据变化时自动生成新一版并下载，否则下载已有版本
-async function handleExportReport(kind: 'WORD' | 'EXCEL') {
-  if (!sessionStore.currentSemesterId) return
-  downloadLoading.value = true
-  try {
-    const semId = Number(sessionStore.currentSemesterId)
-    const week = selectedWeek.value
-
-    let targetVersionId = latestPublishedVersion.value?.id
-
-    // 尚未生成过周报，或数据发生变化已落后于事实，自动生成新一版并下载
-    if (!latestPublishedVersion.value || isBehindSource.value) {
-      ElMessage.info('检测到考勤数据有变动，正在自动生成最新版本周报…')
-      const genRes = await generateWeeklyReportVersion({
-        semester_id: semId,
-        week_no: week,
-        scope: 'COLLEGE',
-        reason: isBehindSource.value ? '导出时检测到数据变动自动更新' : '首次导出自动生成初始版本'
-      })
-      targetVersionId = genRes.version.id
-      await fetchReportData()
-    }
-
-    if (!targetVersionId) {
-      ElMessage.warning('未能获取有效的周报版本')
-      return
-    }
-
-    await handleDownload(targetVersionId, kind)
-  } catch (err: unknown) {
-    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '导出下载失败'
-    ElMessage.error(msg)
-  } finally {
-    downloadLoading.value = false
-  }
-}
-
-async function handleDownloadLatest() {
-  await handleExportReport('EXCEL')
-}
-
-async function handleDownloadLatestWord() {
-  await handleExportReport('WORD')
 }
 
 // ---------------- 班级明细抽屉状态与数据处理 ----------------
@@ -629,11 +608,11 @@ function formatViolationType(type: string): string {
         <em>●</em>
         <span>第 {{ selectedWeek }} 周</span>
         <em>●</em>
-        <span>REPORTS</span>
+        <span>ATTENDANCE & ROSTER</span>
       </div>
-      <h1>考勤周报与多维数据看板</h1>
+      <h1>考勤统计与详细考勤看板</h1>
       <p class="sub">
-        覆盖行政班到课率、教学班与课堂出勤明细的全院宏观分析，支持多维数据穿透、Excel 分析表导出与官方周报版本归档。
+        覆盖行政班到课率、教学班与课堂出勤明细的全院宏观分析，支持多维数据穿透、标准详细考勤表（Word / Excel）快速导出。
       </p>
 
       <div class="head-actions">
@@ -648,20 +627,20 @@ function formatViolationType(type: string): string {
         <button
           class="btn btn-dark btn-sm"
           :disabled="downloadLoading || !attendanceStats"
-          :title="isBehindSource ? '检测到数据变动，点击将自动生成新版本并下载' : '下载当前最新 Word 周报'"
-          @click="handleDownloadLatestWord"
-        >
-          <AppIcon v-if="!downloadLoading" name="download" :size="13" />
-          <span>{{ downloadLoading ? '正在处理…' : (isBehindSource || !latestPublishedVersion ? '导出 Word 周报 (自动更新)' : '导出 Word 周报') }}</span>
-        </button>
-        <button
-          class="btn btn-ghost btn-sm"
-          :disabled="downloadLoading || !attendanceStats"
           title="导出100%对齐模板格式的独立【课堂考勤详表】Word文档（居中标题+5列考勤明细）"
           @click="handleExportDetailWord"
         >
           <AppIcon v-if="!downloadLoading" name="download" :size="13" />
-          <span>导出考勤详表 (Word)</span>
+          <span>{{ downloadLoading ? '正在导出…' : '导出详细考勤表 (Word)' }}</span>
+        </button>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="downloadLoading || !attendanceStats"
+          title="导出100%对齐模板格式的【自习与日常考勤表】Excel文档（4列规范）"
+          @click="handleExportStudyExcel"
+        >
+          <AppIcon v-if="!downloadLoading" name="download" :size="13" />
+          <span>导出自习考勤表 (Excel)</span>
         </button>
         <button
           class="btn btn-ghost btn-sm"
@@ -670,7 +649,7 @@ function formatViolationType(type: string): string {
           @click="handleExportAnalytics"
         >
           <AppIcon v-if="!exportLoading" name="download" :size="13" />
-          <span>{{ exportLoading ? '正在导出…' : '导出多维分析 Excel' }}</span>
+          <span>{{ exportLoading ? '正在导出…' : '导出到课率分析 (Excel)' }}</span>
         </button>
         <button class="btn btn-ghost btn-sm" @click="fetchReportData">刷新数据</button>
       </div>
@@ -748,18 +727,15 @@ function formatViolationType(type: string): string {
       </div>
 
       <div class="stat-cell">
-        <div class="label">官方周报状态</div>
-        <div class="value kpi-version-val" :class="latestPublishedVersion ? '' : 'c-amber'">
-          {{ formatVersionLabel(latestPublishedVersion) }}
+        <div class="label">详细考勤记录</div>
+        <div class="value font-mono" :class="totalAbnormalCount > 0 ? 'c-amber' : 'c-green'">
+          {{ totalAbnormalCount }}<em class="unit">条明细</em>
         </div>
         <div class="note">
-          <span v-if="!latestPublishedVersion" class="tag tag-amber">待生成</span>
-          <span v-else-if="isBehindSource" class="tag tag-amber">考勤已更新</span>
-          <span v-else class="tag tag-green">最新归档</span>
+          <span v-if="totalAbnormalCount === 0" class="tag tag-green">全院全勤</span>
+          <span v-else class="tag tag-amber">{{ totalAbnormalCount }} 人次违纪</span>
         </div>
-        <div class="note">
-          已沉淀归档 <b class="font-mono">{{ reportVersions.length }}</b> 个历史版本
-        </div>
+        <div class="note">标准 5 列格式 · 随时一键导出</div>
       </div>
     </section>
 
@@ -775,10 +751,10 @@ function formatViolationType(type: string): string {
         <span>教学班与课堂</span>
         <span class="tab-count font-mono">{{ attendanceStats?.tasks?.length || attendanceStats?.eligible_task_count || 0 }}</span>
       </button>
-      <button class="tab-btn" :class="{ active: activeTab === 'report' }" @click="activeTab = 'report'">
+      <button class="tab-btn" :class="{ active: activeTab === 'detail' }" @click="activeTab = 'detail'">
         <span class="tab-no font-mono">03</span>
-        <span>周报生成与归档</span>
-        <span v-if="isBehindSource" class="tab-dot" title="考勤数据已更新，建议重新生成"></span>
+        <span>详细考勤表</span>
+        <span class="tab-count font-mono">{{ totalAbnormalCount }}</span>
       </button>
     </nav>
 
@@ -1023,112 +999,128 @@ function formatViolationType(type: string): string {
       </div>
     </div>
 
-    <!-- ============ TAB 03 · 周报生成与归档 ============ -->
-    <div v-show="activeTab === 'report'">
-      <!-- 版本归档表 -->
+    <!-- ============ TAB 03 · 详细考勤表 ============ -->
+    <div v-show="activeTab === 'detail'">
       <div class="tbl-wrap">
         <div class="tbl-head">
           <div>
-            <h3>版本归档历史</h3>
-            <div class="meta">第 {{ selectedWeek }} 周已归档 {{ reportVersions.length }} 个版本，按生成时间倒序</div>
+            <h3>课堂考勤详细记录表</h3>
+            <div class="meta font-mono">
+              第 {{ selectedWeek }} 周共登记 {{ filteredDetails.length }} / {{ allAbnormalDetails.length }} 条考勤明细 · 严格对齐 5 列 Word 详表规范
+            </div>
           </div>
           <div class="tbl-tools">
             <button
-              class="btn btn-sm"
-              :disabled="downloadLoading"
-              :title="isBehindSource ? '检测到数据变动，点击将自动生成新版本并下载' : '下载当前最新 XLSX 周报'"
-              @click="handleDownloadLatest"
+              class="btn btn-dark btn-sm"
+              :disabled="downloadLoading || !attendanceStats"
+              title="导出100%对齐模板格式的独立【课堂考勤详表】Word文档（居中标题+5列考勤明细）"
+              @click="handleExportDetailWord"
             >
-              <AppIcon name="download" :size="12" />
-              <span>{{ isBehindSource || !latestPublishedVersion ? '导出最新 XLSX (自动更新)' : '最新 XLSX' }}</span>
+              <AppIcon v-if="!downloadLoading" name="download" :size="12" />
+              <span>{{ downloadLoading ? '正在导出…' : '导出详细考勤表 (Word)' }}</span>
             </button>
             <button
-              class="btn btn-dark btn-sm"
-              :disabled="downloadLoading"
-              :title="isBehindSource ? '检测到数据变动，点击将自动生成新版本并下载' : '下载当前最新 Word 周报'"
-              @click="handleDownloadLatestWord"
+              class="btn btn-ghost btn-sm"
+              :disabled="downloadLoading || !attendanceStats"
+              title="导出100%对齐模板格式的4列自习与日常考勤 Excel 表格"
+              @click="handleExportStudyExcel"
             >
-              <AppIcon name="download" :size="12" />
-              <span>{{ isBehindSource || !latestPublishedVersion ? '导出最新 Word 周报 (自动更新)' : '最新 Word 周报' }}</span>
+              <AppIcon v-if="!downloadLoading" name="download" :size="12" />
+              <span>导出自习考勤表 (Excel)</span>
+            </button>
+            <button
+              class="btn btn-ghost btn-sm"
+              :disabled="exportLoading || !attendanceStats"
+              title="导出包含全院看板、行政班与教学班明细的多 Sheet 分析 Excel"
+              @click="handleExportAnalytics"
+            >
+              <AppIcon v-if="!exportLoading" name="download" :size="12" />
+              <span>{{ exportLoading ? '正在导出…' : '导出到课率分析 (Excel)' }}</span>
             </button>
           </div>
         </div>
 
-        <div v-if="reportVersions.length === 0" class="empty-text">暂无已归档版本，点击“导出最新 Word 周报”或“最新 XLSX”即可自动生成并下载。</div>
+        <!-- 详细考勤表筛选栏 -->
+        <div class="filter-bar">
+          <div class="fgroup fgroup-grow">
+            <AppIcon name="search" :size="13" />
+            <input
+              v-model="detailSearch"
+              type="text"
+              class="f-input"
+              placeholder="搜索学生姓名 / 学号 / 班级 / 课程 / 教师 / 教室…"
+            />
+          </div>
+          <div class="fsep"></div>
+          <div class="fgroup">
+            <label>考勤情况</label>
+            <select v-model="detailTypeFilter" class="input">
+              <option value="ALL">全部异常</option>
+              <option value="ABSENT">旷课 (缺勤)</option>
+              <option value="LATE">迟到</option>
+              <option value="LEAVE">请假</option>
+            </select>
+          </div>
+          <div class="fsep"></div>
+          <div class="fgroup">
+            <label>排序</label>
+            <select v-model="detailSort" class="input">
+              <option value="date_desc">日期时间 新 → 旧</option>
+              <option value="date_asc">日期时间 旧 → 新</option>
+              <option value="type">缺勤严重程度优先</option>
+            </select>
+          </div>
+          <div class="f-count font-mono">
+            展示 {{ filteredDetails.length }} / {{ allAbnormalDetails.length }} 条
+          </div>
+        </div>
+
+        <!-- 5 列详细考勤表格 (100% 对齐 Word 详表结构) -->
+        <div v-if="filteredDetails.length === 0" class="empty-text">
+          {{ allAbnormalDetails.length === 0 ? '本周全院查课全勤，暂无缺勤异常记录。' : '未找到匹配的考勤详细记录。' }}
+        </div>
         <table v-else class="tbl">
           <thead>
             <tr>
-              <th>版本标注</th>
-              <th>生成时间</th>
-              <th>操作人</th>
-              <th>源修订号</th>
-              <th>状态</th>
-              <th>新鲜度</th>
-              <th>生成事由</th>
-              <th class="ta-r">下载产物</th>
+              <th style="width: 120px;">日期</th>
+              <th style="width: 150px;">班级</th>
+              <th>课程</th>
+              <th style="width: 170px;">姓名 / 学号</th>
+              <th class="ta-c" style="width: 100px;">迟/退/旷</th>
+              <th style="width: 180px;">节次与教室</th>
+              <th style="width: 120px;">任课教师</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="ver in reportVersions" :key="ver.id">
-              <td class="cell-mono fw-600">{{ formatVersionLabel(ver) }}</td>
-              <td class="cell-mono cell-sub">
-                {{ ver.generated_at ? ver.generated_at.substring(0, 19).replace('T', ' ') : ver.created_at.substring(0, 19).replace('T', ' ') }}
+            <tr v-for="(d, idx) in filteredDetails" :key="idx">
+              <td class="cell-mono fw-600">{{ d.date_display || d.inspection_date || '—' }}</td>
+              <td>
+                <span class="cell-main fw-600">{{ d.class_name_snapshot || '—' }}</span>
               </td>
               <td>
-                <span class="cell-main">{{ ver.generated_by ? '用户 #' + ver.generated_by : '管理员' }}</span>
-                <span class="cell-sub font-mono role-tag">ADMIN</span>
+                <span class="cell-main">{{ d.course_name || '课堂考勤' }}</span>
               </td>
-              <td class="cell-mono cell-sub">rev_{{ ver.source_revision }}</td>
               <td>
-                <span
-                  class="tag"
-                  :class="{
-                    'tag-green': ver.status === 'PUBLISHED',
-                    'tag-amber': ver.status === 'GENERATING',
-                    'tag-red': ver.status === 'FAILED'
-                  }"
-                >
-                  {{ ver.status === 'PUBLISHED' ? '已发布' : (ver.status === 'GENERATING' ? '生成中' : '失败') }}
+                <div class="cell-main-row">
+                  <span class="cell-main fw-600">{{ d.name }}</span>
+                </div>
+                <div class="cell-sub font-mono">{{ d.student_no }}</div>
+              </td>
+              <td class="ta-c">
+                <span class="tag font-mono" :class="formatDetailTypeBadge(d.attendance_type).cls">
+                  {{ formatDetailTypeBadge(d.attendance_type).label }}
                 </span>
               </td>
-              <td>
-                <span v-if="ver.behind_source" class="tag tag-amber">落后于事实</span>
-                <span v-else class="tag tag-green">最新快照</span>
+              <td class="cell-mono cell-sub">
+                <template v-if="d.start_period">
+                  第 {{ d.start_period }}–{{ d.end_period }} 节
+                </template>
+                <template v-if="d.classroom">
+                  · {{ d.classroom }}
+                </template>
               </td>
-              <td class="cell-sub reason-cell">{{ ver.reason || '例行生成' }}</td>
-              <td class="ta-r">
-                <div class="dl-group">
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    :disabled="!ver.snapshot_available || downloadLoading"
-                    title="下载原始 JSON 快照"
-                    @click="handleDownload(ver.id, 'SNAPSHOT')"
-                  >JSON</button>
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    :disabled="!ver.excel_available || downloadLoading"
-                    title="下载包含汇总、班级、任务、详表与自习表的多 Sheet 周报 Excel"
-                    @click="handleDownload(ver.id, 'EXCEL')"
-                  >周报 XLSX</button>
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    :disabled="!ver.word_available || downloadLoading"
-                    title="下载包含通报概况与详表的完整 Word 周报"
-                    @click="handleDownload(ver.id, 'WORD')"
-                  >周报 DOCX</button>
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    :disabled="!ver.snapshot_available || downloadLoading"
-                    title="下载100%对齐模板的单张独立考勤详表 Word"
-                    @click="handleDownload(ver.id, 'DETAIL_WORD')"
-                  >详表 DOCX</button>
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    :disabled="!ver.snapshot_available || downloadLoading"
-                    title="下载100%对齐模板的4列自习与日常考勤 Excel"
-                    @click="handleDownload(ver.id, 'STUDY_EXCEL')"
-                  >自习 XLSX</button>
-                </div>
+              <td>
+                <span class="cell-sub">{{ d.teacher_name || '—' }}</span>
               </td>
             </tr>
           </tbody>

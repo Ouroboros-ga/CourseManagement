@@ -243,7 +243,7 @@ async function handleViewFile(fileId: string) {
     <header class="page-head">
       <h1>学生考勤异议处理</h1>
       <p class="sub">
-        处理学生对考勤结果提出的异议申诉。终审裁决将同步更正考勤最终事实、递增版本编号、写入操作人审计日志并刷新学院周报。
+        处理学生对考勤结果提出的异议申诉。终审裁决将同步更正考勤最终事实、递增版本编号、写入操作人审计日志并刷新到课率与考勤详表。
       </p>
     </header>
 
@@ -580,10 +580,10 @@ async function handleViewFile(fileId: string) {
             <!-- 步骤 4 -->
             <div class="tl-item" :class="{ done: activeObjection.final_status !== 'PENDING' }">
               <div class="tl-head">
-                <span class="tl-title">考勤事实与周报快照同步</span>
+                <span class="tl-title">考勤事实与考勤数据同步</span>
               </div>
               <div class="tl-body">
-                终审通过后自动写入新考勤版本，触发学院考勤周报标记最新修订号（behind_source 同步更新）
+                终审通过后自动写入新考勤版本，触发全院到课率与考勤详表即时更新
               </div>
             </div>
           </div>
