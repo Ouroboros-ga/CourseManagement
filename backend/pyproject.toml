@@ -23,6 +23,8 @@ dependencies = [
     "python-multipart>=0.0.9,<0.1", # 表单/文件上传解析
     "httpx>=0.27,<1.0",            # 微信 code2session 出站调用 (P2)，运行时依赖
     "python-docx>=1.1,<2.0",
+    "alibabacloud-oss-v2>=1.2,<2",
+    "alibabacloud-credentials>=0.3.5,<1",
 ]
 
 [dependency-groups]

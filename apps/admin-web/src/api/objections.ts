@@ -143,6 +143,4 @@ export async function finalReviewObjection(
   })
 }
 
-export async function getFileAccess(fileId: string | number): Promise<FileAccessInfo> {
-  return request<FileAccessInfo>(`/api/v1/files/${fileId}/access`)
-}
+export { getFileAccess } from './files'

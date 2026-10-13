@@ -9,12 +9,15 @@
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.common.responses import success
+from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.exceptions import AppError, ErrorCode
 from app.modules.file.schemas import FileAccessResponse
 from app.modules.file.service import FileService
 from app.modules.identity.deps import BindingCompleteDep, CurrentUserDep
@@ -34,14 +37,17 @@ def _rid(request: Request) -> str | None:
 
 
 @router.post("/files")
-async def upload_file(
+def upload_file(
     request: Request,
     actor: BindingCompleteDep,
     service: ServiceDep,
     file: Annotated[UploadFile, File()],
     category: Annotated[str, Form()],
 ) -> dict[str, object]:
-    content = await file.read()
+    # 同步数据库与 OSS 调用在 FastAPI 线程池运行，不阻塞事件循环。
+    content = file.file.read(get_settings().file_max_bytes + 1)
+    if len(content) > get_settings().file_max_bytes:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "文件超过大小限制", http_status=422)
     result = service.upload(
         actor,
         category=category,
@@ -72,11 +78,10 @@ def download_file(
     sig: Annotated[str, Query(min_length=1)],
 ) -> Response:
     data, content_type, filename = service.download(file_id, expires, sig)
-    headers = {}
+    headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
     if filename:
         # 文件名仅展示用，对象键为服务端随机，绝不以原文件名作路径。
-        safe = filename.replace('"', "")
-        headers["Content-Disposition"] = f'inline; filename="{safe}"'
+        headers["Content-Disposition"] = f"inline; filename*=UTF-8''{quote(filename, safe='')}"
     return Response(content=data, media_type=content_type, headers=headers)
 
 

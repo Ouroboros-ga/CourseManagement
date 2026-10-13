@@ -5,10 +5,11 @@
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -72,9 +73,7 @@ class Settings(BaseSettings):
     binding_token_max_failed: int = Field(default=5, alias="BINDING_TOKEN_MAX_FAILED")
 
     # ---- 导入（预览→确认两步、整批原子）----
-    import_preview_ttl_minutes: int = Field(
-        default=30, alias="IMPORT_PREVIEW_TTL_MINUTES"
-    )
+    import_preview_ttl_minutes: int = Field(default=30, alias="IMPORT_PREVIEW_TTL_MINUTES")
     import_max_rows: int = Field(default=5000, alias="IMPORT_MAX_ROWS")
 
     # ---- 查课任务与排班（P4）----
@@ -88,14 +87,10 @@ class Settings(BaseSettings):
     # 中国校区单时区，偏移仅作基础设施换算，可按部署环境覆盖，不是业务制度数值。
     app_utc_offset_hours: float = Field(default=8.0, alias="APP_UTC_OFFSET_HOURS")
     # 有界同步生成：单次生成计划的任务数超此上限时在写入前拒绝，提示缩小选择范围。
-    inspection_generate_max_tasks: int = Field(
-        default=2000, alias="INSPECTION_GENERATE_MAX_TASKS"
-    )
+    inspection_generate_max_tasks: int = Field(default=2000, alias="INSPECTION_GENERATE_MAX_TASKS")
     # 排班软约束：单个志愿者单个查课日的最大受派任务数，0 表示不限（默认）。
     # 属可配置运行参数而非学校制度，硬约束（时间冲突/本班回避/资格）始终强制。
-    assignment_max_tasks_per_day: int = Field(
-        default=0, ge=0, alias="ASSIGNMENT_MAX_TASKS_PER_DAY"
-    )
+    assignment_max_tasks_per_day: int = Field(default=0, ge=0, alias="ASSIGNMENT_MAX_TASKS_PER_DAY")
     # 自然周（周一至周日）的硬上限；学期历史公平负载不抵扣本周名额。
     assignment_max_tasks_per_week: int = Field(
         default=0, ge=0, alias="ASSIGNMENT_MAX_TASKS_PER_WEEK"
@@ -113,18 +108,19 @@ class Settings(BaseSettings):
         default="local", alias="FILE_STORAGE_BACKEND"
     )
     # 本地存储根目录（dev/test 无对象存储时的可插拔后端；生产可切 object 适配器）。
-    file_local_storage_dir: str = Field(
-        default=".local_files", alias="FILE_LOCAL_STORAGE_DIR"
-    )
+    file_local_storage_dir: str = Field(default=".local_files", alias="FILE_LOCAL_STORAGE_DIR")
+    oss_bucket: str = Field(default="", alias="OSS_BUCKET")
+    oss_region: str = Field(default="", alias="OSS_REGION")
+    oss_endpoint: str = Field(default="", alias="OSS_ENDPOINT")
+    oss_role_name: str = Field(default="", alias="OSS_ROLE_NAME")
+    oss_timeout_seconds: float = Field(default=15, gt=0, le=120, alias="OSS_TIMEOUT_SECONDS")
     file_max_bytes: int = Field(default=10 * 1024 * 1024, alias="FILE_MAX_BYTES")
-    file_max_files_per_submission: int = Field(
-        default=5, alias="FILE_MAX_FILES_PER_SUBMISSION"
-    )
+    file_max_files_per_submission: int = Field(default=5, alias="FILE_MAX_FILES_PER_SUBMISSION")
     file_allowed_extensions: str = Field(
         default="jpg,jpeg,png,webp", alias="FILE_ALLOWED_EXTENSIONS"
     )
     file_signed_url_ttl_seconds: int = Field(
-        default=300, alias="FILE_SIGNED_URL_TTL_SECONDS"
+        default=300, ge=1, alias="FILE_SIGNED_URL_TTL_SECONDS"
     )
     # 图像像素上限（防解码炸弹）：以纯解析器读头得宽高乘积判定，V1.0 不引入重型解码库。
     file_max_image_pixels: int = Field(default=40_000_000, alias="FILE_MAX_IMAGE_PIXELS")
@@ -138,16 +134,12 @@ class Settings(BaseSettings):
     file_retention_report_file_days: int = Field(
         default=365, alias="FILE_RETENTION_REPORT_FILE_DAYS"
     )
-    file_retention_temp_days: int = Field(
-        default=1, alias="FILE_RETENTION_TEMP_DAYS"
-    )
+    file_retention_temp_days: int = Field(default=1, alias="FILE_RETENTION_TEMP_DAYS")
     file_retention_import_file_days: int = Field(
         default=30, alias="FILE_RETENTION_IMPORT_FILE_DAYS"
     )
     # 保留策略版本：随任一保留期配置调整而人工递增，固化进 file_object 以便审计追溯。
-    file_retention_policy_version: int = Field(
-        default=1, alias="FILE_RETENTION_POLICY_VERSION"
-    )
+    file_retention_policy_version: int = Field(default=1, alias="FILE_RETENTION_POLICY_VERSION")
 
     # ---- 异议（P6，技术方案 14、PERMISSIONS.md 8）----
     # 均为"上线部署参数"而非写死的学院制度（DEVELOPMENT_PLAN §6 冻结纪律）：
@@ -165,9 +157,7 @@ class Settings(BaseSettings):
     report_rule_version: int = Field(default=1, alias="REPORT_RULE_VERSION")
     report_template_version: int = Field(default=1, alias="REPORT_TEMPLATE_VERSION")
     # 有界生成：一致性快照命中的符合条件任务数超此上限时在写入前拒绝，避免超大聚合拖垮同步线程。
-    report_generate_max_tasks: int = Field(
-        default=5000, alias="REPORT_GENERATE_MAX_TASKS"
-    )
+    report_generate_max_tasks: int = Field(default=5000, alias="REPORT_GENERATE_MAX_TASKS")
     # 中断接管：GENERATING 版本停留超此秒数视为中断，后续请求可带新 attempt_token 接管重试；
     # 未超则拒绝并发重复生成（有界并发）。属运行时参数，非业务制度。
     report_generate_takeover_stale_seconds: int = Field(
@@ -176,6 +166,21 @@ class Settings(BaseSettings):
 
     # ---- 日志 ----
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+
+    @model_validator(mode="after")
+    def validate_object_storage(self) -> Settings:
+        if self.file_storage_backend == "object":
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", self.oss_bucket):
+                raise ValueError("object 存储必须配置合法 OSS_BUCKET")
+            if not re.fullmatch(r"[a-z0-9-]+", self.oss_region):
+                raise ValueError("object 存储必须配置 OSS_REGION")
+            allowed = {
+                f"https://oss-{self.oss_region}.aliyuncs.com",
+                f"https://oss-{self.oss_region}-internal.aliyuncs.com",
+            }
+            if self.oss_endpoint not in allowed:
+                raise ValueError("OSS_ENDPOINT 必须是匹配地域的 HTTPS OSS 内网或外网地址")
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

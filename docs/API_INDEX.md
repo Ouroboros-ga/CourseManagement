@@ -95,7 +95,7 @@
 | `GET` | `/api/v1/management/submissions/{submission_id}` | 管理审核提交详情 (`get_management_submission`) | `submission.review` + 管理角色 | 任务快照、异常项、照片文件 ID |
 | `POST` | `/api/v1/submissions/{submission_id}/review` | 审核提交 (`review_submission`) | `submission.review` | 服务端按业务资源／角色复核 |
 | `PATCH` | `/api/v1/inspection-tasks/{task_id}/expected-count` | 调整当前应到人数 (`update_expected_count`) | `attendance.expected_count_adjust` | 服务端按业务资源／角色复核 |
-| `POST` | `/api/v1/files` | 上传材料 (`upload_file`) | `登录＋绑定完成；类别校验` | 服务端按业务资源／角色复核 |
+| `POST` | `/api/v1/files` | 上传材料 (`upload_file`) | `登录＋绑定完成；类别校验` | 后端代理至 local/OSS；存储成功后建 READY，OSS 故障 503 |
 | `GET` | `/api/v1/files/{file_id}/access` | 获取短时访问链接 (`get_file_access`) | `登录＋父资源可见` | 服务端按业务资源／角色复核 |
 | `GET` | `/api/v1/files/{file_id}/download` | 签名下载材料 (`download_file`) | `有效 HMAC 签名及期限` | 服务端按业务资源／角色复核 |
 | `GET` | `/api/v1/me/attendance` | 本人考勤 (`list_my_attendance`) | `attendance.read` | 仅绑定学生本人 |

@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
+import AppIcon from '../components/AppIcon.vue'
+import { useFileAccess } from '../composables/useFileAccess'
 import {
   listObjections,
   initialReviewObjection,
   finalReviewObjection,
-  getFileAccess,
   type ObjectionItem,
   type ObjectionFinalStatus,
   type ObjectionInitialStatus
@@ -224,18 +225,113 @@ async function handleFinalReview() {
 
 // 查看证明材料附件
 async function handleViewFile(fileId: string) {
+  const popup = window.open('', '_blank')
+  if (popup) popup.opener = null
   try {
-    const access = await getFileAccess(fileId)
-    if (access && access.url) {
-      window.open(access.url, '_blank')
-    } else {
-      ElMessage.warning('未能获取文件访问链接')
-    }
+    const url = await getFileUrl(fileId)
+    if (popup) popup.location.href = url
+    else ElMessage.warning('浏览器阻止了新窗口，请允许弹窗后重试')
   } catch (err: unknown) {
+    popup?.close()
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '获取证明材料链接失败'
     ElMessage.error(msg)
   }
 }
+
+// ---------------- 证明材料：内嵌缩略图 + 灯箱预览 ----------------
+const fileContext = computed(() => `${sessionStore.currentUser?.user_id || ''}:${activeObjection.value?.id || ''}`)
+const { urls: fileUrlMap, getUrl: getFileUrl, invalidate: invalidateFileUrl } = useFileAccess(fileContext)
+const fileImgError = ref<Record<string, boolean>>({})
+const lightboxIndex = ref<number | null>(null)
+
+// 选中异议变化时预取全部附件签名链接，用于内嵌图片预览
+watch(
+  fileContext,
+  async (_, __, onCleanup) => {
+    let cancelled = false
+    onCleanup(() => { cancelled = true })
+    lightboxIndex.value = null
+    fileImgError.value = {}
+    const fids = activeObjection.value?.file_ids || []
+    await Promise.allSettled(
+      fids.map(async fid => {
+        try {
+          if (!cancelled) await getFileUrl(fid)
+        } catch {
+          // 预取失败时回退为「新窗口打开」按钮
+        }
+      })
+    )
+  },
+  { immediate: true }
+)
+
+const lightboxUrl = computed<string | null>(() => {
+  const fids = activeObjection.value?.file_ids || []
+  if (lightboxIndex.value === null) return null
+  const fid = fids[lightboxIndex.value]
+  return fid ? (fileUrlMap.value[fid] || null) : null
+})
+
+// 点击缩略图：图片可用则进灯箱，否则回退新窗口打开
+async function handleProofClick(fid: string, index: number) {
+  const context = fileContext.value
+  try {
+    await getFileUrl(fid)
+    if (context !== fileContext.value) return
+    fileImgError.value[fid] = false
+    lightboxIndex.value = index
+  } catch (err: unknown) {
+    if (context !== fileContext.value) return
+    ElMessage.error(err instanceof Error ? err.message : '获取证明材料链接失败')
+  }
+}
+
+function closeLightbox() {
+  lightboxIndex.value = null
+}
+
+function stepLightbox(delta: number) {
+  const total = activeObjection.value?.file_ids?.length || 0
+  if (lightboxIndex.value === null || total === 0) return
+  lightboxIndex.value = (lightboxIndex.value + delta + total) % total
+}
+
+function onProofImgError(fid: string) {
+  fileImgError.value[fid] = true
+  invalidateFileUrl(fid)
+}
+
+function onLightboxImgError() {
+  const fid = activeObjection.value?.file_ids?.[lightboxIndex.value ?? -1]
+  if (fid) onProofImgError(fid)
+}
+
+function openLightboxOriginal() {
+  const fid = activeObjection.value?.file_ids?.[lightboxIndex.value ?? -1]
+  if (fid) void handleViewFile(fid)
+}
+
+watch(lightboxIndex, async index => {
+  const fid = activeObjection.value?.file_ids?.[index ?? -1]
+  if (!fid) return
+  try {
+    await getFileUrl(fid)
+  } catch {
+    // 打开材料时已有错误反馈；图片失败保留人工重试入口。
+  }
+})
+
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (lightboxIndex.value === null) return
+  if (e.key === 'Escape') closeLightbox()
+  else if (e.key === 'ArrowLeft') stepLightbox(-1)
+  else if (e.key === 'ArrowRight') stepLightbox(1)
+}
+
+onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
+
 </script>
 
 <template>
@@ -419,18 +515,37 @@ async function handleViewFile(fileId: string) {
             <div class="f-reason">
               “{{ activeObjection.reason || '无文字事由说明' }}”
             </div>
-            <div class="f-files" v-if="activeObjection.file_ids && activeObjection.file_ids.length > 0">
-              <button
-                v-for="(fid, i) in activeObjection.file_ids"
-                :key="fid"
-                class="f-link"
-                @click="handleViewFile(fid)"
-              >
-                ▣ 证明附件 {{ i + 1 }} (ID: {{ fid }})
-              </button>
+            <div v-if="activeObjection.file_ids && activeObjection.file_ids.length > 0" class="proof-zone">
+              <div class="proof-grid">
+                <button
+                  v-for="(fid, i) in activeObjection.file_ids"
+                  :key="fid"
+                  type="button"
+                  class="proof-thumb"
+                  :title="'附件 ' + (i + 1) + ' · 点击放大预览'"
+                  @click="handleProofClick(fid, i)"
+                >
+                  <img
+                    v-if="fileUrlMap[fid] && !fileImgError[fid]"
+                    :src="fileUrlMap[fid]"
+                    :alt="'证明附件 ' + (i + 1)"
+                    loading="lazy"
+                    @error="onProofImgError(fid)"
+                  />
+                  <span v-else class="proof-fallback">
+                    <AppIcon name="camera" :size="15" />
+                    <span class="font-mono">附件 {{ i + 1 }}</span>
+                  </span>
+                  <span class="proof-zoom"><AppIcon name="search" :size="11" /></span>
+                </button>
+              </div>
+              <div class="proof-hint">
+                共 {{ activeObjection.file_ids.length }} 份证明材料 · 点击缩略图放大查看，支持 ← → 键切换
+              </div>
             </div>
-            <div v-else class="cell-sub font-mono" style="font-size: 11px">
-              无证明材料附件
+            <div v-else class="proof-empty">
+              <AppIcon name="camera" :size="14" />
+              <span>未附证明材料</span>
             </div>
           </div>
 
@@ -590,6 +705,48 @@ async function handleViewFile(fileId: string) {
         </div>
       </main>
     </div>
+
+    <!-- 证明材料灯箱 -->
+    <teleport to="body">
+      <div v-if="lightboxIndex !== null && activeObjection" class="lightbox" @click.self="closeLightbox">
+        <button type="button" class="lb-close" title="关闭（Esc）" @click="closeLightbox">
+          <AppIcon name="close" :size="17" />
+        </button>
+        <button
+          v-if="(activeObjection.file_ids?.length || 0) > 1"
+          type="button"
+          class="lb-nav prev"
+          title="上一份（←）"
+          @click.stop="stepLightbox(-1)"
+        >‹</button>
+        <div class="lb-body">
+          <div class="lb-frame">
+            <img v-if="lightboxUrl" :src="lightboxUrl" alt="证明材料大图" @error="onLightboxImgError" />
+            <div v-else class="lb-broken">附件暂无法内嵌预览</div>
+          </div>
+          <div class="lb-meta">
+            <span class="font-mono">附件 {{ lightboxIndex + 1 }} / {{ activeObjection.file_ids?.length || 0 }}</span>
+            <span class="lb-dot">·</span>
+            <span>OBJ-#{{ activeObjection.id }}</span>
+            <span class="lb-dot">·</span>
+            <span>{{ activeObjection.student_name || '学生 #' + activeObjection.student_id }} 提交的申诉证明</span>
+            <button
+              v-if="lightboxUrl"
+              type="button"
+              class="lb-open"
+              @click.stop="openLightboxOriginal"
+            >新窗口打开原图</button>
+          </div>
+        </div>
+        <button
+          v-if="(activeObjection.file_ids?.length || 0) > 1"
+          type="button"
+          class="lb-nav next"
+          title="下一份（→）"
+          @click.stop="stepLightbox(1)"
+        >›</button>
+      </div>
+    </teleport>
   </div>
 </template>
 
@@ -712,10 +869,10 @@ async function handleViewFile(fileId: string) {
 .obj-sub-class { font-size: 14px; color: var(--ink-mute); }
 .obj-time { text-align: right; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
 
-/* 三方事实栅格 */
+/* 三方事实栅格：申诉栏加宽以容纳证明缩略图 */
 .fact-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 0.85fr 1.3fr 1fr;
   gap: 1px;
   background: var(--line);
   border: 1px solid var(--line);
@@ -736,20 +893,174 @@ async function handleViewFile(fileId: string) {
 .ok-label { color: var(--green); }
 .f-main { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
 .f-bad { font-size: 12px; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
-.f-reason { font-size: 12px; color: var(--ink-soft); line-height: 1.5; margin-bottom: 8px; font-style: italic; }
-.f-files { display: flex; flex-direction: column; gap: 4px; }
-.f-link {
-  border: none;
-  background: none;
-  padding: 0;
-  font-size: 12px;
-  font-family: inherit;
-  color: var(--blue);
-  font-weight: 600;
-  cursor: pointer;
-  text-align: left;
+.f-reason { font-size: 12px; color: var(--ink-soft); line-height: 1.5; margin-bottom: 10px; font-style: italic; }
+
+/* ---------- 证明材料缩略图 ---------- */
+.proof-zone { margin-top: 2px; }
+.proof-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
-.f-link:hover { text-decoration: underline; }
+.proof-thumb {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--paper-deep);
+  padding: 0;
+  cursor: zoom-in;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.proof-thumb:hover {
+  border-color: var(--ink);
+  box-shadow: 0 2px 8px rgba(28, 27, 26, 0.12);
+}
+.proof-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.proof-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  color: var(--ink-mute);
+  font-size: 10px;
+}
+.proof-zoom {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  background: rgba(28, 27, 26, 0.72);
+  color: #faf8f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.proof-thumb:hover .proof-zoom { opacity: 1; }
+.proof-hint {
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--ink-mute);
+  line-height: 1.5;
+}
+.proof-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink-mute);
+  font-size: 11px;
+}
+
+/* ---------- 证明材料灯箱 ---------- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(28, 27, 26, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px;
+}
+.lb-body {
+  max-width: min(880px, 86vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.lb-frame {
+  max-height: 76vh;
+  border: 1px solid rgba(250, 248, 245, 0.25);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: rgba(250, 248, 245, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lb-frame img {
+  max-width: 100%;
+  max-height: 76vh;
+  display: block;
+  object-fit: contain;
+}
+.lb-broken {
+  padding: 60px 40px;
+  color: rgba(250, 248, 245, 0.6);
+  font-size: 13px;
+}
+.lb-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(250, 248, 245, 0.75);
+  font-size: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.lb-dot { opacity: 0.4; }
+.lb-open {
+  margin-left: 10px;
+  background: none;
+  border: 1px solid rgba(250, 248, 245, 0.35);
+  color: rgba(250, 248, 245, 0.85);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lb-open:hover { background: rgba(250, 248, 245, 0.12); }
+.lb-close {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(250, 248, 245, 0.35);
+  background: transparent;
+  color: rgba(250, 248, 245, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lb-close:hover { background: rgba(250, 248, 245, 0.12); }
+.lb-nav {
+  flex-shrink: 0;
+  width: 40px;
+  height: 64px;
+  border: 1px solid rgba(250, 248, 245, 0.3);
+  border-radius: var(--radius);
+  background: transparent;
+  color: rgba(250, 248, 245, 0.85);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lb-nav:hover { background: rgba(250, 248, 245, 0.12); }
 .f-ok-note { font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
 .f-meta { font-size: 11px; margin-top: 6px; }
 .initial-actions { display: flex; gap: 8px; margin-top: 8px; }
@@ -868,5 +1179,8 @@ async function handleViewFile(fileId: string) {
 @media (max-width: 1100px) {
   .obj-layout { grid-template-columns: 1fr; }
   .fact-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .lb-nav { display: none; }
 }
 </style>
