@@ -1,5 +1,14 @@
 # 后端 API 契约（身份、基础数据、导入、查课、提交、考勤、异议、统计与版本化周报）
 
+## 2026-10-13 更新：学生考勤异议一次审核
+
+本节替代旧初核/终审两阶段说明。`POST /api/v1/objections/{id}/review` 使用原 `ObjectionFinalReviewRequest`：decision=APPROVED/REJECTED，current_version 必填；通过须提供 final_type，备注选填。学生负责人、教师管理员、超级管理员默认具有 `objection.final_review`；更正考勤仍需 `attendance.correct`。批准在同一事务更正考勤、追加 OBJECTION_FINAL 版本、记录审核人及审计、推进报表源修订。考勤版本冲突与重复审核仍返回 409。
+
+`final_status` 为唯一处理状态：PENDING/APPROVED/REJECTED，分别对应待审核/审核通过/审核驳回。列表支持 final_status 与分页，响应增加 final_reviewed_username 和 final_reviewed_display_name，审核人 ID 仍为字符串。旧 initial_* 字段仅保留历史，不是待办步骤；旧 initial-review 入口返回 409 STATE_CONFLICT 提示刷新客户端，旧 final-review 兼容一次审核事务。
+
+已有数据库发布前执行 Alembic 181729fc7239，或按标准 seed 同步默认角色权限。此次未执行线上迁移。
+
+
 | 项目 | 内容 |
 |---|---|
 | 日期 | 2026-09-27（按当前代码修订） |

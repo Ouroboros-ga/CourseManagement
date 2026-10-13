@@ -1,5 +1,10 @@
 # API 路由索引
 
+## 2026-10-13 更新：一次异议审核入口
+
+新增 `POST /api/v1/objections/{objection_id}/review`，入口权限 objection.final_review，更正时同时校验 attendance.correct，学生负责人默认获授。旧 final-review 标记 deprecated 并复用同一事务；旧 initial-review 标记 deprecated，返回 409 STATE_CONFLICT，不再形成独立审核阶段。审核人账号展示字段、四种列表筛选语义及迁移见 API_CONTRACT.md 的本次更新。
+
+
 截至 2026-09-29 的代码快照：由 `backend/app/main.py` 注册路由的 OpenAPI 导出核对，共 **92 个路径、112 个操作**。完整请求／响应 schema 见 [openapi.json](./openapi.json)；业务语义见 [API_CONTRACT.md](./API_CONTRACT.md)，角色权限矩阵与数据范围原则见 [PERMISSIONS.md](./PERMISSIONS.md) 第 12 节及 [PERMISSIONS_IMPLEMENTATION.md](./PERMISSIONS_IMPLEMENTATION.md)。本表的权限栏列入口守卫或服务层组合条件；具体可见行、历史快照与防枚举规则由对应 Service 决定。`/api/v1` 是业务前缀，`/health` 是健康检查。OpenAPI 由当前本地代码导出；部分运行时响应信封、鉴权或业务错误并未完整反映在 schema 中，冲突时以实际路由／Service 与 [API_CONTRACT.md](./API_CONTRACT.md) 为准。它不能代替生产联调或验收。
 
 周报边界：V1 仅允许 `scope=COLLEGE`，`CLASS` 请求返回 422，不产生冒称班级的全院报表。周报业务内容仅为考勤汇总；任务总数、未完成、逾期清单属于独立统计接口。影响考勤汇总的有效变更推进周报源修订，任务新建、取消及逾期结算本身不推进。`GET /reports` 已提供学院周报主记录发现；固定格式 Word 仍待实现。生成超规模会先留下 `GENERATING` 记录，再转 `FAILED`，版本号保留。

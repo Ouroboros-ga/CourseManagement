@@ -62,6 +62,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "submission_deadline.read",
         "attendance.read",
         "attendance.correct",
+        "objection.final_review",
         "attendance.expected_count_adjust",
         "submission.read",
         "submission.review",

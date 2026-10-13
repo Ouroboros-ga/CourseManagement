@@ -55,6 +55,8 @@ export interface ObjectionItem {
   initial_comment?: string | null
   final_status: ObjectionFinalStatus
   final_reviewed_by?: string | null
+  final_reviewed_username?: string | null
+  final_reviewed_display_name?: string | null
   final_reviewed_at?: string | null
   final_comment?: string | null
   final_attendance_type?: ObjectionType | null
@@ -137,7 +139,7 @@ export async function finalReviewObjection(
     current_version: number
   }
 ): Promise<ObjectionItem> {
-  return request<ObjectionItem>(`/api/v1/objections/${objectionId}/final-review`, {
+  return request<ObjectionItem>(`/api/v1/objections/${objectionId}/review`, {
     method: 'POST',
     body: JSON.stringify(body)
   })

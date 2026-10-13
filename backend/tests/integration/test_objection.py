@@ -429,7 +429,7 @@ def _initial_url(oid: int) -> str:
 
 
 def _final_url(oid: int) -> str:
-    return f"{_OBJS}/{oid}/final-review"
+    return f"{_OBJS}/{oid}/review"
 
 
 def _create_objection(client, sh, record_id, *, desired, reason="情况属实有误", **kw) -> dict:
@@ -607,7 +607,7 @@ def test_objection_proof_access_follows_review_permission_and_ownership(
 
     sam = _make_user(session, "proof-reviewer", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
     sam_h = _bearer(_login(client, "proof-reviewer"))
-    assert client.get(url, headers=sam_h).status_code == 404
+    assert client.get(url, headers=sam_h).status_code == 200
     grant = client.put(
         f"/api/v1/users/{sam.id}/optional-permissions/objection.initial_review",
         headers=h,
@@ -622,7 +622,7 @@ def test_objection_proof_access_follows_review_permission_and_ownership(
         json={"enabled": False, "lockVersion": sam.lock_version, "reason": "收回初核"},
     )
     assert revoke.status_code == 200, revoke.text
-    assert client.get(url, headers=sam_h).status_code == 404
+    assert client.get(url, headers=sam_h).status_code == 200
 
 
 # --------------------------------------------------------------------------- #
@@ -657,14 +657,14 @@ def test_detail_anti_enumeration_404(client: TestClient, session: Session) -> No
     assert client.get(f"{_OBJS}/{oid}", headers=h).status_code == 200
 
 
-def test_sam_default_cannot_read_403(client: TestClient, session: Session) -> None:
+def test_sam_default_can_read(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     _open_objection(client, h, session, sc, which="s2")
     _make_user(session, "sam", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
     sam = _bearer(_login(client, "sam"))
     r = client.get(_OBJS, headers=sam)
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
 
 
 def test_unbound_student_cannot_list_all_objections(client: TestClient, session: Session) -> None:
@@ -682,7 +682,7 @@ def test_sam_derived_read_after_initial_review_grant(client: TestClient, session
     _open_objection(client, h, session, sc, which="s2")
     sam = _make_user(session, "sam", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
     sam_h = _bearer(_login(client, "sam"))
-    assert client.get(_OBJS, headers=sam_h).status_code == 403  # 默认无读取路径
+    assert client.get(_OBJS, headers=sam_h).status_code == 200  # 默认一次审核权限派生管理读取
     # 超管授予可选 objection.initial_review → 派生管理读取。
     r = client.put(
         f"/api/v1/users/{sam.id}/optional-permissions/objection.initial_review",
@@ -694,7 +694,7 @@ def test_sam_derived_read_after_initial_review_grant(client: TestClient, session
     sam_h2 = _bearer(_login(client, "sam"))
     listed = client.get(_OBJS, headers=sam_h2).json()["data"]
     assert listed["total"] == 1  # 管理范围
-    # 关闭初核 → 失去派生读取来源。
+    # 关闭旧初核权限不影响默认一次审核权限。
     after = session.execute(select(UserAccount).where(UserAccount.id == sam.id)).scalar_one()
     session.refresh(after)
     r2 = client.put(
@@ -704,7 +704,7 @@ def test_sam_derived_read_after_initial_review_grant(client: TestClient, session
     )
     assert r2.status_code == 200, r2.text
     sam_h3 = _bearer(_login(client, "sam"))
-    assert client.get(_OBJS, headers=sam_h3).status_code == 403
+    assert client.get(_OBJS, headers=sam_h3).status_code == 200
 
 
 # --------------------------------------------------------------------------- #
@@ -719,27 +719,26 @@ def test_initial_review_needs_permission_403(client: TestClient, session: Sessio
     assert r.status_code == 403, r.text
 
 
-def test_initial_review_pass_keeps_attendance(client: TestClient, session: Session) -> None:
+def test_legacy_initial_review_rejected_without_mutation(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     oid, rid = _open_objection(client, h, session, sc, which="s2", desired="LATE")
     r = client.post(
         _initial_url(oid), headers=h, json={"decision": "PASSED", "comment": "建议支持"}
     )
-    assert r.status_code == 200, r.text
-    assert r.json()["data"]["initial_status"] == ObjectionInitialStatus.PASSED.value
+    assert r.status_code == 409, r.text
     # 初核绝不改考勤：认定仍 NORMAL、版本仍 1。
     rec = _record(session, rid)
     assert rec.effective_type == AttendanceType.NORMAL.value
     assert rec.current_version == 1
-    assert _audit_count(session, "objection.initial_review") == 1
+    assert _audit_count(session, "objection.initial_review") == 0
 
 
 def test_initial_review_twice_conflict_409(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     oid, _ = _open_objection(client, h, session, sc, which="s2")
-    assert client.post(_initial_url(oid), headers=h, json={"decision": "PASSED"}).status_code == 200
+    assert client.post(_initial_url(oid), headers=h, json={"decision": "PASSED"}).status_code == 409
     r = client.post(_initial_url(oid), headers=h, json={"decision": "REJECTED"})
     assert r.status_code == 409, r.text
     assert r.json()["code"] == ErrorCode.STATE_CONFLICT.value
@@ -769,8 +768,7 @@ def test_final_review_approve_corrects_attendance(client: TestClient, session: S
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     oid, rid = _open_objection(client, h, session, sc, which="s2", desired="LATE")
-    # 先初核（可选，终审不强依赖），再终审通过并更正为 LATE。
-    assert client.post(_initial_url(oid), headers=h, json={"decision": "PASSED"}).status_code == 200
+    # 一次审核直接更正为 LATE。
     r = client.post(
         _final_url(oid),
         headers=h,
@@ -866,7 +864,7 @@ def test_final_review_twice_conflict_409(client: TestClient, session: Session) -
     assert r.json()["code"] == ErrorCode.STATE_CONFLICT.value
 
 
-def test_sam_cannot_final_review_403(client: TestClient, session: Session) -> None:
+def test_sam_single_review_rejection(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     oid, _ = _open_objection(client, h, session, sc, which="s2")
@@ -877,16 +875,19 @@ def test_sam_cannot_final_review_403(client: TestClient, session: Session) -> No
         json={"enabled": True, "lockVersion": sam.lock_version, "reason": "初核"},
     )
     sam_h = _bearer(_login(client, "sam"))
-    # 即便被授予初核（派生管理读取），仍无终审权限。
+    # 负责人默认一次审核权限。
     r = client.post(
         _final_url(oid), headers=sam_h, json={"decision": "REJECTED", "current_version": 1}
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["final_reviewed_username"] == "sam"
 
 
 # --------------------------------------------------------------------------- #
 # 并发：同一考勤双人同时创建，恰一成功
 # --------------------------------------------------------------------------- #
+
+
 def _create_worker(
     engine, actor_id: int, sid: int, record_id: int, barrier, out: dict, idx: int
 ) -> None:
