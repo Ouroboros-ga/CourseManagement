@@ -1,5 +1,17 @@
 # 后端本轮验收记录
 
+## 2026-10-13 学生考勤异议一次审核发布
+
+功能提交 `bbfc72c7255de1c315679e1515c623c44cafba48`。入口 `https://course.zsitai.xyz/dashboard/objections`；负责人及以上一次审核，批准更正考勤，驳回保持认定，四类记录显示操作账号。后端仅覆盖 identity/policy、objection/router、schemas、service 与新增权限迁移，继承服务器原有其他代码；没有发布工作区其他任务的修改。
+
+后端指针为 `/opt/course-management/releases/20261013-single-review-bbfc72c`；管理端为 `/opt/course-management/admin-web/releases/20261013-single-review-bbfc72c-preserved`。管理端保留此前 `20261013-01` 的其他页面原始模块，只替换本次构建的异议页和审核 API 模块；依赖引用统一改名防止缓存混用，其他模块通过反向文件名替换核验逻辑保持一致。发布清单分别保存在两个版本目录的 RELEASE_MANIFEST.json。
+
+数据库已由 `b2c3d4e5f6a7` 升至 `181729fc7239`，负责人默认审核权限映射核验为 1 条。备份 `/var/backups/course-management/20261013T154005Z.jGcC7f` 的数据库、材料、配置及发布指针均通过 SHA256 校验。服务 running，重启次数 0；公网 ready 返回 database=up，公网 HTML 与最终静态版本摘要一致，后端补丁文件摘要匹配清单。
+
+本次验证：210 个本地单元测试通过、修改范围 Ruff/Mypy 通过、隔离 Web 构建通过；最终公网静态页面在完全脱敏模拟 API 下通过四类筛选、一次批准/驳回、账号展示、备注选填、BIGINT ID 和桌面/手机交互验证。没有执行生产考勤或异议写入；真实历史记录的进一步本地浏览器验证被自动审批拒绝，故未宣称真实审核端到端验收。MySQL 全量业务集成测试未重跑。现有 inspection 路由生成 OpenAPI 时的重复 operationId 告警仍存在，与本次改动无关。
+
+应用回退：后端指针恢复 `/opt/course-management/releases/20261012-01`，重启 course-management；管理端指针恢复 `/opt/course-management/admin-web/releases/20261013-01`。旧目录与备份保留；数据库权限迁移不要随应用回退盲目 downgrade，应先评估负责人授权与已形成审核历史。
+
 ## 2026-09-30 首次后端上线
 
 已在 `https://course.zsitai.xyz` 部署独立 FastAPI 服务和新建 MySQL 空库，迁移至 `d42a9e6c71b0`。公网 TLS、数据库就绪、Web 登录/Cookie/CSRF、刷新登出、服务重启、最小数据库权限和首次空库备份恢复演练通过。微信登录按用户决定保持关闭；此前完整业务回归未重跑，正式容量压测和真实材料恢复仍待实施。详见 [上线记录](./DEPLOYMENT_20260930.md)。

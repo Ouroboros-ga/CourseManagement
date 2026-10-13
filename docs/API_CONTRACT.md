@@ -6,7 +6,7 @@
 
 `final_status` 为唯一处理状态：PENDING/APPROVED/REJECTED，分别对应待审核/审核通过/审核驳回。列表支持 final_status 与分页，响应增加 final_reviewed_username 和 final_reviewed_display_name，审核人 ID 仍为字符串。旧 initial_* 字段仅保留历史，不是待办步骤；旧 initial-review 入口返回 409 STATE_CONFLICT 提示刷新客户端，旧 final-review 兼容一次审核事务。
 
-已有数据库发布前执行 Alembic 181729fc7239，或按标准 seed 同步默认角色权限。此次未执行线上迁移。
+已有数据库发布前执行 Alembic 181729fc7239，或按标准 seed 同步默认角色权限。2026-10-13 已完成线上迁移及权限核验，见 RELEASE_ACCEPTANCE.md 的本次发布记录。
 
 
 | 项目 | 内容 |
