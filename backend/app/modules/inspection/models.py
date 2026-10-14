@@ -48,6 +48,7 @@ from app.core.database import (
     pk_column,
 )
 from app.core.db import MYSQL_TABLE_ARGS
+from app.modules.organization.ownership_models import CollegeOwned
 
 
 # --------------------------------------------------------------------------- #
@@ -107,7 +108,7 @@ _REVIEW_STATUSES = "('PENDING','APPROVED','REJECTED')"
 # --------------------------------------------------------------------------- #
 # 查课任务
 # --------------------------------------------------------------------------- #
-class InspectionTask(TimestampMixin, Base):
+class InspectionTask(CollegeOwned, TimestampMixin, Base):
     """查课任务。
 
     task_key = 学期 + 实际日期 + 类型 + 完整节次范围 + 目标标识 的稳定串，唯一约束实现

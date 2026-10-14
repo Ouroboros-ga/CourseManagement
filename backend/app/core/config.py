@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     # ---- 应用 ----
     app_env: str = Field(default="dev", alias="APP_ENV")
     debug: bool = Field(default=False, alias="DEBUG")
+    # 配置底座先行，默认关闭；启用不代表旧业务已具备学院隔离。
+    campus_configuration_enabled: bool = Field(default=False, alias="CAMPUS_CONFIGURATION_ENABLED")
+    # 按入口接入；开启后禁止旧基础数据管理/私有读取 URL，学校共享只读目录除外。
+    campus_academic_scoped_enabled: bool = Field(
+        default=False, alias="CAMPUS_ACADEMIC_SCOPED_ENABLED"
+    )
 
     # ---- 数据库 ----
     database_url: str = Field(

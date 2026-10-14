@@ -13,7 +13,9 @@ from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams, page_params
 from app.common.responses import success
+from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.exceptions import PermissionDeniedError
 from app.core.permissions import PermissionCode
 from app.modules.academic.schemas import (
     AdministrativeClassCreateRequest,
@@ -39,7 +41,20 @@ from app.modules.academic.schemas import (
 from app.modules.academic.service import AcademicService
 from app.modules.identity.deps import CurrentUser, require_permission
 
-router = APIRouter(tags=["academic"])
+
+def guard_legacy_academic(request: Request):
+    if not get_settings().campus_academic_scoped_enabled:
+        return
+    # 仅保留显式的学校共享只读目录；缺学院参数不推导成全域权限。
+    shared_reads = {
+        "list_semesters", "get_semester", "list_period_definitions", "list_courses", "get_course"
+    }
+    route = request.scope.get("route")
+    if request.method != "GET" or getattr(route, "name", None) not in shared_reads:
+        raise PermissionDeniedError("请使用包含学院工作区的基础数据入口")
+
+
+router = APIRouter(tags=["academic"], dependencies=[Depends(guard_legacy_academic)])
 
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> AcademicService:

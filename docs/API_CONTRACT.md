@@ -1,11 +1,27 @@
 # 后端 API 契约（身份、基础数据、导入、查课、提交、考勤、异议、统计与版本化周报）
 
+## 院级基础数据接入（2026-10-13，逐入口实施）
+
+需配置及院级基础数据开关同时启用，默认关闭。接口使用 `/api/v1` 前缀和统一信封，对外 ID 为字符串。
+
+| 路径 | 契约 |
+| --- | --- |
+| `/colleges/{cid}/academic/{kind}` | GET，分页及关键词/学期/行政班过滤；返回 `items,total,page,page_size` |
+| `/colleges/{cid}/academic/{kind}/{rid}` | GET，外院和未知归属 404 |
+| `/colleges/{cid}/academic/administrative-classes` | POST，服务端决定学院；未知所有权字段 422 |
+| `/colleges/{cid}/academic/administrative-classes/{rid}` | PATCH，必填 `ownership_version`，陈旧 409；可空字段显式 null 清除，名称/状态不得为 null |
+| `/colleges/{cid}/academic/teaching-classes/{rid}/roster` | GET / PUT；PUT 必填学生 ID 字符串集合与归属版本，范围整批校验、变更和审计同事务 |
+
+kind 为 `administrative-classes/students/teaching-classes/schedules/courses/semesters/qualifications`。课程/学期是学校共享只读目录，其余按学院和父链；资格 GET 无身份副作用。新增院级动作 `academic.read/manage`、`student.read/manage`、`volunteer.read`，不得跨学院拼接；当前 manage 接入行政班及名单写入，其他写入尚未提供。
+
+`CAMPUS_ACADEMIC_SCOPED_ENABLED=true` 拒绝旧 academic 私有/管理及独立课表导出，保留学校共享只读目录。其他模块全链路隔离仍未完成，`business_ready=false`，不得据此开放第二学院正式业务。
+
 | 项目 | 内容 |
 |---|---|
 | 日期 | 2026-09-27（按当前代码修订） |
 | 权限基线 | [PERMISSIONS.md V1.1](./PERMISSIONS.md)（第 12 节 API 映射为权威来源） |
 | 实施对照 | [PERMISSIONS_IMPLEMENTATION.md](./PERMISSIONS_IMPLEMENTATION.md) |
-| 范围 | 描述当前 `main.py` 已注册的 P1–P7 及管理补全 API；P7 统计与版本化周报见附录 F。实际完整路径及 112 个操作见 [API_INDEX.md](./API_INDEX.md)，机器可读 schema 见 [openapi.json](./openapi.json)。管理补全综合回归进行中；正式学校模板与真实微信前端联调仍待验收。 |
+| 范围 | 描述当前 `main.py` 已注册的 P1–P7 及管理补全 API；P7 统计与版本化周报见附录 F。实际完整路径及 152 个操作见 [API_INDEX.md](./API_INDEX.md)，机器可读 schema 见 [openapi.json](./openapi.json)。管理补全综合回归进行中；正式学校模板与真实微信前端联调仍待验收。 |
 | 代码 | `backend/app/modules/identity/{router,service,schemas,repository,wechat,deps}.py`、`backend/app/modules/audit/models.py`、`backend/app/modules/academic/{router,service,schemas,repository,models}.py`、`backend/app/modules/importer/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/inspection/*`、`backend/app/modules/attendance/*`、`backend/app/modules/file/*`、`backend/app/modules/objection/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/report/`、`backend/app/common/parsing/{time_slots,xlsx_tabular}.py` |
 
 ## 1. 通用约定
@@ -420,3 +436,28 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 - `GET /course-schedules/export` 需要 `course_schedule.export`，按学期及可选教学班导出最多 10000 行 XLSX；列为教学班、课程、教师、周次、星期、开始节次、结束节次、教室。当前模型没有任课教师字段，教师列为空；文本列强制字符串以避免公式执行。
 - `GET /reports` 需要 `report.read`，仅列学院记录，支持学期/周次过滤与分页；`latest_version_id/no/created_at` 取最新已发布版本，`source_changed` 比较当前考勤源修订。周报内容只含考勤汇总，`CLASS` 请求 422，固定格式 Word 尚未实现。
 - `GET /audit-logs` 和详情仅 `audit.read`；列表时间窗最多 31 天、每页最多 100 条，按操作者、动作和资源筛选；详情 before/after 使用字段白名单，不返回密码、令牌或证明正文。
+
+
+## 学院配置底座契约（2026-10-13）
+
+默认关闭，迁移 `f26a1013c001` 后可在开发环境启用 `CAMPUS_CONFIGURATION_ENABLED=true`。学院配置说明见 [配置底座](development/CAMPUS_CONFIGURATION_GUIDE.md)，阶段边界见 [实施计划](development/CAMPUS_IMPLEMENTATION_PLAN.md)。
+
+- 新工作区返回学院 ID、有效配置能力、授权/配置修订与 `business_ready=false`；该字段明确旧业务尚未接入。
+- 学校、学院和院级授权仅有效超管可维护；其他账号只按同学院、同动作、有效期完整子句访问，负责人不自动得权。看不到学院/资源返回 404；已有可见范围但缺动作返回 403。
+- 资源 ID 为字符串；路径仅接受合法正 BIGINT。类型和组的 PATCH/DELETE、组配置发布及授权撤销携带 `lock_version`，旧版本 409；未知所有权字段 422。
+- 类型稳定 code 服务端生成，改名不改 ID/code；院内规范化名称唯一，有历史配置引用不能硬删除。组默认草稿，发布不会自动启用。
+- 范围发布必填非空 `course_type_ids`，`class_mode` 当前只支持 `ALL_AUTHORIZED`；冲突规则独立保存，另一受派冲突首期只允许 BLOCK。范围与规则一次发布，版本历史不覆盖；JSON 原样再发布可用，但不接受未支持的指定班级/支援字段。
+- 授权起止 HTTP 时间必须带时区，内部统一 UTC；有效动作白名单为 `academic.course_type.read/manage`、`volunteer.group.read/manage`、`volunteer.member.manage`（接入中）、`volunteer.config.publish`。动作应使用完整 code，read/manage 的范围不能跨院组合。
+- 成功继续返回 `{data, requestId}`，业务错误继续采用统一 envelope；未迁移/未启用时新接口 503。新组和类型不参与旧抽查/排班，不能据配置保存成功认定正式业务验收通过。
+
+### 存量学院归属核对（扩展阶段）
+
+仅服务端复核后的有效超管可使用，受同一配置开关控制。
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /campus/ownership/unresolved/{kind}` | `administrative_class/teaching_class/import_batch/report` 待确认资源；`after_id` 游标，`limit` 1—200 |
+| `POST /campus/ownership/preview` | `mappings` 按资源类型提供 `{资源ID字符串: 学院ID字符串}`，最多 2000 项；返回修订、关联变化、冲突及未确定数量 |
+| `POST /campus/ownership/apply` | 提交相同映射和预览 `revision`；数据/关联/学院变化返回 409，冲突整批拒绝，写入和审计同事务 |
+
+这些接口使用 `/api/v1` 前缀。已确定归属不能通过回填迁院。课表、任务沿完整父链传播，学院文本不自动映射；部分父链未知不当作完整证据。查询或写入后 `business_ready` 仍为 false，不能由回填成功认定旧业务访问隔离完成。

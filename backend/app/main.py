@@ -19,6 +19,7 @@ from app.core.logging import get_logger, setup_logging
 from app.core.middleware import RequestIdMiddleware
 from app.modules.academic.export_router import router as course_export_router
 from app.modules.academic.router import router as academic_router
+from app.modules.academic.scoped_router import router as scoped_academic_router
 from app.modules.attendance.router import router as attendance_router
 from app.modules.audit.router import router as audit_router
 from app.modules.file.router import router as file_router
@@ -27,6 +28,7 @@ from app.modules.identity.router import router as identity_router
 from app.modules.importer.router import router as importer_router
 from app.modules.inspection.router import router as inspection_router
 from app.modules.objection.router import router as objection_router
+from app.modules.organization.router import router as campus_router
 from app.modules.report.listing import router as report_listing_router
 from app.modules.report.router import router as report_router
 
@@ -85,9 +87,11 @@ def create_app() -> FastAPI:
     # 身份与权限路由（阶段 1）。
     app.include_router(identity_router, prefix="/api/v1")
     app.include_router(account_router, prefix="/api/v1")
+    app.include_router(campus_router, prefix="/api/v1")
 
     # 基础数据路由（阶段 3）：学期/节次/校历/行政班/学生/课程/教学班/课表/志愿者资格。
     app.include_router(academic_router, prefix="/api/v1/academic")
+    app.include_router(scoped_academic_router, prefix="/api/v1")
     app.include_router(course_export_router, prefix="/api/v1")
     app.include_router(audit_router, prefix="/api/v1")
 

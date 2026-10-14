@@ -47,6 +47,7 @@ from app.core.database import (
     utcnow,
 )
 from app.core.db import MYSQL_TABLE_ARGS
+from app.modules.organization.ownership_models import CollegeOwned
 
 
 class ReportSourceRevision(Base):
@@ -94,7 +95,7 @@ _REPORT_VERSION_STATUSES = "('GENERATING','PUBLISHED','FAILED')"
 _REPORT_SCOPES = "('COLLEGE','CLASS')"
 
 
-class Report(TimestampMixin, Base):
+class Report(CollegeOwned, TimestampMixin, Base):
     """周报主记录：一份逻辑周报（学期 × 周次 × 范围）一行，存最新版本指针。"""
 
     __tablename__ = "report"

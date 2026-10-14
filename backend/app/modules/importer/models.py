@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import DATETIME_3, Base, TimestampMixin, pk_column
 from app.core.db import MYSQL_TABLE_ARGS
+from app.modules.organization.ownership_models import CollegeOwned
 
 
 class ImportTarget(enum.StrEnum):
@@ -43,7 +44,7 @@ _ALLOWED_TARGET = (
 _ALLOWED_STATUS = "('PREVIEW','CONFIRMED','FAILED','EXPIRED')"
 
 
-class ImportBatch(TimestampMixin, Base):
+class ImportBatch(CollegeOwned, TimestampMixin, Base):
     """一次导入的暂存批次。明文文件不入库，只存解析后的规范结构与统计。"""
 
     __tablename__ = "import_batch"

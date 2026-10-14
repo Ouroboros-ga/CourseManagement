@@ -35,6 +35,7 @@ from app.core.database import (
     pk_column,
 )
 from app.core.db import MYSQL_TABLE_ARGS
+from app.modules.organization.ownership_models import CollegeOwned
 
 
 # --------------------------------------------------------------------------- #
@@ -137,7 +138,7 @@ class CalendarOverride(TimestampMixin, Base):
 # --------------------------------------------------------------------------- #
 # 行政班与学生（在初始迁移的最小字段上扩展）
 # --------------------------------------------------------------------------- #
-class AdministrativeClass(TimestampMixin, Base):
+class AdministrativeClass(CollegeOwned, TimestampMixin, Base):
     """行政班。年级由 grade_year 承载，学生年级随班级派生避免漂移。"""
 
     __tablename__ = "administrative_class"
@@ -200,7 +201,7 @@ class Course(TimestampMixin, Base):
     )
 
 
-class TeachingClass(TimestampMixin, Base):
+class TeachingClass(CollegeOwned, TimestampMixin, Base):
     """教学班：某学期某课程的一个开课班，可面向行政班或选课名单。"""
 
     __tablename__ = "teaching_class"
@@ -245,7 +246,7 @@ class TeachingClassStudent(Base):
 # --------------------------------------------------------------------------- #
 # 课表
 # --------------------------------------------------------------------------- #
-class CourseSchedule(TimestampMixin, Base):
+class CourseSchedule(CollegeOwned, TimestampMixin, Base):
     """课表条目：教学班在一周中的固定上课时段（星期 + 起止大节 + 地点）。"""
 
     __tablename__ = "course_schedule"

@@ -1,0 +1,461 @@
+"""配置事务：最新账号/角色与学院锚点复核，关键事实和审计同事务。"""
+
+import unicodedata
+import uuid
+from datetime import UTC, datetime
+from functools import wraps
+
+from pydantic import ValidationError
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.core.database import utcnow
+from app.core.exceptions import (
+    AppError,
+    ConflictError,
+    ErrorCode,
+    NotFoundError,
+    PermissionDeniedError,
+)
+from app.modules.academic.campus_models import CourseType
+from app.modules.audit.models import AuditLog
+from app.modules.identity.authorization import CAMPUS_ACTIONS, effective_actions
+from app.modules.identity.models import Role, UserAccount, UserRole
+from app.modules.identity.repository import IdentityRepository
+from app.modules.identity.service import CurrentUser
+from app.modules.organization.models import College, School, ScopedGrant
+from app.modules.organization.repository import CampusRepository
+from app.modules.organization.schemas import (
+    CollegeCreate,
+    CollegeUpdate,
+    GrantCreate,
+    GroupCreate,
+    GroupPublish,
+    GroupUpdate,
+    SchoolCreate,
+    TypeCreate,
+    TypeUpdate,
+)
+from app.modules.volunteer.models import GroupConfigVersion, GroupScopeType, VolunteerGroup
+
+
+def normalized_name(name: str) -> str:
+    key = unicodedata.normalize("NFKC", name).strip().casefold()
+    if not key or len(key) > 128:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "规范化后的名称须为 1—128 字符", 422)
+    return key
+
+
+def validated(schema, data):
+    try:
+        return schema.model_validate(data, context={"internal": True})
+    except ValidationError as exc:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "配置格式无效，请检查字段", 422) from exc
+
+
+def atomic_write(method):
+    """内部调用亦回滚失败写，避免同 Session 的后续提交保留部分变更。"""
+
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except Exception:
+            self.db.rollback()
+            raise
+
+    return call
+
+
+class CampusService:
+    def __init__(self, session: Session, request_id: str | None = None):
+        self.db = session
+        self.repo = CampusRepository(session)
+        self.identity = IdentityRepository(session)
+        self.request_id = request_id
+
+    def _actor(self, actor: CurrentUser, *, lock=False) -> bool:
+        user = (
+            self.identity.get_user_by_id_for_update(actor.id)
+            if lock
+            else self.identity.get_user_by_id(actor.id)
+        )
+        if user is None or user.status != "ACTIVE" or actor.pre_binding:
+            raise PermissionDeniedError("账号无效或尚未绑定")
+        roles = (
+            select(Role.code)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == actor.id)
+        )
+        if lock:
+            roles = roles.with_for_update()
+        return "SUPER_ADMIN" in self.db.scalars(roles)
+
+    def _super(self, actor: CurrentUser):
+        if not self._actor(actor, lock=True):
+            raise PermissionDeniedError("仅超级管理员可维护学校、学院和院级授权")
+
+    def _authorize(self, actor, cid, action, *, write=False):
+        is_super = self._actor(actor, lock=write)
+        college = self.repo.college(cid, lock=write)
+        actions = (
+            CAMPUS_ACTIONS
+            if is_super
+            else effective_actions(
+                self.repo.grants(actor.id, college_id=cid, lock=write), cid, utcnow()
+            )
+        )
+        if college is None or not actions:
+            raise NotFoundError()
+        if action not in actions:
+            raise PermissionDeniedError()
+        if write and college.status != "ACTIVE":
+            raise ConflictError(message="学院已停用")
+        return college
+
+    @staticmethod
+    def _version(row, version):
+        if row.lock_version != version:
+            raise ConflictError(ErrorCode.VERSION_CONFLICT, "配置已变化，请刷新后重试")
+
+    def _resource(self, model, cid, rid):
+        row = self.repo.resource(model, cid, rid)
+        if row is None:
+            raise NotFoundError()
+        return row
+
+    def _commit(
+        self, actor, action, row, before=None, *, resource_id=None, resource_type="CourseType"
+    ):
+        try:
+            self.db.flush()
+            after = self._dto(row) if row is not None else None
+            self.db.add(
+                AuditLog(
+                    actor_user_id=actor.id,
+                    action=action,
+                    resource_type=type(row).__name__ if row is not None else resource_type,
+                    resource_id=str(row.id) if row is not None else resource_id,
+                    before_json=before,
+                    after_json=after,
+                    request_id=self.request_id,
+                )
+            )
+            self.db.commit()
+            return after
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise ConflictError(message="名称/编码重复或资源已被引用，无法保存") from exc
+
+    def _dto(self, row):
+        data = {}
+        for column in row.__table__.columns:
+            if column.name in {"normalized_name", "singleton_key"}:
+                continue
+            value = getattr(row, column.name)
+            if value is not None and (
+                column.name == "id"
+                or column.name.endswith("_id")
+                or column.name in {"granted_by", "published_by"}
+                or bool(column.foreign_keys)
+            ):
+                value = str(value)
+            elif isinstance(value, datetime):
+                value = value.replace(tzinfo=UTC).isoformat()
+            elif hasattr(value, "isoformat"):
+                value = value.isoformat()
+            data[column.name] = value
+        if isinstance(row, VolunteerGroup):
+            config = self.db.scalar(
+                select(GroupConfigVersion).where(
+                    GroupConfigVersion.group_id == row.id,
+                    GroupConfigVersion.version == row.config_version,
+                )
+            )
+            data["configuration"] = config.configuration if config else None
+        return data
+
+    def schools(self, actor):
+        self._super(actor)
+        return [self._dto(row) for row in self.db.scalars(select(School).order_by(School.id))]
+
+    @atomic_write
+    def create_school(self, actor, data):
+        body = validated(SchoolCreate, data)
+        self._super(actor)
+        if self.db.scalar(select(School.id).limit(1)) is not None:
+            raise ConflictError(message="当前版本按单学校部署，不创建第二学校")
+        row = School(**body.model_dump())
+        self.db.add(row)
+        return self._commit(actor, "campus.school.create", row)
+
+    @atomic_write
+    def create_college(self, actor, school_id, data):
+        body = validated(CollegeCreate, data)
+        self._super(actor)
+        if self.db.get(School, school_id) is None:
+            raise NotFoundError()
+        row = College(school_id=school_id, **body.model_dump())
+        self.db.add(row)
+        return self._commit(actor, "campus.college.create", row)
+
+    @atomic_write
+    def update_college(self, actor, cid, data):
+        body = validated(CollegeUpdate, data)
+        self._super(actor)
+        row = self.repo.college(cid, lock=True)
+        if row is None:
+            raise NotFoundError()
+        self._version(row, body.lock_version)
+        before = self._dto(row)
+        for key, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
+            if key != "lock_version":
+                setattr(row, key, value)
+        row.lock_version += 1
+        row.authorization_revision += 1
+        return self._commit(actor, "campus.college.update", row, before)
+
+    def workspaces(self, actor):
+        is_super = self._actor(actor)
+        grants = self.repo.grants(actor.id)
+        result = []
+        for college in self.db.scalars(select(College).order_by(College.id)):
+            actions = (
+                CAMPUS_ACTIONS if is_super else effective_actions(grants, college.id, utcnow())
+            )
+            if actions:
+                data = self._dto(college)
+                data["capabilities"] = (
+                    sorted(actions)
+                    if college.status == "ACTIVE"
+                    else sorted(action for action in actions if action.endswith(".read"))
+                )
+                data["business_ready"] = False
+                result.append(data)
+        return result
+
+    def capabilities(self, actor, cid):
+        for workspace in self.workspaces(actor):
+            if workspace["id"] == str(cid):
+                return workspace
+        raise NotFoundError()
+
+    def list_grants(self, actor, cid):
+        self._super(actor)
+        if self.repo.college(cid) is None:
+            raise NotFoundError()
+        return [self._dto(row) for row in self.repo.rows(ScopedGrant, cid)]
+
+    @atomic_write
+    def create_grant(self, actor, cid, data):
+        body = validated(GrantCreate, data)
+        self._super(actor)
+        college = self.repo.college(cid, lock=True)
+        if college is None:
+            raise NotFoundError()
+        if college.status != "ACTIVE":
+            raise ConflictError(message="学院已停用")
+        target = self.db.get(UserAccount, int(body.user_id))
+        if target is None or target.status != "ACTIVE":
+            raise NotFoundError("目标账号无效")
+        row = ScopedGrant(
+            college_id=cid,
+            granted_by=actor.id,
+            **body.model_dump(exclude={"user_id"}),
+            user_id=int(body.user_id),
+        )
+        self.db.add(row)
+        college.authorization_revision += 1
+        return self._commit(actor, "campus.grant.create", row)
+
+    @atomic_write
+    def revoke_grant(self, actor, cid, rid, version):
+        self._super(actor)
+        college = self.repo.college(cid, lock=True)
+        if college is None:
+            raise NotFoundError()
+        row = self._resource(ScopedGrant, cid, rid)
+        self._version(row, version)
+        before = self._dto(row)
+        row.status = "REVOKED"
+        row.lock_version += 1
+        college.authorization_revision += 1
+        return self._commit(actor, "campus.grant.revoke", row, before)
+
+    def list_types(self, actor, cid):
+        self._authorize(actor, cid, "academic.course_type.read")
+        return [
+            self._dto(row)
+            for row in sorted(
+                self.repo.rows(CourseType, cid), key=lambda row: (row.sort_order, row.id)
+            )
+        ]
+
+    @atomic_write
+    def create_type(self, actor, cid, data):
+        body = validated(TypeCreate, data)
+        college = self._authorize(actor, cid, "academic.course_type.manage", write=True)
+        row = CourseType(
+            college_id=cid,
+            code=uuid.uuid4().hex,
+            normalized_name=normalized_name(body.name),
+            **body.model_dump(),
+        )
+        self.db.add(row)
+        college.configuration_revision += 1
+        return self._commit(actor, "campus.type.create", row)
+
+    @atomic_write
+    def update_type(self, actor, cid, rid, data):
+        body = validated(TypeUpdate, data)
+        college = self._authorize(actor, cid, "academic.course_type.manage", write=True)
+        row = self._resource(CourseType, cid, rid)
+        self._version(row, body.lock_version)
+        before = self._dto(row)
+        for key, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
+            if key != "lock_version":
+                setattr(row, key, value)
+        row.normalized_name = normalized_name(row.name)
+        row.lock_version += 1
+        if row.status != before["status"]:
+            college.configuration_revision += 1
+        return self._commit(actor, "campus.type.update", row, before)
+
+    @atomic_write
+    def delete_type(self, actor, cid, rid, version):
+        college = self._authorize(actor, cid, "academic.course_type.manage", write=True)
+        row = self._resource(CourseType, cid, rid)
+        self._version(row, version)
+        if self.db.scalar(
+            select(func.count())
+            .select_from(GroupScopeType)
+            .where(
+                GroupScopeType.college_id == cid,
+                GroupScopeType.course_type_id == rid,
+            )
+        ):
+            raise ConflictError(message="课程类型已被组配置引用，只能停用")
+        before = self._dto(row)
+        self.db.delete(row)
+        college.configuration_revision += 1
+        self._commit(actor, "campus.type.delete", None, before, resource_id=str(rid))
+
+    def list_groups(self, actor, cid):
+        self._authorize(actor, cid, "volunteer.group.read")
+        return [self._dto(row) for row in self.repo.rows(VolunteerGroup, cid)]
+
+    def _owner(self, user_id):
+        user = self.db.get(UserAccount, int(user_id))
+        if user is None or user.status != "ACTIVE":
+            raise NotFoundError("负责人账号无效")
+
+    @staticmethod
+    def _dates(row):
+        if row.starts_on and row.ends_on and row.starts_on > row.ends_on:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "结束日期不能早于开始日期", 422)
+
+    @atomic_write
+    def create_group(self, actor, cid, data):
+        body = validated(GroupCreate, data)
+        college = self._authorize(actor, cid, "volunteer.group.manage", write=True)
+        self._owner(body.owner_user_id)
+        row = VolunteerGroup(
+            college_id=cid,
+            normalized_name=normalized_name(body.name),
+            **body.model_dump(exclude={"owner_user_id"}),
+            owner_user_id=int(body.owner_user_id),
+        )
+        self._dates(row)
+        self.db.add(row)
+        college.configuration_revision += 1
+        return self._commit(actor, "campus.group.create", row)
+
+    @atomic_write
+    def update_group(self, actor, cid, rid, data):
+        body = validated(GroupUpdate, data)
+        college = self._authorize(actor, cid, "volunteer.group.manage", write=True)
+        row = self._resource(VolunteerGroup, cid, rid)
+        self._version(row, body.lock_version)
+        before = self._dto(row)
+        for key, value in body.model_dump(exclude_unset=True).items():
+            if key != "lock_version":
+                setattr(row, key, int(value) if key == "owner_user_id" and value else value)
+        self._owner(row.owner_user_id)
+        self._dates(row)
+        row.normalized_name = normalized_name(row.name)
+        if row.status == "ACTIVE":
+            config = before["configuration"]
+            if not config or not config["course_type_ids"]:
+                raise ConflictError(message="组缺少已发布的查课范围")
+            for type_id in config["course_type_ids"]:
+                if self._resource(CourseType, cid, int(type_id)).status != "ACTIVE":
+                    raise ConflictError(message="组引用已停用类型，需调整配置")
+        row.lock_version += 1
+        if row.status != before["status"]:
+            college.configuration_revision += 1
+        return self._commit(actor, "campus.group.update", row, before)
+
+    @atomic_write
+    def publish_group(self, actor, cid, rid, data):
+        body = validated(GroupPublish, data)
+        college = self._authorize(actor, cid, "volunteer.config.publish", write=True)
+        row = self._resource(VolunteerGroup, cid, rid)
+        self._version(row, body.lock_version)
+        if not body.course_type_ids:
+            raise ConflictError(message="必须明确选择查课类型，留空不表示全部")
+        type_ids = set(body.course_type_ids) | set(body.type_overrides)
+        for value in sorted(type_ids):
+            if not value.isascii() or not value.isdigit() or not 0 < int(value) < 2**63:
+                raise AppError(ErrorCode.VALIDATION_ERROR, "类型标识无效", 422)
+            kind = self._resource(CourseType, cid, int(value))
+            if kind.status != "ACTIVE":
+                raise ConflictError(message="类型已停用")
+        before = self._dto(row)
+        configuration = body.model_dump(mode="json", exclude={"lock_version"})
+        configuration["course_type_ids"] = sorted(body.course_type_ids, key=int)
+        configuration["class_mode"] = "ALL_AUTHORIZED"
+        row.config_version += 1
+        row.lock_version += 1
+        college.configuration_revision += 1
+        config = GroupConfigVersion(
+            college_id=cid,
+            group_id=rid,
+            version=row.config_version,
+            configuration=configuration,
+            published_by=actor.id,
+        )
+        self.db.add(config)
+        self.db.flush()
+        # 冲突例外也建立引用，避免删掉规则仍使用的类型。
+        self.db.add_all(
+            [
+                GroupScopeType(
+                    college_id=cid,
+                    config_id=config.id,
+                    course_type_id=int(value),
+                    is_inspection_scope=value in body.course_type_ids,
+                )
+                for value in type_ids
+            ]
+        )
+        return self._commit(actor, "campus.group.publish", row, before)
+
+    @atomic_write
+    def delete_group(self, actor, cid, rid, version):
+        college = self._authorize(actor, cid, "volunteer.group.manage", write=True)
+        row = self._resource(VolunteerGroup, cid, rid)
+        self._version(row, version)
+        if row.config_version:
+            raise ConflictError(message="组已有发布历史，只能停用")
+        before = self._dto(row)
+        self.db.delete(row)
+        college.configuration_revision += 1
+        self._commit(
+            actor,
+            "campus.group.delete",
+            None,
+            before,
+            resource_id=str(rid),
+            resource_type="VolunteerGroup",
+        )

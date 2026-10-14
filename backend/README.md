@@ -166,3 +166,16 @@ Router 处理 HTTP，Schema 定义输入输出，Service 负责授权/规则/事
 
 > `../INITIALIZATION_GUIDE.md` 与 `../PROJECT_STATUS.md` 为早期 Java 方案的历史文档，
 > 不代表当前实现。
+
+## 学院配置升级（2026-10-13）
+
+当前迁移 head 为 `f26a1013c002`（配置表及存量业务可空学院归属），默认 `CAMPUS_CONFIGURATION_ENABLED=false`。
+
+`CAMPUS_ACADEMIC_SCOPED_ENABLED=false` 控制院级基础数据入口。开启需先迁移并开启配置开关，同时会拒绝旧 academic 管理/私有读取及旧独立课表导出；学校共享只读目录保留。本轮已接院级列表/详情、行政班版本写入和名单替换，尚未接完整导入、删除/重置、历史学籍、查课、文件/报表及全部 Web 工作区，生产暂勿开启多学院业务。当前模式仍返回 `business_ready=false`。
+目标开发库完成迁移后再开启，管理端入口 `/dashboard/campus`。当前只实现学校/学院、
+院级配置授权、动态类型、组基本信息及原子范围/规则版本；这些配置尚未接入旧课表与排班。
+运行库迁移需要核对目标并取得该环境授权，本轮没有执行运行库迁移。
+
+定向离线测试：`pytest tests/unit/test_campus_configuration.py tests/unit/test_campus_migration.py -q`。
+实际范围与后续步骤见 [配置底座说明](../docs/development/CAMPUS_CONFIGURATION_GUIDE.md)
+和 [升级实施计划](../docs/development/CAMPUS_IMPLEMENTATION_PLAN.md)。

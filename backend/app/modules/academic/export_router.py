@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.permissions import PermissionCode
 from app.modules.academic.export_service import XLSX_CONTENT_TYPE, CourseScheduleExportService
+from app.modules.academic.router import guard_legacy_academic
 from app.modules.identity.deps import CurrentUser, require_permission
 
-router = APIRouter(tags=["academic"])
+router = APIRouter(tags=["academic"], dependencies=[Depends(guard_legacy_academic)])
 ExportDep = Annotated[
     CurrentUser, Depends(require_permission(PermissionCode.COURSE_SCHEDULE_EXPORT.value))
 ]

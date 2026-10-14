@@ -282,6 +282,33 @@
             "HTTPBearer": []
           }
         ]
+      },
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Unbind Student",
+        "description": "前端重新绑定入口：清空自己的学号绑定，并撤销当前所有会话。",
+        "operationId": "unbind_student_api_v1_me_student_binding_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Unbind Student Api V1 Me Student Binding Delete"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/role-assignment-targets": {
@@ -651,6 +678,100 @@
         }
       }
     },
+    "/api/v1/students/batch-binding-tokens": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Batch Issue Binding Tokens",
+        "description": "批量签发学生 6 位绑定码。",
+        "operationId": "batch_issue_binding_tokens_api_v1_students_batch_binding_tokens_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchBindingTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Batch Issue Binding Tokens Api V1 Students Batch Binding Tokens Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/students/export-binding-tokens": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Export Binding Tokens",
+        "description": "批量签发并导出绑定码 Excel 文件。",
+        "operationId": "export_binding_tokens_api_v1_students_export_binding_tokens_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchBindingTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/teacher-accounts": {
       "get": {
         "tags": [
@@ -911,6 +1032,56 @@
         }
       }
     },
+    "/api/v1/accounts/{user_id}/password-reset": {
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "summary": "Reset Password",
+        "operationId": "reset_password_api_v1_accounts__user_id__password_reset_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordReset"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/password-change": {
       "post": {
         "tags": [
@@ -948,6 +1119,1124 @@
             "HTTPBearer": []
           }
         ]
+      }
+    },
+    "/api/v1/campus/ownership/unresolved/{kind}": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Unresolved Ownership",
+        "operationId": "unresolved_ownership_api_v1_campus_ownership_unresolved__kind__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "after_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "default": 0,
+              "title": "After Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/campus/ownership/preview": {
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Preview Ownership",
+        "operationId": "preview_ownership_api_v1_campus_ownership_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnershipMapping"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/campus/ownership/apply": {
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Apply Ownership",
+        "operationId": "apply_ownership_api_v1_campus_ownership_apply_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnershipApply"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/workspaces": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Workspaces",
+        "operationId": "workspaces_api_v1_me_workspaces_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/colleges/{cid}/capabilities": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Capabilities",
+        "operationId": "capabilities_api_v1_colleges__cid__capabilities_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schools": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Schools",
+        "operationId": "schools_api_v1_schools_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Create School",
+        "operationId": "create_school_api_v1_schools_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SchoolCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/schools/{sid}/colleges": {
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Create College",
+        "operationId": "create_college_api_v1_schools__sid__colleges_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollegeCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}": {
+      "patch": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Update College",
+        "operationId": "update_college_api_v1_colleges__cid__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollegeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/grants": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Grants",
+        "operationId": "grants_api_v1_colleges__cid__grants_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Create Grant",
+        "operationId": "create_grant_api_v1_colleges__cid__grants_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/grants/{rid}/revoke": {
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Revoke Grant",
+        "operationId": "revoke_grant_api_v1_colleges__cid__grants__rid__revoke_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Versioned"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/course-types": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Types",
+        "operationId": "types_api_v1_colleges__cid__course_types_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Create Type",
+        "operationId": "create_type_api_v1_colleges__cid__course_types_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TypeCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/course-types/{rid}": {
+      "patch": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Update Type",
+        "operationId": "update_type_api_v1_colleges__cid__course_types__rid__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TypeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Delete Type",
+        "operationId": "delete_type_api_v1_colleges__cid__course_types__rid__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Versioned"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/volunteer-groups": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Groups",
+        "operationId": "groups_api_v1_colleges__cid__volunteer_groups_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Create Group",
+        "operationId": "create_group_api_v1_colleges__cid__volunteer_groups_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/groups/{rid}": {
+      "patch": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Update Group",
+        "operationId": "update_group_api_v1_colleges__cid__groups__rid__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Delete Group",
+        "operationId": "delete_group_api_v1_colleges__cid__groups__rid__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Versioned"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/groups/{rid}/configuration/publish": {
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Publish Group",
+        "operationId": "publish_group_api_v1_colleges__cid__groups__rid__configuration_publish_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupPublish"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/academic/semesters": {
@@ -1169,6 +2458,65 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Get Semester Api V1 Academic Semesters  Semester Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/semesters/{semester_id}/reset-data": {
+      "post": {
+        "tags": [
+          "academic"
+        ],
+        "summary": "Reset Semester Data",
+        "operationId": "reset_semester_data_api_v1_academic_semesters__semester_id__reset_data_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Semester Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SemesterResetDataRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Reset Semester Data Api V1 Academic Semesters  Semester Id  Reset Data Post"
                 }
               }
             }
@@ -1809,6 +3157,82 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "academic"
+        ],
+        "summary": "Delete Admin Class",
+        "operationId": "delete_admin_class_api_v1_academic_administrative_classes__class_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "class_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Class Id"
+            }
+          },
+          {
+            "name": "cascade_students",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "是否连带删除该班级名下的学生",
+              "default": false,
+              "title": "Cascade Students"
+            },
+            "description": "是否连带删除该班级名下的学生"
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Admin Class Api V1 Academic Administrative Classes  Class Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/academic/students": {
@@ -1936,6 +3360,39 @@
                 }
               ],
               "title": "Keyword"
+            }
+          },
+          {
+            "name": "is_volunteer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Volunteer"
+            }
+          },
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Semester Id"
             }
           },
           {
@@ -2096,6 +3553,109 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "academic"
+        ],
+        "summary": "Delete Student",
+        "operationId": "delete_student_api_v1_academic_students__student_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/students/batch-delete": {
+      "post": {
+        "tags": [
+          "academic"
+        ],
+        "summary": "Batch Delete Students",
+        "operationId": "batch_delete_students_api_v1_academic_students_batch_delete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudentBatchDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Batch Delete Students Api V1 Academic Students Batch Delete Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/academic/courses": {
@@ -3215,6 +4775,644 @@
         }
       }
     },
+    "/api/v1/academic/master-timetable": {
+      "get": {
+        "tags": [
+          "academic"
+        ],
+        "summary": "Get Master Timetable",
+        "operationId": "get_master_timetable_api_v1_academic_master_timetable_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Semester Id"
+            }
+          },
+          {
+            "name": "week_no",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 60,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Week No"
+            }
+          },
+          {
+            "name": "weekday",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 7,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Weekday"
+            }
+          },
+          {
+            "name": "administrative_class_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Administrative Class Id"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Master Timetable Api V1 Academic Master Timetable Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/teaching-classes/batch-elective": {
+      "post": {
+        "tags": [
+          "academic"
+        ],
+        "summary": "Batch Create Elective Course",
+        "operationId": "batch_create_elective_course_api_v1_academic_teaching_classes_batch_elective_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchElectiveCourseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Batch Create Elective Course Api V1 Academic Teaching Classes Batch Elective Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/{kind}": {
+      "get": {
+        "tags": [
+          "college-academic"
+        ],
+        "summary": "List Rows",
+        "operationId": "list_rows_api_v1_colleges__cid__academic__kind__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "administrative-classes",
+                "teaching-classes",
+                "students",
+                "schedules",
+                "courses",
+                "semesters",
+                "qualifications"
+              ],
+              "type": "string",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Semester Id"
+            }
+          },
+          {
+            "name": "administrative_class_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Administrative Class Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码，从 1 开始",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码，从 1 开始"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "每页条数",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页条数"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/{kind}/{rid}": {
+      "get": {
+        "tags": [
+          "college-academic"
+        ],
+        "summary": "Get Row",
+        "operationId": "get_row_api_v1_colleges__cid__academic__kind___rid__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "administrative-classes",
+                "teaching-classes",
+                "students",
+                "schedules",
+                "courses",
+                "semesters",
+                "qualifications"
+              ],
+              "type": "string",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/administrative-classes": {
+      "post": {
+        "tags": [
+          "college-academic"
+        ],
+        "summary": "Create Class",
+        "operationId": "create_class_api_v1_colleges__cid__academic_administrative_classes_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScopedClassCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/administrative-classes/{rid}": {
+      "patch": {
+        "tags": [
+          "college-academic"
+        ],
+        "summary": "Update Class",
+        "operationId": "update_class_api_v1_colleges__cid__academic_administrative_classes__rid__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScopedClassUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster": {
+      "get": {
+        "tags": [
+          "college-academic"
+        ],
+        "summary": "Get Roster",
+        "operationId": "get_roster_api_v1_colleges__cid__academic_teaching_classes__rid__roster_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "college-academic"
+        ],
+        "summary": "Replace Roster",
+        "operationId": "replace_roster_api_v1_colleges__cid__academic_teaching_classes__rid__roster_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScopedRosterReplace"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/course-schedules/export": {
       "get": {
         "tags": [
@@ -3745,6 +5943,55 @@
         }
       }
     },
+    "/api/v1/imports/bulk": {
+      "post": {
+        "tags": [
+          "import"
+        ],
+        "summary": "Bulk Import",
+        "description": "批量上传多个名单/课表文件或一个 ZIP 压缩包，自动化流水线解析并原子入库。",
+        "operationId": "bulk_import_api_v1_imports_bulk_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_bulk_import_api_v1_imports_bulk_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Bulk Import Api V1 Imports Bulk Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/inspection-course-occurrences": {
       "get": {
         "tags": [
@@ -3791,15 +6038,38 @@
           {
             "name": "teaching_class_ids",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "array",
-              "items": {
-                "type": "integer"
-              },
-              "minItems": 1,
-              "maxItems": 500,
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  },
+                  "maxItems": 2000
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Teaching Class Ids"
+            }
+          },
+          {
+            "name": "administrative_class_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Administrative Class Id"
             }
           },
           {
@@ -3819,9 +6089,9 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 1000,
               "minimum": 1,
-              "default": 20,
+              "default": 200,
               "title": "Page Size"
             }
           },
@@ -3860,6 +6130,54 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/inspection-course-occurrences/smart-sample": {
+      "post": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Smart Sample Course Occurrences",
+        "operationId": "smart_sample_course_occurrences_api_v1_inspection_course_occurrences_smart_sample_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SmartSampleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Smart Sample Course Occurrences Api V1 Inspection Course Occurrences Smart Sample Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/inspection-tasks/preview": {
@@ -4036,7 +6354,7 @@
             "required": false,
             "schema": {
               "type": "boolean",
-              "default": true,
+              "default": false,
               "title": "Include Canceled"
             }
           },
@@ -4177,6 +6495,40 @@
             }
           },
           {
+            "name": "teaching_class_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Teaching Class Id"
+            }
+          },
+          {
+            "name": "administrative_class_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Administrative Class Id"
+            }
+          },
+          {
             "name": "include_canceled",
             "in": "query",
             "required": false,
@@ -4272,6 +6624,138 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Get Inspection Task Api V1 Inspection Tasks  Task Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Delete Inspection Task",
+        "operationId": "delete_inspection_task_api_v1_inspection_tasks__task_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            }
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Force"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Inspection Task Api V1 Inspection Tasks  Task Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Update Inspection Task",
+        "description": "修改查课任务（教室地点/节次/课程名）（方式 A）。",
+        "operationId": "update_inspection_task_api_v1_inspection_tasks__task_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectionTaskUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Inspection Task Api V1 Inspection Tasks  Task Id  Patch"
                 }
               }
             }
@@ -4445,6 +6929,189 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Set Task Assignment Api V1 Inspection Tasks  Task Id  Assignment Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inspection-volunteers": {
+      "get": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "List Semester Volunteers",
+        "operationId": "list_semester_volunteers_api_v1_inspection_volunteers_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Semester Id"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Semester Volunteers Api V1 Inspection Volunteers Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inspection/volunteers": {
+      "get": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "List Semester Volunteers",
+        "operationId": "list_semester_volunteers_api_v1_inspection_volunteers_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Semester Id"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Semester Volunteers Api V1 Inspection Volunteers Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inspection-tasks/{task_id}/candidate-volunteers": {
+      "get": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "List Task Candidate Volunteers",
+        "operationId": "list_task_candidate_volunteers_api_v1_inspection_tasks__task_id__candidate_volunteers_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Task Candidate Volunteers Api V1 Inspection Tasks  Task Id  Candidate Volunteers Get"
                 }
               }
             }
@@ -4792,6 +7459,54 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/inspection-tasks/batch-delete": {
+      "post": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Batch Delete Inspection Tasks",
+        "operationId": "batch_delete_inspection_tasks_api_v1_inspection_tasks_batch_delete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskBatchDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Batch Delete Inspection Tasks Api V1 Inspection Tasks Batch Delete Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/inspection-tasks/{task_id}/roster-versions": {
@@ -5702,6 +8417,54 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/management/submissions/batch-review": {
+      "post": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Batch Review Submissions",
+        "operationId": "batch_review_submissions_api_v1_management_submissions_batch_review_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionBatchReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Batch Review Submissions Api V1 Management Submissions Batch Review Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/inspection-tasks/{task_id}/expected-count": {
@@ -6751,6 +9514,297 @@
         }
       }
     },
+    "/api/v1/statistics/attendance/export": {
+      "get": {
+        "tags": [
+          "statistics"
+        ],
+        "summary": "Export Attendance Statistics",
+        "operationId": "export_attendance_statistics_api_v1_statistics_attendance_export_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Semester Id"
+            }
+          },
+          {
+            "name": "week_no",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Week No"
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/statistics/attendance/export-detail-doc": {
+      "get": {
+        "tags": [
+          "statistics"
+        ],
+        "summary": "Export Attendance Detail Doc",
+        "operationId": "export_attendance_detail_doc_api_v1_statistics_attendance_export_detail_doc_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Semester Id"
+            }
+          },
+          {
+            "name": "week_no",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Week No"
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/statistics/attendance/export-study-excel": {
+      "get": {
+        "tags": [
+          "statistics"
+        ],
+        "summary": "Export Study Attendance Excel",
+        "operationId": "export_study_attendance_excel_api_v1_statistics_attendance_export_study_excel_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Semester Id"
+            }
+          },
+          {
+            "name": "week_no",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Week No"
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/statistics/incomplete-tasks": {
       "get": {
         "tags": [
@@ -7017,7 +10071,10 @@
             "schema": {
               "enum": [
                 "EXCEL",
-                "SNAPSHOT"
+                "SNAPSHOT",
+                "WORD",
+                "DETAIL_WORD",
+                "STUDY_EXCEL"
               ],
               "type": "string",
               "default": "EXCEL",
@@ -7198,6 +10255,30 @@
             ],
             "title": "College"
           },
+          "head_teacher": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Teacher"
+          },
+          "counselor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counselor"
+          },
           "reason": {
             "anyOf": [
               {
@@ -7270,6 +10351,30 @@
             ],
             "title": "College"
           },
+          "head_teacher": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Teacher"
+          },
+          "counselor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counselor"
+          },
           "status": {
             "anyOf": [
               {
@@ -7301,9 +10406,28 @@
       "AssignmentSetRequest": {
         "properties": {
           "volunteer_user_id": {
-            "type": "integer",
-            "minimum": 1.0,
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Volunteer User Id"
+          },
+          "student_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Id"
           },
           "lock_version": {
             "type": "integer",
@@ -7325,7 +10449,6 @@
         },
         "type": "object",
         "required": [
-          "volunteer_user_id",
           "lock_version"
         ],
         "title": "AssignmentSetRequest",
@@ -7456,6 +10579,111 @@
         "title": "AutoAssignRequest",
         "description": "自动排班：按学期 + 可选日期/日期范围/显式任务集选范围，可限定候选志愿者。\n\n范围维度三选一（互斥优先级：task_ids > inspection_date > date_from/date_to）：\n- task_ids：仅对这些未取消任务排班；\n- inspection_date：该查课日的全部未分配任务；\n- date_from/date_to：该区间内全部未分配任务（闭区间）。\ncandidate_user_ids 为空表示全体有效志愿者资格池；给出则作为候选子集（仍逐个校验硬约束）。"
       },
+      "BatchBindingTokenRequest": {
+        "properties": {
+          "class_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Id"
+          },
+          "student_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Ids"
+          },
+          "days_valid": {
+            "type": "integer",
+            "maximum": 180.0,
+            "minimum": 1.0,
+            "title": "Days Valid",
+            "default": 30
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "BatchBindingTokenRequest",
+        "description": "POST /students/batch-binding-tokens 请求体。"
+      },
+      "BatchElectiveCourseRequest": {
+        "properties": {
+          "semester_id": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Semester Id"
+          },
+          "course_name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Course Name"
+          },
+          "course_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Code"
+          },
+          "teaching_classes": {
+            "items": {
+              "$ref": "#/components/schemas/ElectiveTeachingClassItem"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Teaching Classes"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "semester_id",
+          "course_name",
+          "teaching_classes"
+        ],
+        "title": "BatchElectiveCourseRequest"
+      },
       "BindingTokenIssueRequest": {
         "properties": {
           "reason": {
@@ -7493,6 +10721,28 @@
         "type": "object",
         "title": "BindingTokenRevokeRequest",
         "description": "POST /binding-tokens/{id}/revoke：作废理由，写入审计。"
+      },
+      "Body_bulk_import_api_v1_imports_bulk_post": {
+        "properties": {
+          "semester_id": {
+            "type": "integer",
+            "title": "Semester Id"
+          },
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "semester_id",
+          "files"
+        ],
+        "title": "Body_bulk_import_api_v1_imports_bulk_post"
       },
       "Body_create_import_api_v1_imports_post": {
         "properties": {
@@ -7608,6 +10858,11 @@
               }
             ],
             "title": "Reason"
+          },
+          "cascade_cancel_tasks": {
+            "type": "boolean",
+            "title": "Cascade Cancel Tasks",
+            "default": true
           }
         },
         "type": "object",
@@ -7668,6 +10923,109 @@
         "title": "ChangeRequestReviewRequest",
         "description": "管理人员处理申请：通过 / 驳回，可附意见。仅迁移申请状态，不隐式改派。"
       },
+      "ClassQuotaConfig": {
+        "properties": {
+          "class_id": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Class Id",
+            "description": "行政班级ID"
+          },
+          "class_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Name",
+            "description": "行政班级名称（供核对）"
+          },
+          "max_tasks": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Max Tasks",
+            "description": "该班每周抽查节数上限",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "required": [
+          "class_id"
+        ],
+        "title": "ClassQuotaConfig",
+        "description": "单个行政班级的自定义抽查配额配置。"
+      },
+      "CollegeCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "code"
+        ],
+        "title": "CollegeCreate"
+      },
+      "CollegeUpdate": {
+        "properties": {
+          "lock_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Lock Version"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ACTIVE",
+                  "INACTIVE"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "lock_version"
+        ],
+        "title": "CollegeUpdate"
+      },
       "CourseCreateRequest": {
         "properties": {
           "course_code": {
@@ -7719,8 +11077,7 @@
               "type": "integer"
             },
             "type": "array",
-            "maxItems": 500,
-            "minItems": 1,
+            "maxItems": 2000,
             "title": "Teaching Class Ids"
           },
           "require_photo": {
@@ -7732,8 +11089,7 @@
         "type": "object",
         "required": [
           "date_from",
-          "date_to",
-          "teaching_class_ids"
+          "date_to"
         ],
         "title": "CourseOccurrenceScope"
       },
@@ -7793,6 +11149,18 @@
               }
             ],
             "title": "Classroom"
+          },
+          "teacher": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teacher"
           },
           "weeks": {
             "items": {
@@ -7876,6 +11244,18 @@
               }
             ],
             "title": "Classroom"
+          },
+          "teacher": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teacher"
           },
           "status": {
             "anyOf": [
@@ -8040,6 +11420,82 @@
         "title": "DeadlineSettleRequest",
         "description": "有界同步结算到期任务的截止时考核快照（不依赖页面访问，技术方案 13.3）。\n\n范围：semester_id 必填；可再按 inspection_date 缩小到某日，或用 task_ids 指定集合。\nlimit 为单批处理上限，超出部分留待下次结算。"
       },
+      "ElectiveTeachingClassItem": {
+        "properties": {
+          "class_code": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Class Code"
+          },
+          "class_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Name"
+          },
+          "weekday": {
+            "type": "integer",
+            "maximum": 7.0,
+            "minimum": 1.0,
+            "title": "Weekday"
+          },
+          "start_period": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Start Period"
+          },
+          "end_period": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "End Period"
+          },
+          "weeks": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Weeks"
+          },
+          "classroom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classroom"
+          },
+          "student_nos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Student Nos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "class_code",
+          "weekday",
+          "start_period",
+          "end_period",
+          "weeks"
+        ],
+        "title": "ElectiveTeachingClassItem"
+      },
       "ExpectedCountUpdateRequest": {
         "properties": {
           "expected_count_current": {
@@ -8066,6 +11522,277 @@
         ],
         "title": "ExpectedCountUpdateRequest",
         "description": "人工调整任务当前应到人数：非负、原因选填、lock_version 乐观锁；不动名单与历史认定。"
+      },
+      "GrantCreate": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "User Id"
+          },
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 11,
+            "minItems": 1,
+            "title": "Actions"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "actions"
+        ],
+        "title": "GrantCreate"
+      },
+      "GroupCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "owner_user_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Owner User Id"
+          },
+          "starts_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts On"
+          },
+          "ends_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends On"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "owner_user_id"
+        ],
+        "title": "GroupCreate"
+      },
+      "GroupPublish": {
+        "properties": {
+          "lock_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Lock Version"
+          },
+          "class_mode": {
+            "type": "string",
+            "const": "ALL_AUTHORIZED",
+            "title": "Class Mode",
+            "default": "ALL_AUTHORIZED"
+          },
+          "course_type_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Course Type Ids"
+          },
+          "default_effect": {
+            "type": "string",
+            "enum": [
+              "BLOCK",
+              "WARN",
+              "ALLOW"
+            ],
+            "title": "Default Effect",
+            "default": "BLOCK"
+          },
+          "type_overrides": {
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "BLOCK",
+                "WARN",
+                "ALLOW"
+              ]
+            },
+            "type": "object",
+            "title": "Type Overrides"
+          },
+          "task_conflict_effect": {
+            "type": "string",
+            "const": "BLOCK",
+            "title": "Task Conflict Effect",
+            "default": "BLOCK"
+          },
+          "own_class_effect": {
+            "type": "string",
+            "enum": [
+              "BLOCK",
+              "WARN",
+              "ALLOW"
+            ],
+            "title": "Own Class Effect",
+            "default": "BLOCK"
+          },
+          "daily_limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Daily Limit",
+            "default": 3
+          },
+          "weekly_limit": {
+            "type": "integer",
+            "maximum": 700.0,
+            "minimum": 1.0,
+            "title": "Weekly Limit",
+            "default": 10
+          },
+          "count_scope": {
+            "type": "string",
+            "enum": [
+              "GROUP",
+              "ALL_GROUPS"
+            ],
+            "title": "Count Scope",
+            "default": "ALL_GROUPS"
+          },
+          "buffer_minutes": {
+            "type": "integer",
+            "maximum": 120.0,
+            "minimum": 0.0,
+            "title": "Buffer Minutes",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "lock_version"
+        ],
+        "title": "GroupPublish"
+      },
+      "GroupUpdate": {
+        "properties": {
+          "lock_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Lock Version"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
+          "starts_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts On"
+          },
+          "ends_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends On"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ACTIVE",
+                  "INACTIVE"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "lock_version"
+        ],
+        "title": "GroupUpdate"
       },
       "HTTPValidationError": {
         "properties": {
@@ -8254,6 +11981,75 @@
         "title": "InspectionGenerateRequest",
         "description": "任务生成/预览的选择条件。\n\n日期维度：week_nos 与 (date_from/date_to) 至少给其一，否则 422；两者可并用以取并集。\n目标维度：COURSE 用 teaching_class_ids（据此定位该教学班的全部课表条目）；\nMORNING_STUDY / EVENING_STUDY 用 administrative_class_ids + 显式 start/end 节次。"
       },
+      "InspectionTaskUpdateRequest": {
+        "properties": {
+          "classroom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classroom"
+          },
+          "start_period": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 20.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Period"
+          },
+          "end_period": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 20.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Period"
+          },
+          "course_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Name"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "InspectionTaskUpdateRequest",
+        "description": "PATCH /inspection-tasks/{task_id} 请求体：修改未执行/未审核任务的教室或节次。"
+      },
       "ObjectionCreateRequest": {
         "properties": {
           "desired_type": {
@@ -8403,24 +12199,99 @@
         "title": "OptionalPermissionUpdate",
         "description": "PUT /users/{id}/optional-permissions/{code} 请求体：逐人开关可选权限。\n\nlockVersion 用于乐观并发（不符 409）；reason 写入审计。code 取自路径。"
       },
+      "OwnershipApply": {
+        "properties": {
+          "mappings": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "propertyNames": {
+              "enum": [
+                "administrative_class",
+                "teaching_class",
+                "import_batch",
+                "report"
+              ]
+            },
+            "type": "object",
+            "title": "Mappings"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "title": "OwnershipApply"
+      },
+      "OwnershipMapping": {
+        "properties": {
+          "mappings": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "propertyNames": {
+              "enum": [
+                "administrative_class",
+                "teaching_class",
+                "import_batch",
+                "report"
+              ]
+            },
+            "type": "object",
+            "title": "Mappings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "OwnershipMapping"
+      },
       "PasswordChange": {
         "properties": {
           "current_password": {
-            "type": "string",
-            "maxLength": 128,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Current Password"
+          },
+          "old_password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Password"
           },
           "new_password": {
             "type": "string",
             "maxLength": 128,
-            "minLength": 8,
+            "minLength": 6,
             "title": "New Password"
           }
         },
         "type": "object",
         "required": [
-          "current_password",
           "new_password"
         ],
         "title": "PasswordChange"
@@ -8430,7 +12301,7 @@
           "new_password": {
             "type": "string",
             "maxLength": 128,
-            "minLength": 8,
+            "minLength": 6,
             "title": "New Password"
           },
           "lock_version": {
@@ -8621,6 +12492,276 @@
         "title": "RosterVersionCreateRequest",
         "description": "执行前更正名单：给出更正后的完整学生集合，生成新版本并冻结成员快照。"
       },
+      "SchoolCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "code"
+        ],
+        "title": "SchoolCreate"
+      },
+      "ScopedClassCreate": {
+        "properties": {
+          "class_code": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Class Code"
+          },
+          "class_name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Class Name"
+          },
+          "grade_year": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2999.0,
+                "minimum": 1900.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade Year"
+          },
+          "major_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major Name"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "head_teacher": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Teacher"
+          },
+          "counselor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counselor"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "class_code",
+          "class_name"
+        ],
+        "title": "ScopedClassCreate"
+      },
+      "ScopedClassUpdate": {
+        "properties": {
+          "class_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Name"
+          },
+          "grade_year": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2999.0,
+                "minimum": 1900.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade Year"
+          },
+          "major_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major Name"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "head_teacher": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Teacher"
+          },
+          "counselor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counselor"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "ownership_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Ownership Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ownership_version"
+        ],
+        "title": "ScopedClassUpdate"
+      },
+      "ScopedRosterReplace": {
+        "properties": {
+          "student_ids": {
+            "items": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,18}$"
+            },
+            "type": "array",
+            "maxItems": 5000,
+            "title": "Student Ids"
+          },
+          "ownership_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Ownership Version"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "student_ids",
+          "ownership_version"
+        ],
+        "title": "ScopedRosterReplace"
+      },
       "SemesterCreateRequest": {
         "properties": {
           "code": {
@@ -8657,6 +12798,12 @@
             "title": "Total Weeks",
             "default": 20
           },
+          "init_default_periods": {
+            "type": "boolean",
+            "title": "Init Default Periods",
+            "description": "是否自动初始化默认6大节次定义",
+            "default": true
+          },
           "reason": {
             "anyOf": [
               {
@@ -8679,6 +12826,34 @@
           "first_monday"
         ],
         "title": "SemesterCreateRequest"
+      },
+      "SemesterResetDataRequest": {
+        "properties": {
+          "confirm_name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Confirm Name",
+            "description": "确认学期名称，必须与当前学期名称一致以防误触"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "confirm_name"
+        ],
+        "title": "SemesterResetDataRequest"
       },
       "SemesterUpdateRequest": {
         "properties": {
@@ -8772,6 +12947,129 @@
         "type": "object",
         "title": "SemesterUpdateRequest"
       },
+      "SmartSampleRequest": {
+        "properties": {
+          "semester_id": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Semester Id"
+          },
+          "week_no": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Week No"
+          },
+          "morning_only": {
+            "type": "boolean",
+            "title": "Morning Only",
+            "default": false
+          },
+          "max_tasks_per_class": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Max Tasks Per Class",
+            "default": 1
+          },
+          "sample_ratio": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.05
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Ratio"
+          },
+          "exclude_already_generated": {
+            "type": "boolean",
+            "title": "Exclude Already Generated",
+            "default": true
+          },
+          "random_seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Random Seed"
+          },
+          "target_class_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Class Ids",
+            "description": "指定抽查的行政班级ID列表。若为 null 或空，则对全校班级均衡抽查"
+          },
+          "class_quotas": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ClassQuotaConfig"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Quotas",
+            "description": "各班自定义抽查频次配置；未单独配置的班级继承 max_tasks_per_class"
+          }
+        },
+        "type": "object",
+        "required": [
+          "semester_id",
+          "week_no"
+        ],
+        "title": "SmartSampleRequest",
+        "description": "POST /inspection-course-occurrences/smart-sample 请求体：智能推荐下发课次。"
+      },
+      "StudentBatchDeleteRequest": {
+        "properties": {
+          "student_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Student Ids",
+            "description": "待删除的学生ID列表"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_ids"
+        ],
+        "title": "StudentBatchDeleteRequest"
+      },
       "StudentBindingRequest": {
         "properties": {
           "student_no": {
@@ -8783,7 +13081,7 @@
           "binding_code": {
             "type": "string",
             "maxLength": 128,
-            "minLength": 8,
+            "minLength": 6,
             "title": "Binding Code"
           }
         },
@@ -8963,6 +13261,46 @@
         ],
         "title": "SubmissionAbnormalItemInput"
       },
+      "SubmissionBatchReviewRequest": {
+        "properties": {
+          "submission_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Submission Ids"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ],
+            "title": "Decision",
+            "default": "APPROVED"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submission_ids"
+        ],
+        "title": "SubmissionBatchReviewRequest",
+        "description": "批量处理待审核提交（一键通过/勾选批量通过）。"
+      },
       "SubmissionCreateRequest": {
         "properties": {
           "result": {
@@ -9039,6 +13377,42 @@
         "title": "SubmissionReviewRequest",
         "description": "处理待审核提交：通过则据提交所用名单版本生成考勤，驳回保留原事实与照片。"
       },
+      "TaskBatchDeleteRequest": {
+        "properties": {
+          "task_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Task Ids"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_ids"
+        ],
+        "title": "TaskBatchDeleteRequest",
+        "description": "批量删除查课任务请求体。"
+      },
       "TaskCancelRequest": {
         "properties": {
           "reason": {
@@ -9066,7 +13440,7 @@
             "type": "string",
             "maxLength": 64,
             "minLength": 1,
-            "pattern": "^[A-Za-z0-9_.@-]+$",
+            "pattern": "^[A-Za-z0-9_.@\\u4e00-\\u9fa5-]+$",
             "title": "Username"
           },
           "display_name": {
@@ -9078,7 +13452,7 @@
           "initial_password": {
             "type": "string",
             "maxLength": 128,
-            "minLength": 8,
+            "minLength": 6,
             "title": "Initial Password"
           }
         },
@@ -9174,6 +13548,18 @@
             "minLength": 1,
             "title": "Class Name"
           },
+          "teacher_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teacher Name"
+          },
           "reason": {
             "anyOf": [
               {
@@ -9222,6 +13608,18 @@
             ],
             "title": "Class Name"
           },
+          "teacher_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teacher Name"
+          },
           "status": {
             "anyOf": [
               {
@@ -9249,6 +13647,130 @@
         },
         "type": "object",
         "title": "TeachingClassUpdateRequest"
+      },
+      "TypeCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Description",
+            "default": ""
+          },
+          "display_color": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "title": "Display Color",
+            "default": "#409EFF"
+          },
+          "sort_order": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Sort Order",
+            "default": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "INACTIVE"
+            ],
+            "title": "Status",
+            "default": "ACTIVE"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "TypeCreate"
+      },
+      "TypeUpdate": {
+        "properties": {
+          "lock_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Lock Version"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Color"
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ACTIVE",
+                  "INACTIVE"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "lock_version"
+        ],
+        "title": "TypeUpdate"
       },
       "ValidationError": {
         "properties": {
@@ -9289,6 +13811,21 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "Versioned": {
+        "properties": {
+          "lock_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Lock Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "lock_version"
+        ],
+        "title": "Versioned"
       },
       "VolunteerQualificationUpsertRequest": {
         "properties": {
