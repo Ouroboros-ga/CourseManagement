@@ -4,29 +4,120 @@
       <view class="record-card" wx:for="{{records}}" wx:key="id">
         <view class="card-header">
           <view class="course-name">{{item.courseName}}</view>
-          <t-tag theme="{{item.status === '正常' ? 'success' : (item.status === '已撤销' ? 'default' : 'danger')}}" variant="light">
+          <view class="custom-tag {{item.statusTagClass}}">
             {{item.type || item.status}}
-          </t-tag>
+          </view>
         </view>
         <view class="info-row">
           <text class="label">时间：</text>
-          <text class="value">{{item.date}} 第{{item.period}}节</text>
+          <text class="value">{{item.date}}</text>
         </view>
         <view class="info-row">
-          <text class="label">教室：</text>
-          <text class="value">{{item.classroom}}</text>
+          <text class="label">班级：</text>
+          <text class="value">{{item.className}}</text>
         </view>
-        
-        <view class="action-bar" wx:if="{{item.status !== '正常' && item.status !== '已撤销' && !item.hasAppealed}}">
+
+        <view class="action-bar" wx:if="{{item.status !== '正常' && item.status !== '已撤销' && !item.objectionStatusStr}}">
           <t-button size="small" theme="primary" bind:tap="goToAppeal" data-id="{{item.id}}">提出异议</t-button>
         </view>
-        <view class="action-bar" wx:elif="{{item.hasAppealed}}">
-          <t-tag theme="primary" variant="light-outline">异议处理中</t-tag>
+        <view class="action-bar" wx:elif="{{item.objectionStatusStr}}">
+          <view class="custom-tag {{item.objectionTagClass}}" bind:tap="showObjectionDetail" data-record="{{item}}">
+            {{item.objectionStatusStr}} · 详情
+          </view>
+          <t-button wx:if="{{item.canReAppeal}}" size="small" theme="primary" variant="outline" bind:tap="goToAppeal" data-id="{{item.id}}" data-reappeal="1">重新申诉</t-button>
         </view>
       </view>
     </block>
     <view wx:else class="empty-wrap">
       <t-empty icon="info-circle" description="暂无查课记录" />
+    </view>
+  </view>
+
+  <!-- 异议进度与详情弹窗 -->
+  <view class="detail-modal-mask" wx:if="{{showDetailModal}}" bind:tap="closeDetailModal">
+    <view class="detail-modal-card" catch:tap="preventBubble">
+      <view class="modal-header">
+        <text class="modal-title">异议进度与详情</text>
+        <view class="modal-close-btn" bind:tap="closeDetailModal">✕</view>
+      </view>
+
+      <scroll-view scroll-y class="modal-scroll-body">
+        <!-- 课程与考勤事实 -->
+        <view class="detail-info-card">
+          <view class="modal-course-name">{{selectedRecord.courseName}}</view>
+          <view class="modal-meta-row">
+            <text class="meta-label">考勤日期：</text>
+            <text class="meta-val">{{selectedRecord.date}}</text>
+          </view>
+          <view class="modal-meta-row">
+            <text class="meta-label">考勤结果：</text>
+            <view class="custom-tag {{selectedRecord.statusTagClass}}" style="margin-left: 8rpx;">
+              {{selectedRecord.status}}
+            </view>
+          </view>
+        </view>
+
+        <!-- 申诉诉求与理由 -->
+        <view class="detail-block">
+          <view class="block-title">
+            <text class="dot"></text>
+            <text>申诉理由</text>
+            <view class="custom-tag {{selectedRecord.objectionTagClass}}" style="margin-left: auto;">
+              {{selectedRecord.objectionStatusStr}}
+            </view>
+          </view>
+          <view class="reason-content-box">
+            {{selectedRecord.objection.reason || '未填写理由'}}
+          </view>
+        </view>
+
+        <!-- 初审结果 (若已流转) -->
+        <view class="detail-block" wx:if="{{selectedRecord.objection.initial_status && selectedRecord.objection.initial_status !== 'PENDING'}}">
+          <view class="block-title">
+            <text class="dot primary"></text>
+            <text>院系初审结果</text>
+            <view class="custom-tag {{selectedRecord.objection.initial_status === 'APPROVED' ? 'tag-success' : 'tag-danger'}}" style="margin-left: auto;">
+              {{selectedRecord.objection.initial_status === 'APPROVED' ? '初核通过' : '初核驳回'}}
+            </view>
+          </view>
+          <view class="review-comment-box" wx:if="{{selectedRecord.objection.initial_comment}}">
+            <text class="comment-label">初审意见：</text>
+            <text class="comment-content">{{selectedRecord.objection.initial_comment}}</text>
+          </view>
+          <view class="review-empty-comment" wx:else>未填写初审批注</view>
+        </view>
+
+        <!-- 终审结果 (若已流转) -->
+        <view class="detail-block" wx:if="{{selectedRecord.objection.final_status && selectedRecord.objection.final_status !== 'PENDING'}}">
+          <view class="block-title">
+            <text class="dot warning"></text>
+            <text>学工终审结果</text>
+            <view class="custom-tag {{selectedRecord.objection.final_status === 'APPROVED' ? 'tag-success' : 'tag-danger'}}" style="margin-left: auto;">
+              {{selectedRecord.objection.final_status === 'APPROVED' ? '终审通过' : '终审驳回'}}
+            </view>
+          </view>
+          <view class="review-comment-box" wx:if="{{selectedRecord.objection.final_comment}}">
+            <text class="comment-label">终审意见：</text>
+            <text class="comment-content">{{selectedRecord.objection.final_comment}}</text>
+          </view>
+          <view class="review-empty-comment" wx:else>未填写终审批注</view>
+        </view>
+
+        <!-- 重新申诉提示 -->
+        <view class="reappeal-banner" wx:if="{{selectedRecord.canReAppeal}}">
+          <view class="reappeal-title">💡 申诉窗口期提示</view>
+          <view class="reappeal-desc">该异议已终审归档，您仍在 7 天窗口期内，可重新提交材料发起异议。</view>
+        </view>
+      </scroll-view>
+
+      <view class="modal-footer">
+        <t-button wx:if="{{selectedRecord.canReAppeal}}" theme="primary" variant="outline" size="medium" bind:tap="handleModalReAppeal" style="flex: 1; margin-right: 16rpx;">
+          重新申诉
+        </t-button>
+        <t-button theme="primary" size="medium" bind:tap="closeDetailModal" style="flex: 1;">
+          我知道了
+        </t-button>
+      </view>
     </view>
   </view>
 </view>

@@ -9,6 +9,8 @@
     "t-upload": "tdesign-miniprogram/upload/upload",
     "t-toast": "tdesign-miniprogram/toast/toast",
     "t-tag": "tdesign-miniprogram/tag/tag",
-    "t-notice-bar": "tdesign-miniprogram/notice-bar/notice-bar"
+    "t-notice-bar": "tdesign-miniprogram/notice-bar/notice-bar",
+    "t-dialog": "tdesign-miniprogram/dialog/dialog",
+    "t-textarea": "tdesign-miniprogram/textarea/textarea"
   }
 }

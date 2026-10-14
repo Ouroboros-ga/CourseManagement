@@ -21,14 +21,7 @@
   color: #1E293B;
 }
 
-.role-tag {
-  font-size: 24rpx;
-  color: var(--primary-color);
-  background-color: #EFF6FF;
-  padding: 8rpx 20rpx;
-  border-radius: 12rpx;
-  font-weight: 500;
-}
+
 
 .action-card {
   display: flex;

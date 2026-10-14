@@ -139,3 +139,21 @@
   padding-top: 16rpx;
   border-top: 1rpx solid #F1F5F9;
 }
+
+.change-dialog-content {
+  text-align: left;
+  padding: 12rpx 0;
+}
+
+.change-tip {
+  font-size: 26rpx;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.pending-tip {
+  text-align: center;
+  font-size: 24rpx;
+  color: #d97706;
+  margin-top: 16rpx;
+}

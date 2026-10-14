@@ -2,7 +2,7 @@
 .container {
   box-sizing: border-box;
   width: 100%;
-} 
+}
 
 button {
   background: initial;
@@ -25,4 +25,51 @@ page {
   --td-brand-color-focus: #3B82F6;
   --td-brand-color-active: #2563EB;
   --td-brand-color-disabled: #BFDBFE;
+}
+
+/* 全局自定义柔和标签样式（替代 t-tag） */
+.custom-tag {
+  font-size: 24rpx;
+  padding: 8rpx 20rpx;
+  border-radius: 12rpx;
+  font-weight: 500;
+  display: inline-block;
+}
+
+.tag-primary {
+  color: #3B82F6;
+  background-color: #EFF6FF;
+}
+
+.tag-success {
+  color: #10B981;
+  background-color: #ECFDF5;
+}
+
+.tag-danger {
+  color: #EF4444;
+  background-color: #FEF2F2;
+}
+
+.tag-default {
+  color: #64748B;
+  background-color: #F8FAFC;
+}
+
+.tag-warning {
+  color: #F59E0B;
+  background-color: #FEF3C7;
+}
+
+/* 迟到：橙红/珊瑚色，警示中带有温度 */
+.tag-late {
+  color: #EA580C;
+  background-color: #FFF7ED;
+}
+
+/* 旷课：深红/浓烈酒红，警示程度最重 */
+.tag-absent {
+  color: #EF4444;
+  background-color: #FEE2E2;
+  font-weight: 600;
 }

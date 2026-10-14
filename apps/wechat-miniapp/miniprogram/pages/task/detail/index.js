@@ -1,4 +1,4 @@
-import { getTaskDetail, submitTaskResult, getMySubmissions } from '../../../api/task';
+import { getTaskDetail, submitTaskResult, getMySubmissions, createChangeRequest } from '../../../api/task';
 import { uploadFile } from '../../../utils/upload';
 import Toast from 'tdesign-miniprogram/toast/index';
 import { formatPeriodText } from '../../../utils/period';
@@ -10,7 +10,9 @@ Page({
     resultType: 'NORMAL',
     abnormalList: [], // { studentId, name, type }
     fileList: [],
-    hasSubmission: false
+    hasSubmission: false,
+    showChangeDialog: false,
+    changeReason: ''
   },
 
   onLoad(options) {
@@ -51,7 +53,7 @@ Page({
         task.className = task.class_name_snapshot || task.className;
         task.expectedCount = task.expected_count_current !== undefined ? task.expected_count_current : (task.expectedCount || task.studentCount);
         task.requirePhoto = task.require_photo_snapshot !== undefined ? task.require_photo_snapshot : task.requirePhoto;
-        
+
         if (task.deadline_at) {
           const dl = new Date(task.deadline_at);
           // 格式化为 YYYY-MM-DD HH:mm
@@ -84,7 +86,7 @@ Page({
         task.isFuture = Boolean(dateStr && dateStr > todayStr);
       }
       this.setData({ task });
-      this.fetchSubmission(id); // Always fetch to check for rejected submissions
+      this.fetchSubmission(id); // 获取提交明细用于查看已完成记录
     } catch (err) {
       console.error(err);
     } finally {
@@ -97,15 +99,8 @@ Page({
       const res = await getMySubmissions(taskId);
       const items = res?.items || res || [];
       if (items.length > 0) {
-        // Find the latest submission (assume the first one or we can sort)
-        // If the task is '待执行' (PENDING), we just check if there's a REJECTED submission to show the reason
         const sub = items[0];
-        
-        if (this.data.task.status === '待执行') {
-          if (sub.review_status === 'REJECTED') {
-            this.setData({ rejectedReason: sub.review_comment || '无' });
-          }
-        } else {
+        if (this.data.task.status !== '待执行') {
           const reverseTypeMap = {
             'LATE': '迟到',
             'ABSENT': '旷课',
@@ -116,13 +111,11 @@ Page({
             name: item.name || '未知姓名',
             type: reverseTypeMap[item.attendance_type] || item.attendance_type
           }));
-          
+
           this.setData({
             resultType: sub.result === 'NORMAL' ? 'NORMAL' : 'ABNORMAL',
             abnormalList: abItems,
-            hasSubmission: true,
-            reviewStatus: sub.review_status,
-            rejectedReason: sub.review_comment || '无'
+            hasSubmission: true
           });
         }
       }
@@ -148,18 +141,18 @@ Page({
   async onAddPhoto(e) {
     const { files } = e.detail;
     wx.showLoading({ title: '上传中...' });
-    
+
     try {
       const uploadPromises = files.map(file => uploadFile(file.url, 'SUBMISSION_PHOTO'));
       const uploadResults = await Promise.all(uploadPromises);
-      
+
       const newFiles = files.map((file, index) => ({
         url: file.url, // 用于本地预览
         name: 'photo',
         type: 'image',
         file_id: uploadResults[index].id // 后端返回的文件ID
       }));
-      
+
       const currentFiles = this.data.fileList;
       this.setData({ fileList: currentFiles.concat(newFiles) });
     } catch (err) {
@@ -202,16 +195,16 @@ Page({
 
     try {
       wx.showLoading({ title: '提交中' });
-      
+
       // 提取上传后获得的文件 IDs
       const fileIds = fileList.map(f => f.file_id).filter(id => id != null).map(Number);
-      
+
       const typeMap = {
         '迟到': 'LATE',
         '旷课': 'ABSENT',
         '请假': 'LEAVE'
       };
-      
+
       // 组装符合后端要求的异常明细结构
       const abnormalItems = resultType === 'NORMAL' ? [] : abnormalList.map(record => ({
         student_id: Number(record.studentId),
@@ -235,6 +228,51 @@ Page({
       wx.hideLoading();
       Toast({ context: this, selector: '#t-toast', message: err.msg || err.message || '提交失败' });
     }
+  },
+
+  onOpenChangeDialog() {
+    this.setData({
+      showChangeDialog: true,
+      changeReason: ''
+    });
+  },
+
+  onCloseChangeDialog() {
+    this.setData({
+      showChangeDialog: false
+    });
+  },
+
+  onChangeReasonChange(e) {
+    this.setData({
+      changeReason: e.detail.value
+    });
+  },
+
+  async onConfirmChangeRequest() {
+    const { task, changeReason } = this.data;
+    const assignmentId = task?.assignment?.id;
+    if (!assignmentId) {
+      Toast({ context: this, selector: '#t-toast', message: '未找到任务分配记录' });
+      return;
+    }
+    const reason = (changeReason || '').trim();
+    if (!reason) {
+      Toast({ context: this, selector: '#t-toast', message: '请填写调班原因' });
+      return;
+    }
+
+    try {
+      wx.showLoading({ title: '提交中...' });
+      await createChangeRequest(assignmentId, reason);
+      wx.hideLoading();
+      this.setData({ showChangeDialog: false });
+      Toast({ context: this, selector: '#t-toast', message: '申请已提交，等待管理员处理', theme: 'success' });
+      // 重新拉取任务详情刷新状态
+      this.fetchDetail(this.data.taskId);
+    } catch (err) {
+      wx.hideLoading();
+      Toast({ context: this, selector: '#t-toast', message: err.msg || err.message || '提交失败' });
+    }
   }
 });
-

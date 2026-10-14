@@ -4,6 +4,7 @@
     "t-textarea": "tdesign-miniprogram/textarea/textarea",
     "t-upload": "tdesign-miniprogram/upload/upload",
     "t-button": "tdesign-miniprogram/button/button",
+    "t-notice-bar": "tdesign-miniprogram/notice-bar/notice-bar",
     "t-toast": "tdesign-miniprogram/toast/toast"
   }
 }

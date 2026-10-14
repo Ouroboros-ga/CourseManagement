@@ -6,12 +6,20 @@ Page({
   data: {
     recordId: '',
     reason: '',
-    fileList: []
+    fileList: [],
+    isReAppeal: false
   },
 
   onLoad(options) {
+    const isReAppeal = options.isReAppeal === '1';
     if (options.id) {
-      this.setData({ recordId: options.id });
+      this.setData({
+        recordId: options.id,
+        isReAppeal
+      });
+      if (isReAppeal) {
+        wx.setNavigationBarTitle({ title: '重新申诉' });
+      }
     }
   },
 
@@ -22,18 +30,18 @@ Page({
   async onAddPhoto(e) {
     const { files } = e.detail;
     wx.showLoading({ title: '上传中...' });
-    
+
     try {
       const uploadPromises = files.map(file => uploadFile(file.url, 'OBJECTION_PROOF'));
       const uploadResults = await Promise.all(uploadPromises);
-      
+
       const newFiles = files.map((file, index) => ({
         url: file.url,
         name: 'photo',
         type: 'image',
         file_id: uploadResults[index].id
       }));
-      
+
       const currentFiles = this.data.fileList;
       this.setData({ fileList: currentFiles.concat(newFiles) });
     } catch (err) {
@@ -61,7 +69,7 @@ Page({
       wx.showLoading({ title: '提交中' });
       const fileIds = fileList.map(f => f.file_id).filter(id => id != null).map(Number);
       await submitAppeal(recordId, { reason, file_ids: fileIds });
-      
+
       wx.hideLoading();
       Toast({ context: this, selector: '#t-toast', message: '提交成功', theme: 'success' });
       setTimeout(() => {

@@ -10,6 +10,7 @@ Page({
       console.warn('Logout api failed', err);
     } finally {
       wx.removeStorageSync('token');
+      wx.removeStorageSync('refresh_token');
       wx.reLaunch({
         url: '/pages/login/index'
       });
@@ -26,6 +27,7 @@ Page({
       try {
         await unbindStudent();
         wx.removeStorageSync('token');
+      wx.removeStorageSync('refresh_token');
         Toast({
           context: this,
           selector: '#t-toast',

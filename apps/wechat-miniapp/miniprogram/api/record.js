@@ -1,9 +1,9 @@
 import { request } from '../utils/request.js';
 
 export const getRecordList = () => {
-  return request({ 
-    url: '/api/v1/me/attendance', 
-    method: 'GET' 
+  return request({
+    url: '/api/v1/me/attendance',
+    method: 'GET'
   });
 };
 
@@ -13,10 +13,17 @@ export const submitAppeal = (recordId, data) => {
     reason: data.reason,
     file_ids: data.file_ids || []
   };
-      
-  return request({ 
-    url: `/api/v1/attendance/${recordId}/objections`, 
-    method: 'POST', 
-    data: payload 
+
+  return request({
+    url: `/api/v1/attendance/${recordId}/objections`,
+    method: 'POST',
+    data: payload
+  });
+};
+
+export const getMyObjections = () => {
+  return request({
+    url: '/api/v1/objections',
+    method: 'GET'
   });
 };

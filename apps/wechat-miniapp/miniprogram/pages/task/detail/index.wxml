@@ -11,9 +11,11 @@
 
   <!-- 待执行状态 -->
   <block wx:if="{{task.status === '待执行'}}">
-    <t-notice-bar wx:if="{{task.isFuture}}" visible="{{true}}" theme="warning" content="该任务查课日期为 {{task.inspection_date || task.date}}，只能在查课当天及以后上传数据。" />
+    <t-notice-bar wx:if="{{task.assignment && task.assignment.change_request_status === 'PENDING'}}" visible="{{true}}" theme="warning" content="您已提交调班申请（审核中）：{{task.assignment.change_request_reason || '未填写理由'}}，等待管理员改派。" />
+    <t-notice-bar wx:elif="{{task.assignment && task.assignment.change_request_status === 'REJECTED'}}" visible="{{true}}" theme="error" content="调班申请被驳回：{{task.assignment.change_request_comment || '无'}}。如需可再次申请或联系管理员。" />
+    <t-notice-bar wx:elif="{{task.isFuture}}" visible="{{true}}" theme="warning" content="该任务查课日期为 {{task.inspection_date || task.date}}，只能在查课当天及以后上传数据。" />
     <t-notice-bar wx:elif="{{rejectedReason}}" visible="{{true}}" theme="error" content="上次提交已被驳回：{{rejectedReason}}" />
-    
+
     <view class="section-title">查课结果</view>
     <view class="radio-card">
       <t-radio-group value="{{resultType}}" bind:change="onResultTypeChange">
@@ -30,16 +32,16 @@
           添加学生
         </t-button>
       </view>
-      
+
       <view class="abnormal-card" wx:if="{{abnormalList.length > 0}}">
         <view class="student-item" wx:for="{{abnormalList}}" wx:key="studentId">
           <view class="stu-info">
             <text class="stu-name">{{item.name}}</text>
             <text class="stu-no">{{item.studentId}}</text>
           </view>
-          <t-tag theme="{{item.type === '请假' ? 'warning' : 'danger'}}" variant="light">
+          <view class="custom-tag {{item.type === '请假' ? 'tag-warning' : (item.type === '迟到' ? 'tag-late' : 'tag-absent')}}">
             {{item.type}}
-          </t-tag>
+          </view>
         </view>
       </view>
       <view class="abnormal-card empty-hint" wx:else bind:tap="goToAbnormalPage">
@@ -61,16 +63,23 @@
     </view>
 
     <view class="footer-btn">
-      <t-button theme="primary" size="large" block disabled="{{task.isFuture}}" bind:tap="handleSubmit">
+      <t-button theme="primary" size="large" block disabled="{{task.isFuture}}" bind:tap="handleSubmit" style="margin-bottom: 24rpx;">
         {{task.isFuture ? '尚未到查课日期 (未开放上传)' : '提交记录'}}
       </t-button>
+      <t-button wx:if="{{task.assignment && task.assignment.change_request_status !== 'PENDING'}}"
+        theme="default" variant="outline" size="large" block style="margin-top: 16rpx;" bind:tap="onOpenChangeDialog">
+        {{task.assignment.change_request_status === 'REJECTED' ? '重新申请调班' : '无法前往？申请调班'}}
+      </t-button>
+      <view wx:elif="{{task.assignment && task.assignment.change_request_status === 'PENDING'}}" class="pending-tip">
+        ⏳ 调班申请已提交审核中，管理员改派后将自动移交给新志愿者
+      </view>
     </view>
   </block>
 
   <!-- 已取消 (停课免查) -->
   <view wx:elif="{{task.status === '已取消'}}" class="readonly-mode">
     <t-notice-bar visible="{{true}}" theme="warning" content="【停课免查】{{task.cancel_reason ? '原因：' + task.cancel_reason : '该任务因校历/教师停课已取消免查，无需前往。'}}" />
-    
+
     <view class="section-title">停课免查说明</view>
     <view class="cancel-card">
       <view class="cancel-desc">
@@ -88,17 +97,15 @@
   </view>
 
   <view wx:else class="readonly-mode">
-    <t-notice-bar visible="{{true}}" theme="warning" content="当前任务状态为「{{task.status}}」，已归档或锁定，无法修改。" />
-    
+    <t-notice-bar wx:if="{{task.status === '已完成'}}" visible="{{true}}" theme="success" content="查课任务已完成。" />
+    <t-notice-bar wx:else visible="{{true}}" theme="warning" content="当前任务状态为「{{task.status}}」，已归档或锁定，无法修改。" />
+
     <block wx:if="{{hasSubmission}}">
-      <t-notice-bar wx:if="{{reviewStatus === 'REJECTED'}}" visible="{{true}}" theme="error" content="该提交已被驳回：{{rejectedReason}}" />
-      <t-notice-bar wx:elif="{{reviewStatus === 'PENDING'}}" visible="{{true}}" theme="info" content="该提交正在等待管理审核" />
-      
       <view class="section-title">我的提交记录</view>
       <view class="radio-card">
         <view class="result-text">{{resultType === 'NORMAL' ? '全部正常 (无迟到、旷课、请假)' : '存在异常学生'}}</view>
       </view>
-      
+
       <block wx:if="{{resultType === 'ABNORMAL'}}">
         <view class="section-title">异常名单 ({{abnormalList.length}}人)</view>
         <view class="abnormal-card" wx:if="{{abnormalList.length > 0}}">
@@ -107,14 +114,36 @@
               <text class="stu-name">{{item.name}}</text>
               <text class="stu-no">{{item.studentId}}</text>
             </view>
-            <t-tag theme="{{item.type === '请假' ? 'warning' : 'danger'}}" variant="light">
+            <view class="custom-tag {{item.type === '请假' ? 'tag-warning' : (item.type === '迟到' ? 'tag-late' : 'tag-absent')}}">
               {{item.type}}
-            </t-tag>
+            </view>
           </view>
         </view>
       </block>
     </block>
   </view>
-  
+
+  <!-- 调班申请弹窗 -->
+  <t-dialog
+    visible="{{showChangeDialog}}"
+    title="申请调班"
+    confirm-btn="提交申请"
+    cancel-btn="取消"
+    bind:confirm="onConfirmChangeRequest"
+    bind:cancel="onCloseChangeDialog"
+  >
+    <view slot="content" class="change-dialog-content">
+      <view class="change-tip">请如实填写不能前往查课的理由，管理员审核后将一键改派其他志愿者：</view>
+      <t-textarea
+        value="{{changeReason}}"
+        bind:change="onChangeReasonChange"
+        placeholder="请输入调班事由（如：实验课冲突/因病就医/学院紧急会议等）"
+        maxlength="200"
+        disableDefaultPadding="{{true}}"
+        style="text-align: left; background: #f8fafc; border-radius: 8rpx; padding: 16rpx; margin-top: 16rpx;"
+      />
+    </view>
+  </t-dialog>
+
   <t-toast id="t-toast" />
 </view>

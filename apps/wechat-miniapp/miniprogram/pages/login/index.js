@@ -34,8 +34,12 @@ Page({
 
       const authData = await login({ code: loginRes.code });
       const token = authData?.token || authData?.access_token;
+      const refreshToken = authData?.refresh_token;
       if (token) {
-         wx.setStorageSync('token', token);
+        wx.setStorageSync('token', token);
+      }
+      if (refreshToken) {
+        wx.setStorageSync('refresh_token', refreshToken);
       }
 
       wx.hideLoading();
@@ -81,15 +85,15 @@ Page({
 
     try {
       wx.showLoading({ title: '绑定中...' });
-      
+
       await bindStudent({ name, studentId });
-      
+
       wx.hideLoading();
       Toast({
         context: this,
         selector: '#t-toast',
         message: '绑定成功',
-        theme: 'success', 
+        theme: 'success',
       });
 
       setTimeout(() => {
@@ -116,6 +120,7 @@ Page({
       // 忽略
     } finally {
       wx.removeStorageSync('token');
+      wx.removeStorageSync('refresh_token');
       this.setData({ needBinding: false });
       wx.hideLoading();
     }

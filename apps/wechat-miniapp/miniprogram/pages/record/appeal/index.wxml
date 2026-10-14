@@ -1,4 +1,5 @@
 <view class="container">
+  <t-notice-bar wx:if="{{isReAppeal}}" visible="{{true}}" theme="warning" content="该考勤原异议已被终审驳回。如需重新申诉，请详细补充理由并上传合法的证明材料。" />
   <view class="form-card">
     <view class="section-title">异议理由</view>
     <t-textarea value="{{reason}}" bind:change="onReasonChange" placeholder="请详细说明您的异议理由" maxlength="200" disableDefaultPadding="{{true}}" />
@@ -19,7 +20,7 @@
   </view>
 
   <view class="footer-btn">
-    <t-button theme="primary" size="large" block bind:tap="handleSubmit">提交异议</t-button>
+    <t-button theme="primary" size="large" block bind:tap="handleSubmit">{{isReAppeal ? '重新提交异议' : '提交异议'}}</t-button>
   </view>
   <t-toast id="t-toast" />
 </view>

@@ -38,3 +38,22 @@ export const getMySubmissions = (taskId) => {
     data: { task_id: taskId }
   });
 };
+
+export const createChangeRequest = (assignmentId, reason) => {
+  return request({
+    url: '/api/v1/assignment-change-requests',
+    method: 'POST',
+    data: {
+      assignment_id: Number(assignmentId),
+      reason: reason || ''
+    }
+  });
+};
+
+export const getMyChangeRequests = (params = { page_size: 50 }) => {
+  return request({
+    url: '/api/v1/me/assignment-change-requests',
+    method: 'GET',
+    data: params
+  });
+};
