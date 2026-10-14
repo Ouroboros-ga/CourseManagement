@@ -7,7 +7,7 @@ export interface LoginResult {
 }
 
 export interface CurrentUser {
-  user_id: string
+  id: string
   username: string
   display_name: string
   roles: string[]

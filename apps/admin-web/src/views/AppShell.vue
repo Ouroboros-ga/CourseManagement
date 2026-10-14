@@ -117,6 +117,10 @@ const currentUser = computed(() => sessionStore.currentUser)
 const menuItems = computed(() => {
   const list = [
     {
+      id: 'campus', idx: '07', path: '/dashboard/campus', name: '学院与组织配置',
+      badge: null, badgeClass: '', permission: ''
+    },
+    {
       id: 'volunteers',
       idx: '00',
       path: '/dashboard/volunteers',
