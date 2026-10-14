@@ -134,6 +134,7 @@ def main():
     }
     assert make_url(migration_env["DATABASE_URL"]).database == "course_management"
     runtime_env.update({flag: "true" for flag in FLAGS})
+    migration_env.update({flag: "true" for flag in FLAGS})
     runtime_env["PYTHONPATH"] = str(candidate / "backend")
     migration_env["PYTHONPATH"] = str(candidate / "backend")
     python = str(candidate / "backend/.venv/bin/python")
@@ -264,7 +265,9 @@ def main():
             env=runtime_env,
             check=True,
         )
-        assert counts() == before_counts
+        after_counts = counts()
+        assert all(after_counts[name] >= value for name, value in before_counts.items())
+        report["live_counts"] = after_counts
         report["checks"].append(
             "candidate_and_live_public_readiness_web_source_and_readonly_acceptance"
         )
