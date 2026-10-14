@@ -81,6 +81,7 @@ class TypeCreate(Named):
 
 
 class TypeUpdate(Versioned):
+    future_impact_revision: str = Field(default="", max_length=64, pattern=r"^(?:|[0-9a-f]{64})$")
     name: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=512)
     display_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
@@ -123,6 +124,7 @@ class GroupCreate(Named):
 
 
 class GroupUpdate(Versioned):
+    future_impact_revision: str = Field(default="", max_length=64, pattern=r"^(?:|[0-9a-f]{64})$")
     name: str | None = Field(default=None, min_length=1, max_length=128)
     owner_user_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,18}$")
     starts_on: date | None = None
@@ -131,10 +133,13 @@ class GroupUpdate(Versioned):
 
 
 class GroupPublish(Versioned):
-    class_mode: Literal["ALL_AUTHORIZED"] = "ALL_AUTHORIZED"
+    future_impact_revision: str = Field(default="", max_length=64, pattern=r"^(?:|[0-9a-f]{64})$")
+    class_mode: Literal["ALL_AUTHORIZED", "SPECIFIC"] = "ALL_AUTHORIZED"
+    class_ids: list[str] = Field(default_factory=list, max_length=500)
     course_type_ids: list[str] = Field(default_factory=list, max_length=100)
     default_effect: Effect = "BLOCK"
     type_overrides: dict[str, Effect] = Field(default_factory=dict)
+    teaching_class_overrides: dict[str, Effect] = Field(default_factory=dict)
     task_conflict_effect: Literal["BLOCK"] = "BLOCK"
     own_class_effect: Effect = "BLOCK"
     daily_limit: int = Field(default=3, ge=1, le=100)
@@ -142,7 +147,7 @@ class GroupPublish(Versioned):
     count_scope: Literal["GROUP", "ALL_GROUPS"] = "ALL_GROUPS"
     buffer_minutes: int = Field(default=0, ge=0, le=120)
 
-    @field_validator("course_type_ids")
+    @field_validator("course_type_ids", "class_ids")
     @classmethod
     def valid_ids(cls, values):
         if len(set(values)) != len(values) or any(
@@ -151,3 +156,12 @@ class GroupPublish(Versioned):
         ):
             raise ValueError("课程类型标识无效或重复")
         return values
+
+    @model_validator(mode="after")
+    def class_scope(self):
+        if (self.class_mode == "SPECIFIC") != bool(self.class_ids):
+            raise ValueError("指定班级范围须非空；全院模式不携带班级列表")
+        for key in self.teaching_class_overrides:
+            if not key.isascii() or not key.isdigit() or not 0 < int(key) < 2**63:
+                raise ValueError("具体教学班例外标识无效")
+        return self

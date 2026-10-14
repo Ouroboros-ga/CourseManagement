@@ -94,14 +94,12 @@ def get_engine() -> Engine:
 def get_session_factory() -> sessionmaker[Session]:
     global _session_factory
     if _session_factory is None:
-        from app.modules.identity.query_scope import ScopedSession
-
         _session_factory = sessionmaker(
             bind=get_engine(),
             autoflush=False,
             autocommit=False,
             expire_on_commit=False,
-            class_=ScopedSession,
+            class_=Session,
         )
     return _session_factory
 

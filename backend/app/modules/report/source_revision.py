@@ -28,12 +28,13 @@ class SourceRevisionService:
     """(学期, 周次) 源修订号的集中递增入口。全部为无状态静态方法，仅依附传入 Session 的事务。"""
 
     @staticmethod
-    def bump(session: Session, semester_id: int, week_no: int) -> None:
+    def bump(session: Session, semester_id: int, week_no: int, ownership_scope_id: int = 0) -> None:
         """对 (semester_id, week_no) 修订号原子 +1（首建为 1）。flush-only，不提交。"""
         now = utcnow()
         stmt = mysql_insert(ReportSourceRevision).values(
             semester_id=semester_id,
             week_no=week_no,
+            ownership_scope_id=ownership_scope_id,
             revision=1,
             updated_at=now,
         )
@@ -47,16 +48,20 @@ class SourceRevisionService:
     def bump_for_task(session: Session, task: InspectionTask) -> None:
         """已持有任务实体时直接按其学期/周次递增，省一次查询。"""
         SourceRevisionService.bump(session, task.semester_id, task.week_no)
+        if task.college_id is not None:
+            SourceRevisionService.bump(session, task.semester_id, task.week_no, task.college_id)
 
     @staticmethod
     def bump_for_task_id(session: Session, task_id: int) -> None:
         """仅有 task_id（如考勤/异议更正路径）时，读取所属任务的学期/周次再递增。"""
         row = session.execute(
-            select(InspectionTask.semester_id, InspectionTask.week_no).where(
+            select(InspectionTask.semester_id, InspectionTask.week_no, InspectionTask.college_id).where(
                 InspectionTask.id == task_id
             )
         ).one()
         SourceRevisionService.bump(session, int(row[0]), int(row[1]))
+        if row[2] is not None:
+            SourceRevisionService.bump(session, int(row[0]), int(row[1]), int(row[2]))
 
 
 __all__ = ["SourceRevisionService"]

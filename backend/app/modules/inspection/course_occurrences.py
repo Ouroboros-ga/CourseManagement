@@ -175,11 +175,30 @@ def smart_sample_occurrences(
 ) -> dict[str, object]:
     """智能抽查推荐：根据早八优先、每班限额、指定班级、排除已生成等规则推荐课次。"""
     from app.modules.academic.models import TeachingClass, AdministrativeClass, Student, TeachingClassStudent
+    from app.core.config import get_settings
+    from app.core.exceptions import NotFoundError
 
     target_class_ids_set = set(body.target_class_ids) if body.target_class_ids else set()
+    scoped = get_settings().campus_business_scoped_enabled
+    colleges = service._repo.college_ids if scoped else None
+    if scoped:
+        requested = target_class_ids_set | {row.class_id for row in body.class_quotas or []}
+        class_statement = select(AdministrativeClass).where(AdministrativeClass.id.in_(requested))
+        if colleges is not None:
+            class_statement = class_statement.where(AdministrativeClass.college_id.in_(colleges))
+        confirmed = {row.id: row for row in service._session.scalars(class_statement)}
+        if set(confirmed) != requested:
+            raise NotFoundError("抽查班级或配额包含外院、未知归属或不存在的班级")
+        target_ac_by_id = {cid: confirmed[cid].class_name for cid in target_class_ids_set}
+        target_ac_names = set(target_ac_by_id.values())
+        statement = select(TeachingClass).where(TeachingClass.semester_id == semester.id,
+                                               TeachingClass.status == "ACTIVE")
+        if colleges is not None:
+            statement = statement.where(TeachingClass.college_id.in_(colleges))
+        tcs = list(service._session.scalars(statement))
 
     # 1. 查询教学班
-    if target_class_ids_set:
+    elif target_class_ids_set:
         # 查询这些行政班的信息（获取班级名称）
         ac_rows = list(
             service._session.execute(
@@ -241,6 +260,8 @@ def smart_sample_occurrences(
     # 若指定了目标班级，确保候选只包含属于目标班级的课次
     if target_class_ids_set:
         def _belongs_to_target_classes(it: PlanItem) -> bool:
+            if scoped:
+                return any(m.administrative_class_id_snapshot in target_class_ids_set for m in it.roster)
             for m in getattr(it, "roster", []):
                 if m.class_name_snapshot and m.class_name_snapshot in target_ac_names:
                     return True
@@ -258,8 +279,30 @@ def smart_sample_occurrences(
     else:
         candidates = list(all_plan_items)
 
+    from app.modules.academic.time_service import TimeResolver
+    resolver = TimeResolver(service._session) if get_settings().campus_scheduling_enabled else None
+    starts = {}
+    tc_colleges = {row.id: row.college_id for row in tcs}
+    if resolver:
+        for cid in {row.college_id for row in tcs if row.college_id is not None}:
+            resolver.prefetch(cid, semester.id)
+
+    def start_minute(item):
+        if resolver is None:
+            return None
+        key = (item.teaching_class_id, item.inspection_date, item.start_period, item.end_period)
+        if key not in starts:
+            starts[key] = resolver.interval(tc_colleges[item.teaching_class_id], semester.id,
+                item.inspection_date, item.start_period, item.end_period)["start_minute"]
+        return starts[key]
+
+    def tier(item):
+        minute = start_minute(item)
+        return (0 if minute < 9 * 60 else 1 if minute < 12 * 60 else 2) if minute is not None else (
+            0 if item.start_period <= 2 else 1 if item.start_period <= 4 else 2)
+
     if body.morning_only:
-        candidates = [it for it in candidates if it.start_period <= 2]
+        candidates = [it for it in candidates if (start_minute(it) < 12 * 60 if resolver else it.start_period <= 2)]
 
     if not candidates:
         return {
@@ -281,12 +324,15 @@ def smart_sample_occurrences(
         for cq in body.class_quotas:
             quota_by_ac_id[cq.class_id] = cq.max_tasks
             if cq.class_name:
-                quota_by_ac_name[cq.class_name] = cq.max_tasks
+                quota_by_ac_name[confirmed[cq.class_id].class_name if scoped else cq.class_name] = cq.max_tasks
 
     # 记录全周各日已被选中的查课任务数，用于平滑各工作日的查课负荷
     daily_tally: dict[object, int] = defaultdict(int)
     sampled: list[PlanItem] = []
     picked_keys: set[str] = set()
+    picked_for_class: list[PlanItem]
+    picked_dates: set[object]
+    scored: list[tuple[float, PlanItem]]
 
     # 分组策略：
     # 场景 1：如果指定了目标班级（定向抽查模式），按每个目标班级分别进行抽查
@@ -302,28 +348,22 @@ def smart_sample_occurrences(
             # 找出属于该班级的所有可用候选课次
             class_items = [
                 it for it in candidates
-                if (c_name in {m.class_name_snapshot for m in getattr(it, "roster", []) if m.class_name_snapshot})
-                or (it.class_name_snapshot and c_name in it.class_name_snapshot)
+                if (any(m.administrative_class_id_snapshot == c_id for m in it.roster) if scoped else
+                    (c_name in {m.class_name_snapshot for m in getattr(it, "roster", []) if m.class_name_snapshot}))
+                or (not scoped and it.class_name_snapshot and c_name in it.class_name_snapshot)
             ]
 
-            picked_for_class: list[PlanItem] = []
-            picked_dates: set[object] = set()
+            picked_for_class = []
+            picked_dates = set()
 
             for _ in range(c_cap):
                 available = [it for it in class_items if it.task_key not in picked_keys]
                 if not available:
                     break
 
-                scored: list[tuple[float, PlanItem]] = []
+                scored = []
                 for it in available:
-                    if it.start_period <= 2:
-                        tier = 0
-                    elif it.start_period <= 4:
-                        tier = 1
-                    else:
-                        tier = 2
-
-                    tier_penalty = tier * 1000.0
+                    tier_penalty = tier(it) * 1000.0
                     same_day_penalty = 100.0 if it.inspection_date in picked_dates else 0.0
                     day_load_penalty = daily_tally[it.inspection_date] * 10.0
                     random_jitter = rng.uniform(0.0, 5.0)
@@ -352,8 +392,8 @@ def smart_sample_occurrences(
 
         for c_name in class_keys:
             class_items = by_class[c_name]
-            picked_for_class: list[PlanItem] = []
-            picked_dates: set[object] = set()
+            picked_for_class = []
+            picked_dates = set()
 
             class_cap = quota_by_ac_name.get(c_name, body.max_tasks_per_class)
             k = min(class_cap, len(class_items))
@@ -362,16 +402,9 @@ def smart_sample_occurrences(
                 if not available:
                     break
 
-                scored: list[tuple[float, PlanItem]] = []
+                scored = []
                 for it in available:
-                    if it.start_period <= 2:
-                        tier = 0
-                    elif it.start_period <= 4:
-                        tier = 1
-                    else:
-                        tier = 2
-
-                    tier_penalty = tier * 1000.0
+                    tier_penalty = tier(it) * 1000.0
                     same_day_penalty = 100.0 if it.inspection_date in picked_dates else 0.0
                     day_load_penalty = daily_tally[it.inspection_date] * 10.0
                     random_jitter = rng.uniform(0.0, 5.0)
@@ -397,7 +430,7 @@ def smart_sample_occurrences(
     sampled.sort(key=lambda x: (x.inspection_date, x.start_period, x.class_name_snapshot or ""))
 
     out_occurrences = [
-        {"course_schedule_id": it.course_schedule_id, "inspection_date": it.inspection_date}
+        {"course_schedule_id": str(it.course_schedule_id), "inspection_date": it.inspection_date}
         for it in sampled
         if it.course_schedule_id is not None
     ]

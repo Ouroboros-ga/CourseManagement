@@ -57,14 +57,20 @@ def build_workbook(rows: Iterable[tuple[object, ...]]) -> bytes:
 
 
 class CourseScheduleExportService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, college_id: int | None = None) -> None:
         self._session = session
+        self._college_id = college_id
 
     def export(
         self, actor_id: int, semester_id: int, teaching_class_ids: list[int] | None
     ) -> bytes:
         identity = IdentityRepository(self._session)
-        if identity.get_user_by_id(actor_id) is None or (
+        if self._college_id is not None:
+            from app.modules.identity.resource_scope import resolve_scope
+            from app.modules.identity.service import CurrentUser
+            resolve_scope(self._session, CurrentUser(actor_id, None, "", "ACTIVE", [], []),
+                          self._college_id, PermissionCode.COURSE_SCHEDULE_EXPORT.value)
+        elif identity.get_user_by_id(actor_id) is None or (
             PermissionCode.COURSE_SCHEDULE_EXPORT.value
             not in set(identity.list_effective_permissions(actor_id))
         ):
@@ -86,6 +92,17 @@ class CourseScheduleExportService:
             if not teaching_class_ids:
                 return build_workbook([])
             stmt = stmt.where(CourseSchedule.teaching_class_id.in_(set(teaching_class_ids)))
+        if self._college_id is not None:
+            from sqlalchemy import or_
+            stmt = stmt.where(CourseSchedule.college_id == self._college_id,
+                              TeachingClass.college_id == self._college_id,
+                              or_(Course.college_id == self._college_id, Course.college_id.is_(None)))
+            if teaching_class_ids:
+                owned = set(self._session.scalars(select(TeachingClass.id).where(
+                    TeachingClass.id.in_(teaching_class_ids), TeachingClass.college_id == self._college_id,
+                    TeachingClass.semester_id == semester_id)))
+                if owned != set(teaching_class_ids):
+                    raise NotFoundError("导出包含外院或其他学期教学班，整批未导出")
         records = self._session.execute(stmt).all()
         if len(records) > MAX_EXPORT_ROWS:
             raise AppError(
@@ -106,7 +123,7 @@ class CourseScheduleExportService:
             (
                 teaching_class.class_name,
                 course.course_name,
-                "",  # 当前基础数据模型未保存任课教师。
+                schedule.teacher or teaching_class.teacher_name or "",
                 ",".join(str(week) for week in weeks[schedule.id]),
                 schedule.weekday,
                 schedule.start_period,

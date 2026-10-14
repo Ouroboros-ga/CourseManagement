@@ -25,7 +25,7 @@ from app.modules.academic.models import (
     VolunteerQualification,
 )
 from app.modules.audit.models import AuditLog
-from app.modules.identity.authorization import business_today, require_resource_scope, resolve_scope
+from app.modules.identity.role_scope import require_resource_scope, resolve_scope
 from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import IdentityRepository
 from app.modules.inspection.models import (
@@ -72,8 +72,10 @@ def class_snapshot(ac: AdministrativeClass | None) -> dict[str, Any]:
 
 
 class EnrollmentService:
-    def __init__(self, session: Session, *, today: date | None = None):
+    def __init__(self, session: Session, *, today: date | None = None, college_id: int | None = None):
         self.db = session
+        self.college_id = college_id
+        from app.modules.identity.role_scope import business_today
         self.today = today or business_today()
 
     def _required_enrollment(self, enrollment_id: int) -> StudentEnrollment:
@@ -96,8 +98,8 @@ class EnrollmentService:
             is not None
         )
 
-    def at(self, student_id: int, on_date: date) -> StudentEnrollment | None:
-        return self.db.scalar(
+    def at(self, student_id: int, on_date: date, *, lock: bool = False) -> StudentEnrollment | None:
+        statement = (
             select(StudentEnrollment)
             .where(
                 StudentEnrollment.student_id == student_id,
@@ -109,8 +111,12 @@ class EnrollmentService:
                 ),
             )
             .order_by(StudentEnrollment.effective_from.desc())
+            .execution_options(populate_existing=True)
             .limit(1)
         )
+        if lock:
+            statement = statement.with_for_update(read=True)
+        return self.db.scalar(statement)
 
     def _baseline(self, student: Student) -> StudentEnrollment:
         existing = self.db.scalar(
@@ -926,10 +932,29 @@ class EnrollmentService:
             "impact": event.impact,
         }
 
+    def _handoff_query(self, actor_id, action, *, write=False):
+        if self.college_id is not None:
+            from app.modules.identity.resource_scope import resolve_scope as resource_scope
+            from app.modules.identity.role_scope import DefaultRoleScope
+            from app.modules.identity.service import CurrentUser
+            from app.modules.identity.repository import IdentityRepository
+            resource_scope(self.db, CurrentUser(actor_id, None, "", "ACTIVE", [], []), self.college_id, action, write=write)
+            root = "SUPER_ADMIN" in IdentityRepository(self.db).list_role_codes(actor_id)
+            scope = DefaultRoleScope("SCHOOL" if root else "COLLEGE", self.college_id)
+            return scope, select(InspectionTask).where(InspectionTask.college_id == self.college_id)
+        scope = resolve_scope(self.db, actor_id, action)
+        statement = select(InspectionTask)
+        if scope.kind != "SCHOOL":
+            colleges = set(scope.authorized_college_ids)
+            if scope.college_id is not None:
+                colleges.add(scope.college_id)
+            statement = statement.where(InspectionTask.college_id.in_(colleges))
+        return scope, statement
+
     def handoff_tasks(self, actor_id: int) -> dict[str, Any]:
-        resolve_scope(self.db, actor_id, "inspection.roster.manage")
+        _, statement = self._handoff_query(actor_id, "inspection.roster.manage")
         tasks = self.db.scalars(
-            select(InspectionTask)
+            statement
             .where(
                 or_(
                     InspectionTask.roster_review_required.is_(True),
@@ -970,9 +995,9 @@ class EnrollmentService:
         request_id: str | None = None,
     ):
         self.db.rollback()
-        scope = resolve_scope(self.db, actor_id, "inspection.roster.manage")
+        scope, statement = self._handoff_query(actor_id, "inspection.roster.manage", write=True)
         task = self.db.scalar(
-            select(InspectionTask).where(InspectionTask.id == task_id).with_for_update()
+            statement.where(InspectionTask.id == task_id).with_for_update().execution_options(populate_existing=True)
         )
         if task is None:
             raise NotFoundError("任务不存在")
@@ -980,6 +1005,10 @@ class EnrollmentService:
             raise ConflictError(ErrorCode.VERSION_CONFLICT)
         if not confirm_roster and not confirm_expected_count:
             raise ConflictError(message="请明确确认名单或应到人数")
+        if confirm_expected_count:
+            _, expected_scope = self._handoff_query(actor_id, "attendance.expected_count_adjust", write=True)
+            if self.db.scalar(expected_scope.with_only_columns(InspectionTask.id).where(InspectionTask.id == task.id)) is None:
+                raise PermissionDeniedError("没有此任务应到人数复核权限")
         from app.modules.academic.qualification_policy import enrollment_on
 
         members = list(
@@ -1017,6 +1046,7 @@ class EnrollmentService:
                     "confirm_roster": confirm_roster,
                     "confirm_expected_count": confirm_expected_count,
                     "snapshot_policy": "KEEP_EXISTING",
+                    **({"_workspace_college_id": str(task.college_id)} if task.college_id is not None else {}),
                 },
                 reason=reason,
                 request_id=request_id,

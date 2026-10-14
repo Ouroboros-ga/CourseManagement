@@ -259,7 +259,7 @@ class BatchBindingTokenRequest(BaseModel):
 
 
 class StudentBindingTokenItem(BaseModel):
-    student_id: int
+    student_id: str
     student_no: str
     name: str
     class_name: str | None = None

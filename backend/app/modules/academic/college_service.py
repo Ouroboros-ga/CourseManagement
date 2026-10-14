@@ -16,11 +16,7 @@ from app.modules.academic.enrollment_models import (
 )
 from app.modules.academic.enrollment_service import EnrollmentService
 from app.modules.audit.models import AuditLog
-from app.modules.identity.authorization import (
-    business_today,
-    require_student_scope,
-    resolve_scope,
-)
+from app.modules.identity.role_scope import business_today, require_student_scope, resolve_scope
 from app.modules.identity.models import UserAccount
 from app.modules.identity.policy import MANAGER_FUNCTION_CODES
 from app.modules.identity.repository import IdentityRepository

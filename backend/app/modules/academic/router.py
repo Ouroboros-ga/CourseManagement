@@ -13,7 +13,9 @@ from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams, page_params
 from app.common.responses import success
+from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.exceptions import PermissionDeniedError
 from app.core.permissions import PermissionCode
 from app.modules.academic.schemas import (
     AdministrativeClassCreateRequest,
@@ -41,12 +43,24 @@ from app.modules.identity.deps import CurrentUser, get_current_user, require_per
 
 
 def guard_legacy_academic(
+    request: Request,
     actor: Annotated[CurrentUser, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
     from app.modules.identity.query_scope import activate_query_scope
 
-    # 新旧入口共享实时固定学院范围；校级管理员保留学校数据维护入口。
+    if get_settings().campus_academic_scoped_enabled:
+        route = request.scope.get("route")
+        name = getattr(route, "name", None)
+        shared_reads = {"list_semesters", "get_semester", "list_period_definitions", "list_calendar_overrides"}
+        shared_writes = {"create_semester", "update_semester", "upsert_period_definition",
+                         "delete_period_definition", "create_calendar_override", "delete_calendar_override"}
+        from app.modules.identity.repository import IdentityRepository
+        school_admin = "SUPER_ADMIN" in IdentityRepository(db).list_role_codes(actor.id)
+        if not ((request.method == "GET" and name in shared_reads)
+                or (school_admin and name in shared_writes)):
+            raise PermissionDeniedError("请使用包含学院工作区的基础数据入口")
+    # 旧模式保留已发布的学院守卫；升级模式仅允许学校共享目录。
     activate_query_scope(db, actor.id)
 
 

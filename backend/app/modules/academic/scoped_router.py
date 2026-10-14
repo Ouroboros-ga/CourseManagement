@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Path, Query, Request
-from pydantic import Field
+from pydantic import Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams, page_params
@@ -39,6 +39,19 @@ class ScopedRosterReplace(StrictModel):
     reason: str | None = Field(default=None, max_length=512)
 
 
+class ScopedClassification(StrictModel):
+    course_type_id: StudentId
+    classification_revision: int = Field(ge=1)
+    future_impact_revision: str = Field(default="", max_length=64, pattern=r"^(?:|[0-9a-f]{64})$")
+
+    @field_validator("course_type_id")
+    @classmethod
+    def valid_type_id(cls, value):
+        if int(value) >= 2**63:
+            raise ValueError("课程类型标识超出 BIGINT 范围")
+        return value
+
+
 def require_scoped_academic_enabled():
     if not get_settings().campus_academic_scoped_enabled:
         raise AppError(ErrorCode.STATE_CONFLICT, "院级基础数据接入尚未启用", 503)
@@ -60,6 +73,37 @@ def get_service(
 
 
 ServiceDep = Annotated[ScopedAcademicService, Depends(get_service)]
+
+
+@router.put("/colleges/{cid}/academic/teaching-classes/{rid}/course-type")
+def classify(
+    cid: ResourceId,
+    rid: ResourceId,
+    body: ScopedClassification,
+    service: ServiceDep,
+    request: Request,
+):
+    result = service.set_course_type(rid, int(body.course_type_id), body.classification_revision,
+                                     body.future_impact_revision)
+    return success(result, getattr(request.state, "request_id", None))
+
+
+@router.get("/colleges/{cid}/academic/teaching-classes/{rid}/classification-impact")
+def classification_impact(cid: ResourceId, rid: ResourceId, service: ServiceDep, request: Request):
+    return success(service.classification_impact(rid), getattr(request.state, "request_id", None))
+
+
+@router.get("/colleges/{cid}/academic/master-timetable")
+def master_timetable(cid: ResourceId, service: ServiceDep, request: Request,
+                     semester_id: Annotated[int, Query(gt=0, le=2**63 - 1)],
+                     week_no: Annotated[int | None, Query(ge=1, le=60)] = None,
+                     weekday: Annotated[int | None, Query(ge=1, le=7)] = None,
+                     administrative_class_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
+                     keyword: Annotated[str | None, Query(max_length=128)] = None):
+    from app.modules.academic.scoped_timetable import master_timetable as query
+    return success(query(service, semester_id, week_no=week_no, weekday=weekday,
+                         administrative_class_id=administrative_class_id, keyword=keyword),
+                   getattr(request.state, "request_id", None))
 
 
 @router.get("/colleges/{cid}/academic/{kind}")

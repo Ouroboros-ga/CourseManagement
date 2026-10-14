@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams
+from app.core.config import get_settings
 from app.core.exceptions import (
     ConflictError,
     ErrorCode,
@@ -42,6 +43,7 @@ from app.modules.attendance.schemas import (
     AttendanceVersionResponse,
 )
 from app.modules.audit.models import AuditLog
+from app.modules.audit.provenance import scoped_snapshot
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
 from app.modules.inspection.models import InspectionTask
@@ -54,6 +56,15 @@ class AttendanceService:
         self._session = session
         self._repo = AttendanceRepository(session)
         self._identity = IdentityRepository(session)
+
+    def _legacy_manage_gate(self):
+        if get_settings().campus_business_scoped_enabled:
+            raise PermissionDeniedError("请使用明确学院范围的考勤管理入口")
+
+    def _can_manage(self, actor):
+        return not get_settings().campus_business_scoped_enabled and perms.is_manage_scope(
+            perms.resolve_read_scope(actor.roles)
+        )
 
     # ================================================================== #
     # 守卫 / 审计 / 身份与范围
@@ -88,7 +99,7 @@ class AttendanceService:
                 resource_type=resource_type,
                 resource_id=resource_id,
                 before_json=before,
-                after_json=after,
+                after_json=scoped_snapshot(after, getattr(self, "college_id", None)),
                 reason=reason,
                 request_id=request_id,
             )
@@ -116,9 +127,8 @@ class AttendanceService:
     ) -> dict:
         """管理范围考勤列表（GET /attendance）：仅管理类角色，越权 403。"""
         self._require(actor.id, perms.ATTENDANCE_READ_PERMISSION)
-        if not perms.is_manage_scope(
-            perms.resolve_read_scope(self._identity.list_effective_role_codes(actor.id))
-        ):
+        self._legacy_manage_gate()
+        if not self._can_manage(actor):
             raise PermissionDeniedError("仅管理角色可查看全量考勤，请用本人考勤入口")
         rows, total = self._repo.list_records(
             params,
@@ -189,9 +199,7 @@ class AttendanceService:
 
     def _can_read(self, actor: CurrentUser, record: AttendanceRecord) -> bool:
         """管理范围可读任意记录；否则仅本人 student_id 命中可读。"""
-        if perms.is_manage_scope(
-            perms.resolve_read_scope(self._identity.list_effective_role_codes(actor.id))
-        ):
+        if self._can_manage(actor):
             return True
         sid = self._student_id(actor.id)
         return sid is not None and sid == record.student_id
@@ -212,6 +220,7 @@ class AttendanceService:
         他人新认定。更正不删除历史，仅新增一条 CORRECTION 来源版本（version_no 递增）。
         """
         self._require(actor.id, perms.ATTENDANCE_CORRECT_PERMISSION)
+        self._legacy_manage_gate()
         record = self._repo.get_record_for_update(record_id)
         if record is None:
             raise NotFoundError("考勤记录不存在")

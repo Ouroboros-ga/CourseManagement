@@ -39,13 +39,30 @@ from app.modules.report.schemas import (
 
 
 class StatisticsService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, college_id: int | None = None) -> None:
         self._session = session
+        self._college_id = college_id
         self._repo = ReportRepository(session)
         self._identity = IdentityRepository(session)
 
     # ---- 守卫：功能权限纵深复核 + 管理范围准入 ----
     def _guard(self, actor: CurrentUser, code: str) -> None:
+        from app.core.config import get_settings
+
+        if get_settings().campus_business_scoped_enabled:
+            colleges: frozenset[int] | None
+            from app.modules.identity.management_scope import management_college_ids
+
+            if self._college_id is not None:
+                from app.modules.identity.resource_scope import resolve_scope
+                resolve_scope(self._session, actor, self._college_id, code)
+                colleges = frozenset({self._college_id})
+            else:
+                colleges = management_college_ids(self._session, actor, code)
+            if colleges is not None and not colleges:
+                raise PermissionDeniedError("没有此操作的学院管理范围")
+            self._repo = ReportRepository(self._session, college_ids=colleges)
+            return
         actor_row = self._identity.get_user_by_id(actor.id)
         if actor_row is None:
             raise UnauthenticatedError("操作者账号不可用")

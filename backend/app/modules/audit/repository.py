@@ -11,8 +11,14 @@ from app.modules.audit.models import AuditLog
 
 
 class AuditReadRepository:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, college_id: int | None = None) -> None:
         self._session = session
+        self._college_id = college_id
+
+    def _conditions(self):
+        return ([] if self._college_id is None else [
+            AuditLog.after_json["_workspace_college_id"].as_string() == str(self._college_id)
+        ])
 
     def list_logs(
         self,
@@ -26,7 +32,7 @@ class AuditReadRepository:
         page: int,
         page_size: int,
     ) -> tuple[list[AuditLog], int]:
-        conditions = [AuditLog.created_at >= start, AuditLog.created_at <= end]
+        conditions = [*self._conditions(), AuditLog.created_at >= start, AuditLog.created_at <= end]
         if actor_user_id is not None:
             conditions.append(AuditLog.actor_user_id == actor_user_id)
         if action is not None:
@@ -48,4 +54,5 @@ class AuditReadRepository:
         return rows, total
 
     def get(self, log_id: int) -> AuditLog | None:
-        return self._session.get(AuditLog, log_id)
+        return self._session.scalar(select(AuditLog).where(AuditLog.id == log_id, *self._conditions())
+                                    .execution_options(populate_existing=True))

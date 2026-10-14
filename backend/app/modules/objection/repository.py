@@ -15,8 +15,10 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams
+from app.core.exceptions import PermissionDeniedError
 from app.modules.attendance.models import AttendanceRecord
-from app.modules.identity.query_scope import get_scoped
+from app.modules.identity.resource_scope import ResourceScope
+from app.modules.inspection.models import InspectionTask
 from app.modules.objection.models import Objection, ObjectionFile, ObjectionFinalStatus
 
 
@@ -34,8 +36,36 @@ def _for_update(stmt: Select):  # noqa: ANN202 - 返回 Executable 由调用方 
 
 
 class ObjectionRepository:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, scope: ResourceScope | None = None) -> None:
+        if scope is not None and scope.action not in {"objection.read", "objection.final_review"}:
+            raise PermissionDeniedError("动作不匹配异议范围")
         self._session = session
+        self.scope = scope
+
+    def _attendance(self):
+        stmt = select(AttendanceRecord)
+        if self.scope is not None:
+            stmt = stmt.where(
+                AttendanceRecord.task_id.in_(
+                    select(InspectionTask.id).where(
+                        InspectionTask.college_id == self.scope.college_id
+                    )
+                )
+            )
+        return stmt.execution_options(populate_existing=True)
+
+    def _objections(self):
+        stmt = select(Objection)
+        if self.scope is not None:
+            stmt = stmt.where(
+                self._attendance()
+                .where(
+                    AttendanceRecord.id == Objection.attendance_record_id,
+                    AttendanceRecord.student_id == Objection.student_id,
+                )
+                .exists()
+            )
+        return stmt.execution_options(populate_existing=True)
 
     def add(self, obj: object) -> None:
         self._session.add(obj)
@@ -45,18 +75,18 @@ class ObjectionRepository:
 
     # ---- 考勤锁定读（全局锁层级最外层，先于异议）----
     def get_attendance_for_update(self, record_id: int) -> AttendanceRecord | None:
-        stmt = _for_update(select(AttendanceRecord).where(AttendanceRecord.id == record_id))
+        stmt = _for_update(self._attendance().where(AttendanceRecord.id == record_id))
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_attendance(self, record_id: int) -> AttendanceRecord | None:
-        return get_scoped(self._session, AttendanceRecord, record_id)
+        return self._session.scalar(self._attendance().where(AttendanceRecord.id == record_id))
 
     # ---- 异议单条读 / 锁定读 ----
     def get_objection(self, objection_id: int) -> Objection | None:
-        return get_scoped(self._session, Objection, objection_id)
+        return self._session.scalar(self._objections().where(Objection.id == objection_id))
 
     def get_objection_for_update(self, objection_id: int) -> Objection | None:
-        stmt = _for_update(select(Objection).where(Objection.id == objection_id))
+        stmt = _for_update(self._objections().where(Objection.id == objection_id))
         return self._session.execute(stmt).scalar_one_or_none()
 
     # ---- 未完成异议查重（须已在 Service 中锁定同一考勤行，串行化并发创建）----
@@ -86,7 +116,7 @@ class ObjectionRepository:
         student_id 非空即本人范围（OWN_OBJECTION）强约束；为空表示管理范围不加学生谓词
         （PERMISSIONS.md 7.6 / 8）。
         """
-        stmt = select(Objection)
+        stmt = self._objections()
         if student_id is not None:
             stmt = stmt.where(Objection.student_id == student_id)
         if attendance_record_id is not None:

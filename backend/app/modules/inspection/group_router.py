@@ -1,0 +1,71 @@
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Path, Request
+from sqlalchemy.orm import Session
+
+from app.common.responses import success
+from app.core.database import get_db
+from app.modules.academic.time_router import require_scheduling_enabled
+from app.modules.identity.deps import CurrentUserDep
+from app.modules.inspection.group_sampling import (
+    GroupAssignRequest,
+    GroupSampleConfirm,
+    GroupSampleRequest,
+    GroupSamplingService,
+)
+from app.modules.organization.router import require_campus_enabled
+
+router = APIRouter(
+    prefix="/colleges/{cid}/groups/{gid}/inspection",
+    tags=["group-inspection"],
+    dependencies=[Depends(require_campus_enabled), Depends(require_scheduling_enabled)],
+)
+Db = Annotated[Session, Depends(get_db)]
+ResourceId = Annotated[int, Path(gt=0, le=2**63 - 1)]
+
+
+@router.post("/assign")
+def assign(
+    cid: ResourceId,
+    gid: ResourceId,
+    body: GroupAssignRequest,
+    actor: CurrentUserDep,
+    db: Db,
+    request: Request,
+):
+    result = GroupSamplingService(db, actor, cid, gid).assign(
+        body.model_dump(), getattr(request.state, "request_id", None)
+    )
+    return success(result.model_dump(mode="json"), getattr(request.state, "request_id", None))
+
+
+@router.post("/sample-preview")
+def preview(
+    cid: ResourceId,
+    gid: ResourceId,
+    body: GroupSampleRequest,
+    actor: CurrentUserDep,
+    db: Db,
+    request: Request,
+):
+    return success(
+        GroupSamplingService(db, actor, cid, gid).preview(body.model_dump()),
+        getattr(request.state, "request_id", None),
+    )
+
+
+@router.post("/generate")
+def generate(
+    cid: ResourceId,
+    gid: ResourceId,
+    body: GroupSampleConfirm,
+    actor: CurrentUserDep,
+    db: Db,
+    request: Request,
+):
+    result = GroupSamplingService(db, actor, cid, gid).generate(
+        body.model_dump(exclude={"selection_revision"}),
+        body.selection_revision,
+        getattr(request.state, "request_id", None),
+    )
+    return success(result.model_dump(mode="json"), getattr(request.state, "request_id", None))

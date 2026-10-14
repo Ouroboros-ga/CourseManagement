@@ -8,10 +8,11 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 
 from app.core.database import utcnow
+from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ErrorCode, NotFoundError
 from app.modules.attendance.models import AttendanceRecord
 from app.modules.inspection import permissions as perms
-from app.modules.inspection.models import InspectionSubmission, TaskDeadlineAssessment
+from app.modules.inspection.models import InspectionSubmission, TaskDeadlineAssessment, TaskScheduleSource
 from app.modules.inspection.schemas import InspectionGenerateRequest, TaskCancelRequest
 
 if TYPE_CHECKING:
@@ -28,7 +29,8 @@ def restore_task(
     request_id: str | None,
 ) -> InspectionTaskResponse:
     service._session.rollback()
-    service._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
+    if service._session.get_bind().dialect.name == "mysql":
+        service._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
     service._require(actor.id, perms.GENERATE_PERMISSION)
     probe = service._repo.get_task(task_id)
     if probe is None:
@@ -43,14 +45,18 @@ def restore_task(
     now = utcnow()
     periods = {p.period_no: p for p in service._academic.list_period_definitions(sem.id)}
     start = periods.get(task.start_period)
-    if (
-        start is None
-        or start.start_time is None
-        or (
-            datetime.combine(task.inspection_date, start.start_time) - service._deadline_offset()
-            <= now
-        )
-    ):
+    if get_settings().campus_scheduling_enabled:
+        from app.modules.inspection.task_time import task_minutes
+        task_minutes(task)
+        start_at, end_at = task.activity_start_at, task.activity_end_at
+        if task.group_id:
+            from app.modules.volunteer.rules import GroupRules
+            GroupRules(service._session, task)
+    else:
+        end = periods.get(task.end_period)
+        start_at = datetime.combine(task.inspection_date, start.start_time) - service._deadline_offset() if start and start.start_time else None
+        end_at = datetime.combine(task.inspection_date, end.end_time) - service._deadline_offset() if end and end.end_time else None
+    if start_at is None or start_at <= now:
         raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已开始或缺少开始时刻，不能恢复")
     for model in (InspectionSubmission, AttendanceRecord, TaskDeadlineAssessment):
         if (
@@ -60,26 +66,23 @@ def restore_task(
             is not None
         ):
             raise ConflictError(ErrorCode.STATE_CONFLICT, "已有提交、考勤或截止考核，不可恢复")
-    day = service._repo.get_deadline_day(task.semester_id, task.inspection_date)
-    end = periods.get(task.end_period)
+    day = service._repo.deadline_for_task(task)
     if (
         day is None
         or day.deadline_at <= now
-        or end is None
-        or end.end_time is None
-        or (
-            day.deadline_at
-            < datetime.combine(task.inspection_date, end.end_time) - service._deadline_offset()
-        )
+        or end_at is None
+        or day.deadline_at < end_at
     ):
         raise ConflictError(ErrorCode.STATE_CONFLICT, "截止时间已失效，请重新规划")
     if task.inspection_type == "COURSE":
+        source_ids = list(service._session.scalars(select(TaskScheduleSource.teaching_class_id).where(
+            TaskScheduleSource.task_id == task.id)))
         request = InspectionGenerateRequest(
             semester_id=sem.id,
             inspection_type="COURSE",
             date_from=task.inspection_date,
             date_to=task.inspection_date,
-            teaching_class_ids=[task.teaching_class_id] if task.teaching_class_id else [],
+            teaching_class_ids=source_ids or ([task.teaching_class_id] if task.teaching_class_id else []),
             require_photo=task.require_photo_snapshot,
         )
     else:
@@ -96,7 +99,8 @@ def restore_task(
             require_photo=task.require_photo_snapshot,
         )
     match = next(
-        (i for i in service._build_plan_no_semlock(sem, request) if i.task_key == task.task_key),
+        (i for i in service._build_plan_no_semlock(sem, request)
+         if i.task_key + (f":group:{task.group_id}" if task.group_id else "") == task.task_key),
         None,
     )
     members = service._repo.list_roster_members(task.id, task.roster_version)

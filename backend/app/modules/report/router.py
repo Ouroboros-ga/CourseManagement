@@ -39,7 +39,13 @@ from app.modules.report.version_service import ReportService
 router = APIRouter(tags=["statistics"])
 
 
-def get_service(db: Annotated[Session, Depends(get_db)]) -> StatisticsService:
+def get_service(request: Request, db: Annotated[Session, Depends(get_db)]) -> StatisticsService:
+    raw = request.path_params.get("cid")
+    if raw is not None:
+        value = str(raw)
+        if not value.isascii() or not value.isdecimal() or not 0 < int(value) < 2**63:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "学院范围无效", 422)
+        return StatisticsService(db, college_id=int(value))
     return StatisticsService(db)
 
 

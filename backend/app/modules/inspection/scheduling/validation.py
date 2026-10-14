@@ -3,7 +3,7 @@
 from collections import defaultdict
 from datetime import date
 
-from .constraints import rejection
+from .constraints import rejection, group_plan_rejection
 from .loader import Snapshot
 from .models import Task
 
@@ -29,4 +29,9 @@ def validate_plan(
             return tid, reason
         today[vid, task.day].append(task)
         weekly[vid, year, week] += 1
+    for tid, vid in sorted(assignments.items()):
+        reason = group_plan_rejection(tasks[tid], [other for (person, _), daily in today.items()
+                                                  if person == vid for other in daily])
+        if reason:
+            return tid, reason
     return None

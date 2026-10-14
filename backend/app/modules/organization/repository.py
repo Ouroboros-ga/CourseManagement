@@ -11,7 +11,7 @@ class CampusRepository:
         self.session = session
 
     def college(self, college_id: int, *, lock: bool = False) -> College | None:
-        stmt = select(College).where(College.id == college_id)
+        stmt = select(College).where(College.id == college_id).execution_options(populate_existing=True)
         if lock:
             stmt = stmt.with_for_update().execution_options(populate_existing=True)
         return self.session.scalar(stmt)
@@ -24,7 +24,7 @@ class CampusRepository:
             stmt = stmt.where(ScopedGrant.college_id == college_id)
         if lock:
             stmt = stmt.with_for_update().execution_options(populate_existing=True)
-        return list(self.session.scalars(stmt))
+        return list(self.session.scalars(stmt.execution_options(populate_existing=True)))
 
     def rows(self, model, college_id: int):
         return list(

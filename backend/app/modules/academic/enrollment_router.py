@@ -28,7 +28,8 @@ Database = Annotated[Session, Depends(get_db)]
 
 @router.get("/enrollment-handoff/tasks")
 def handoff_tasks(actor: CurrentUserDep, db: Database, request: Request):
-    return success(EnrollmentService(db).handoff_tasks(actor.id), rid(request))
+    cid = request.path_params.get("cid")
+    return success(EnrollmentService(db, college_id=int(cid) if cid is not None else None).handoff_tasks(actor.id), rid(request))
 
 
 @router.post("/enrollment-handoff/tasks/{task_id}/review")
@@ -36,7 +37,7 @@ def review_task(
     task_id: int, body: TaskHandoffReview, actor: CurrentUserDep, db: Database, request: Request
 ):
     return success(
-        EnrollmentService(db).review_task(
+        EnrollmentService(db, college_id=int(request.path_params["cid"]) if "cid" in request.path_params else None).review_task(
             actor.id,
             task_id,
             body.lock_version,

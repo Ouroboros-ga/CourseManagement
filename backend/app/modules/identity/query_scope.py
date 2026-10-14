@@ -92,6 +92,15 @@ def activate_query_scope(
 
 def recheck_query_scope(db: Session, actor_id: int) -> None:
     """服务取得账号锁后重验归属；不能沿用事务回滚前的范围。"""
+    explicit = db.info.get("college_query_scope", {}).get("verified_scope")
+    if explicit is not None:
+        if explicit.actor_user_id != actor_id:
+            raise PermissionDeniedError("操作账号与学院范围不一致")
+        from app.modules.organization.service import CampusService
+        from app.modules.identity.service import CurrentUser
+        actor = CurrentUser(actor_id, None, "", "ACTIVE", [], [])
+        CampusService(db)._authorize(actor, explicit.college_id, explicit.action, write=True)
+        return
     current = db.info.get("query_scope_actor_id")
     if current is None or isinstance(current, int):
         activate_query_scope(
@@ -220,7 +229,8 @@ def predicates(college_id: int, today: date, actor_id: int | None = None) -> dic
         ),
         StudentEnrollment: StudentEnrollment.college_id == college_id,
         StudentManagerAppointment: StudentManagerAppointment.college_id == college_id,
-        TeacherCollegeBinding: TeacherCollegeBinding.college_id == college_id,
+        TeacherCollegeBinding: or_(TeacherCollegeBinding.college_id == college_id,
+                                  TeacherCollegeBinding.user_id == actor_id),
         StudentDataPlan: StudentDataPlan.college_id == college_id,
         EnrollmentChange: EnrollmentChange.target_enrollment_id.in_(
             select(enrollment.c.id).where(enrollment.c.college_id == college_id)
@@ -285,7 +295,7 @@ class ScopedSession(Session):
         return get_scoped(self, entity, ident, **kwargs)
 
 
-@event.listens_for(Session, "do_orm_execute")
+@event.listens_for(ScopedSession, "do_orm_execute")
 def filter_queries(state) -> None:
     db = state.session
     if db.info.pop("query_scope_needs_refresh", False) and not db.info.get(
@@ -334,14 +344,14 @@ def filter_queries(state) -> None:
                 break
 
 
-@event.listens_for(Session, "after_transaction_end")
+@event.listens_for(ScopedSession, "after_transaction_end")
 def invalidate_scope(db: ScopedSession, transaction) -> None:
     if transaction.parent is None and "query_scope_actor_id" in db.info:
         db.info["query_scope_needs_refresh"] = True
         db.info["query_scope_actor_locked"] = False
 
 
-@event.listens_for(Session, "before_flush")
+@event.listens_for(ScopedSession, "before_flush")
 def protect_writes(db: ScopedSession, _context, _instances) -> None:
     info = db.info.get("college_query_scope")
     if not info:
@@ -389,7 +399,7 @@ def protect_writes(db: ScopedSession, _context, _instances) -> None:
         .where(TeacherCollegeBinding.__table__.c.user_id == info["actor_id"])
         .with_for_update(read=True)
     ).scalar_one_or_none()
-    if binding is not None and binding != cid:
+    if binding is not None and binding != cid and not info.get("verified_scope"):
         raise PermissionDeniedError("教师归属已变化，请重新登录")
     conditions = predicates(cid, info["on_date"], info["actor_id"])
     for row in set(db.new) | set(db.dirty) | set(db.deleted):

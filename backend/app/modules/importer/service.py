@@ -55,6 +55,7 @@ from app.modules.academic.models import (
 )
 from app.modules.academic.repository import AcademicRepository
 from app.modules.audit.models import AuditLog
+from app.modules.audit.provenance import scoped_snapshot
 from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
@@ -154,7 +155,7 @@ class ImporterService:
                 resource_type="import_batch",
                 resource_id=resource_id,
                 before_json=dict(before) if before is not None else None,
-                after_json=dict(after) if after is not None else None,
+                after_json=scoped_snapshot(dict(after) if after is not None else None, getattr(self, "cid", None)),
                 reason=reason,
                 request_id=request_id,
             )
@@ -445,8 +446,9 @@ class ImporterService:
         except (ValueError, TypeError) as exc:
             issues.append(_issue("bad_time_field", f"时间字段解析失败：{exc}", row=idx))
             return None
-        if not 1 <= start <= 20 or not 1 <= end <= 20:
-            issues.append(_issue("period_out_of_range", "大节须为 1..20", row=idx))
+        max_period = 60 if get_settings().campus_business_scoped_enabled else 20
+        if not 1 <= start <= max_period or not 1 <= end <= max_period:
+            issues.append(_issue("period_out_of_range", f"大节须为 1..{max_period}", row=idx))
             return None
         if end < start:
             issues.append(_issue("period_inverted", "结束大节不得早于开始大节", row=idx))
@@ -639,8 +641,7 @@ class ImporterService:
                 vq.enabled = enabled
                 self._academic.flush()
             if enabled:
-                from app.modules.identity.authorization import current_student_college
-
+                from app.modules.identity.role_scope import current_student_college
                 vq.college_id = current_student_college(self._session, stu)
                 granted_roles += int(self._grant_volunteer_if_bound(stu.id))
         return {
@@ -1234,6 +1235,9 @@ class ImporterService:
     # ================================================================== #
     # 学校网格课表导入 (GRID_TIMETABLE)
     # ================================================================== #
+    def grid_slot_mapping(self, semester_id: int) -> dict[int, int]:
+        return SCHOOL_SLOT_MAPPING
+
     def _parse_grid_timetable(
         self, content: bytes, semester_id: int | None, filename: str | None
     ) -> tuple[dict, list[dict], dict]:
@@ -1258,6 +1262,11 @@ class ImporterService:
             return {"class_name": "", "courses": []}, issues, {"course_count": 0}
 
         parsed_courses: list[dict] = []
+        try:
+            slot_mapping = self.grid_slot_mapping(sem.id)
+        except AppError as exc:
+            issues.append(_issue("missing_grid_mapping", str(exc)))
+            return {"class_name": class_id, "courses": []}, issues, {"course_count": 0}
         for idx, row in enumerate(raw_rows, start=1):
             course_name = row.get("course_name", "").strip()
             if not course_name:
@@ -1265,7 +1274,9 @@ class ImporterService:
             try:
                 wd = parse_weekday(row.get("weekday", ""))
                 weeks = parse_weeks(row.get("weeks", ""), sem.total_weeks)
-                slots = parse_period(row.get("period", ""), slot_mapping=SCHOOL_SLOT_MAPPING)
+                slots = parse_period(row.get("period", ""), slot_mapping=slot_mapping)
+                if slots != list(range(min(slots), max(slots) + 1)):
+                    raise ValueError("小节映射跨越未授课的节次，请拆为连续课程行")
                 start_p = min(slots)
                 end_p = max(slots)
             except Exception as exc:

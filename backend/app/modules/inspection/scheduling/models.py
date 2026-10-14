@@ -15,6 +15,10 @@ class Task:
     parts: frozenset[str] = frozenset()
     cluster: str | None = None
     minutes: tuple[int, int] | None = None
+    group_id: int | None = None
+    group_daily_limit: int | None = None
+    group_weekly_limit: int | None = None
+    count_all_groups: bool = True
 
 
 @dataclass(frozen=True)

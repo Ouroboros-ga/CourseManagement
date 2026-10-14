@@ -10,10 +10,9 @@ from app.modules.attendance.models import AttendanceRecord
 from app.modules.attendance.service import AttendanceService
 from app.modules.file.models import FileObject
 from app.modules.file.service import FileService
-from app.modules.identity.models import Permission, Role, UserAccount, UserRole
+from app.modules.identity.models import Permission, Role, RolePermission, UserAccount, UserRole
 from app.modules.identity.service import CurrentUser
 from app.modules.inspection.models import InspectionSubmission, SubmissionFile, TaskRosterMember
-from sqlalchemy import select
 
 from tests.unit.test_campus_configuration import campus as campus_fixture
 from tests.unit.test_campus_ownership import legacy
@@ -35,47 +34,28 @@ def evidence():
         other = UserAccount(display_name="其他账号", student_id=another_student.id)
         db.add_all([account, other])
         db.flush()
-        permission = db.scalar(select(Permission).where(Permission.code == "attendance.read"))
-        role = db.scalar(select(Role).where(Role.code == "STUDENT"))
-        assert permission is not None and role is not None
+        permission = Permission(code="attendance.read", name="考勤读取")
+        role = Role(code="STUDENT", name="学生")
+        db.add_all([permission, role])
+        db.flush()
+        db.add(RolePermission(role_id=role.id, permission_id=permission.id))
         for user in [account, other]:
             db.add(UserRole(user_id=user.id, role_id=role.id))
-        db.add(
-            TaskRosterMember(
-                task_id=task.id,
-                roster_version=1,
-                student_id=student.id,
-                student_no="TEST-1",
-                name="测试学生",
-            )
-        )
-        record = AttendanceRecord(
-            task_id=task.id, student_id=student.id, effective_type="NORMAL", current_version=1
-        )
+        db.add(TaskRosterMember(task_id=task.id, roster_version=1, student_id=student.id,
+                               student_no="TEST-1", name="测试学生"))
+        record = AttendanceRecord(task_id=task.id, student_id=student.id,
+                                  effective_type="NORMAL", current_version=1)
         db.add(record)
         photos = []
         submissions = []
         for attempt, status in enumerate(["APPROVED", "REJECTED", "PENDING"], 1):
-            sub = InspectionSubmission(
-                task_id=task.id,
-                attempt_no=attempt,
-                volunteer_user_id=admin.id,
-                roster_version=1,
-                result="NORMAL",
-                review_status=status,
-                submitted_at=utcnow(),
-            )
-            photo = FileObject(
-                id=9007199254740992 + attempt,
-                object_key=f"test/{attempt}.jpg",
-                category="SUBMISSION_PHOTO",
-                content_type="image/jpeg",
-                size_bytes=1,
-                sha256="0" * 64,
-                uploader_user_id=admin.id,
-                status="READY",
-                expires_at=utcnow() + timedelta(days=1),
-            )
+            sub = InspectionSubmission(task_id=task.id, attempt_no=attempt,
+                                       volunteer_user_id=admin.id, roster_version=1,
+                                       result="NORMAL", review_status=status, submitted_at=utcnow())
+            photo = FileObject(id=9007199254740992 + attempt, object_key=f"test/{attempt}.jpg",
+                               category="SUBMISSION_PHOTO", content_type="image/jpeg",
+                               size_bytes=1, sha256="0" * 64, uploader_user_id=admin.id,
+                               status="READY", expires_at=utcnow() + timedelta(days=1))
             db.add_all([sub, photo])
             db.flush()
             db.add(SubmissionFile(submission_id=sub.id, file_id=photo.id))

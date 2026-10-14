@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, true
 from sqlalchemy.orm import Session
 
 from app.common.responses import success
@@ -58,8 +58,9 @@ def summary_row(
 
 
 class ReportListingService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, college_id: int | None = None) -> None:
         self._session = session
+        self._college_id = college_id
 
     def list_reports(
         self,
@@ -71,14 +72,26 @@ class ReportListingService:
         page_size: int,
     ) -> dict[str, Any]:
         identity = IdentityRepository(self._session)
+        from app.core.config import get_settings
+        from app.modules.identity.management_scope import management_college_ids
+
+        colleges = management_college_ids(self._session, actor, perms.REPORT_READ_PERMISSION) if get_settings().campus_business_scoped_enabled else None
+        if self._college_id is not None:
+            from app.modules.identity.resource_scope import resolve_scope
+            resolve_scope(self._session, actor, self._college_id, perms.REPORT_READ_PERMISSION)
+            colleges = frozenset({self._college_id})
         if identity.get_user_by_id(actor.id) is None:
             raise UnauthenticatedError("操作者账号不可用")
-        if perms.REPORT_READ_PERMISSION not in set(identity.list_effective_permissions(actor.id)):
+        if not get_settings().campus_business_scoped_enabled and perms.REPORT_READ_PERMISSION not in set(identity.list_effective_permissions(actor.id)):
             raise PermissionDeniedError()
-        if not perms.is_manage_scope(perms.resolve_read_scope(actor.roles)):
+        if not get_settings().campus_business_scoped_enabled and not perms.is_manage_scope(perms.resolve_read_scope(actor.roles)):
             raise PermissionDeniedError("周报仅管理范围可见")
 
         conditions = [Report.scope == "COLLEGE"]
+        if colleges is not None:
+            conditions.append(Report.college_id.in_(colleges))
+            conditions.append(select(ReportVersion.id).where(ReportVersion.report_id == Report.id,
+                ReportVersion.college_id_snapshot == Report.college_id).correlate(Report).exists())
         if semester_id is not None:
             conditions.append(Report.semester_id == semester_id)
         if week_no is not None:
@@ -92,6 +105,7 @@ class ReportListingService:
             .where(
                 ReportVersion.report_id == Report.id,
                 ReportVersion.status == ReportVersionStatus.PUBLISHED.value,
+                (ReportVersion.college_id_snapshot == Report.college_id) if colleges is not None else true(),
             )
             .correlate(Report)
             .scalar_subquery()
@@ -111,6 +125,7 @@ class ReportListingService:
                 and_(
                     ReportSourceRevision.semester_id == Report.semester_id,
                     ReportSourceRevision.week_no == Report.week_no,
+                    ReportSourceRevision.ownership_scope_id == Report.scope_college_key,
                 ),
             )
             .where(*conditions)

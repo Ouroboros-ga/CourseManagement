@@ -17,11 +17,13 @@ from app.core.config import get_settings
 from app.core.exceptions import AppError
 from app.core.logging import get_logger, setup_logging
 from app.core.middleware import RequestIdMiddleware
-from app.modules.academic.enrollment_router import router as enrollment_router
 from app.modules.academic.export_router import router as course_export_router
+from app.modules.academic.enrollment_router import router as enrollment_router
+from app.modules.academic.publication_router import router as academic_publication_router
 from app.modules.academic.router import router as academic_router
 from app.modules.academic.scoped_router import router as scoped_academic_router
 from app.modules.attendance.router import router as attendance_router
+from app.modules.attendance.scoped_router import router as scoped_attendance_router
 from app.modules.audit.router import router as audit_router
 from app.modules.file.router import router as file_router
 from app.modules.identity.account_router import router as account_router
@@ -29,9 +31,11 @@ from app.modules.identity.router import router as identity_router
 from app.modules.importer.router import router as importer_router
 from app.modules.inspection.router import router as inspection_router
 from app.modules.objection.router import router as objection_router
+from app.modules.objection.scoped_router import router as scoped_objection_router
 from app.modules.organization.router import router as campus_router
 from app.modules.report.listing import router as report_listing_router
 from app.modules.report.router import router as report_router
+from app.modules.timetable.router import router as personal_timetable_router
 
 logger = get_logger(__name__)
 
@@ -87,21 +91,45 @@ def create_app() -> FastAPI:
 
     # 身份与权限路由（阶段 1）。
     app.include_router(identity_router, prefix="/api/v1")
+    from app.modules.identity.scoped_router import router as scoped_identity_router
+    app.include_router(scoped_identity_router, prefix="/api/v1")
     app.include_router(account_router, prefix="/api/v1")
     app.include_router(campus_router, prefix="/api/v1")
 
     # 基础数据路由（阶段 3）：学期/节次/校历/行政班/学生/课程/教学班/课表/志愿者资格。
     app.include_router(academic_router, prefix="/api/v1/academic")
     app.include_router(scoped_academic_router, prefix="/api/v1")
+    from app.modules.academic.scoped_write_router import router as scoped_write_router
+    app.include_router(scoped_write_router, prefix="/api/v1")
+    app.include_router(academic_publication_router, prefix="/api/v1")
+    from app.modules.academic.time_router import router as college_time_router
+    app.include_router(college_time_router, prefix="/api/v1")
+    from app.modules.volunteer.member_router import router as member_router
+    from app.modules.inspection.group_router import router as group_inspection_router
+    app.include_router(member_router, prefix="/api/v1")
+    app.include_router(group_inspection_router, prefix="/api/v1")
+    app.include_router(personal_timetable_router, prefix="/api/v1")
+    app.include_router(scoped_attendance_router, prefix="/api/v1")
+    app.include_router(scoped_objection_router, prefix="/api/v1")
     app.include_router(enrollment_router, prefix="/api/v1/academic")
+    from app.modules.academic.scoped_enrollment_router import router as scoped_enrollment_router
+    app.include_router(scoped_enrollment_router, prefix="/api/v1")
     app.include_router(course_export_router, prefix="/api/v1")
+    from app.modules.academic.export_router import scoped_router as scoped_course_export_router
+    app.include_router(scoped_course_export_router, prefix="/api/v1")
     app.include_router(audit_router, prefix="/api/v1")
+    from app.modules.audit.scoped_router import router as scoped_audit_router
+    app.include_router(scoped_audit_router, prefix="/api/v1")
 
     # 导入路由（阶段 3）：名单/课表/志愿者资格的预览→确认两步原子导入。
     app.include_router(importer_router, prefix="/api/v1")
+    from app.modules.importer.scoped_router import router as scoped_importer_router
+    app.include_router(scoped_importer_router, prefix="/api/v1")
 
     # 查课任务与排班路由（阶段 4）：任务预览/生成、列表/详情/本人任务、名单读取。
     app.include_router(inspection_router, prefix="/api/v1")
+    from app.modules.inspection.scoped_router import router as scoped_inspection_router
+    app.include_router(scoped_inspection_router, prefix="/api/v1")
 
     # 文件路由（阶段 5）：受限上传、短时签名访问与验签下载（技术方案 16）。
     app.include_router(file_router, prefix="/api/v1")
@@ -115,6 +143,8 @@ def create_app() -> FastAPI:
     # 统计路由（阶段 7 W7a）：只读考勤统计与未完成清单（技术方案 17）。周报生成归后续波次。
     app.include_router(report_router, prefix="/api/v1")
     app.include_router(report_listing_router, prefix="/api/v1")
+    from app.modules.report.scoped_router import router as scoped_report_router
+    app.include_router(scoped_report_router, prefix="/api/v1")
 
     return app
 

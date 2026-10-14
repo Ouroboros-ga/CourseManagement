@@ -147,6 +147,11 @@ def update_type(
     )
 
 
+@router.get("/colleges/{cid}/course-types/{rid}/impact")
+def type_impact(cid: ResourceId, rid: ResourceId, actor: CurrentUserDep, service: ServiceDep):
+    return success(service.configuration_impact(actor, cid, "course_type", rid), service.request_id)
+
+
 @router.delete("/colleges/{cid}/course-types/{rid}")
 def delete_type(
     cid: ResourceId, rid: ResourceId, body: Versioned, actor: CurrentUserDep, service: ServiceDep
@@ -173,6 +178,11 @@ def update_group(
         service.update_group(actor, cid, rid, body.model_dump(exclude_unset=True)),
         service.request_id,
     )
+
+
+@router.get("/colleges/{cid}/groups/{rid}/impact")
+def group_impact(cid: ResourceId, rid: ResourceId, actor: CurrentUserDep, service: ServiceDep):
+    return success(service.configuration_impact(actor, cid, "group", rid), service.request_id)
 
 
 @router.delete("/colleges/{cid}/groups/{rid}")

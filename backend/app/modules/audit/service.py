@@ -28,7 +28,7 @@ def _dto(log: AuditLog, *, detail: bool = False) -> dict[str, Any]:
         "action": log.action,
         "resource_type": log.resource_type,
         "resource_id": log.resource_id,
-        "created_at": log.created_at.isoformat() + "Z",
+        "created_at": _db_time(log.created_at).isoformat() + "Z",
     }
     if detail:
         item.update(
@@ -40,12 +40,23 @@ def _dto(log: AuditLog, *, detail: bool = False) -> dict[str, Any]:
 
 
 class AuditReadService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, college_id: int | None = None) -> None:
         self._session = session
-        self._repo = AuditReadRepository(session)
+        self._college_id = college_id
+        self._repo = AuditReadRepository(session, college_id=college_id)
 
     def _require_permission(self, actor_id: int) -> None:
         identity = IdentityRepository(self._session)
+        if self._college_id is not None:
+            from app.modules.identity.resource_scope import resolve_scope
+            from app.modules.identity.service import CurrentUser
+            resolve_scope(self._session, CurrentUser(actor_id, None, "", "ACTIVE", [], []),
+                          self._college_id, "audit.read")
+            return
+        from app.core.config import get_settings
+        if (get_settings().campus_business_scoped_enabled
+                and "SUPER_ADMIN" not in identity.list_role_codes(actor_id)):
+            raise PermissionDeniedError("请使用明确学院的审计入口；未知历史仅超管可见")
         if identity.get_user_by_id(actor_id) is None or (
             PermissionCode.AUDIT_READ.value
             not in set(identity.list_effective_permissions(actor_id))

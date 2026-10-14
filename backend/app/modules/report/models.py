@@ -32,6 +32,7 @@ from sqlalchemy import (
     CheckConstraint,
     Computed,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -55,7 +56,9 @@ class ReportSourceRevision(Base):
     """(学期, 周次) → 考勤源数据修订号。联合主键，同事务原子递增，供周报落后判定。"""
 
     __tablename__ = "report_source_revision"
+    ownership_scope_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, server_default=text("0"))
     __table_args__ = (
+        Index("ix_report_source_revision_semester_id", "semester_id"),
         CheckConstraint(
             "revision >= 0",
             name="ck_report_source_revision_nonneg",
@@ -104,13 +107,7 @@ class Report(CollegeOwned, TimestampMixin, Base):
         CheckConstraint(f"scope IN {_REPORT_SCOPES}", name="ck_report_scope"),
         CheckConstraint("week_no >= 1", name="ck_report_week"),
         CheckConstraint("latest_version_no >= 0", name="ck_report_latest_version"),
-        UniqueConstraint(
-            "semester_id",
-            "week_no",
-            "scope",
-            "scope_college_key",
-            name="uq_report_sem_week_scope_college",
-        ),
+        UniqueConstraint("semester_id", "week_no", "scope", "scope_college_key", name="uq_report_sem_week_scope_college"),
         MYSQL_TABLE_ARGS,
     )
 
@@ -136,6 +133,7 @@ class ReportVersion(CreateTimeMixin, Base):
     """版本化周报快照：一次生成一行，version_no 单调递增、不可覆盖。"""
 
     __tablename__ = "report_version"
+    college_id_snapshot: Mapped[int | None] = mapped_column(ForeignKey("college.id", ondelete="RESTRICT"))
     __table_args__ = (
         CheckConstraint(f"status IN {_REPORT_VERSION_STATUSES}", name="ck_report_version_status"),
         CheckConstraint("source_revision >= 0", name="ck_report_version_source_revision"),

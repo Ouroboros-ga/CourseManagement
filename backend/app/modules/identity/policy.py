@@ -100,7 +100,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
 }
 
 
-MANAGER_FUNCTION_CODES = DEFAULT_ROLE_PERMISSIONS["STUDENT_AFFAIRS_MANAGER"] | {"statistics.read"}
+MANAGER_FUNCTION_CODES = DEFAULT_ROLE_PERMISSIONS["STUDENT_AFFAIRS_MANAGER"] | {"statistics.read", "volunteer.manage"}
 
 
 def can_change_roles(

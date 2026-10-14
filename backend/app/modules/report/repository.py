@@ -15,14 +15,13 @@ from datetime import date as date_
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import ColumnElement, Select, and_, case, func, select, update
+from sqlalchemy import ColumnElement, Select, and_, case, func, select, update, true
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.modules.academic.models import AdministrativeClass
 from app.modules.attendance.models import AttendanceRecord, AttendanceType
-from app.modules.identity.query_scope import get_scoped
 from app.modules.inspection.models import (
     InspectionSubmission,
     InspectionTask,
@@ -39,8 +38,9 @@ from app.modules.report.models import (
 
 
 class ReportRepository:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, college_ids: frozenset[int] | None = None) -> None:
         self._session = session
+        self._college_ids = college_ids
 
     # ---- 时间窗内"未取消"任务 id 子查询（命中集合的唯一真相源）----
     def _task_ids_subq(
@@ -55,6 +55,8 @@ class ReportRepository:
             InspectionTask.semester_id == semester_id,
             InspectionTask.canceled_at.is_(None),
         ]
+        if self._college_ids is not None:
+            clauses.append(InspectionTask.college_id.in_(self._college_ids))
         if week_no is not None:
             clauses.append(InspectionTask.week_no == week_no)
         else:
@@ -175,7 +177,8 @@ class ReportRepository:
                 AdministrativeClass.head_teacher,
                 AdministrativeClass.counselor,
                 AdministrativeClass.id,
-            ).where(AdministrativeClass.class_name.in_(class_names))
+            ).where(AdministrativeClass.class_name.in_(class_names),
+                AdministrativeClass.college_id.in_(self._college_ids) if self._college_ids is not None else true())
         ).all()
         return {
             str(name): (ht, co, int(cid) if cid is not None else None) for name, ht, co, cid in rows
@@ -478,17 +481,34 @@ class ReportVersionRepository:
     get-or-create 用 SELECT ... FOR UPDATE 串行化同 (学期,周,范围) 的版本号分配。
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, college_ids: frozenset[int] | None = None,
+                 generation_college_id: int | None = None) -> None:
         self._session = session
+        self.college_ids = college_ids
+        self.generation_college_id = generation_college_id
+
+    def _reports(self):
+        stmt = select(Report)
+        if self.college_ids is not None:
+            verified = select(ReportVersion.id).where(ReportVersion.report_id == Report.id,
+                ReportVersion.college_id_snapshot == Report.college_id).correlate(Report).exists()
+            return stmt.where(Report.college_id.in_(self.college_ids), verified)
+        return stmt
+
+    def _versions(self):
+        stmt = select(ReportVersion).join(Report, Report.id == ReportVersion.report_id)
+        if self.college_ids is not None:
+            stmt = stmt.where(Report.college_id.in_(self.college_ids),
+                ReportVersion.college_id_snapshot == Report.college_id)
+        return stmt
 
     def get_report(self, report_id: int) -> Report | None:
-        return get_scoped(self._session, Report, report_id)
+        return self._session.scalar(self._reports().where(Report.id == report_id)
+            .execution_options(populate_existing=True))
 
     def get_report_for_update(self, report_id: int) -> Report | None:
         return self._session.execute(
-            select(Report)
-            .where(Report.id == report_id)
-            .with_for_update()
+            self._reports().where(Report.id == report_id).with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
 
@@ -501,25 +521,16 @@ class ReportVersionRepository:
         MySQL 死锁会回滚整个事务，SAVEPOINT 无法只回滚失败的 INSERT。
         重复键只做 id 自赋值，不覆盖既有版本指针或更新时间。
         """
-        college_id = self._session.info.get("college_query_scope", {}).get("college_id")
         statement = mysql_insert(Report).values(
-            semester_id=semester_id,
-            week_no=week_no,
-            scope=scope,
-            latest_version_no=0,
-            college_id=college_id,
+            semester_id=semester_id, week_no=week_no, scope=scope, latest_version_no=0,
+            college_id=self.generation_college_id,
         )
         self._session.execute(statement.on_duplicate_key_update(id=Report.id))
         return self._session.execute(
-            select(Report)
-            .where(
-                Report.semester_id == semester_id,
-                Report.week_no == week_no,
-                Report.scope == scope,
-                Report.scope_college_key == (college_id or 0),
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
+            select(Report).where(Report.semester_id == semester_id,
+                                 Report.week_no == week_no, Report.scope == scope,
+                                 Report.scope_college_key == (self.generation_college_id or 0))
+            .with_for_update().execution_options(populate_existing=True)
         ).scalar_one()
 
     def latest_version(self, report_id: int) -> ReportVersion | None:
@@ -536,7 +547,7 @@ class ReportVersionRepository:
     def list_versions(self, report_id: int) -> list[ReportVersion]:
         return list(
             self._session.execute(
-                select(ReportVersion)
+                self._versions()
                 .where(ReportVersion.report_id == report_id)
                 .order_by(ReportVersion.version_no.desc())
             ).scalars()
@@ -547,22 +558,24 @@ class ReportVersionRepository:
         self._session.flush()  # 取回 id 供发布阶段条件更新
 
     def get_version(self, version_id: int) -> ReportVersion | None:
-        return get_scoped(self._session, ReportVersion, version_id)
+        return self._session.scalar(self._versions().where(ReportVersion.id == version_id)
+            .execution_options(populate_existing=True))
 
     def get_version_for_update(self, version_id: int) -> ReportVersion | None:
         return self._session.execute(
-            select(ReportVersion)
+            self._versions()
             .where(ReportVersion.id == version_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
 
-    def current_source_revision(self, semester_id: int, week_no: int) -> int:
+    def current_source_revision(self, semester_id: int, week_no: int, college_id: int | None = None) -> int:
         """当前 (学期,周) 考勤源修订号（无行即 0），供生成时读取与落后判定。"""
         val = self._session.execute(
             select(ReportSourceRevision.revision).where(
                 ReportSourceRevision.semester_id == semester_id,
                 ReportSourceRevision.week_no == week_no,
+                ReportSourceRevision.ownership_scope_id == (college_id or 0),
             )
         ).scalar_one_or_none()
         return 0 if val is None else int(val)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.modules.file.models import FileObject, FileStatus
@@ -16,6 +16,19 @@ class FileRepository:
 
     def add(self, obj: FileObject) -> None:
         self._session.add(obj)
+
+    def is_linked_to_scoped_report(self, file_id: int, college_ids: frozenset[int] | None) -> bool:
+        from app.modules.report.models import Report, ReportVersion
+
+        stmt = select(ReportVersion.id).join(Report, Report.id == ReportVersion.report_id).where(
+            ReportVersion.status == "PUBLISHED",
+            or_(ReportVersion.excel_file_id == file_id, ReportVersion.snapshot_file_id == file_id,
+                ReportVersion.word_file_id == file_id),
+        )
+        if college_ids is not None:
+            stmt = stmt.where(Report.college_id.in_(college_ids),
+                ReportVersion.college_id_snapshot == Report.college_id)
+        return self._session.scalar(stmt.limit(1)) is not None
 
     def get(self, file_id: int) -> FileObject | None:
         return self._session.get(FileObject, file_id)
@@ -103,7 +116,8 @@ class FileRepository:
         return list(self._session.execute(stmt).scalars().all())
 
     def is_linked_to_submittable_for(
-        self, *, file_id: int, actor_user_id: int, may_review: bool, may_read_own: bool
+        self, *, file_id: int, actor_user_id: int, may_review: bool, may_read_own: bool,
+        review_college_ids: frozenset[int] | None = None,
     ) -> bool:
         """文件是否挂在"该操作者可读/可审"的提交上（技术方案 16.2 业务资源归属）。
 
@@ -115,12 +129,17 @@ class FileRepository:
 
         from app.modules.inspection.models import (
             InspectionSubmission,
+            InspectionTask,
             SubmissionFile,
         )
 
         conds = [SubmissionFile.file_id == file_id]
-        if not may_review:
-            conds.append(InspectionSubmission.volunteer_user_id == actor_user_id)
+        from sqlalchemy import false, or_
+
+        managed = (InspectionTask.college_id.in_(review_college_ids)
+                   if review_college_ids is not None else true()) if may_review else false()
+        own = InspectionSubmission.volunteer_user_id == actor_user_id if may_read_own else false()
+        conds.append(or_(managed, own))
 
         stmt = select(
             exists(
@@ -130,6 +149,7 @@ class FileRepository:
                     InspectionSubmission,
                     InspectionSubmission.id == SubmissionFile.submission_id,
                 )
+                .join(InspectionTask, InspectionTask.id == InspectionSubmission.task_id)
                 .where(*conds)
             )
         )
@@ -153,7 +173,8 @@ class FileRepository:
         return bool(self._session.execute(select(exists(linked))).scalar_one())
 
     def is_linked_to_readable_objection_for(
-        self, *, file_id: int, actor_user_id: int, may_manage: bool, may_read_own: bool
+        self, *, file_id: int, actor_user_id: int, may_manage: bool, may_read_own: bool,
+        management_college_ids: frozenset[int] | None = None,
     ) -> bool:
         """仅异议已关联材料可按管理权限或有效学生绑定签发访问链接。"""
         if not (may_manage or may_read_own):
@@ -161,17 +182,27 @@ class FileRepository:
 
         from app.modules.identity.models import UserAccount
         from app.modules.objection.models import Objection, ObjectionFile
+        from app.modules.attendance.models import AttendanceRecord
+        from app.modules.inspection.models import InspectionTask
+        from sqlalchemy import false, or_
 
         linked = (
             select(1)
             .select_from(ObjectionFile)
             .join(Objection, Objection.id == ObjectionFile.objection_id)
+            .join(AttendanceRecord, AttendanceRecord.id == Objection.attendance_record_id)
+            .join(InspectionTask, InspectionTask.id == AttendanceRecord.task_id)
             .where(ObjectionFile.file_id == file_id)
         )
-        if not may_manage:
-            linked = linked.join(UserAccount, UserAccount.student_id == Objection.student_id).where(
-                UserAccount.id == actor_user_id
-            )
+        managed = (InspectionTask.college_id.in_(management_college_ids)
+                   if management_college_ids is not None else true()) if may_manage else false()
+        own = exists(select(UserAccount.id).where(
+            UserAccount.id == actor_user_id, UserAccount.status == "ACTIVE",
+            UserAccount.student_id == Objection.student_id,
+        )) if may_read_own else false()
+        linked = linked.where(
+            Objection.student_id == AttendanceRecord.student_id, or_(managed, own)
+        )
         return bool(self._session.execute(select(exists(linked))).scalar_one())
 
     def is_linked_to_pending_objection(self, file_id: int) -> bool:

@@ -285,6 +285,10 @@ class AccountService:
             )
         )
         stmt = select(UserAccount).where(UserAccount.id.in_(teacher))
+        from app.modules.identity.account_visibility import management_users
+        visible = management_users(self.session, actor.id,
+            "role.assign" if RoleCode.TEACHER_ADMIN.value in roles and RoleCode.SUPER_ADMIN.value not in roles else "account.read")
+        stmt = stmt.where(UserAccount.id.in_(visible.with_only_columns(UserAccount.id)))
         if query:
             stmt = stmt.where(
                 UserAccount.username.contains(query, autoescape=True)
@@ -385,8 +389,7 @@ class AccountService:
             if not actor.has_role(RoleCode.SUPER_ADMIN.value):
                 raise PermissionDeniedError("仅超级管理员可重置教工密码")
         elif RoleCode.STUDENT_AFFAIRS_MANAGER.value in target_roles:
-            from app.modules.identity.authorization import require_student_scope
-
+            from app.modules.identity.role_scope import require_student_scope
             if target.student_id is None:
                 raise ConflictError(message="负责人缺少有效学生绑定")
             require_student_scope(self.session, actor.id, "role.assign", target.student_id)

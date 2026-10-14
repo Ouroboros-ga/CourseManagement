@@ -19,9 +19,9 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date as date_
-from datetime import datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
 
-from sqlalchemy import create_engine, delete, func, or_, select
+from sqlalchemy import ColumnElement, create_engine, delete, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -40,6 +40,7 @@ from app.core.exceptions import (
     UnauthenticatedError,
 )
 from app.core.permissions import RoleCode
+from app.modules.volunteer.models import GroupConfigVersion, VolunteerGroup
 from app.modules.academic.calendar import resolve_teaching_day
 from app.modules.academic.models import (
     AdministrativeClass,
@@ -194,6 +195,7 @@ class InspectionService:
         self._repo = InspectionRepository(session)
         self._academic = AcademicRepository(session)
         self._identity = IdentityRepository(session)
+        self._generation_group: tuple[VolunteerGroup, GroupConfigVersion] | None = None
 
     # ================================================================== #
     # 守卫 / 审计 / 数据范围
@@ -205,9 +207,27 @@ class InspectionService:
             raise UnauthenticatedError("操作者账号不可用")
         if code not in set(self._identity.list_effective_permissions(actor_user_id)):
             raise PermissionDeniedError()
-        from app.modules.identity.query_scope import recheck_query_scope
+        self._repo.college_ids = None
+        if get_settings().campus_business_scoped_enabled:
+            from app.modules.identity.authorization import CAMPUS_ACTIONS
+            from app.modules.identity.management_scope import management_college_ids
 
-        recheck_query_scope(self._session, actor_user_id)
+            if code in CAMPUS_ACTIONS and code not in {
+                perms.READ_PERMISSION, perms.ROSTER_READ_PERMISSION, perms.SUBMISSION_READ_PERMISSION
+            }:
+                current = CurrentUser(actor.id, actor.username, actor.display_name, actor.status,
+                    self._identity.list_role_codes(actor.id), self._identity.list_effective_permissions(actor.id))
+                colleges = management_college_ids(self._session, current, code)
+                if colleges is not None and not colleges:
+                    raise PermissionDeniedError("没有此操作的学院管理范围")
+                if colleges is not None:
+                    from app.modules.organization.service import CampusService
+                    campus = CampusService(self._session)
+                    for cid in sorted(colleges):
+                        campus._authorize(current, cid, code, write=True)
+                if code in {perms.DEADLINE_READ_PERMISSION, perms.DEADLINE_MANAGE_PERMISSION} and colleges is not None:
+                    raise PermissionDeniedError("截止配置需要明确学院路径")
+                self._repo.college_ids = colleges
 
     def _audit(
         self,
@@ -221,6 +241,12 @@ class InspectionService:
         request_id: str | None,
         before: dict | None = None,
     ) -> None:
+        from app.modules.audit.provenance import scoped_snapshot
+        cid = getattr(self, "cid", None)
+        if cid is None and self._generation_group is not None:
+            cid = self._generation_group[0].college_id
+        if cid is None and self._repo.college_ids is not None and len(self._repo.college_ids) == 1:
+            cid = next(iter(self._repo.college_ids))
         self._session.add(
             AuditLog(
                 actor_user_id=actor_user_id,
@@ -228,14 +254,15 @@ class InspectionService:
                 resource_type=resource_type,
                 resource_id=resource_id,
                 before_json=before,
-                after_json=after,
+                after_json=scoped_snapshot(after, cid),
                 reason=reason,
                 request_id=request_id,
             )
         )
         self._session.flush()
 
-    def _scope_filter(self, actor: CurrentUser, *, force_assigned: bool = False):
+    def _scope_filter(self, actor: CurrentUser, *, force_assigned: bool = False,
+                      action: str = perms.READ_PERMISSION):
         """构造任务可见性 select：管理范围全部可见，志愿者仅本人受派任务。
 
         force_assigned=True 用于 /me 端点，无论角色一律限定为本人受派任务。
@@ -247,7 +274,22 @@ class InspectionService:
                 InspectionAssignment.revoked_at.is_(None),
             )
             return stmt.where(InspectionTask.id.in_(subq))
-        scope = perms.resolve_scope(self._identity.list_effective_role_codes(actor.id))
+        if get_settings().campus_business_scoped_enabled:
+            from sqlalchemy import or_
+            from app.modules.identity.management_scope import management_college_ids
+
+            colleges = management_college_ids(self._session, actor, action)
+            if colleges is None:
+                return None
+            condition: ColumnElement[bool] = InspectionTask.college_id.in_(colleges)
+            if "VOLUNTEER" in self._identity.list_role_codes(actor.id):
+                assigned = select(InspectionAssignment.task_id).where(
+                    InspectionAssignment.volunteer_user_id == actor.id,
+                    InspectionAssignment.revoked_at.is_(None),
+                )
+                condition = or_(condition, InspectionTask.id.in_(assigned))
+            return select(InspectionTask).where(condition)
+        scope = perms.resolve_scope(actor.roles)
         if perms.is_management_scope(scope):
             return None  # 管理范围：不加可见性谓词（V1.0 无学院分区）
         stmt = select(InspectionTask)
@@ -307,15 +349,13 @@ class InspectionService:
         return {c.date: c for c in self._academic.list_calendar_overrides(semester_id)}
 
     def _attach_rosters(self, items: list[PlanItem]) -> list[PlanItem]:
-        from app.modules.identity.query_scope import query_date
 
         by_date: dict[date_, list[PlanItem]] = defaultdict(list)
         for item in items:
             by_date[item.inspection_date].append(item)
         result = []
         for on_date, daily in by_date.items():
-            with query_date(self._session, on_date):
-                result.extend(self._attach_rosters_at_date(daily))
+            result.extend(self._attach_rosters_at_date(daily))
         return result
 
     def _attach_rosters_at_date(self, items: list[PlanItem]) -> list[PlanItem]:
@@ -512,6 +552,11 @@ class InspectionService:
     ) -> GenerateResultResponse:
         existing = self._repo.find_task_ids_by_keys([it.task_key for it in items])
         new_items = [it for it in items if it.task_key not in existing]
+        new_tasks = []
+        if get_settings().campus_scheduling_enabled:
+            if self._repo.college_ids is None or len(self._repo.college_ids) != 1:
+                raise PermissionDeniedError("新作息模式生成任务必须明确一个学院")
+            self._repo.deadline_scope_id = next(iter(self._repo.college_ids))
 
         for it in new_items:
             task = InspectionTask(
@@ -535,7 +580,27 @@ class InspectionService:
                 roster_version=1,
                 lock_version=0,
             )
+            parent = (self._session.get(TeachingClass, it.teaching_class_id) if it.teaching_class_id
+                      else self._session.get(AdministrativeClass, it.administrative_class_id)
+                      if it.administrative_class_id else None)
+            task.college_id = parent.college_id if parent else None
+            if isinstance(parent, TeachingClass):
+                from app.modules.academic.campus_models import CourseType
+
+                course_type = self._session.get(CourseType, parent.course_type_id) if parent.course_type_id else None
+                task.course_type_id_snapshot = parent.course_type_id
+                task.course_type_name_snapshot = course_type.name if course_type else None
+                task.classification_revision_snapshot = parent.classification_revision
+            if self._generation_group is not None:
+                group, group_version = self._generation_group
+                task.group_id, task.group_config_version_id = group.id, group_version.id
+                task.group_name_snapshot = group.name
+            if get_settings().campus_scheduling_enabled:
+                from app.modules.inspection.task_time import freeze_time
+
+                freeze_time(self._session, task)
             self._repo.add(task)
+            new_tasks.append(task)
             self._repo.flush()  # 取得 task.id
             from app.modules.inspection.models import TaskScheduleSource
 
@@ -561,7 +626,14 @@ class InspectionService:
                 self._repo.add(m)
             self._repo.flush()
 
-        seeded = self._seed_deadlines(sem.id, items, actor_user_id)
+        seeded = self._seed_deadlines(sem.id, new_items if get_settings().campus_scheduling_enabled else items, actor_user_id)
+        if get_settings().campus_scheduling_enabled:
+            for task in new_tasks:
+                day = self._repo.get_deadline_day(task.semester_id, task.inspection_date)
+                if day is None or task.activity_end_at is None or day.deadline_at < task.activity_end_at:
+                    raise ConflictError(message="本院当日提交截止早于任务结束，请调整截止后重新生成")
+                task.deadline_day_id = day.id
+            self._repo.flush()
 
         self._audit(
             actor_user_id=actor_user_id,
@@ -625,10 +697,20 @@ class InspectionService:
             return 0
         deadline_naive = self._default_deadline_naive()
         for d in missing:
+            cutoff = deadline_naive(d)
+            if get_settings().campus_scheduling_enabled:
+                latest = self._session.scalar(select(func.max(InspectionTask.activity_end_at)).where(
+                    InspectionTask.id.in_(self._repo.scoped_task_ids()),
+                    InspectionTask.semester_id == semester_id, InspectionTask.inspection_date == d,
+                    InspectionTask.canceled_at.is_(None)))
+                if latest:
+                    day_end = datetime.combine(d + timedelta(days=1), time.min) - self._deadline_offset() - timedelta(minutes=1)
+                    cutoff = max(cutoff, min(latest + timedelta(minutes=30), day_end))
             day = SubmissionDeadlineDay(
+                ownership_scope_id=self._repo.deadline_scope_id,
                 semester_id=semester_id,
                 inspection_date=d,
-                deadline_at=deadline_naive(d),
+                deadline_at=cutoff,
                 version=1,
                 updated_by=actor_user_id,
                 reason="首次为该查课日生成任务时按默认时刻创建",
@@ -728,7 +810,7 @@ class InspectionService:
         self, actor: CurrentUser, task_id: int, roster_version: int | None
     ) -> TaskRosterResponse:
         self._require(actor.id, perms.ROSTER_READ_PERMISSION)
-        scope = self._scope_filter(actor)
+        scope = self._scope_filter(actor, action=perms.ROSTER_READ_PERMISSION)
         task = self._repo.get_task_scoped(task_id, scope_filter=scope)
         if task is None:
             raise NotFoundError("查课任务不存在或不可见")
@@ -758,10 +840,13 @@ class InspectionService:
         sub_flags = self._repo.map_submission_flags_by_task_ids(ids)
         deadline_by_date: dict[tuple[int, date_], SubmissionDeadlineDay] = {}
         sem_ids = {t.semester_id for t in tasks}
+        deadline_by_id = {}
         for sid in sem_ids:
-            for d in self._repo.list_deadline_days_by_semester(sid):
-                deadline_by_date[(sid, d.inspection_date)] = d
-        cur_ver_ids = self._repo.map_current_deadline_version_ids(list(deadline_by_date.values()))
+            for d in self._repo.list_deadline_days_by_semester(sid, scope_ids={0} | {t.college_id for t in tasks if t.college_id}):
+                if d.ownership_scope_id == 0:
+                    deadline_by_date[(sid, d.inspection_date)] = d
+                deadline_by_id[d.id] = d
+        cur_ver_ids = self._repo.map_current_deadline_version_ids(list(deadline_by_id.values()))
 
         # 批量获取受派人真实姓名、学号与班级
         vol_uids = {a.volunteer_user_id for a in assignments.values() if a is not None}
@@ -886,7 +971,7 @@ class InspectionService:
 
         result: list[InspectionTaskResponse] = []
         for t in tasks:
-            day = deadline_by_date.get((t.semester_id, t.inspection_date))
+            day = deadline_by_id.get(t.deadline_day_id) if t.deadline_day_id else deadline_by_date.get((t.semester_id, t.inspection_date))
             assessment = assessments.get(t.id)
             version_id = (
                 assessment.deadline_version_id
@@ -1031,6 +1116,15 @@ class InspectionService:
             inspection_type=task.inspection_type,
             start_period=task.start_period,
             end_period=task.end_period,
+            college_id=task.college_id,
+            activity_start_at=task.activity_start_at.replace(tzinfo=UTC) if task.activity_start_at else None,
+            activity_end_at=task.activity_end_at.replace(tzinfo=UTC) if task.activity_end_at else None,
+            time_snapshot=task.time_snapshot,
+            group_id=task.group_id,
+            group_config_version_id=task.group_config_version_id,
+            group_name_snapshot=task.group_name_snapshot,
+            course_type_id_snapshot=task.course_type_id_snapshot,
+            course_type_name_snapshot=task.course_type_name_snapshot,
             course_schedule_id=task.course_schedule_id,
             teaching_class_id=task.teaching_class_id,
             administrative_class_id=task.administrative_class_id,
@@ -1073,6 +1167,8 @@ class InspectionService:
         if missing:
             raise NotFoundError(f"以下教学班不存在：{missing}")
         for t in tcs:
+            if self._repo.college_ids is not None and t.college_id not in self._repo.college_ids:
+                raise NotFoundError("教学班不在本次动作的授权学院内")
             if t.semester_id != sem.id:
                 raise AppError(
                     ErrorCode.VALIDATION_ERROR,
@@ -1112,7 +1208,18 @@ class InspectionService:
         tc_course_name = {t.id: course_name_by_id.get(t.course_id) for t in tcs}
         tc_class_name = {t.id: t.class_name for t in tcs}
         tc_teacher_name = {t.id: t.teacher_name for t in tcs}
+        tc_colleges = {t.id: t.college_id for t in tcs}
+        tc_types = {t.id: t.course_type_id for t in tcs}
         from app.modules.academic.participation import rosters_at
+        from app.modules.academic.roster_index import RosterIndex
+        from app.modules.academic.time_service import TimeResolver
+
+        time_resolver = TimeResolver(self._session)
+        roster_index = None
+        if get_settings().campus_scheduling_enabled:
+            for cid in sorted({cid for cid in tc_colleges.values() if cid is not None}):
+                time_resolver.prefetch(cid, sem.id)
+            roster_index = RosterIndex(self._session, list(found_ids))
 
         overrides = self._load_overrides(sem.id)
         items: dict[str, PlanItem] = {}
@@ -1120,13 +1227,22 @@ class InspectionService:
             sem, body.week_nos, body.date_from, body.date_to
         ):
             teaching = resolve_teaching_day(sem.first_monday, date_key, overrides.get(date_key))
-            if teaching is None:
+            if teaching is None and not get_settings().campus_scheduling_enabled:
                 continue
-            eff_week, eff_wd = teaching
-            if eff_week < 1 or eff_week > sem.total_weeks:
+            eff_week, eff_wd = teaching or (0, 0)
+            if not get_settings().campus_scheduling_enabled and (eff_week < 1 or eff_week > sem.total_weeks):
                 continue
             day_schedules = []
+            effective_days = {}
             for s in schedules:
+                effective = teaching
+                if get_settings().campus_scheduling_enabled:
+                    effective = time_resolver.teaching_day(
+                        tc_colleges[s.teaching_class_id], sem.id, date_key)
+                if effective is None or not 1 <= effective[0] <= sem.total_weeks:
+                    continue
+                eff_week, eff_wd = effective
+                effective_days[s.id] = effective
                 cname = tc_course_name.get(s.teaching_class_id)
                 if is_course_exempt(cname, s.classroom):
                     continue
@@ -1136,9 +1252,10 @@ class InspectionService:
                     continue
                 day_schedules.append(s)
 
-            dated_rosters = rosters_at(self._session, list(found_ids), date_key)
+            dated_rosters = roster_index.at(date_key) if roster_index else rosters_at(self._session, list(found_ids), date_key)
             groups: dict[tuple, list[CourseSchedule]] = {}
             for s in day_schedules:
+                grp_key: tuple
                 norm_room = re.sub(r"\s+", "", (s.classroom or "")).upper()
                 cname = tc_course_name.get(s.teaching_class_id) or ""
                 norm_course = re.sub(r"\s+", "", cname).upper()
@@ -1146,10 +1263,13 @@ class InspectionService:
                     grp_key = (s.start_period, s.end_period, norm_room, norm_course)
                 else:
                     grp_key = (s.start_period, s.end_period, f"single:{s.id}", norm_course)
+                if get_settings().campus_business_scoped_enabled:
+                    grp_key = (*grp_key, tc_colleges[s.teaching_class_id], tc_types[s.teaching_class_id])
                 groups.setdefault(grp_key, []).append(s)
 
             for grp_key, sched_list in groups.items():
                 rep_s = min(sched_list, key=lambda x: x.id)
+                eff_week, eff_wd = effective_days[rep_s.id]
                 c_sched_ids = sorted(x.id for x in sched_list)
 
                 merged_students = []
@@ -1200,9 +1320,10 @@ class InspectionService:
 
                 if len(sched_list) > 1:
                     norm_room, norm_course = grp_key[2], grp_key[3]
-                    target_hash = hashlib.md5(f"{norm_room}:{norm_course}".encode()).hexdigest()[
-                        :10
-                    ]
+                    target_identity = f"{norm_room}:{norm_course}"
+                    if get_settings().campus_business_scoped_enabled:
+                        target_identity += f":college:{tc_colleges[rep_s.teaching_class_id]}:type:{tc_types[rep_s.teaching_class_id]}"
+                    target_hash = hashlib.md5(target_identity.encode("utf-8")).hexdigest()[:10]
                     key = self._task_key(
                         sem.id,
                         date_key,
@@ -1387,18 +1508,34 @@ class InspectionService:
         """任务当前名单成员所属行政班集合（本班回避判定用）。"""
         return set(
             self._session.scalars(
-                select(Student.administrative_class_id)
-                .join(TaskRosterMember, TaskRosterMember.student_id == Student.id)
+                select(TaskRosterMember.administrative_class_id_snapshot)
                 .where(
                     TaskRosterMember.task_id == task.id,
                     TaskRosterMember.roster_version == task.roster_version,
-                    Student.administrative_class_id.is_not(None),
+                    TaskRosterMember.administrative_class_id_snapshot.is_not(None),
                 )
                 .with_for_update(read=True)
             )
         )
 
-    def _own_class_conflict(self, student_id: int, sem: Semester, task: InspectionTask) -> bool:
+    def _own_class_conflict(
+        self, student_id: int, sem: Semester, task: InspectionTask
+    ) -> bool:
+        if get_settings().campus_scheduling_enabled:
+            from app.modules.inspection.formal_time import formal_course_slots
+            from app.modules.inspection.task_time import overlaps, task_minutes
+
+            target = task_minutes(task)
+            own_slots = formal_course_slots(self._session, {student_id}, {task.inspection_date})
+            if task.group_id:
+                from app.modules.volunteer.rules import GroupRules
+
+                rules = GroupRules(self._session, task)
+                target = rules.interval()
+                return any(overlaps(target, (start, end)) and rules.course_effect(tid, ctype) == "BLOCK"
+                    for start, end, tid, ctype in own_slots[student_id, task.inspection_date])
+            return any(overlaps(target, (start, end))
+                for start, end, *_ in own_slots[student_id, task.inspection_date])
         """志愿者以学生身份的课表是否与任务时段冲突（真实起止节次区间重叠）。"""
         override = self._session.execute(
             select(CalendarOverride)
@@ -1454,25 +1591,41 @@ class InspectionService:
         lock_conflicts=True 用于已持有 (志愿者, 日期) 锚点排他锁的临界区（人工改派与自动
         排班落库阶段），冲突扫描改用锁定读以看到并发方刚提交的受派，避免重叠时段双双通过。
         """
+        if get_settings().campus_scheduling_enabled:
+            snapshot = load_snapshot(self._session, sem, [task], [prof.user_id], lock_inputs=lock_conflicts)
+            failure = validate_plan(snapshot, {task.id: prof.user_id},
+                day_cap=get_settings().assignment_max_tasks_per_day,
+                week_cap=get_settings().assignment_max_tasks_per_week)
+            return (failure[1], REASONS[failure[1]]) if failure else (None, "")
         if task.inspection_type == InspectionType.COURSE.value and is_physical_education(
             task.course_name_snapshot
         ):
             return REASON_COURSE_NOT_INSPECTABLE, "体育课不作为被查目标"
         if prof.status != UserStatus.ACTIVE.value or not prof.is_volunteer:
             return REASON_NOT_VOLUNTEER, "账号非启用志愿者"
-        if prof.student_id is None or not self._has_qualification(
-            sem.id, prof.student_id, task.inspection_date, task.college_id
-        ):
+        group_rules = None
+        if get_settings().campus_scheduling_enabled and task.group_id:
+            from app.modules.volunteer.rules import GroupRules
+
+            group_rules = GroupRules(self._session, task)
+            if prof.student_id is None or not group_rules.member_allowed(prof.student_id):
+                return REASON_NO_QUALIFICATION, "不属于执行日有效组成员或跨院支援已失效"
+            limit_reason = group_rules.limit_reason(prof.user_id)
+            if limit_reason:
+                return limit_reason, "超过组配置的日/周查课上限"
+        if prof.student_id is None or not self._has_qualification(sem.id, prof.student_id, task.inspection_date, None if group_rules else task.college_id):
             return REASON_NO_QUALIFICATION, "本学期无有效志愿者资格"
         from app.modules.academic.enrollment_service import EnrollmentService
 
-        enrollment = EnrollmentService(self._session).at(prof.student_id, task.inspection_date)
+        enrollment = EnrollmentService(self._session).at(prof.student_id, task.inspection_date, lock=lock_conflicts)
         if enrollment is not None and enrollment.status != "ENROLLED":
             return REASON_NO_QUALIFICATION, "查课日期不属于在读学籍区间"
         if self._own_class_conflict(prof.student_id, sem, task):
             return REASON_OWN_CLASS, "与本人课表时段冲突"
         own_class_id = enrollment.administrative_class_id if enrollment else prof.admin_class_id
-        if own_class_id is not None and own_class_id in roster_acs:
+        if own_class_id is not None and own_class_id in roster_acs and (
+            group_rules is None or group_rules.config["own_class_effect"] == "BLOCK"
+        ):
             return REASON_SELF_CLASS, "被查名单含本人行政班学生"
         # 与本人其他受派查课任务时段冲突（排除当前任务本身）。
         db_rows = self._repo.list_assignments_for_volunteer_on_date(
@@ -1481,9 +1634,15 @@ class InspectionService:
         for _a, other in db_rows:
             if other.id == exclude_task_id:
                 continue
-            if self._overlap(
-                task.start_period, task.end_period, other.start_period, other.end_period
-            ):
+            if get_settings().campus_scheduling_enabled:
+                from app.modules.inspection.task_time import overlaps
+                from app.modules.volunteer.rules import assignment_interval
+
+                conflict = overlaps(assignment_interval(self._session, task), assignment_interval(self._session, other))
+            else:
+                conflict = self._overlap(task.start_period, task.end_period,
+                    other.start_period, other.end_period)
+            if conflict:
                 return REASON_TASK_CONFLICT, "与本人其他查课任务时段重叠"
         for b_s, b_e in busy_slots:
             if self._overlap(task.start_period, task.end_period, b_s, b_e):
@@ -1538,12 +1697,9 @@ class InspectionService:
     def _lock_day_anchors(self, day_keys: set[tuple[int, date_]]) -> None:
         """按 (志愿者, 日期) 升序安全建立并锁定日期锚点（技术方案 15 全局锁层级顶层）。"""
         # 周上限启用时，人工和自动共用整周日期锚点，避免异日并发穿透周名额。
-        if get_settings().assignment_max_tasks_per_week:
-            day_keys = {
-                (vid, dt - timedelta(days=dt.weekday()) + timedelta(days=i))
-                for vid, dt in day_keys
-                for i in range(7)
-            }
+        if get_settings().assignment_max_tasks_per_week or get_settings().campus_scheduling_enabled:
+            day_keys = {(vid, dt - timedelta(days=dt.weekday()) + timedelta(days=i))
+                        for vid, dt in day_keys for i in range(7)}
         for vid, dt in sorted(day_keys):
             self._repo.ensure_volunteer_day_lock(vid, dt)
         for vid, dt in sorted(day_keys):
@@ -1561,16 +1717,22 @@ class InspectionService:
         self, semester_id: int, body: AutoAssignRequest
     ) -> list[InspectionTask]:
         """范围内"未取消且尚未分配"的任务，供自动排班。"""
-        stmt = select(InspectionTask).where(
-            InspectionTask.semester_id == semester_id,
-            InspectionTask.canceled_at.is_(None),
-            InspectionTask.id.notin_(
-                select(InspectionAssignment.task_id).where(
+        stmt = (
+            self._repo.scoped_tasks()
+            .where(
+                InspectionTask.semester_id == semester_id,
+                InspectionTask.canceled_at.is_(None),
+                InspectionTask.id.notin_(select(InspectionAssignment.task_id).where(
                     InspectionAssignment.revoked_at.is_(None)
-                )
-            ),
+                )),
+            )
         )
         if body.task_ids:
+            if self._repo.college_ids is not None:
+                requested = {int(value) for value in body.task_ids}
+                visible = {task.id for task in self._repo.list_tasks_by_ids(list(requested))}
+                if visible != requested:
+                    raise NotFoundError("排班请求包含未授权或不存在的任务，整批未执行")
             stmt = stmt.where(InspectionTask.id.in_([int(x) for x in body.task_ids]))
         elif body.inspection_date is not None:
             stmt = stmt.where(InspectionTask.inspection_date == body.inspection_date)
@@ -1644,6 +1806,10 @@ class InspectionService:
                 http_status=422,
                 field_errors={"reason_code": code, "volunteer_user_id": target_uid},
             )
+        warning_codes = []
+        if get_settings().campus_scheduling_enabled and task.group_id:
+            warning_snapshot = load_snapshot(self._session, sem, [task], [target_uid], lock_inputs=True)
+            warning_codes = list(warning_snapshot.warnings.get((task.id, target_uid), ()))
         existing = self._repo.get_assignment_by_task_for_update(task.id)
         before = self._assignment_snapshot(existing)
         if existing is None:
@@ -1696,22 +1862,29 @@ class InspectionService:
             after={
                 "volunteer_user_id": target_uid,
                 "assign_method": AssignMethod.MANUAL.value,
+                "warning_codes": warning_codes,
             },
             reason=body.reason,
             request_id=request_id,
         )
         self._session.commit()
-        return self._assemble_tasks([task])[0]
+        return self._assemble_tasks([task])[0].model_copy(update={"operation_warning_codes": warning_codes})
 
     def list_semester_volunteers(
-        self, semester_id: int, keyword: str | None = None
+        self, semester_id: int, keyword: str | None = None, *, actor: CurrentUser | None = None
     ) -> list[SemesterVolunteerCandidateItem]:
         """查询本学期具有有效资质的志愿者候选名单，支持姓名/学号/班级搜索，自动补齐系统账号。"""
         from app.modules.academic.service import AcademicService
         from app.modules.identity.models import WechatIdentity
 
+        scoped = get_settings().campus_business_scoped_enabled
+        if scoped:
+            if actor is None:
+                raise PermissionDeniedError("候选人员读取需要明确操作者")
+            self._require(actor.id, perms.ASSIGN_PERMISSION)
+
         acad_svc = AcademicService(self._session)
-        qual_students = list(
+        qual_students = [] if scoped else list(
             self._session.scalars(
                 select(VolunteerQualification.student_id).where(
                     VolunteerQualification.semester_id == semester_id,
@@ -1741,6 +1914,8 @@ class InspectionService:
             .outerjoin(WechatIdentity, WechatIdentity.user_id == UserAccount.id)
             .where(Student.status == "ACTIVE")
         )
+        if scoped and self._repo.college_ids is not None:
+            stmt = stmt.where(AdministrativeClass.college_id.in_(self._repo.college_ids))
         if keyword:
             kw = f"%{keyword.strip()}%"
             stmt = stmt.where(
@@ -1767,8 +1942,50 @@ class InspectionService:
             )
         return items
 
-    def list_task_volunteer_candidates(self, task_id: int) -> list[TaskCandidateVolunteerItem]:
+    def _group_candidate_volunteers(self, task):
+        from app.modules.academic.enrollment_service import EnrollmentService
+        from app.modules.identity.models import WechatIdentity
+        from app.modules.volunteer.member_models import VolunteerGroupMember
+        from app.modules.volunteer.eligibility_index import EligibilityIndex
+
+        members = select(VolunteerGroupMember.student_id).where(
+            VolunteerGroupMember.college_id == task.college_id,
+            VolunteerGroupMember.group_id == task.group_id,
+            VolunteerGroupMember.semester_id == task.semester_id,
+            VolunteerGroupMember.status == "ACTIVE",
+            VolunteerGroupMember.effective_from <= task.inspection_date,
+            VolunteerGroupMember.effective_to > task.inspection_date,
+        )
+        rows = self._session.execute(select(UserAccount, Student, WechatIdentity.id)
+            .join(Student, UserAccount.student_id == Student.id)
+            .outerjoin(WechatIdentity, WechatIdentity.user_id == UserAccount.id)
+            .where(Student.id.in_(members), UserAccount.status == "ACTIVE")
+            .order_by(Student.student_no).limit(501)).all()
+        if len(rows) > 500:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "组候选超过 500 人，请缩小组成员范围", 422)
+        index = EligibilityIndex(self._session, [student.id for _, student, _ in rows], [task])
+        items = []
+        for account, student, wechat_id in rows:
+            if not index.member_allowed(task, student.id):
+                continue
+            enrollment = EnrollmentService(self._session).at(student.id, task.inspection_date)
+            class_id = enrollment.administrative_class_id if enrollment else student.administrative_class_id
+            classroom = self._session.get(AdministrativeClass, class_id) if class_id else None
+            items.append(SemesterVolunteerCandidateItem(
+                user_id=str(account.id), student_id=str(student.id), student_no=student.student_no,
+                name=student.name, class_name=classroom.class_name if classroom else None,
+                has_wechat=wechat_id is not None,
+            ))
+        return items
+
+    def list_task_volunteer_candidates(
+        self, task_id: int, *, actor: CurrentUser | None = None
+    ) -> list[TaskCandidateVolunteerItem]:
         """针对特定任务评估本学期全部合格志愿者的可用性（无课冲突、本班回避、时段冲突等）并按本周负载升序排序。"""
+        if get_settings().campus_business_scoped_enabled:
+            if actor is None:
+                raise PermissionDeniedError("候选人员读取需要明确操作者")
+            self._require(actor.id, perms.ASSIGN_PERMISSION)
         task = self._repo.get_task(task_id)
         if task is None:
             raise NotFoundError("查课任务不存在")
@@ -1776,7 +1993,9 @@ class InspectionService:
         if sem is None:
             raise NotFoundError("学期不存在")
 
-        base_candidates = self.list_semester_volunteers(task.semester_id)
+        base_candidates = (self._group_candidate_volunteers(task)
+                           if get_settings().campus_scheduling_enabled and task.group_id
+                           else self.list_semester_volunteers(task.semester_id, actor=actor))
         if not base_candidates:
             return []
 
@@ -1803,23 +2022,24 @@ class InspectionService:
             week_counts[int(v_uid)] = int(cnt)
 
         items: list[TaskCandidateVolunteerItem] = []
+        warning_snapshot = (load_snapshot(self._session, sem, [task],
+                            [int(c.user_id) for c in base_candidates])
+                            if get_settings().campus_scheduling_enabled and task.group_id else None)
         for c in base_candidates:
             uid = int(c.user_id)
             if cur_vol_uid is not None and uid == cur_vol_uid:
                 code: str | None = "CURRENT_ASSIGNEE"
                 msg = "当前受派志愿者"
             else:
-                prof = self._load_volunteer(uid)
-                code, msg = self._check_eligible(
-                    prof,
-                    task,
-                    sem,
-                    exclude_task_id=task.id,
-                    busy_slots=[],
-                    busy_count=0,
-                    roster_acs=roster_acs,
-                    lock_conflicts=False,
-                )
+                if warning_snapshot:
+                    failure = validate_plan(warning_snapshot, {task.id: uid},
+                        day_cap=get_settings().assignment_max_tasks_per_day,
+                        week_cap=get_settings().assignment_max_tasks_per_week)
+                    code, msg = (failure[1], REASONS[failure[1]]) if failure else (None, "")
+                else:
+                    prof = self._load_volunteer(uid)
+                    code, msg = self._check_eligible(prof, task, sem, exclude_task_id=task.id,
+                        busy_slots=[], busy_count=0, roster_acs=roster_acs, lock_conflicts=False)
             items.append(
                 TaskCandidateVolunteerItem(
                     user_id=c.user_id,
@@ -1832,6 +2052,7 @@ class InspectionService:
                     conflict_code=code,
                     conflict_message=msg if code else None,
                     assigned_count_week=week_counts.get(uid, 0),
+                    warning_codes=list(warning_snapshot.warnings.get((task.id, uid), ())) if warning_snapshot else [],
                 )
             )
         items.sort(key=lambda x: (0 if x.eligible else 1, x.assigned_count_week, x.name))
@@ -1856,6 +2077,10 @@ class InspectionService:
         try:
             with Session(bind=reader_engine, autoflush=False) as reader:
                 reader_service = InspectionService(reader)
+                # The writer already holds this actor's account/authorization locks.
+                # A second connection must not try to reacquire its account FOR UPDATE:
+                # that would wait on our own transaction on real MySQL.
+                reader_service._repo.college_ids = self._repo.college_ids
                 targets = reader_service._load_assign_targets(sem.id, body)
                 if targets:
                     cand_ids = (
@@ -1962,14 +2187,16 @@ class InspectionService:
                 )
             )
             locked.lock_version += 1
-            assigned.append(PlannedAssignment(task_id=locked.id, volunteer_user_id=vid))
+            assigned.append(PlannedAssignment(task_id=locked.id, volunteer_user_id=vid,
+                warning_codes=list(current.warnings.get((locked.id, vid), ()))))
         self._repo.flush()
         self._audit(
             actor_user_id=actor.id,
             action="assignment.auto_run",
             resource_type="inspection_assignment",
             resource_id=f"{sem.id}:batch",
-            after={"target_task_count": len(targets), "assigned": len(assigned)},
+            after={"target_task_count": len(targets), "assigned": len(assigned),
+                   "warnings": {str(row.task_id): row.warning_codes for row in assigned if row.warning_codes}},
             reason=body.reason,
             request_id=request_id,
         )
@@ -2218,7 +2445,7 @@ class InspectionService:
             task = self._repo.get_task_for_update(tid)  # 锁任务行，收敛并发双结算
             if task is None:
                 continue
-            day = self._repo.get_deadline_day(task.semester_id, task.inspection_date)
+            day = self._repo.deadline_for_task(task)
             asmt, outcome = self._settle_assessment(task, day)
             if outcome == "NOT_DUE":
                 not_due += 1
@@ -2273,7 +2500,7 @@ class InspectionService:
                 ErrorCode.STATE_CONFLICT, "任务已有审核通过提交并生成考勤，不可取消"
             )
         # 取消前按当前适用截止版本幂等结算，锁定"截止时"事实不受本次取消影响。
-        day = self._repo.get_deadline_day(task.semester_id, task.inspection_date)
+        day = self._repo.deadline_for_task(task)
         self._settle_assessment(task, day)
         prev_lock = task.lock_version
         task.canceled_at = utcnow()
@@ -2305,6 +2532,16 @@ class InspectionService:
         task = self._repo.get_task_for_update(task_id)
         if task is None:
             raise NotFoundError("查课任务不存在")
+        scheduling = get_settings().campus_scheduling_enabled
+        if (scheduling and body.lock_version is None) or (
+            body.lock_version is not None and body.lock_version != task.lock_version
+        ):
+            raise ConflictError(ErrorCode.VERSION_CONFLICT, "任务版本已变化或未提供，请刷新后修改")
+        periods_changed = (
+            body.start_period is not None and body.start_period != task.start_period
+        ) or (body.end_period is not None and body.end_period != task.end_period)
+        if scheduling and periods_changed and self._repo.get_assignment_by_task_for_update(task.id):
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "已受派任务不可直接改时段，请取消并重新生成、排班")
         if task.canceled_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "已取消任务不可修改")
         if self._repo.has_approved_submission(task.id):
@@ -2330,6 +2567,11 @@ class InspectionService:
             task.end_period = body.end_period
         if task.end_period < task.start_period:
             raise AppError(ErrorCode.VALIDATION_ERROR, "结束节次不能小于起始节次", http_status=422)
+
+        if scheduling and periods_changed:
+            from app.modules.inspection.task_time import freeze_time
+
+            freeze_time(self._session, task)
 
         task.lock_version += 1
         self._repo.flush()
@@ -2371,9 +2613,13 @@ class InspectionService:
 
         tasks = list(
             self._session.scalars(
-                select(InspectionTask).where(InspectionTask.id.in_(task_ids)).with_for_update()
+                self._repo.scoped_tasks()
+                .where(InspectionTask.id.in_(task_ids))
+                .with_for_update()
             ).all()
         )
+        if self._repo.college_ids is not None and len({t.id for t in tasks}) != len(set(task_ids)):
+            raise NotFoundError("批量请求包含不存在或未授权的任务，整批未执行")
         if not tasks:
             return []
 
@@ -2694,6 +2940,8 @@ class InspectionService:
                     InspectionTask.semester_id == semester.id,
                     InspectionTask.inspection_date == on_date,
                     InspectionTask.canceled_at.is_(None),
+                    InspectionTask.id.in_(self._repo.scoped_task_ids()),
+                    self._repo.deadline_task_condition(),
                 )
             )
             .scalars()
@@ -2708,6 +2956,11 @@ class InspectionService:
         }
         latest: datetime | None = None
         for t in tasks:
+            if get_settings().campus_scheduling_enabled:
+                if t.activity_end_at is None:
+                    raise ConflictError(message="任务历史实际结束时间未确认，不能猜测截止下界")
+                latest = max(latest, t.activity_end_at) if latest else t.activity_end_at
+                continue
             et = end_by_period.get(t.end_period)
             if et is None:
                 continue
@@ -2725,7 +2978,7 @@ class InspectionService:
         request_id: str | None,
     ) -> SubmissionDeadlineDayResponse:
         self._require(actor.id, perms.DEADLINE_MANAGE_PERMISSION)
-        sem = self._academic.get_semester(semester_id)
+        sem = self._academic.get_semester_for_update(semester_id)
         if sem is None:
             raise NotFoundError("学期不存在")
         day = self._repo.get_deadline_day_for_update(semester_id, on_date)
@@ -2752,7 +3005,8 @@ class InspectionService:
             semester_id, inspection_date=on_date, limit=5000
         ):
             t = self._repo.get_task_for_update(tid)
-            if t is not None:
+            if t is not None and ((t.deadline_day_id == day.id) or
+                (t.deadline_day_id is None and day.ownership_scope_id == 0)):
                 self._settle_assessment(t, day)
         before = {"deadline_at": old_day_snapshot.isoformat(), "version": day.version}
         day.deadline_at = new_deadline
@@ -2847,13 +3101,25 @@ class InspectionService:
 
         # 本学期有效志愿者资格：资格停用立即禁止提交（保留历史读取，见读取侧）。
         student_id = acct.student_id
-        if student_id is None or not self._has_qualification(
+        if get_settings().campus_scheduling_enabled and task.group_id and student_id is not None:
+            from app.modules.volunteer.eligibility_index import EligibilityIndex
+            qualification = self._session.scalar(select(VolunteerQualification).where(
+                VolunteerQualification.semester_id == task.semester_id,
+                VolunteerQualification.student_id == student_id,
+            ).with_for_update(read=True).execution_options(populate_existing=True))
+            # 已核实本人当前受派。支援/成员撤销停止新排班，不隐式撤销已有义务；
+            # 本人仍须在执行日在读并持有原属学院有效资格，不能要求其成为目标院学生。
+            qualified = EligibilityIndex(self._session, [student_id], [task], lock=True).qualified(
+                qualification, task.inspection_date)
+        else:
+            qualified = student_id is not None and self._has_qualification(
             task.semester_id,
             student_id,
             task.inspection_date,
             task.college_id,
             legacy_assignment_created_at=assignment.created_at,
-        ):
+            )
+        if not qualified:
             raise PermissionDeniedError("本学期无有效志愿者资格，不可提交")
 
         # "至多一个待审核 / 审核通过提交"不变式：重复提交在锁内命中既有开放提交而拒；
@@ -2890,7 +3156,7 @@ class InspectionService:
         file_ids = self._validate_attachments(task, actor.id, body.file_ids)
 
         # 补交前幂等结算：按旧截止版本锁定"截止时"事实不受本次提交影响（技术方案 13.3）。
-        day = self._repo.get_deadline_day(task.semester_id, task.inspection_date)
+        day = self._repo.deadline_for_task(task)
         self._settle_assessment(task, day)
 
         now = utcnow()
@@ -3137,7 +3403,7 @@ class InspectionService:
         generated = 0
         if body.decision == ReviewStatus.APPROVED.value:
             # 通过（生成考勤）前先幂等结算，锁定"截止时"事实不受本次审核影响（技术方案 13.3）。
-            day = self._repo.get_deadline_day(task.semester_id, task.inspection_date)
+            day = self._repo.deadline_for_task(task)
             self._settle_assessment(task, day)
             generated = self._generate_attendance(sub, actor.id)
             sub.review_status = ReviewStatus.APPROVED.value

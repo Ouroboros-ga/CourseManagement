@@ -6,7 +6,7 @@ Core predicates bind every private read to the provided volunteer/student IDs.
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 
@@ -143,42 +143,29 @@ class AssignmentTime:
     start_period: int
     end_period: int
     classroom_snapshot: str | None
+    college_id: int | None = None
+    group_id: int | None = None
+    group_config_version_id: int | None = None
+    activity_start_at: datetime | None = None
+    activity_end_at: datetime | None = None
+    time_snapshot: dict | None = None
 
 
-def assignment_times(db, volunteer_ids: list[int], dates):
+def assignment_times(db, volunteer_ids: list[int], dates, *, lock=False):
     t = Base.metadata.tables
     task, assignment = t["inspection_task"], t["inspection_assignment"]
-    return [
-        (
-            r.volunteer_user_id,
-            AssignmentTime(
-                r.id,
-                r.semester_id,
-                r.inspection_date,
-                r.start_period,
-                r.end_period,
-                r.classroom_snapshot,
-            ),
-        )
-        for r in db.execute(
-            select(
-                assignment.c.volunteer_user_id,
-                task.c.id,
-                task.c.semester_id,
-                task.c.inspection_date,
-                task.c.start_period,
-                task.c.end_period,
-                task.c.classroom_snapshot,
-            )
-            .join(task, task.c.id == assignment.c.task_id)
-            .where(
-                assignment.c.volunteer_user_id.in_(volunteer_ids),
-                assignment.c.revoked_at.is_(None),
-                task.c.canceled_at.is_(None),
-                task.c.inspection_date.in_(dates),
-            )
-        )
-    ]
+    statement = select(assignment.c.volunteer_user_id, *task.c).join(
+        task, task.c.id == assignment.c.task_id
+    ).where(assignment.c.volunteer_user_id.in_(volunteer_ids),
+            assignment.c.revoked_at.is_(None), task.c.canceled_at.is_(None),
+            task.c.inspection_date.in_(dates))
+    if lock:
+        statement = statement.with_for_update(read=True)
+    return [(r.volunteer_user_id, AssignmentTime(
+        r.id, r.semester_id, r.inspection_date, r.start_period, r.end_period,
+        r.classroom_snapshot, r.college_id, r.group_id, r.group_config_version_id,
+        r.activity_start_at, r.activity_end_at, r.time_snapshot,
+    )) for r in db.execute(statement)]
 
 
 def assignment_loads(db, semester_id: int, volunteer_ids: list[int]):

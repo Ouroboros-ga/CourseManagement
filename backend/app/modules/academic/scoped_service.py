@@ -18,6 +18,7 @@ from app.modules.academic.schemas import (
 )
 from app.modules.academic.scoped_repository import ScopedAcademicRepository
 from app.modules.audit.models import AuditLog
+from app.modules.audit.provenance import scoped_snapshot
 from app.modules.identity.resource_scope import resolve_scope
 from app.modules.identity.service import CurrentUser
 from app.modules.organization.schemas import StrictModel
@@ -60,6 +61,20 @@ class ScopedAcademicService:
 
     def _dto(self, row):
         result = self.campus._dto(row)
+        if row.__tablename__ == "student":
+            from app.modules.academic.enrollment_service import EnrollmentService
+            from app.modules.identity.role_scope import business_today
+
+            enrollment = EnrollmentService(self.db).at(row.id, business_today())
+            if enrollment:
+                result["administrative_class_id"] = (
+                    str(enrollment.administrative_class_id)
+                    if enrollment.administrative_class_id
+                    else None
+                )
+                result["college_id"] = str(enrollment.college_id) if enrollment.college_id else None
+                result["enrollment_status"] = enrollment.status
+                result["status"] = "ACTIVE" if enrollment.status == "ENROLLED" else enrollment.status
         if row.__tablename__ == "course_schedule":
             # 不触发被禁止的关系隐式加载；子行只能经已授权父行查询。
             from sqlalchemy import select
@@ -89,8 +104,56 @@ class ScopedAcademicService:
     def get_row(self, kind: str, rid: int):
         return self._dto(self._repo(READ_ACTIONS.get(kind, "academic.read")).get(kind, rid))
 
+    @atomic_write
+    def set_course_type(self, teaching_class_id: int, type_id: int, version: int, future_impact_revision=""):
+        from sqlalchemy import select
+
+        from app.modules.academic.campus_models import CourseType
+        from app.modules.academic.models import TeachingClass
+
+        repo = self._repo("academic.manage", write=True)
+        repo.get("teaching_classes", teaching_class_id)
+        teaching = self.db.scalar(
+            select(TeachingClass)
+            .where(
+                TeachingClass.id == teaching_class_id, TeachingClass.college_id == self.college_id
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        course_type = self.db.scalar(
+            select(CourseType)
+            .where(
+                CourseType.id == type_id,
+                CourseType.college_id == self.college_id,
+                CourseType.status == "ACTIVE",
+            )
+            .with_for_update()
+        )
+        if teaching is None:
+            raise NotFoundError("教学班不属于本院")
+        if course_type is None:
+            raise NotFoundError("课程类型不在本院或已停用")
+        if teaching.classification_revision != version:
+            raise ConflictError(ErrorCode.VERSION_CONFLICT, "教学班分类已变化")
+        from app.modules.organization.future_impact import confirm_impact
+        confirm_impact(self.db, self.college_id, "teaching_class", teaching, future_impact_revision)
+        before = self._dto(teaching)
+        teaching.course_type_id = course_type.id
+        teaching.classification_revision += 1
+        college = self.campus.repo.college(self.college_id, lock=True)
+        if college is None:
+            raise NotFoundError("学院不存在")
+        college.configuration_revision += 1
+        return self._audit("academic.teaching_class.classify", teaching, before)
+
     def list_roster(self, teaching_class_id: int):
         return [self._dto(row) for row in self._repo("student.read").roster(teaching_class_id)]
+
+    def classification_impact(self, rid):
+        from app.modules.organization.future_impact import future_impact
+        row = self._repo("academic.read").get("teaching_classes", rid)
+        return future_impact(self.db, self.college_id, "teaching_class", row.id, row.classification_revision)
 
     def _audit(self, action, row, before, reason=None, *, after_extra=None):
         after = self._dto(row)
@@ -103,7 +166,7 @@ class ScopedAcademicService:
                 resource_type=row.__tablename__,
                 resource_id=str(row.id),
                 before_json=before,
-                after_json=after,
+                after_json=scoped_snapshot(after, self.college_id),
                 reason=reason,
                 request_id=self.request_id,
             )

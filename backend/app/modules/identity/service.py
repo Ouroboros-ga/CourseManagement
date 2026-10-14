@@ -12,9 +12,13 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    from app.modules.identity.resource_scope import ResourceScope
 
 from app.core.config import get_settings
 from app.core.database import utcnow
@@ -92,11 +96,14 @@ class IdentityService:
         session: Session,
         *,
         wechat_client: WechatCode2SessionClient | None = None,
+        college_id: int | None = None,
     ) -> None:
         self._session = session
         self._repo = IdentityRepository(session)
         self._settings = get_settings()
         self._wechat_client = wechat_client
+        self._college_id = college_id
+        self._binding_scope: ResourceScope | None = None
 
     # ------------------------------------------------------------------ #
     # 令牌与会话
@@ -327,6 +334,13 @@ class IdentityService:
 
     def _require_actor_permission(self, actor_user_id: int, code: str) -> None:
         """事务内重新读取操作者有效权限并校验（P1 步骤 5 / 13.2 纵深防御）。"""
+        if self._settings.campus_business_scoped_enabled and code == PermissionCode.IDENTITY_BINDING_MANAGE.value:
+            if self._college_id is None:
+                raise PermissionDeniedError("绑定管理需要明确学院工作区")
+            from app.modules.identity.resource_scope import resolve_scope
+            actor = CurrentUser(actor_user_id, None, "", "ACTIVE", [], [])
+            self._binding_scope = resolve_scope(self._session, actor, self._college_id, code, write=True)
+            return
         perms = set(self._repo.list_effective_permissions(actor_user_id))
         if code not in perms:
             raise PermissionDeniedError()
@@ -344,6 +358,9 @@ class IdentityService:
         request_id: str | None,
     ) -> None:
         """追加审计事实（同事务，仅 flush；提交由公共方法统一负责）。"""
+        if self._college_id is not None:
+            from app.modules.audit.provenance import scoped_snapshot
+            after = scoped_snapshot(after, self._college_id)
         self._session.add(
             AuditLog(
                 actor_user_id=actor_user_id,
@@ -406,8 +423,7 @@ class IdentityService:
         if not can_change_roles(actor_roles, current_roles, desired):
             raise PermissionDeniedError("越权或受保护角色的变更被拒绝")
         if "SUPER_ADMIN" not in actor_roles and target.student_id is not None:
-            from app.modules.identity.authorization import require_student_scope
-
+            from app.modules.identity.role_scope import require_student_scope
             require_student_scope(self._session, actor_user_id, "role.assign", target.student_id)
 
         # 乐观并发：版本不符 → 409。
@@ -435,11 +451,7 @@ class IdentityService:
         ):
             from app.modules.academic.enrollment_models import StudentManagerAppointment
             from app.modules.academic.enrollment_service import EnrollmentService
-            from app.modules.identity.authorization import (
-                business_today,
-                require_resource_scope,
-                resolve_scope,
-            )
+            from app.modules.identity.role_scope import business_today, require_resource_scope, resolve_scope
             from app.modules.identity.policy import MANAGER_FUNCTION_CODES
 
             student = (
@@ -489,14 +501,8 @@ class IdentityService:
         ):
             revoked_optional = self._repo.clear_optional_grants(target_user_id)
             from app.modules.academic.enrollment_models import StudentManagerAppointment
-            from app.modules.identity.authorization import business_today
-
-            for appointment in self._session.scalars(
-                select(StudentManagerAppointment).where(
-                    StudentManagerAppointment.user_id == target_user_id,
-                    StudentManagerAppointment.effective_to.is_(None),
-                )
-            ):
+            from app.modules.identity.role_scope import business_today
+            for appointment in self._session.scalars(select(StudentManagerAppointment).where(StudentManagerAppointment.user_id == target_user_id, StudentManagerAppointment.effective_to.is_(None))):
                 appointment.effective_to = business_today()
 
         target.lock_version += 1
@@ -572,8 +578,7 @@ class IdentityService:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "目标已被并发修改，请刷新后重试")
 
         perm = self._repo.get_or_create_permission(code, code)
-        from app.modules.identity.authorization import require_student_scope
-
+        from app.modules.identity.role_scope import require_student_scope
         if target.student_id is None:
             raise ConflictError(message="负责人缺少学生绑定")
         require_student_scope(
@@ -625,6 +630,8 @@ class IdentityService:
     ) -> tuple[list[RoleAssignmentTargetItem], list[str]]:
         actor_roles = frozenset(self._repo.list_role_codes(actor_user_id))
         assignable = assignable_roles(actor_roles)
+        from app.modules.identity.account_visibility import management_users
+        visible = management_users(self._session, actor_user_id, "role.assign", college_id=self._college_id)
         wechat_uids = set(self._session.scalars(select(WechatIdentity.user_id)).all())
         items = [
             RoleAssignmentTargetItem(
@@ -637,7 +644,7 @@ class IdentityService:
                 student_id=str(user.student_id) if user.student_id is not None else None,
                 has_wechat=user.id in wechat_uids,
             )
-            for user in self._repo.list_all_users()
+            for user in self._repo.list_all_users(visible)
         ]
         return items, assignable
 
@@ -646,7 +653,9 @@ class IdentityService:
     ) -> tuple[list[OptionalPermissionTargetItem], list[str]]:
         configurable = sorted(OPTIONAL_PERMISSION_CODES)
         items: list[OptionalPermissionTargetItem] = []
-        for user in self._repo.list_users_with_role(RoleCode.STUDENT_AFFAIRS_MANAGER.value):
+        from app.modules.identity.account_visibility import management_users
+        visible = management_users(self._session, actor_user_id, "optional_permission.manage", college_id=self._college_id)
+        for user in self._repo.list_users_with_role(RoleCode.STUDENT_AFFAIRS_MANAGER.value, visible):
             granted = set(self._repo.list_optional_grant_codes(user.id))
             items.append(
                 OptionalPermissionTargetItem(
@@ -674,6 +683,9 @@ class IdentityService:
     ) -> tuple[int, str, datetime]:
         """为指定学生签发一次性 6 位绑定码；明文仅此返回一次，库中只存摘要。"""
         self._require_actor_permission(actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value)
+        if self._binding_scope is not None:
+            from app.modules.academic.scoped_repository import ScopedAcademicRepository
+            ScopedAcademicRepository(self._session, self._binding_scope).get("students", student_id, lock=True)
         student = self._repo.get_student_by_id(student_id)
         if student is None:
             raise NotFoundError("学生不存在")
@@ -713,22 +725,39 @@ class IdentityService:
         from app.modules.academic.models import AdministrativeClass, Student
 
         stmt = select(Student).where(Student.status == "ACTIVE")
-        if student_ids:
+        if self._binding_scope is not None:
+            from app.modules.academic.scoped_repository import ScopedAcademicRepository
+            scoped = ScopedAcademicRepository(self._session, self._binding_scope)
+            stmt = scoped.query("students").where(Student.status == "ACTIVE")
+            if class_id is not None:
+                scoped.get("administrative_classes", class_id, lock=True)
+        if student_ids is not None:
             stmt = stmt.where(Student.id.in_(student_ids))
         elif class_id:
             stmt = stmt.where(Student.administrative_class_id == class_id)
         students = list(self._session.execute(stmt.order_by(Student.student_no)).scalars().all())
+        if self._binding_scope is not None and student_ids is not None and {s.id for s in students} != set(student_ids):
+            raise NotFoundError("学生不存在、已停用或不在所选学院；整批未签发")
 
         bound_student_ids = {
             u.student_id
             for u in self._session.execute(
-                select(UserAccount).where(UserAccount.student_id.is_not(None))
+                select(UserAccount).join(WechatIdentity, WechatIdentity.user_id == UserAccount.id)
+                .where(UserAccount.student_id.in_([s.id for s in students]))
             )
             .scalars()
             .all()
         }
 
-        ac_ids = {s.administrative_class_id for s in students if s.administrative_class_id}
+        class_ids = {s.id: s.administrative_class_id for s in students}
+        if self._binding_scope is not None:
+            from app.modules.academic.enrollment_service import EnrollmentService
+            from app.modules.identity.role_scope import business_today
+            for student in students:
+                enrollment = EnrollmentService(self._session).at(student.id, business_today(), lock=True)
+                if enrollment:
+                    class_ids[student.id] = enrollment.administrative_class_id
+        ac_ids = {cid for cid in class_ids.values() if cid}
         acs = (
             {
                 ac.id: ac
@@ -749,13 +778,13 @@ class IdentityService:
             code = generate_friendly_binding_code(6)
             self._repo.create_binding_token(s.id, hash_token(code), expires_at)
             ac = (
-                acs.get(s.administrative_class_id)
-                if s.administrative_class_id is not None
+                acs.get(class_ids[s.id] or -1)
+                if class_ids[s.id] is not None
                 else None
             )
             results.append(
                 {
-                    "student_id": s.id,
+                    "student_id": str(s.id),
                     "student_no": s.student_no,
                     "name": s.name,
                     "class_name": ac.class_name if ac else None,
@@ -889,6 +918,9 @@ class IdentityService:
         token = self._repo.get_binding_token_by_id(token_id)
         if token is None:
             raise NotFoundError("绑定码不存在")
+        if self._binding_scope is not None:
+            from app.modules.academic.scoped_repository import ScopedAcademicRepository
+            ScopedAcademicRepository(self._session, self._binding_scope).get("students", token.student_id, lock=True)
         if token.status == BindingTokenStatus.USED.value:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "绑定码已核销，无法作废")
         if token.status == BindingTokenStatus.EXPIRED.value:
@@ -927,6 +959,11 @@ class IdentityService:
         self._require_actor_permission(actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value)
 
         before_student = target.student_id
+        if self._binding_scope is not None:
+            from app.modules.academic.scoped_repository import ScopedAcademicRepository
+            if before_student is None:
+                raise PermissionDeniedError("无本院学生绑定的账号须由校级账号管理处理")
+            ScopedAcademicRepository(self._session, self._binding_scope).get("students", before_student, lock=True)
         before_roles = self._repo.list_role_codes(target_user_id)
 
         new_student_id: int | None
@@ -939,6 +976,8 @@ class IdentityService:
             ).scalar_one_or_none()
             if student is None:
                 raise NotFoundError("学号不存在")
+            if self._binding_scope is not None:
+                ScopedAcademicRepository(self._session, self._binding_scope).get("students", student.id, lock=True)
             if student.status != "ACTIVE":
                 raise ConflictError(ErrorCode.STATE_CONFLICT, "学生已停用，不可绑定")
             other = self._session.execute(

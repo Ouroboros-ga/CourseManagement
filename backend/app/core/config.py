@@ -14,6 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    academic_publication_enabled: bool = Field(default=False, alias="ACADEMIC_PUBLICATION_ENABLED")
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -29,6 +30,9 @@ class Settings(BaseSettings):
     campus_academic_scoped_enabled: bool = Field(
         default=False, alias="CAMPUS_ACADEMIC_SCOPED_ENABLED"
     )
+    # 全链路完成前保持关闭；逐模块关闭旧管理入口，不能作为已隔离声明。
+    campus_business_scoped_enabled: bool = Field(default=False, alias="CAMPUS_BUSINESS_SCOPED_ENABLED")
+    campus_scheduling_enabled: bool = Field(default=False, alias="CAMPUS_SCHEDULING_ENABLED")
 
     # ---- 数据库 ----
     database_url: str = Field(

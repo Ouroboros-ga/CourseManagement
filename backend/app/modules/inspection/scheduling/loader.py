@@ -5,8 +5,9 @@ SQL 数量不随任务×候选组合增长；写入前仍由服务在日期锚�
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -45,6 +46,7 @@ class Snapshot:
     tasks: list[Task]
     volunteers: list[Volunteer]
     static_failures: dict[int, str]
+    warnings: dict[tuple[int, int], tuple[str, ...]] = field(default_factory=dict)
 
 
 def load_snapshot(
@@ -81,7 +83,7 @@ def load_snapshot(
         day: resolve_teaching_day(semester.first_monday, day, overrides.get(day)) for day in dates
     }
     occupied_dates = dates
-    if settings.assignment_max_tasks_per_week:
+    if settings.assignment_max_tasks_per_week or settings.campus_scheduling_enabled:
         occupied_dates = {
             day - timedelta(days=day.weekday()) + timedelta(days=i)
             for day in dates
@@ -121,8 +123,7 @@ def load_snapshot(
     }
     roster_classes = defaultdict(set)
     for tid, cid in read(
-        select(TaskRosterMember.task_id, Student.administrative_class_id)
-        .join(Student, Student.id == TaskRosterMember.student_id)
+        select(TaskRosterMember.task_id, TaskRosterMember.administrative_class_id_snapshot)
         .join(InspectionTask, InspectionTask.id == TaskRosterMember.task_id)
         .where(
             InspectionTask.id.in_([t.id for t in targets]),
@@ -133,25 +134,56 @@ def load_snapshot(
             roster_classes[tid].add(cid)
     from app.modules.academic.enrollment_service import EnrollmentService
     from app.modules.inspection.scheduling.private_constraints import (
-        AssignmentTime,
         assignment_loads,
         assignment_times,
         course_times,
     )
 
     enrollments = EnrollmentService(session)
-    courses = course_times(session, semester.id, student_ids, teaching_days)
+    from app.modules.volunteer.eligibility_index import EligibilityIndex
+    eligibility = EligibilityIndex(session, student_ids, targets, lock=lock_inputs) if settings.campus_scheduling_enabled else None
+    courses = defaultdict(list, {} if eligibility else course_times(session, semester.id, student_ids, teaching_days))
     loads = assignment_loads(session, semester.id, ids)
-    period_times = {
-        row.period_no: (row.start_time, row.end_time)
-        for row in read(
-            select(
-                PeriodDefinition.period_no, PeriodDefinition.start_time, PeriodDefinition.end_time
-            ).where(PeriodDefinition.semester_id == semester.id)
-        )
-    }
+    if settings.campus_scheduling_enabled:
+        from app.modules.inspection.formal_time import formal_course_slots
 
-    def convert(task: InspectionTask | AssignmentTime, candidates: frozenset[int]) -> Task:
+        actual_slots = formal_course_slots(session, set(student_ids), dates, lock=lock_inputs)
+        courses = defaultdict(list, {
+            key: [(start, end) for start, end, *_ in slots]
+            for key, slots in actual_slots.items()
+        })
+    period_times = {row.period_no: (row.start_time, row.end_time) for row in read(
+        select(PeriodDefinition.period_no, PeriodDefinition.start_time, PeriodDefinition.end_time)
+        .where(PeriodDefinition.semester_id == semester.id)
+    )}
+
+    rules_cache: dict[int, Any] = {}
+    conversions: dict[int, Task] = {}
+
+    def convert(task: InspectionTask, candidates: frozenset[int]) -> Task:
+        if task.id in conversions:
+            return replace(conversions[task.id], candidates=candidates)
+        if settings.campus_scheduling_enabled:
+            from app.modules.volunteer.rules import assignment_interval
+
+            start, end = assignment_interval(session, task)
+            actual_parts = frozenset(name for name, low, high in [
+                ("MORNING", 0, 720), ("AFTERNOON", 720, 1080), ("EVENING", 1080, 1440)
+            ] if start < high and low < end)
+            from app.modules.volunteer.models import GroupConfigVersion
+            version = session.get(GroupConfigVersion, task.group_config_version_id) if task.group_config_version_id else None
+            # 已有受派即使组已停用仍占用其冻结配额，不能按当前组配置重解释。
+            config = rules_cache[task.id].config if task.id in rules_cache else (
+                version.configuration if version and version.group_id == task.group_id
+                and version.college_id == task.college_id else {})
+            result = Task(task.id, task.inspection_date, start, end, frozenset(), actual_parts,
+                cluster=building_cluster(task.classroom_snapshot, settings.assignment_building_clusters),
+                minutes=(start, end), group_id=task.group_id,
+                group_daily_limit=config.get("daily_limit"),
+                group_weekly_limit=config.get("weekly_limit"),
+                count_all_groups=config.get("count_scope", "ALL_GROUPS") == "ALL_GROUPS")
+            conversions[task.id] = result
+            return replace(result, candidates=candidates)
         periods = [period_times.get(p) for p in range(task.start_period, task.end_period + 1)]
         parts: set[str] = set()
         minutes = None
@@ -182,9 +214,11 @@ def load_snapshot(
         )
 
     existing = defaultdict(list)
-    for vid, task in assignment_times(session, ids, occupied_dates):
+    for vid, task in assignment_times(session, ids, occupied_dates, lock=lock_inputs):
+        if task.id in {target.id for target in targets}:
+            continue
         # 跨学期受派也占用时间，但不能用当前学期作息解释其他学期的时段。
-        if task.semester_id == semester.id:
+        if settings.campus_scheduling_enabled or task.semester_id == semester.id:
             existing[vid].append(convert(task, frozenset()))
         else:
             existing[vid].append(
@@ -196,9 +230,16 @@ def load_snapshot(
                     frozenset(),
                 )
             )
-    tasks, failures = [], {}
+    tasks, failures, warnings = [], {}, {}
     for task in targets:
-        if task.inspection_type == "COURSE" and is_physical_education(task.course_name_snapshot):
+        group_rules = None
+        if settings.campus_scheduling_enabled and task.group_id:
+            from app.modules.volunteer.rules import GroupRules
+
+            group_rules = GroupRules(session, task)
+            rules_cache[task.id] = group_rules
+        if (task.inspection_type == "COURSE"
+                and is_physical_education(task.course_name_snapshot)):
             tasks.append(convert(task, frozenset()))
             failures[task.id] = "COURSE_NOT_INSPECTABLE"
             continue
@@ -208,7 +249,8 @@ def load_snapshot(
         for vid in ids:
             prof = profiles.get(vid)
             enrollment = (
-                enrollments.at(prof.student_id, task.inspection_date)
+                eligibility.enrollment(prof.student_id, task.inspection_date) if eligibility and prof and prof.student_id else
+                enrollments.at(prof.student_id, task.inspection_date, lock=lock_inputs)
                 if prof and prof.student_id
                 else None
             )
@@ -218,6 +260,7 @@ def load_snapshot(
                 else prof is not None and prof.student_status == "ACTIVE"
             )
             class_id = (
+                eligibility.class_id(prof.student_id, task.inspection_date) if eligibility and prof else
                 enrollment.administrative_class_id
                 if enrollment
                 else prof.administrative_class_id
@@ -227,24 +270,36 @@ def load_snapshot(
             reason = None
             if prof is None or prof.status != "ACTIVE" or vid not in roles:
                 reason = "NOT_VOLUNTEER"
-            elif not enrolled or not qualified_on(
-                session, qualified.get(prof.student_id), task.inspection_date, task.college_id
-            ):
+            elif group_rules and eligibility and not eligibility.member_allowed(task, prof.student_id):
                 reason = "NO_QUALIFICATION"
-            elif any(
-                task.start_period <= end and start <= task.end_period
-                for start, end in courses[prof.student_id, task.inspection_date]
-            ):
+            elif not enrolled or not (eligibility.qualified(qualified.get(prof.student_id), task.inspection_date, None if group_rules else task.college_id)
+                    if eligibility else qualified_on(session, qualified.get(prof.student_id), task.inspection_date, None if group_rules else task.college_id)):
+                reason = "NO_QUALIFICATION"
+            elif group_rules and any(
+                    convert(task, frozenset()).start < end and start < convert(task, frozenset()).end
+                    and group_rules.course_effect(tid, ctype) == "BLOCK"
+                    for start, end, tid, ctype in actual_slots[prof.student_id, task.inspection_date]):
                 reason = "OWN_CLASS_CONFLICT"
-            elif class_id in roster_classes[task.id]:
+            elif not group_rules and any((convert(task, frozenset()).start < end and start < convert(task, frozenset()).end)
+                     if settings.campus_scheduling_enabled
+                     else (task.start_period <= end and start <= task.end_period)
+                     for start, end in courses[prof.student_id, task.inspection_date]):
+                reason = "OWN_CLASS_CONFLICT"
+            elif class_id in roster_classes[task.id] and (group_rules is None or group_rules.config["own_class_effect"] == "BLOCK"):
                 reason = "SELF_CLASS_AVOID"
             if reason:
                 rejected.append(reason)
             else:
                 candidates.add(vid)
+                if group_rules and prof:
+                    from app.modules.volunteer.policy import assignment_warning_codes
+                    warnings[task.id, vid] = assignment_warning_codes(group_rules.config,
+                        class_id, roster_classes[task.id],
+                        (convert(task, frozenset()).start, convert(task, frozenset()).end),
+                        actual_slots[prof.student_id, task.inspection_date])
         if not candidates:
             failures[task.id] = rejected[0] if rejected else "NO_QUALIFICATION"
         tasks.append(convert(task, frozenset(candidates)))
     return Snapshot(
-        tasks, [Volunteer(v, loads.get(v, 0), tuple(existing[v])) for v in ids], failures
+        tasks, [Volunteer(v, loads.get(v, 0), tuple(existing[v])) for v in ids], failures, warnings
     )

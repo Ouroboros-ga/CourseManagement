@@ -47,6 +47,7 @@ from app.core.exceptions import (
     UnauthenticatedError,
 )
 from app.modules.audit.models import AuditLog
+from app.modules.audit.provenance import scoped_snapshot
 from app.modules.file.models import FileCategory, FileObject, FileStatus
 from app.modules.file.storage import StorageBackend, build_default_storage
 from app.modules.identity.repository import IdentityRepository
@@ -64,18 +65,39 @@ from app.modules.report.schemas import (
 
 
 class ReportService:
-    def __init__(self, session: Session, storage: StorageBackend | None = None) -> None:
+    def __init__(self, session: Session, storage: StorageBackend | None = None, *, college_id: int | None = None) -> None:
         self._session = session
         self._stat_repo = ReportRepository(session)
         self._repo = ReportVersionRepository(session)
         self._identity = IdentityRepository(session)
         self._settings: Settings = get_settings()
         self._storage = storage or build_default_storage(self._settings)
+        self._college_id = college_id
 
     # ------------------------------------------------------------------ #
     # 守卫：功能权限纵深复核（事务内重读有效权限）+ 管理范围准入
     # ------------------------------------------------------------------ #
     def _guard(self, actor: CurrentUser, code: str) -> None:
+        if self._college_id is not None and not self._settings.campus_business_scoped_enabled:
+            raise PermissionDeniedError("院级报表尚未启用")
+        if self._settings.campus_business_scoped_enabled:
+            colleges: frozenset[int] | None
+            from app.modules.identity.management_scope import management_college_ids
+            from app.modules.identity.resource_scope import resolve_scope
+
+            if self._college_id is not None:
+                resolve_scope(self._session, actor, self._college_id, code, write=code == perms.REPORT_GENERATE_PERMISSION)
+                colleges = frozenset({self._college_id})
+            else:
+                colleges = management_college_ids(self._session, actor, code)
+                if code == perms.REPORT_GENERATE_PERMISSION:
+                    raise PermissionDeniedError("生成周报须进入明确的学院工作区")
+            if colleges is not None and not colleges:
+                raise PermissionDeniedError()
+            self._repo = ReportVersionRepository(self._session, college_ids=colleges,
+                generation_college_id=self._college_id)
+            self._stat_repo = ReportRepository(self._session, college_ids=colleges)
+            return
         actor_row = self._identity.get_user_by_id_for_update(actor.id)
         if actor_row is None:
             raise UnauthenticatedError("操作者账号不可用")
@@ -140,6 +162,7 @@ class ReportService:
         else:
             version_no = report.latest_version_no + 1
             version = ReportVersion(
+                college_id_snapshot=self._college_id,
                 report_id=report.id,
                 version_no=version_no,
                 status=ReportVersionStatus.GENERATING.value,
@@ -220,7 +243,7 @@ class ReportService:
             self._safe_delete(word_key)
             raise ConflictError(ErrorCode.STATE_CONFLICT, "生成已被接管，本次结果放弃发布")
 
-        current_rev = self._repo.current_source_revision(semester_id, week_no)
+        current_rev = self._repo.current_source_revision(semester_id, week_no, self._college_id)
         summary = self._version_summary(
             published, current_rev, self._current_rule_version(), self._current_template_version()
         )
@@ -258,7 +281,7 @@ class ReportService:
         att_by_tc = self._stat_repo.attendance_counts_by_task_class(ids)
         meta = self._stat_repo.task_meta(ids)
         details = self._stat_repo.abnormal_details(ids)
-        source_revision = self._repo.current_source_revision(semester_id, week_no)
+        source_revision = self._repo.current_source_revision(semester_id, week_no, self._college_id)
 
         exp_total = sum(cur for cur, _snap in expected.values())
         type_totals = agg.sum_type_totals(att_by_task)
@@ -269,6 +292,7 @@ class ReportService:
 
         payload: dict[str, Any] = {
             "meta": {
+                "college_id": self._college_id,
                 "semester_id": semester_id,
                 "week_no": week_no,
                 "scope": "COLLEGE",
@@ -368,7 +392,7 @@ class ReportService:
         if report is None:
             raise NotFoundError()
         versions = self._repo.list_versions(report_id)
-        current_rev = self._repo.current_source_revision(report.semester_id, report.week_no)
+        current_rev = self._repo.current_source_revision(report.semester_id, report.week_no, report.college_id)
         cur_rule = self._current_rule_version()
         cur_tmpl = self._current_template_version()
         items = [self._version_summary(v, current_rev, cur_rule, cur_tmpl) for v in versions]
@@ -545,7 +569,7 @@ class ReportService:
                 resource_type="report_version",
                 resource_id=resource_id,
                 before_json=before,
-                after_json=after,
+                after_json=scoped_snapshot(after, self._college_id),
                 reason=reason,
                 request_id=request_id,
             )

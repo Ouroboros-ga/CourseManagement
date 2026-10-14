@@ -14,11 +14,12 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams
+from app.core.exceptions import PermissionDeniedError
 from app.modules.attendance.models import (
     AttendanceRecord,
     AttendanceRecordVersion,
 )
-from app.modules.identity.query_scope import get_scoped
+from app.modules.identity.resource_scope import ResourceScope
 from app.modules.inspection.models import InspectionTask, SubmissionFile, TaskRosterMember
 
 
@@ -36,8 +37,23 @@ def _for_update(stmt: Select):  # noqa: ANN202 - 返回 Executable 由调用方 
 
 
 class AttendanceRepository:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, scope: ResourceScope | None = None) -> None:
+        if scope is not None and scope.action not in {"attendance.read", "attendance.correct"}:
+            raise PermissionDeniedError("动作不匹配考勤范围")
         self._session = session
+        self.scope = scope
+
+    def _records(self):
+        stmt = select(AttendanceRecord)
+        if self.scope is not None:
+            stmt = stmt.where(
+                AttendanceRecord.task_id.in_(
+                    select(InspectionTask.id).where(
+                        InspectionTask.college_id == self.scope.college_id
+                    )
+                )
+            )
+        return stmt.execution_options(populate_existing=True)
 
     def add(self, obj: object) -> None:
         self._session.add(obj)
@@ -47,10 +63,10 @@ class AttendanceRepository:
 
     # ---- 单条读 / 锁定读 ----
     def get_record(self, record_id: int) -> AttendanceRecord | None:
-        return get_scoped(self._session, AttendanceRecord, record_id)
+        return self._session.scalar(self._records().where(AttendanceRecord.id == record_id))
 
     def get_record_for_update(self, record_id: int) -> AttendanceRecord | None:
-        stmt = _for_update(select(AttendanceRecord).where(AttendanceRecord.id == record_id))
+        stmt = _for_update(self._records().where(AttendanceRecord.id == record_id))
         return self._session.execute(stmt).scalar_one_or_none()
 
     # ---- 列表（管理全量 / 本人 student_id；可按任务、学期、认定类型过滤）----
@@ -68,7 +84,7 @@ class AttendanceRepository:
         student_id 非空即本人范围（SELF_STUDENT）强约束；为空表示管理范围不加学生谓词。
         任务/学期过滤经关联 inspection_task（考勤本身不存学期，随任务归属，技术方案 9.2）。
         """
-        stmt = select(AttendanceRecord)
+        stmt = self._records()
         if student_id is not None:
             stmt = stmt.where(AttendanceRecord.student_id == student_id)
         if effective_type is not None:
@@ -87,6 +103,11 @@ class AttendanceRepository:
             self._session.execute(
                 select(AttendanceRecordVersion)
                 .where(AttendanceRecordVersion.attendance_record_id == record_id)
+                .where(
+                    AttendanceRecordVersion.attendance_record_id.in_(
+                        self._records().with_only_columns(AttendanceRecord.id)
+                    )
+                )
                 .order_by(AttendanceRecordVersion.version_no)
             )
             .scalars()

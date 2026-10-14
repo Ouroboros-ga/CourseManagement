@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date
 
-from .constraints import rejection
+from .constraints import rejection, group_plan_rejection
 from .models import Plan, Task, Volunteer
 from .scoring import location_delta, time_delta
 
@@ -42,10 +42,15 @@ def plan_assignments(
         weekly[vid] = weeks
     loads = {vid: vol.semester_load for vid, vol in people.items()}
     plan = Plan()
+    group_caps = any(t.group_weekly_limit is not None for t in tasks) or any(
+        t.group_weekly_limit is not None for person in volunteers for t in person.existing)
 
     def legal(task: Task, vid: int) -> bool:
-        return (vid in people and rejection(task, occupied[vid].get(task.day, ()), day_cap,
-                                            week_cap, weekly[vid].get(week(task.day), 0)) is None)
+        if vid not in people or rejection(task, occupied[vid].get(task.day, ()), day_cap,
+                                            week_cap, weekly[vid].get(week(task.day), 0)) is not None:
+            return False
+        return group_plan_rejection(task, [other for daily in occupied[vid].values()
+                                           for other in daily]) is None
 
     def score(task: Task, vid: int) -> tuple[int, int, int, int, int]:
         today = occupied[vid].get(task.day, ())
@@ -80,7 +85,7 @@ def plan_assignments(
             put(task, chosen)
             # 当天占用和同周上限可能使该人的候选关系失效。
             for other in pending:
-                if ((other.day == task.day or (week_cap and week(other.day) == week(task.day)))
+                if ((other.day == task.day or ((week_cap or group_caps) and week(other.day) == week(task.day)))
                         and chosen in options[other.id]
                         and not legal(other, chosen)):
                     options[other.id].discard(chosen)
@@ -100,7 +105,7 @@ def plan_assignments(
         for vid in sorted(fixed_candidates, key=lambda v: (loads[v], v)):
             movable = sorted((by_id[tid] for tid, owner in plan.assignments.items()
                               if owner == vid and (by_id[tid].day == task.day or
-                                                   (week_cap and week(by_id[tid].day) ==
+                                                   ((week_cap or group_caps) and week(by_id[tid].day) ==
                                                     week(task.day)))),
                              key=lambda t: (t.day, t.start, t.id))
             for other in movable:
@@ -134,7 +139,8 @@ def plan_assignments(
     for task in tasks:
         if task.id not in plan.assignments:
             reasons = [rejection(task, occupied[v].get(task.day, ()), day_cap,
-                                 week_cap, weekly[v].get(week(task.day), 0))
+                                 week_cap, weekly[v].get(week(task.day), 0)) or
+                       group_plan_rejection(task, [other for daily in occupied[v].values() for other in daily])
                        for v in sorted(task.candidates & people.keys())]
             plan.unassigned[task.id] = next((r for r in reasons if r), "NO_QUALIFICATION")
     # 输出顺序稳定；修复失败可能改变内部 dict 插入顺序，不能泄露到接口。

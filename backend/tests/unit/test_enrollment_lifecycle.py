@@ -489,7 +489,7 @@ def test_membership_change_preserves_manual_count_and_requires_review(school):
 def test_scheduled_cross_college_transfer_stops_old_manager_permissions_on_date(
     school, monkeypatch
 ):
-    import app.modules.identity.authorization as authorization
+    import app.modules.identity.role_scope as authorization
     from app.modules.identity.repository import IdentityRepository
     from app.modules.identity.service import IdentityService
 
@@ -509,3 +509,17 @@ def test_scheduled_cross_college_transfer_stops_old_manager_permissions_on_date(
     monkeypatch.setattr(authorization, "business_today", lambda: date(2026, 11, 1))
     assert "inspection.generate" not in IdentityRepository(school).list_effective_permissions(3)
     assert "attendance.read" in IdentityRepository(school).list_effective_permissions(3)
+
+
+def test_explicit_grant_allows_teacher_cross_college_without_expanding_other_actions(school):
+    from app.modules.identity.service import CurrentUser
+    from app.modules.organization.service import CampusService
+
+    root = CurrentUser(1, "u1", "管理员", "ACTIVE", ["SUPER_ADMIN"], [])
+    CampusService(school).create_grant(root, 2, {"user_id": "2", "actions": ["student.manage"]})
+    result = EnrollmentService(school, today=date(2026, 10, 14)).commit(
+        2, 1, change(target=3), request_id=None
+    )
+    assert result["student_no"] == "2026001"
+    with pytest.raises(PermissionDeniedError):
+        EnrollmentService(school, today=date(2026, 10, 14)).history(2, 1)

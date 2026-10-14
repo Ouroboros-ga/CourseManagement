@@ -1,0 +1,133 @@
+"""College master timetable, with dated official rosters rather than personal copies."""
+
+from datetime import timedelta
+
+from sqlalchemy import or_, select
+from sqlalchemy.orm import selectinload
+
+from app.core.exceptions import ConflictError
+from app.modules.academic.enrollment_service import EnrollmentService
+from app.modules.academic.models import AdministrativeClass, Course, CourseSchedule, TeachingClass
+from app.modules.academic.roster_index import RosterIndex
+from app.modules.academic.schemas import MasterTimetableItemResponse
+from app.modules.identity.role_scope import business_today
+from app.modules.inspection.course_policy import is_physical_education
+
+
+def master_timetable(
+    service, semester_id, *, week_no=None, weekday=None, administrative_class_id=None, keyword=None
+):
+    repo = service._repo("academic.read")
+    semester = repo.get("semesters", semester_id)
+    statement = (
+        select(CourseSchedule, TeachingClass, Course)
+        .join(TeachingClass, TeachingClass.id == CourseSchedule.teaching_class_id)
+        .join(Course, Course.id == TeachingClass.course_id)
+        .options(selectinload(CourseSchedule.weeks))
+        .where(
+            CourseSchedule.college_id == service.college_id,
+            TeachingClass.college_id == service.college_id,
+            or_(Course.college_id.is_(None), Course.college_id == service.college_id),
+            CourseSchedule.semester_id == semester.id,
+            TeachingClass.semester_id == semester.id,
+            CourseSchedule.status == "ACTIVE",
+            TeachingClass.status == "ACTIVE",
+            Course.status == "ACTIVE",
+        )
+    )
+    if weekday is not None:
+        statement = statement.where(CourseSchedule.weekday == weekday)
+    if keyword:
+        statement = statement.where(
+            or_(
+                Course.course_name.contains(keyword, autoescape=True),
+                TeachingClass.class_name.contains(keyword, autoescape=True),
+            )
+        )
+    rows = list(service.db.execute(statement))
+    index = RosterIndex(service.db, [teaching.id for _, teaching, _ in rows])
+    classes = {
+        row.id: row
+        for row in service.db.scalars(
+            select(AdministrativeClass).where(AdministrativeClass.college_id == service.college_id)
+        )
+    }
+    enrollments = EnrollmentService(service.db)
+    roster_cache = {}
+    result = []
+    for schedule, teaching, course in rows:
+        weeks = sorted(row.week_no for row in schedule.weeks)
+        if week_no is not None and week_no not in weeks:
+            continue
+        day = (
+            semester.first_monday + timedelta(days=(week_no - 1) * 7 + schedule.weekday - 1)
+            if week_no
+            else min(max(business_today(), semester.start_date), semester.end_date)
+        )
+        if day not in roster_cache:
+            roster_cache[day] = index.at(day)
+        roster = roster_cache[day].get(teaching.id, [])
+        class_ids = set()
+        for student in roster:
+            enrollment = enrollments.at(student.id, day)
+            class_id = (
+                enrollment.administrative_class_id
+                if enrollment
+                else student.administrative_class_id
+            )
+            if class_id not in classes or (
+                enrollment and enrollment.college_id != service.college_id
+            ):
+                raise ConflictError(message="正式名单包含未核实或外院归属，请先处理教务名单")
+            class_ids.add(class_id)
+        if administrative_class_id is not None and administrative_class_id not in class_ids:
+            continue
+        details = [classes[cid] for cid in sorted(class_ids)]
+        teachers = (
+            "、".join(dict.fromkeys(row.head_teacher for row in details if row.head_teacher))
+            or None
+        )
+        counselors = (
+            "、".join(dict.fromkeys(row.counselor for row in details if row.counselor)) or None
+        )
+        physical = is_physical_education(course.course_name)
+        item = MasterTimetableItemResponse(
+            id=schedule.id,
+            semester_id=semester.id,
+            course_id=course.id,
+            course_code=course.course_code,
+            course_name=course.course_name,
+            teaching_class_id=teaching.id,
+            teaching_class_code=teaching.class_code,
+            teaching_class_name=teaching.class_name,
+            teacher_name=teachers or teaching.teacher_name,
+            head_teacher=teachers,
+            counselor=counselors,
+            weekday=schedule.weekday,
+            start_period=schedule.start_period,
+            end_period=schedule.end_period,
+            classroom=schedule.classroom,
+            weeks=weeks,
+            status=schedule.status,
+            enrolled_student_count=len(roster),
+            is_physical_education=physical,
+            is_inspectable=not physical and bool(roster),
+            administrative_classes=[row.class_name for row in details],
+            administrative_classes_details=[
+                {
+                    "class_name": row.class_name,
+                    "head_teacher": row.head_teacher,
+                    "counselor": row.counselor,
+                }
+                for row in details
+            ],
+        ).model_dump()
+        item.update(
+            ownership_version=schedule.ownership_version,
+            teaching_class_ownership_version=teaching.ownership_version,
+            classification_revision=teaching.classification_revision,
+            course_type_id=str(teaching.course_type_id) if teaching.course_type_id else None,
+        )
+        result.append(item)
+    result.sort(key=lambda row: (row["weekday"], row["start_period"], row["course_name"]))
+    return {"items": result, "total": len(result)}

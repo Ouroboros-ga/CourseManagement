@@ -47,12 +47,21 @@ from app.modules.identity.service import CurrentUser, IdentityService
 
 router = APIRouter(tags=["auth"])
 
+
+@router.get("/me/campus-runtime")
+def campus_runtime(actor: CurrentUserDep):
+    settings = get_settings()
+    return success({"academic_scoped": settings.campus_academic_scoped_enabled,
+                    "business_scoped": settings.campus_business_scoped_enabled,
+                    "scheduling": settings.campus_scheduling_enabled})
+
 # refresh Cookie 作用路径：仅覆盖 auth 子路径，缩小暴露面。
 _REFRESH_COOKIE_PATH = "/api/v1/auth"
 
 
-def get_service(db: Annotated[Session, Depends(get_db)]) -> IdentityService:
-    return IdentityService(db)
+def get_service(db: Annotated[Session, Depends(get_db)], request: Request) -> IdentityService:
+    raw = request.path_params.get("cid")
+    return IdentityService(db, college_id=int(raw) if raw is not None else None)
 
 
 ServiceDep = Annotated[IdentityService, Depends(get_service)]

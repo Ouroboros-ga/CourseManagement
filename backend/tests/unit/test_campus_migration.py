@@ -49,20 +49,33 @@ def test_ownership_migration_preserves_legacy_rows_and_round_trips():
         str(Path(__file__).parents[2] / "migrations/versions/f26a1013c002_business_ownership.py")
     )
     old = sa.MetaData(naming_convention=Base.metadata.naming_convention)
+    expected = sa.MetaData(naming_convention=Base.metadata.naming_convention)
     for table in Base.metadata.sorted_tables:
         table.to_metadata(old)
-    # This test targets c002, before the e001 report partition key existed.
-    report = old.tables["report"]
-    for constraint in list(report.constraints):
-        if (
-            isinstance(constraint, sa.UniqueConstraint)
-            and "scope_college_key" in constraint.columns
-        ):
-            report.constraints.remove(constraint)
-    report._columns.remove(report.c.scope_college_key)
-    expected = sa.MetaData(naming_convention=Base.metadata.naming_convention)
-    for table in old.sorted_tables:
         table.to_metadata(expected)
+    # r001's generated ownership key did not exist when c002 introduced college_id.
+    # Compare against the schema at this migration boundary, not a future DDL dependency.
+    for metadata in (old, expected):
+        teaching = metadata.tables["teaching_class"]
+        for constraint in list(teaching.constraints):
+            if isinstance(constraint, sa.ForeignKeyConstraint) and constraint.name == "fk_teaching_class_college_type":
+                teaching.constraints.remove(constraint)
+                for fk in constraint.elements:
+                    teaching.foreign_keys.discard(fk)
+        for index in list(teaching.indexes):
+            if index.name == "ix_teaching_class_college_type":
+                teaching.indexes.remove(index)
+        report = metadata.tables["report"]
+        report._columns.remove(report.c.scope_college_key)
+        for constraint in list(report.constraints):
+            if (
+                isinstance(constraint, sa.UniqueConstraint)
+                and constraint.name == "uq_report_sem_week_scope_college"
+            ):
+                report.constraints.remove(constraint)
+        report.append_constraint(
+            sa.UniqueConstraint("semester_id", "week_no", "scope", name="uq_report_sem_week_scope")
+        )
     for name in migration["TABLES"]:
         table = old.tables[name]
         column = table.c.college_id

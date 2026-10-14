@@ -52,6 +52,7 @@ from app.modules.attendance.models import (
     AttendanceSourceType,
 )
 from app.modules.audit.models import AuditLog
+from app.modules.audit.provenance import scoped_snapshot
 from app.modules.file.models import FileCategory, FileObject, FileStatus
 from app.modules.file.repository import FileRepository
 from app.modules.identity.models import UserAccount
@@ -128,7 +129,7 @@ class ObjectionService:
                 resource_type="objection",
                 resource_id=resource_id,
                 before_json=before,
-                after_json=after,
+                after_json=scoped_snapshot(after, getattr(self, "college_id", None)),
                 reason=reason,
                 request_id=request_id,
             )
@@ -299,7 +300,14 @@ class ObjectionService:
     ) -> tuple[perms.ObjectionScope, int | None]:
         scope = perms.resolve_read_scope(permissions)
         if perms.is_manage_scope(scope):
-            return scope, None
+            if not get_settings().campus_business_scoped_enabled:
+                return scope, None
+            sid = self._student_id(actor_user_id)
+            return (
+                (perms.ObjectionScope.OWN, sid)
+                if sid is not None and perms.OBJECTION_READ_PERMISSION in permissions
+                else (perms.ObjectionScope.NONE, None)
+            )
         if scope is perms.ObjectionScope.OWN:
             sid = self._student_id(actor_user_id)
             if sid is None:
@@ -312,6 +320,10 @@ class ObjectionService:
         if perms.is_manage_scope(scope):
             return True
         return sid is not None and sid == obj.student_id
+
+    def _legacy_manage_gate(self):
+        if get_settings().campus_business_scoped_enabled:
+            raise PermissionDeniedError("请使用明确学院范围的异议审核入口")
 
     # ================================================================== #
     # 初核（objection.initial_review；不改考勤）
@@ -347,6 +359,7 @@ class ObjectionService:
         不覆盖他人新认定。锁序：先锁考勤、再锁异议（populate_existing 重读状态）。驳回不改考勤。
         """
         self._require(actor.id, perms.OBJECTION_FINAL_REVIEW_PERMISSION)
+        self._legacy_manage_gate()
 
         anchor = self._repo.get_objection(objection_id)
         if anchor is None:

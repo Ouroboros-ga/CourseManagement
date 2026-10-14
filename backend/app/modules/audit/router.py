@@ -18,9 +18,25 @@ router = APIRouter(tags=["audit"])
 AuditReadDep = Annotated[CurrentUser, Depends(require_permission(PermissionCode.AUDIT_READ.value))]
 
 
+def get_service(request: Request, db: Annotated[Session, Depends(get_db)]):
+    raw = request.path_params.get("cid")
+    cid = None
+    if raw is not None:
+        value = str(raw)
+        if not value.isascii() or not value.isdecimal() or not 0 < int(value) < 2**63:
+            from app.core.exceptions import PermissionDeniedError
+            raise PermissionDeniedError("学院范围无效")
+        cid = int(value)
+    return AuditReadService(db, college_id=cid)
+
+
+Service = Annotated[AuditReadService, Depends(get_service)]
+
+
 @router.get("/audit-logs")
 def list_audit_logs(
     actor: AuditReadDep,
+    service: Service,
     db: Annotated[Session, Depends(get_db)],
     request: Request,
     date_from: Annotated[datetime, Query(description="UTC 起始时间")],
@@ -32,7 +48,7 @@ def list_audit_logs(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> dict[str, object]:
-    data = AuditReadService(db).list_logs(
+    data = service.list_logs(
         actor.id, start=date_from, end=date_to, actor_user_id=actor_user_id,
         action=action, resource_type=resource_type, resource_id=resource_id,
         page=page, page_size=page_size,
@@ -44,10 +60,11 @@ def list_audit_logs(
 def get_audit_log(
     log_id: int,
     actor: AuditReadDep,
+    service: Service,
     db: Annotated[Session, Depends(get_db)],
     request: Request,
 ) -> dict[str, object]:
     return success(
-        AuditReadService(db).get(actor.id, log_id),
+        service.get(actor.id, log_id),
         getattr(request.state, "request_id", None),
     )

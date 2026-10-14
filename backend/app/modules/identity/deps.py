@@ -38,46 +38,22 @@ def _extract_bearer(
 
 
 def get_current_user(
-    request: Request,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(_bearer)
+    ],
     db: Annotated[Session, Depends(get_db)],
 ) -> CurrentUser:
     user_id, session_id = _extract_bearer(credentials)
-    from app.modules.academic.enrollment_service import EnrollmentService
-
-    EnrollmentService(db).apply_due()
-    from app.modules.identity.repository import IdentityRepository
-
-    IdentityRepository(db).get_user_by_id_for_update(user_id)
-    user = IdentityService(db).resolve_session_user(user_id, session_id)
-    from app.modules.identity.query_scope import activate_query_scope
-
-    personal = request.url.path.startswith("/api/v1/me/") or request.url.path in {
-        "/api/v1/me",
-        "/api/v1/auth/logout",
-        "/api/v1/account/password",
-    }
-    if request.method == "POST" and (
-        request.url.path == "/api/v1/objections"
-        or request.url.path.startswith("/api/v1/inspection-tasks/")
-        and request.url.path.endswith(("/submissions", "/change-requests"))
-    ):
-        personal = True  # 入口随后仍校验本人考勤/本人受派，不能借管理身份扩大范围。
-    activate_query_scope(db, user.id, personal=personal, actor_locked=True)
-    if request.url.path.startswith(
-        ("/api/v1/me/attendance", "/api/v1/me/objections", "/api/v1/me/submissions")
-    ):
-        from app.modules.academic.history_policy import require_self_history
-
-        require_self_history(db, user.id)
-    return user
+    return IdentityService(db).resolve_session_user(user_id, session_id)
 
 
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
 
 
 def get_session_id(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(_bearer)
+    ],
 ) -> int:
     """从访问令牌解析当前会话 ID（供登出等撤销操作使用）。"""
     _user_id, session_id = _extract_bearer(credentials)
@@ -98,10 +74,27 @@ def require_roles(*role_codes: str) -> Callable[[CurrentUser], CurrentUser]:
     return _dep
 
 
-def require_permission(code: str) -> Callable[[CurrentUser], CurrentUser]:
+def require_permission(code: str) -> Callable[..., CurrentUser]:
     """要求当前用户拥有指定（含可选）权限。"""
 
-    def _dep(user: CurrentUserDep) -> CurrentUser:
+    def _dep(user: CurrentUserDep, request: Request,
+             db: Annotated[Session, Depends(get_db)]) -> CurrentUser:
+        # A college capability is not a school-wide permission. Explicit college
+        # aliases must accept their own grant and let the service recheck writes;
+        # adding grants to the global permission union would expose old endpoints.
+        from app.core.config import get_settings
+        from app.modules.identity.authorization import CAMPUS_ACTIONS
+        from app.modules.identity.resource_scope import resolve_scope
+
+        raw = request.path_params.get("cid")
+        if (raw is not None and (get_settings().campus_business_scoped_enabled
+                                or get_settings().campus_academic_scoped_enabled)
+                and code in CAMPUS_ACTIONS):
+            value = str(raw)
+            if not value.isascii() or not value.isdecimal() or not 0 < int(value) < 2**63:
+                raise PermissionDeniedError("学院范围无效")
+            resolve_scope(db, user, int(value), code)
+            return user
         if not user.has_permission(code):
             raise PermissionDeniedError()
         return user

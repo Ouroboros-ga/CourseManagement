@@ -27,7 +27,8 @@ class IdentityRepository:
 
     # ---- 账号 ----
     def get_user_by_id(self, user_id: int) -> UserAccount | None:
-        return get_scoped(self._session, UserAccount, user_id)
+        return self._session.scalar(select(UserAccount).where(UserAccount.id == user_id)
+            .execution_options(populate_existing=True))
 
     def get_user_by_id_for_update(self, user_id: int) -> UserAccount | None:
         """SELECT ... FOR UPDATE 锁定账号行，并强制回填最新列值。
@@ -53,6 +54,7 @@ class IdentityRepository:
             select(Role.code)
             .join(UserRole, UserRole.role_id == Role.id)
             .where(UserRole.user_id == user_id)
+            .with_for_update(read=True)
         ).all()
         return sorted(row[0] for row in rows)
 
@@ -80,8 +82,7 @@ class IdentityRepository:
         ).all()
         from app.modules.academic.enrollment_models import StudentManagerAppointment
         from app.modules.academic.enrollment_service import EnrollmentService
-        from app.modules.identity.authorization import business_today
-
+        from app.modules.identity.role_scope import business_today
         today = business_today()
         user = get_scoped(self._session, UserAccount, user_id)
         enrollment = (
@@ -134,6 +135,10 @@ class IdentityRepository:
             codes.add(permission_code)
         if manager:
             codes |= {row[0] for row in user_perms if row[0] in manager.allowed_actions}
+            if "STUDENT_AFFAIRS_MANAGER" in self.list_role_codes(user_id):
+                # Group administration is an explicitly configured capability;
+                # retain the registry matrix for all existing manager functions.
+                codes |= set(manager.allowed_actions) & {"volunteer.manage"}
         if "SUPER_ADMIN" in self.list_role_codes(user_id):
             platform = self._session.scalar(
                 select(UserPermission.id)
@@ -150,11 +155,7 @@ class IdentityRepository:
     def list_effective_role_codes(self, user_id: int) -> list[str]:
         roles = self.list_role_codes(user_id)
         if "STUDENT_AFFAIRS_MANAGER" in roles:
-            from app.modules.identity.authorization import (
-                active_manager_appointment,
-                business_today,
-            )
-
+            from app.modules.identity.role_scope import active_manager_appointment, business_today
             if active_manager_appointment(self._session, user_id, business_today()) is None:
                 roles.remove("STUDENT_AFFAIRS_MANAGER")
         return roles
@@ -230,15 +231,15 @@ class IdentityRepository:
             self._session.flush()
 
     # ---- 授权管理支撑（受限目标选择器 + 同事务变更服务）----
-    def list_all_users(self) -> list[UserAccount]:
+    def list_all_users(self, statement=None) -> list[UserAccount]:
         """角色分配目标选择器：返回全部账号（按 ID 稳定排序）。"""
-        stmt = select(UserAccount).order_by(UserAccount.id)
+        stmt = (statement if statement is not None else select(UserAccount)).order_by(UserAccount.id)
         return list(self._session.execute(stmt).scalars().all())
 
-    def list_users_with_role(self, role_code: str) -> list[UserAccount]:
+    def list_users_with_role(self, role_code: str, statement=None) -> list[UserAccount]:
         """可选权限目标选择器：仅返回持有指定角色（负责人）的账号。"""
         stmt = (
-            select(UserAccount)
+            (statement if statement is not None else select(UserAccount))
             .join(UserRole, UserRole.user_id == UserAccount.id)
             .join(Role, Role.id == UserRole.role_id)
             .where(Role.code == role_code)

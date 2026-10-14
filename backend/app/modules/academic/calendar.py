@@ -9,9 +9,14 @@ from app.modules.academic.models import OverrideType
 
 
 class TeachingDayOverride(Protocol):
-    override_type: str
-    source_teaching_week: int | None
-    source_teaching_weekday: int | None
+    @property
+    def override_type(self) -> str: ...
+
+    @property
+    def source_teaching_week(self) -> int | None: ...
+
+    @property
+    def source_teaching_weekday(self) -> int | None: ...
 
 
 def resolve_teaching_day(

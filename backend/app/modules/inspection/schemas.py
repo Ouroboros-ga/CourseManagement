@@ -146,6 +146,7 @@ class DeadlineAssessmentBrief(BaseModel):
 
 
 class InspectionTaskResponse(BaseModel):
+    operation_warning_codes: list[str] = Field(default_factory=list)
     id: IdStr
     task_key: str
     semester_id: IdStr
@@ -154,6 +155,15 @@ class InspectionTaskResponse(BaseModel):
     inspection_type: str
     start_period: int
     end_period: int
+    college_id: OptIdStr = None
+    activity_start_at: datetime | None = None
+    activity_end_at: datetime | None = None
+    time_snapshot: dict | None = None
+    group_id: OptIdStr = None
+    group_config_version_id: OptIdStr = None
+    group_name_snapshot: str | None = None
+    course_type_id_snapshot: OptIdStr = None
+    course_type_name_snapshot: str | None = None
     course_schedule_id: OptIdStr
     teaching_class_id: OptIdStr
     administrative_class_id: OptIdStr
@@ -304,6 +314,7 @@ class TaskCandidateVolunteerItem(BaseModel):
     class_name: str | None = None
     has_wechat: bool = False
     eligible: bool = True
+    warning_codes: list[str] = Field(default_factory=list)
     conflict_code: str | None = None
     conflict_message: str | None = None
     assigned_count_week: int = 0
@@ -342,6 +353,7 @@ class AutoAssignRequest(BaseModel):
 class PlannedAssignment(BaseModel):
     task_id: IdStr
     volunteer_user_id: IdStr
+    warning_codes: list[str] = Field(default_factory=list)
 
 
 class UnassignedTaskBrief(BaseModel):
@@ -614,11 +626,21 @@ class ExpectedCountUpdateRequest(BaseModel):
 class InspectionTaskUpdateRequest(BaseModel):
     """PATCH /inspection-tasks/{task_id} 请求体：修改未执行/未审核任务的教室或节次。"""
 
+    lock_version: int | None = Field(default=None, ge=0)
     classroom: str | None = Field(default=None, max_length=128)
-    start_period: int | None = Field(default=None, ge=1, le=20)
-    end_period: int | None = Field(default=None, ge=1, le=20)
+    start_period: int | None = Field(default=None, ge=1, le=60)
+    end_period: int | None = Field(default=None, ge=1, le=60)
     course_name: str | None = Field(default=None, max_length=128)
     reason: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def configured_period_range(self):
+        from app.core.config import get_settings
+        if not get_settings().campus_scheduling_enabled and any(
+            value is not None and value > 20 for value in (self.start_period, self.end_period)
+        ):
+            raise ValueError("旧排课模式最多 20 节")
+        return self
 
 
 # --------------------------------------------------------------------------- #

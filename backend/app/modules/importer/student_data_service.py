@@ -20,7 +20,7 @@ from app.modules.academic.enrollment_schemas import EnrollmentChangeRequest
 from app.modules.academic.enrollment_service import EnrollmentService, class_snapshot
 from app.modules.academic.models import AdministrativeClass, Student
 from app.modules.audit.models import AuditLog
-from app.modules.identity.authorization import business_today, require_resource_scope, resolve_scope
+from app.modules.identity.role_scope import business_today, require_resource_scope, resolve_scope
 from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import IdentityRepository
 

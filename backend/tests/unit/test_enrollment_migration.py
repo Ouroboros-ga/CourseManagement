@@ -83,7 +83,23 @@ def test_enrollment_upgrade_preserves_current_identity_and_matches_models():
         context = MigrationContext.configure(db)
         with Operations.context(context):
             migration["upgrade"]()
+        # Compare the complete candidate after all descendants, not future ORM
+        # tables against the already-published e001 boundary.
+        descendants = [runpy.run_path(str(Path(__file__).parents[2] / "migrations/versions" / name))
+                       for name in ("f26a1014p001_academic_publication.py",
+                                    "f26a1014t001_college_time.py",
+                                    "f26a1014g001_group_business.py",
+                                    "f26a1014r001_scoped_reports.py",
+                                    "f26a1014x001_teaching_type_ownership.py",
+                                    "f26a1015d001_college_deadlines.py",
+                                    "f26a1015s001_support_scope.py")]
+        with Operations.context(context):
+            for descendant in descendants:
+                descendant["upgrade"]()
         assert compare_metadata(context, Base.metadata) == []
+        with Operations.context(context):
+            for descendant in reversed(descendants):
+                descendant["downgrade"]()
         assert db.execute(
             sa.text("SELECT student_no, administrative_class_id FROM student")
         ).one() == ("0001", 1)

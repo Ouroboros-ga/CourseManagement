@@ -502,6 +502,7 @@ class AcademicService:
                             select(SubmissionDeadlineDay).where(
                                 SubmissionDeadlineDay.semester_id == sem.id,
                                 SubmissionDeadlineDay.inspection_date == t.inspection_date,
+                                SubmissionDeadlineDay.id == t.deadline_day_id if t.deadline_day_id else SubmissionDeadlineDay.ownership_scope_id == 0,
                             )
                         ).scalar_one_or_none()
                         if day is not None:
@@ -1381,8 +1382,7 @@ class AcademicService:
         else:
             vq.enabled = body.enabled
             self._repo.flush()
-        from app.modules.identity.authorization import current_student_college
-
+        from app.modules.identity.role_scope import current_student_college
         vq.college_id = current_student_college(self._session, stu)
         # 首次获得有效资格：同事务自动维护 VOLUNTEER 身份（PERMISSIONS.md 1.4/1.5）。
         # 停用不回收角色：资格是逐学期闸口，停用即时禁止提交由提交阶段判定，历史只读保留。

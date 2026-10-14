@@ -152,20 +152,18 @@ class FileService:
     # 访问授权 + 短时链接
     # ------------------------------------------------------------------ #
     def can_access(self, actor: CurrentUser, file: FileObject) -> bool:
+        if self._settings.campus_business_scoped_enabled:
+            return self._can_access_scoped(actor, file)
         from app.modules.identity.repository import IdentityRepository
 
         repo = IdentityRepository(self._session)
         user = repo.get_user_by_id(actor.id)
-        if user is None or not user.is_active:
+        if user is None or not user.is_active or actor.pre_binding:
             return False
         permissions = set(repo.list_effective_permissions(actor.id))
-        if (
-            file.uploader_user_id == actor.id
-            and not actor.pre_binding
-            and permissions
-            & {"submission.create", "objection.create", "import.execute", "report.generate"}
-            and not self._repo.has_business_link(file.id)
-        ):
+        if (file.uploader_user_id == actor.id
+            and permissions & {"submission.create", "objection.create", "import.execute", "report.generate"}
+            and not self._repo.has_business_link(file.id)):
             return True
         from app.modules.academic.history_policy import self_history_available
         from app.modules.identity.query_scope import personal_lookup
@@ -227,6 +225,43 @@ class FileService:
             may_review=may_review,
             may_read_own=may_read_own,
         )
+
+    def _can_access_scoped(self, actor: CurrentUser, file: FileObject) -> bool:
+        from sqlalchemy import select
+        from app.modules.identity.models import UserAccount
+        from app.modules.identity.management_scope import management_college_ids
+
+        user = self._session.scalar(select(UserAccount).where(
+            UserAccount.id == actor.id
+        ).execution_options(populate_existing=True))
+        if actor.pre_binding or user is None or not user.is_active:
+            return False
+        if file.uploader_user_id == user.id:
+            return True
+        permissions = set(self._identity.list_effective_permissions(user.id))
+        if file.category == FileCategory.SUBMISSION_PHOTO.value:
+            if "attendance.read" in permissions and self._repo.is_linked_to_own_attendance(
+                file_id=file.id, actor_user_id=user.id
+            ):
+                return True
+            colleges = management_college_ids(self._session, actor, "submission.review")
+            return self._repo.is_linked_to_submittable_for(
+                file_id=file.id, actor_user_id=user.id,
+                may_review=colleges is None or bool(colleges),
+                review_college_ids=colleges, may_read_own="submission.read" in permissions,
+            )
+        if file.category == FileCategory.OBJECTION_PROOF.value:
+            colleges = management_college_ids(self._session, actor, "objection.read")
+            return self._repo.is_linked_to_readable_objection_for(
+                file_id=file.id, actor_user_id=user.id,
+                may_manage=colleges is None or bool(colleges),
+                management_college_ids=colleges, may_read_own="objection.read" in permissions,
+            )
+        if file.category == FileCategory.REPORT_FILE.value:
+            colleges = management_college_ids(self._session, actor, "report.read")
+            return self._repo.is_linked_to_scoped_report(file.id, colleges)
+        # 导入与临时文件不凭照片审核权限派生访问。
+        return False
 
     def get_access(self, actor: CurrentUser, file_id: int) -> FileAccessResponse:
         file = self._repo.get(file_id)

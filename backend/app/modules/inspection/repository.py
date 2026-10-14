@@ -18,7 +18,6 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams
-from app.modules.identity.query_scope import get_scoped
 from app.modules.inspection.models import (
     AssignmentChangeRequest,
     InspectionAssignment,
@@ -49,8 +48,26 @@ def _for_update(stmt: Select):  # noqa: ANN202 - 返回 Executable 由调用方 
 
 
 class InspectionRepository:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, college_ids: frozenset[int] | None = None) -> None:
         self._session = session
+        self.college_ids = college_ids
+        self.deadline_scope_id = 0
+
+    def scoped_tasks(self):
+        stmt = select(InspectionTask)
+        return stmt.where(InspectionTask.college_id.in_(self.college_ids)) if self.college_ids is not None else stmt
+
+    def scoped_task_ids(self):
+        return self.scoped_tasks().with_only_columns(InspectionTask.id)
+
+    def _within_tasks(self, stmt, task_id_column):
+        return stmt.where(task_id_column.in_(self.scoped_task_ids())) if self.college_ids is not None else stmt
+
+    def scoped_assignment_ids(self):
+        return self._within_tasks(select(InspectionAssignment.id), InspectionAssignment.task_id)
+
+    def _within_assignments(self, stmt):
+        return stmt.where(AssignmentChangeRequest.assignment_id.in_(self.scoped_assignment_ids())) if self.college_ids is not None else stmt
 
     # ==================== 通用 ====================
     def add(self, obj: object) -> None:
@@ -61,26 +78,25 @@ class InspectionRepository:
 
     # ==================== 任务 ====================
     def get_task(self, task_id: int) -> InspectionTask | None:
-        return get_scoped(self._session, InspectionTask, task_id)
+        return self._session.scalar(self.scoped_tasks().where(InspectionTask.id == task_id)
+            .execution_options(populate_existing=True))
 
     def list_tasks_by_ids(self, task_ids: Sequence[int]) -> list[InspectionTask]:
         if not task_ids:
             return []
         return list(
             self._session.execute(
-                select(InspectionTask).where(InspectionTask.id.in_(set(task_ids)))
-            )
-            .scalars()
-            .all()
+                self.scoped_tasks().where(InspectionTask.id.in_(set(task_ids)))
+            ).scalars().all()
         )
 
     def get_task_for_update(self, task_id: int) -> InspectionTask | None:
-        stmt = _for_update(select(InspectionTask).where(InspectionTask.id == task_id))
+        stmt = _for_update(self.scoped_tasks().where(InspectionTask.id == task_id))
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_task_by_key(self, task_key: str) -> InspectionTask | None:
         return self._session.execute(
-            select(InspectionTask).where(InspectionTask.task_key == task_key)
+            self.scoped_tasks().where(InspectionTask.task_key == task_key)
         ).scalar_one_or_none()
 
     def find_task_ids_by_keys(self, keys: Sequence[str]) -> set[str]:
@@ -253,12 +269,14 @@ class InspectionRepository:
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_assignment(self, assignment_id: int) -> InspectionAssignment | None:
-        return get_scoped(self._session, InspectionAssignment, assignment_id)
+        return self._session.scalar(self._within_tasks(
+            select(InspectionAssignment).where(InspectionAssignment.id == assignment_id),
+            InspectionAssignment.task_id))
 
     def get_assignment_for_update(self, assignment_id: int) -> InspectionAssignment | None:
-        stmt = _for_update(
+        stmt = _for_update(self._within_tasks(
             select(InspectionAssignment).where(InspectionAssignment.id == assignment_id)
-        )
+        , InspectionAssignment.task_id))
         return self._session.execute(stmt).scalar_one_or_none()
 
     def list_assignments_by_task_ids(
@@ -338,6 +356,7 @@ class InspectionRepository:
             select(SubmissionDeadlineDay).where(
                 SubmissionDeadlineDay.semester_id == semester_id,
                 SubmissionDeadlineDay.inspection_date == on_date,
+                SubmissionDeadlineDay.ownership_scope_id == getattr(self, "deadline_scope_id", 0),
             )
         ).scalar_one_or_none()
 
@@ -348,12 +367,26 @@ class InspectionRepository:
             select(SubmissionDeadlineDay).where(
                 SubmissionDeadlineDay.semester_id == semester_id,
                 SubmissionDeadlineDay.inspection_date == on_date,
+                SubmissionDeadlineDay.ownership_scope_id == getattr(self, "deadline_scope_id", 0),
             )
         )
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_deadline_day_by_id(self, day_id: int) -> SubmissionDeadlineDay | None:
-        return get_scoped(self._session, SubmissionDeadlineDay, day_id)
+        return self._session.scalar(select(SubmissionDeadlineDay).where(
+            SubmissionDeadlineDay.id == day_id,
+            SubmissionDeadlineDay.ownership_scope_id == getattr(self, "deadline_scope_id", 0)))
+
+    def deadline_for_task(self, task: InspectionTask) -> SubmissionDeadlineDay | None:
+        stmt = select(SubmissionDeadlineDay).where(
+            SubmissionDeadlineDay.semester_id == task.semester_id,
+            SubmissionDeadlineDay.inspection_date == task.inspection_date)
+        if task.deadline_day_id is None:
+            stmt = stmt.where(SubmissionDeadlineDay.ownership_scope_id == 0)
+        else:
+            stmt = stmt.where(SubmissionDeadlineDay.id == task.deadline_day_id,
+                SubmissionDeadlineDay.ownership_scope_id.in_({0, task.college_id or 0}))
+        return self._session.scalar(stmt.with_for_update(read=True).execution_options(populate_existing=True))
 
     def get_deadline_version(
         self, deadline_day_id: int, version_no: int
@@ -406,12 +439,13 @@ class InspectionRepository:
                 out[d.id] = vid
         return out
 
-    def list_deadline_days_by_semester(self, semester_id: int) -> list[SubmissionDeadlineDay]:
+    def list_deadline_days_by_semester(self, semester_id: int, *, scope_ids=None) -> list[SubmissionDeadlineDay]:
         """一次取某学期全部日截止记录，供生成时为缺失日期批量补建（避免逐日查询）。"""
         return list(
             self._session.execute(
                 select(SubmissionDeadlineDay).where(
-                    SubmissionDeadlineDay.semester_id == semester_id
+                    SubmissionDeadlineDay.semester_id == semester_id,
+                    SubmissionDeadlineDay.ownership_scope_id.in_(scope_ids if scope_ids is not None else {getattr(self, "deadline_scope_id", 0)})
                 )
             )
             .scalars()
@@ -428,11 +462,18 @@ class InspectionRepository:
                     InspectionTask.semester_id == semester_id,
                     InspectionTask.inspection_date == on_date,
                     InspectionTask.canceled_at.is_(None),
+                    InspectionTask.id.in_(self.scoped_task_ids()),
+                    self.deadline_task_condition(),
                 )
             ).scalar_one()
         )
 
     # ==================== 截止时考核快照 ====================
+    def deadline_task_condition(self):
+        owned = InspectionTask.deadline_day_id.in_(select(SubmissionDeadlineDay.id).where(
+            SubmissionDeadlineDay.ownership_scope_id == self.deadline_scope_id))
+        return or_(owned, InspectionTask.deadline_day_id.is_(None)) if self.deadline_scope_id == 0 else owned
+
     def get_assessment_for_update(self, task_id: int) -> TaskDeadlineAssessment | None:
         stmt = _for_update(
             select(TaskDeadlineAssessment).where(TaskDeadlineAssessment.task_id == task_id)
@@ -480,16 +521,19 @@ class InspectionRepository:
             stmt = stmt.where(InspectionTask.inspection_date == inspection_date)
         if task_ids:
             stmt = stmt.where(InspectionTask.id.in_(list(task_ids)))
-        stmt = stmt.order_by(InspectionTask.inspection_date, InspectionTask.id).limit(limit)
+        stmt = self._within_tasks(stmt, InspectionTask.id).order_by(InspectionTask.inspection_date, InspectionTask.id).limit(limit)
         return [int(r) for r in self._session.execute(stmt).scalars().all()]
 
     # ==================== 查课提交（P5c）====================
     def get_submission(self, submission_id: int) -> InspectionSubmission | None:
-        return get_scoped(self._session, InspectionSubmission, submission_id)
+        stmt = select(InspectionSubmission).where(InspectionSubmission.id == submission_id)
+        return self._session.scalar(self._within_tasks(stmt, InspectionSubmission.task_id)
+            .execution_options(populate_existing=True))
 
     def get_submission_for_update(self, submission_id: int) -> InspectionSubmission | None:
         stmt = _for_update(
-            select(InspectionSubmission).where(InspectionSubmission.id == submission_id)
+            self._within_tasks(select(InspectionSubmission).where(
+                InspectionSubmission.id == submission_id), InspectionSubmission.task_id)
         )
         return self._session.execute(stmt).scalar_one_or_none()
 
@@ -654,6 +698,7 @@ class InspectionRepository:
         stmt = select(InspectionSubmission).join(
             InspectionTask, InspectionTask.id == InspectionSubmission.task_id
         )
+        stmt = self._within_tasks(stmt, InspectionSubmission.task_id)
         if semester_id is not None:
             stmt = stmt.where(InspectionTask.semester_id == semester_id)
         if date_from is not None:
@@ -685,12 +730,15 @@ class InspectionRepository:
 
     # ==================== 调班申请 ====================
     def get_change_request(self, request_id: int) -> AssignmentChangeRequest | None:
-        return get_scoped(self._session, AssignmentChangeRequest, request_id)
+        return self._session.scalar(self._within_assignments(
+            select(AssignmentChangeRequest).where(AssignmentChangeRequest.id == request_id)))
 
-    def get_change_request_for_update(self, request_id: int) -> AssignmentChangeRequest | None:
-        stmt = _for_update(
+    def get_change_request_for_update(
+        self, request_id: int
+    ) -> AssignmentChangeRequest | None:
+        stmt = _for_update(self._within_assignments(
             select(AssignmentChangeRequest).where(AssignmentChangeRequest.id == request_id)
-        )
+        ))
         return self._session.execute(stmt).scalar_one_or_none()
 
     def has_pending_change_request(self, assignment_id: int) -> bool:
@@ -716,7 +764,7 @@ class InspectionRepository:
         status: str | None,
         requester_user_id: int | None,
     ) -> tuple[list[AssignmentChangeRequest], int]:
-        stmt = select(AssignmentChangeRequest)
+        stmt = self._within_assignments(select(AssignmentChangeRequest))
         conds: list[ColumnElement[bool]] = []
         if assignment_ids is not None:
             conds.append(AssignmentChangeRequest.assignment_id.in_(list(assignment_ids)))
@@ -734,7 +782,7 @@ class InspectionRepository:
     ) -> tuple[AssignmentChangeRequest, int] | None:
         """联查受派关系取任务 id，供详情响应回填 task_id（避免逐行 N+1）。"""
         row = self._session.execute(
-            select(AssignmentChangeRequest, InspectionAssignment.task_id)
+            self._within_assignments(select(AssignmentChangeRequest, InspectionAssignment.task_id))
             .join(
                 InspectionAssignment,
                 InspectionAssignment.id == AssignmentChangeRequest.assignment_id,
@@ -763,6 +811,7 @@ class InspectionRepository:
             InspectionAssignment,
             InspectionAssignment.id == AssignmentChangeRequest.assignment_id,
         )
+        base = self._within_assignments(base)
         if where is not None:
             base = base.where(where)
         count_sub = (
@@ -773,6 +822,7 @@ class InspectionRepository:
                 InspectionAssignment.id == AssignmentChangeRequest.assignment_id,
             )
         )
+        count_sub = self._within_assignments(count_sub)
         if where is not None:
             count_sub = count_sub.where(where)
         total = int(self._session.execute(count_sub).scalar_one())

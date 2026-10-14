@@ -25,7 +25,19 @@ ImportExecuteDep = Annotated[
 ]
 
 
-def get_service(db: Annotated[Session, Depends(get_db)]) -> ImporterService:
+def get_service(request: Request, actor: CurrentUserDep,
+                db: Annotated[Session, Depends(get_db)]) -> ImporterService:
+    from app.core.config import get_settings
+    from app.core.exceptions import AppError, ErrorCode
+    from app.modules.importer.scoped_service import ScopedImporterService
+
+    cid = request.path_params.get("cid")
+    if cid is not None:
+        if not cid.isascii() or not cid.isdecimal() or not 0 < int(cid) < 2**63:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "学院 ID 不合法", 422)
+        return ScopedImporterService(db, actor, int(cid))
+    if get_settings().campus_business_scoped_enabled:
+        raise AppError(ErrorCode.STATE_CONFLICT, "请从已授权学院工作区执行导入", 409)
     return ImporterService(db)
 
 

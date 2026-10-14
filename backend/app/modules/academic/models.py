@@ -21,6 +21,8 @@ from sqlalchemy import (
     TIME,
     CheckConstraint,
     ForeignKey,
+    ForeignKeyConstraint,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -211,6 +213,8 @@ class TeachingClass(CollegeOwned, TimestampMixin, Base):
 
     __tablename__ = "teaching_class"
     __table_args__ = (
+        ForeignKeyConstraint(["college_id", "course_type_id"], ["course_type.college_id", "course_type.id"], name="fk_teaching_class_college_type", ondelete="RESTRICT"),
+        Index("ix_teaching_class_college_type", "college_id", "course_type_id"),
         UniqueConstraint("semester_id", "course_id", "class_code", name="uq_teaching_class_key"),
         MYSQL_TABLE_ARGS,
     )
@@ -222,6 +226,8 @@ class TeachingClass(CollegeOwned, TimestampMixin, Base):
     course_id: Mapped[int] = mapped_column(
         ForeignKey("course.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    course_type_id: Mapped[int | None] = mapped_column(ForeignKey("course_type.id", ondelete="RESTRICT"))
+    classification_revision: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
     class_code: Mapped[str | None] = mapped_column(String(64))
     class_name: Mapped[str] = mapped_column(String(128), nullable=False)
     teacher_name: Mapped[str | None] = mapped_column(String(128))

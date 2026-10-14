@@ -27,6 +27,7 @@ from datetime import date as date_
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -138,6 +139,9 @@ class InspectionTask(CollegeOwned, TimestampMixin, Base):
 
     id: Mapped[int] = pk_column()
     task_key: Mapped[str] = mapped_column(String(191), unique=True, nullable=False)
+    # None 表示升级前已冻结的学校日截止；新任务绑定本院日截止，不按当前归属搬迁历史。
+    deadline_day_id: Mapped[int | None] = mapped_column(
+        ForeignKey("submission_deadline_day.id", ondelete="RESTRICT"), index=True)
     semester_id: Mapped[int] = mapped_column(
         ForeignKey("semester.id", ondelete="RESTRICT"), nullable=False, index=True
     )
@@ -162,6 +166,15 @@ class InspectionTask(CollegeOwned, TimestampMixin, Base):
     )
 
     # 生成时冻结的课程 / 班级 / 教室快照（技术方案 10：历史不随主数据漂移）。
+    activity_start_at: Mapped[datetime | None] = mapped_column(DATETIME_3)
+    activity_end_at: Mapped[datetime | None] = mapped_column(DATETIME_3)
+    time_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("volunteer_group.id", ondelete="RESTRICT"))
+    group_config_version_id: Mapped[int | None] = mapped_column(ForeignKey("group_config_version.id", ondelete="RESTRICT"))
+    group_name_snapshot: Mapped[str | None] = mapped_column(String(128))
+    course_type_id_snapshot: Mapped[int | None] = mapped_column(BigInteger)
+    course_type_name_snapshot: Mapped[str | None] = mapped_column(String(128))
+    classification_revision_snapshot: Mapped[int | None] = mapped_column(Integer)
     course_name_snapshot: Mapped[str | None] = mapped_column(String(128))
     class_name_snapshot: Mapped[str | None] = mapped_column(String(128))
     classroom_snapshot: Mapped[str | None] = mapped_column(String(128))
@@ -293,13 +306,15 @@ class SubmissionDeadlineDay(TimestampMixin, Base):
     __tablename__ = "submission_deadline_day"
     __table_args__ = (
         UniqueConstraint(
-            "semester_id", "inspection_date", name="uq_submission_deadline_day_sem_date"
+            "ownership_scope_id", "semester_id", "inspection_date", name="uq_deadline_scope_sem_date"
         ),
+        CheckConstraint("ownership_scope_id >= 0", name="ck_deadline_scope_nonnegative"),
         CheckConstraint("version >= 1", name="ck_submission_deadline_day_version"),
         MYSQL_TABLE_ARGS,
     )
 
     id: Mapped[int] = pk_column()
+    ownership_scope_id: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
     semester_id: Mapped[int] = mapped_column(
         ForeignKey("semester.id", ondelete="RESTRICT"), nullable=False, index=True
     )

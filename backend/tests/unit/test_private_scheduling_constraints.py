@@ -1,6 +1,7 @@
 """Unclassified legacy workload remains blocking, without exposing other students."""
 
 from datetime import date
+import pytest
 
 from app.modules.academic.models import (
     CourseSchedule,
@@ -15,7 +16,19 @@ from app.modules.inspection.scheduling.private_constraints import (
 )
 from sqlalchemy import select
 
-from tests.unit.test_enrollment_lifecycle import add_courses, school  # noqa: F401
+from tests.unit.test_enrollment_lifecycle import add_courses, school as original_school
+
+
+@pytest.fixture
+def school():
+    from app.modules.identity.query_scope import ScopedSession
+    generator = original_school.__wrapped__()
+    original = next(generator)
+    try:
+        with ScopedSession(original.get_bind(), expire_on_commit=False) as scoped:
+            yield scoped
+    finally:
+        generator.close()
 
 
 def test_subject_time_constraints_include_unclassified_legacy_roots(school):  # noqa: F811

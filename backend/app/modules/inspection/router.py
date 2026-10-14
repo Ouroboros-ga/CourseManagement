@@ -46,7 +46,14 @@ from app.modules.inspection.service import InspectionService
 router = APIRouter(tags=["inspection"])
 
 
-def get_service(db: Annotated[Session, Depends(get_db)]) -> InspectionService:
+def get_service(request: Request, actor: CurrentUserDep,
+                db: Annotated[Session, Depends(get_db)]) -> InspectionService:
+    raw = request.path_params.get("cid")
+    if raw is not None:
+        from app.modules.inspection.scoped_service import ScopedInspectionService
+        if not str(raw).isascii() or not str(raw).isdigit() or not 0 < int(raw) < 2**63:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "学院标识无效", 422)
+        return ScopedInspectionService(db, actor, int(raw))
     return InspectionService(db)
 
 
@@ -365,7 +372,7 @@ def list_semester_volunteers(
     request: Request,
     keyword: Annotated[str | None, Query(max_length=128)] = None,
 ) -> dict[str, object]:
-    items = service.list_semester_volunteers(semester_id, keyword=keyword)
+    items = service.list_semester_volunteers(semester_id, keyword=keyword, actor=actor)
     return success([i.model_dump() for i in items], _rid(request))
 
 
@@ -376,7 +383,7 @@ def list_task_candidate_volunteers(
     service: ServiceDep,
     request: Request,
 ) -> dict[str, object]:
-    items = service.list_task_volunteer_candidates(task_id)
+    items = service.list_task_volunteer_candidates(task_id, actor=actor)
     return success([i.model_dump() for i in items], _rid(request))
 
 

@@ -1,6 +1,6 @@
 """显式院级查询。详情和分页计数共享 SQL 谓词，不从身份缓存直接返回外院行。"""
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, raiseload
 
 from app.common.pagination import PageParams
@@ -16,7 +16,9 @@ from app.modules.academic.models import (
     VolunteerQualification,
 )
 from app.modules.academic.repository import _paged
+from app.modules.academic.enrollment_models import StudentEnrollment
 from app.modules.identity.resource_scope import ResourceScope
+from app.modules.identity.role_scope import business_today
 
 AcademicModel = (
     type[AdministrativeClass]
@@ -50,14 +52,20 @@ class ScopedAcademicRepository:
         if model is None:
             raise PermissionDeniedError("未实现的资源范围")
         permitted = {
-            "administrative_classes": {"academic.read", "academic.manage"},
+            "administrative_classes": {
+                "academic.read",
+                "academic.manage",
+                "student.read",
+                "student.manage",
+                "identity.binding.manage",
+            },
             "teaching_classes": {
                 "academic.read",
                 "academic.manage",
                 "student.read",
                 "student.manage",
             },
-            "students": {"student.read", "student.manage"},
+            "students": {"student.read", "student.manage", "volunteer.manage", "identity.binding.manage"},
             "schedules": {"academic.read", "academic.manage"},
             "qualifications": {"volunteer.read"},
             "courses": {
@@ -86,14 +94,23 @@ class ScopedAcademicRepository:
         teaching_ids = (
             select(TeachingClass.id).where(TeachingClass.college_id == cid).correlate(None)
         )
-        student_ids = (
-            select(Student.id).where(Student.administrative_class_id.in_(class_ids)).correlate(None)
+        day = business_today()
+        timeline_ids = select(StudentEnrollment.student_id).correlate(None)
+        dated_ids = (
+            select(StudentEnrollment.student_id)
+            .where(
+                StudentEnrollment.college_id == cid,
+                StudentEnrollment.superseded.is_(False),
+                StudentEnrollment.effective_from <= day,
+                or_(StudentEnrollment.effective_to.is_(None), StudentEnrollment.effective_to > day),
+            )
+            .correlate(None)
         )
-        from app.modules.identity.authorization import business_today
-        from app.modules.identity.query_scope import predicates
-
-        student_condition = predicates(cid, business_today(), self.scope.actor_user_id)[Student]
-        student_ids = select(Student.id).where(student_condition).correlate(None)
+        student_scope = or_(
+            Student.id.in_(dated_ids),
+            Student.id.not_in(timeline_ids) & Student.administrative_class_id.in_(class_ids),
+        )
+        student_ids = select(Student.id).where(student_scope).correlate(None)
         stmt = select(model).options(raiseload("*"))
         if model is AdministrativeClass:
             stmt = stmt.where(AdministrativeClass.college_id == cid)
@@ -107,9 +124,12 @@ class ScopedAcademicRepository:
                 )
             )
         elif model is Student:
-            stmt = stmt.where(student_condition)
+            stmt = stmt.where(student_scope)
         elif model is VolunteerQualification:
-            stmt = stmt.where(VolunteerQualification.student_id.in_(student_ids))
+            stmt = stmt.where(VolunteerQualification.student_id.in_(student_ids),
+                              VolunteerQualification.college_id == cid)
+        elif model is Course:
+            stmt = stmt.where(or_(Course.college_id.is_(None), Course.college_id == cid))
         elif model not in (Course, Semester):
             raise PermissionDeniedError()
         # Course/Semester 是显式学校共享只读目录；没有通用“不匹配则全表”的分支。
@@ -144,7 +164,10 @@ class ScopedAcademicRepository:
                 "semesters": Semester.name,
             }.get(kind)
             if column is not None:
-                stmt = stmt.where(column.contains(keyword, autoescape=True))
+                condition = column.contains(keyword, autoescape=True)
+                if model is Student:
+                    condition = or_(condition, Student.student_no.contains(keyword, autoescape=True))
+                stmt = stmt.where(condition)
         semester_column = {
             "teaching_classes": TeachingClass.semester_id,
             "schedules": CourseSchedule.semester_id,
@@ -153,7 +176,24 @@ class ScopedAcademicRepository:
         if semester_id is not None and semester_column is not None:
             stmt = stmt.where(semester_column == semester_id)
         if administrative_class_id is not None and model is Student:
-            stmt = stmt.where(Student.administrative_class_id == administrative_class_id)
+            day = business_today()
+            stmt = stmt.where(
+                or_(
+                    Student.id.in_(
+                        select(StudentEnrollment.student_id).where(
+                            StudentEnrollment.administrative_class_id == administrative_class_id,
+                            StudentEnrollment.superseded.is_(False),
+                            StudentEnrollment.effective_from <= day,
+                            or_(
+                                StudentEnrollment.effective_to.is_(None),
+                                StudentEnrollment.effective_to > day,
+                            ),
+                        )
+                    ),
+                    Student.id.not_in(select(StudentEnrollment.student_id))
+                    & (Student.administrative_class_id == administrative_class_id),
+                )
+            )
         return _paged(self.db, stmt.order_by(model.id), params)
 
     def roster(self, teaching_class_id: int):

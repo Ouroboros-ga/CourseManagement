@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.database import utcnow
 from app.core.exceptions import (
     AppError,
     ConflictError,
@@ -19,15 +20,18 @@ from app.core.exceptions import (
 )
 from app.modules.academic.campus_models import CourseType
 from app.modules.audit.models import AuditLog
-from app.modules.identity.authorization import CAMPUS_ACTIONS, fixed_college_actions
+from app.modules.audit.provenance import scoped_snapshot
+from app.modules.identity.authorization import CAMPUS_ACTIONS, effective_actions, fixed_college_actions
 from app.modules.identity.models import Role, UserAccount, UserRole
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
 from app.modules.organization.models import College, School, ScopedGrant
 from app.modules.organization.repository import CampusRepository
+from app.modules.organization.future_impact import confirm_impact, future_impact
 from app.modules.organization.schemas import (
     CollegeCreate,
     CollegeUpdate,
+    GrantCreate,
     GroupCreate,
     GroupPublish,
     GroupUpdate,
@@ -81,27 +85,40 @@ class CampusService:
         )
         if user is None or user.status != "ACTIVE" or actor.pre_binding:
             raise PermissionDeniedError("账号无效或尚未绑定")
-        if lock:
-            from app.modules.identity.query_scope import recheck_query_scope
-
-            recheck_query_scope(self.db, actor.id)
         roles = (
             select(Role.code)
             .join(UserRole, UserRole.role_id == Role.id)
             .where(UserRole.user_id == actor.id)
         )
-        if lock:
-            roles = roles.with_for_update()
+        roles = roles.with_for_update(read=True)
         return "SUPER_ADMIN" in self.db.scalars(roles)
 
     def _super(self, actor: CurrentUser):
         if not self._actor(actor, lock=True):
             raise PermissionDeniedError("仅超级管理员可维护学校、学院和院级授权")
 
+    def _teacher_college_id(self, actor, *, lock=False):
+        from app.modules.academic.enrollment_models import TeacherCollegeBinding
+
+        # 用最新数据库角色和绑定派生本院权限，不依赖 token 中的学院或角色标签。
+        if "TEACHER_ADMIN" not in self.identity.list_role_codes(actor.id):
+            return None
+        query = select(TeacherCollegeBinding).where(TeacherCollegeBinding.user_id == actor.id)
+        query = query.with_for_update(read=True)
+        binding = self.db.scalar(query.execution_options(populate_existing=True))
+        return binding.college_id if binding else None
+
     def _authorize(self, actor, cid, action, *, write=False):
         is_super = self._actor(actor, lock=write)
+        primary_cid = self._teacher_college_id(actor, lock=write) if not is_super else None
         college = self.repo.college(cid, lock=write)
-        actions = CAMPUS_ACTIONS if is_super else fixed_college_actions(self.db, actor.id, cid)
+        actions = (
+            CAMPUS_ACTIONS
+            if is_super or (primary_cid == cid and college and college.status == "ACTIVE")
+            else fixed_college_actions(self.db, actor.id, cid) | effective_actions(
+                self.repo.grants(actor.id, college_id=cid, lock=write), cid, utcnow()
+            )
+        )
         if college is None or not actions:
             raise NotFoundError()
         if action not in actions:
@@ -134,7 +151,7 @@ class CampusService:
                     resource_type=type(row).__name__ if row is not None else resource_type,
                     resource_id=str(row.id) if row is not None else resource_id,
                     before_json=before,
-                    after_json=after,
+                    after_json=scoped_snapshot(after, row.id if isinstance(row, College) else getattr(row, "college_id", None)),
                     request_id=self.request_id,
                 )
             )
@@ -214,10 +231,14 @@ class CampusService:
 
     def workspaces(self, actor):
         is_super = self._actor(actor)
+        primary_cid = self._teacher_college_id(actor) if not is_super else None
+        grants = self.repo.grants(actor.id)
         result = []
-        for college in self.db.scalars(select(College).order_by(College.id)):
+        for college in self.db.scalars(select(College).order_by(College.id).execution_options(populate_existing=True)):
             actions = (
-                CAMPUS_ACTIONS if is_super else fixed_college_actions(self.db, actor.id, college.id)
+                CAMPUS_ACTIONS
+                if is_super or (primary_cid == college.id and college.status == "ACTIVE")
+                else fixed_college_actions(self.db, actor.id, college.id) | effective_actions(grants, college.id, utcnow())
             )
             if actions:
                 data = self._dto(college)
@@ -244,11 +265,25 @@ class CampusService:
 
     @atomic_write
     def create_grant(self, actor, cid, data):
+        body = validated(GrantCreate, data)
         self._super(actor)
-        raise ConflictError(
-            message="院级授权已改为教师固定学院与负责人任命，请使用对应账号配置入口"
+        college = self.repo.college(cid, lock=True)
+        if college is None:
+            raise NotFoundError()
+        if college.status != "ACTIVE":
+            raise ConflictError(message="学院已停用")
+        target = self.db.get(UserAccount, int(body.user_id))
+        if target is None or target.status != "ACTIVE":
+            raise NotFoundError("目标账号无效")
+        row = ScopedGrant(
+            college_id=cid,
+            granted_by=actor.id,
+            **body.model_dump(exclude={"user_id"}),
+            user_id=int(body.user_id),
         )
-        # 历史表仍可查看/撤销，不作为当前范围授权的输入。
+        self.db.add(row)
+        college.authorization_revision += 1
+        return self._commit(actor, "campus.grant.create", row)
 
     @atomic_write
     def revoke_grant(self, actor, cid, rid, version):
@@ -263,6 +298,15 @@ class CampusService:
         row.lock_version += 1
         college.authorization_revision += 1
         return self._commit(actor, "campus.grant.revoke", row, before)
+
+    def configuration_impact(self, actor, cid, kind, rid):
+        model, action = {
+            "course_type": (CourseType, "academic.course_type.read"),
+            "group": (VolunteerGroup, "volunteer.group.read"),
+        }[kind]
+        self._authorize(actor, cid, action)
+        row = self._resource(model, cid, rid)
+        return future_impact(self.db, cid, kind, row.id, row.lock_version)
 
     def list_types(self, actor, cid):
         self._authorize(actor, cid, "academic.course_type.read")
@@ -293,9 +337,10 @@ class CampusService:
         college = self._authorize(actor, cid, "academic.course_type.manage", write=True)
         row = self._resource(CourseType, cid, rid)
         self._version(row, body.lock_version)
+        confirm_impact(self.db, cid, "course_type", row, body.future_impact_revision)
         before = self._dto(row)
         for key, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
-            if key != "lock_version":
+            if key not in {"lock_version", "future_impact_revision"}:
                 setattr(row, key, value)
         row.normalized_name = normalized_name(row.name)
         row.lock_version += 1
@@ -358,9 +403,10 @@ class CampusService:
         college = self._authorize(actor, cid, "volunteer.group.manage", write=True)
         row = self._resource(VolunteerGroup, cid, rid)
         self._version(row, body.lock_version)
+        confirm_impact(self.db, cid, "group", row, body.future_impact_revision)
         before = self._dto(row)
         for key, value in body.model_dump(exclude_unset=True).items():
-            if key != "lock_version":
+            if key not in {"lock_version", "future_impact_revision"}:
                 setattr(row, key, int(value) if key == "owner_user_id" and value else value)
         self._owner(row.owner_user_id)
         self._dates(row)
@@ -383,8 +429,15 @@ class CampusService:
         college = self._authorize(actor, cid, "volunteer.config.publish", write=True)
         row = self._resource(VolunteerGroup, cid, rid)
         self._version(row, body.lock_version)
+        confirm_impact(self.db, cid, "group", row, body.future_impact_revision)
         if not body.course_type_ids:
             raise ConflictError(message="必须明确选择查课类型，留空不表示全部")
+        from app.modules.academic.models import AdministrativeClass, TeachingClass
+
+        for class_id in body.class_ids:
+            self._resource(AdministrativeClass, cid, int(class_id))
+        for teaching_id in body.teaching_class_overrides:
+            self._resource(TeachingClass, cid, int(teaching_id))
         type_ids = set(body.course_type_ids) | set(body.type_overrides)
         for value in sorted(type_ids):
             if not value.isascii() or not value.isdigit() or not 0 < int(value) < 2**63:
@@ -393,9 +446,9 @@ class CampusService:
             if kind.status != "ACTIVE":
                 raise ConflictError(message="类型已停用")
         before = self._dto(row)
-        configuration = body.model_dump(mode="json", exclude={"lock_version"})
+        configuration = body.model_dump(mode="json", exclude={"lock_version", "future_impact_revision"})
         configuration["course_type_ids"] = sorted(body.course_type_ids, key=int)
-        configuration["class_mode"] = "ALL_AUTHORIZED"
+        configuration["class_ids"] = sorted(body.class_ids, key=int)
         row.config_version += 1
         row.lock_version += 1
         college.configuration_revision += 1
