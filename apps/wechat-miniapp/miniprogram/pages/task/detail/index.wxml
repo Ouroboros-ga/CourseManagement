@@ -1,7 +1,12 @@
 <view class="container">
   <!-- 任务基础信息 -->
   <view class="info-card">
-    <view class="title">{{task.courseName}}</view>
+    <view class="flex-between" style="margin-bottom: 16rpx;">
+      <view class="title" style="margin-bottom: 0;">{{task.courseName}}</view>
+      <view class="custom-tag {{task.isChangePending ? 'tag-warning' : (task.status === '已完成' ? 'tag-success' : (task.status === '已逾期' ? 'tag-danger' : 'tag-primary'))}}">
+        {{task.displayStatus || task.status}}
+      </view>
+    </view>
     <view class="desc" wx:if="{{task.timeStr}}">{{task.timeStr}} · {{task.classroom}}</view>
     <view class="desc">班级：{{task.className}}</view>
     <view class="desc">应到人数：{{task.expectedCount}}人</view>
@@ -63,7 +68,7 @@
     </view>
 
     <view class="footer-btn">
-      <t-button theme="primary" size="large" block disabled="{{task.isFuture}}" bind:tap="handleSubmit" style="margin-bottom: 24rpx;">
+      <t-button theme="primary" size="large" block disabled="{{task.isFuture}}" bind:tap="handleSubmit">
         {{task.isFuture ? '尚未到查课日期 (未开放上传)' : '提交记录'}}
       </t-button>
       <t-button wx:if="{{task.assignment && task.assignment.change_request_status !== 'PENDING'}}"
@@ -97,8 +102,17 @@
   </view>
 
   <view wx:else class="readonly-mode">
-    <t-notice-bar wx:if="{{task.status === '已完成'}}" visible="{{true}}" theme="success" content="查课任务已完成。" />
+    <t-notice-bar wx:if="{{task.isChangePending}}" visible="{{true}}" theme="warning" content="当前任务状态为待换班审核，无法修改。" />
+    <t-notice-bar wx:elif="{{task.status === '已完成'}}" visible="{{true}}" theme="success" content="查课任务已完成。" />
     <t-notice-bar wx:else visible="{{true}}" theme="warning" content="当前任务状态为「{{task.status}}」，已归档或锁定，无法修改。" />
+
+    <!-- 换班申请进度展示 -->
+    <view class="info-card" wx:if="{{task.latestChangeReq}}" style="margin-top: 24rpx;">
+      <view class="section-title" style="margin-top: 0; margin-bottom: 12rpx;">换班申请进度</view>
+      <view class="desc">申请状态：{{task.latestChangeReq.status === 'PENDING' ? '待审核' : (task.latestChangeReq.status === 'APPROVED' ? '已通过' : '已驳回')}}</view>
+      <view class="desc" wx:if="{{task.latestChangeReq.reason}}">申请原因：{{task.latestChangeReq.reason}}</view>
+      <view class="desc" wx:if="{{task.latestChangeReq.comment}}">审批批注：{{task.latestChangeReq.comment}}</view>
+    </view>
 
     <block wx:if="{{hasSubmission}}">
       <view class="section-title">我的提交记录</view>

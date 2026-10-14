@@ -2,7 +2,8 @@
   padding: 32rpx;
   background-color: #F8FAFC;
   min-height: 100vh;
-  padding-bottom: 200rpx;
+  box-sizing: border-box;
+  padding-bottom: calc(260rpx + env(safe-area-inset-bottom));
 }
 
 .info-card {
@@ -94,10 +95,26 @@
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 32rpx;
+  padding: 24rpx 32rpx;
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
   background-color: #ffffff;
-  box-shadow: 0 -4rpx 16rpx rgba(0,0,0,0.05);
+  box-shadow: 0 -4rpx 20rpx rgba(0,0,0,0.06);
   z-index: 100;
+}
+
+.footer-shift-link {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 18rpx;
+  font-size: 24rpx;
+  color: #94A3B8;
+}
+
+.footer-shift-action {
+  color: #3B82F6;
+  font-weight: 500;
+  margin-left: 6rpx;
 }
 
 .readonly-mode {
@@ -156,4 +173,70 @@
   font-size: 24rpx;
   color: #d97706;
   margin-top: 16rpx;
+/* 换班驳回详情卡片 */
+.reject-card {
+  background-color: #FEF2F2;
+  border: 1rpx solid #FECACA;
+  border-radius: 20rpx;
+  padding: 28rpx 32rpx;
+  margin-bottom: 32rpx;
+  box-shadow: 0 4rpx 12rpx rgba(239, 68, 68, 0.05);
+}
+
+.reject-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20rpx;
+}
+
+.reject-header-left {
+  display: flex;
+  align-items: center;
+}
+
+.reject-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #B91C1C;
+  margin-left: 12rpx;
+}
+
+.reject-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.reject-row {
+  display: flex;
+  align-items: flex-start;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+.reject-label {
+  color: #7F1D1D;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.reject-content {
+  color: #450A0A;
+  flex: 1;
+  word-break: break-all;
+}
+
+.reject-comment {
+  font-weight: 600;
+  color: #DC2626;
+}
+
+.reject-tip {
+  margin-top: 16rpx;
+  padding-top: 14rpx;
+  border-top: 1rpx dashed #FECACA;
+  font-size: 24rpx;
+  color: #991B1B;
+  line-height: 1.4;
 }

@@ -10,13 +10,8 @@
       <view class="task-card" wx:for="{{tasks}}" wx:key="id" bind:tap="goToDetail" data-id="{{item.id}}">
         <view class="task-header">
           <view class="task-title">{{item.courseName}}</view>
-          <view class="header-tags" style="display: flex; align-items: center; gap: 8rpx;">
-            <t-tag wx:if="{{item.assignment && item.assignment.change_request_status === 'PENDING'}}" theme="warning" variant="light">
-              调班审核中
-            </t-tag>
-            <view class="custom-tag {{item.status === '待执行' ? 'tag-primary' : (item.status === '已逾期' ? 'tag-danger' : (item.status === '已取消' ? 'tag-warning' : 'tag-success'))}}">
-              {{item.status}}
-            </view>
+          <view class="custom-tag {{item.statusTagClass}}">
+            {{item.displayStatus || item.status}}
           </view>
         </view>
         <view class="task-info">
@@ -35,6 +30,10 @@
           <view class="info-row">
             <t-icon name="usergroup" size="32rpx" color="#94A3B8" />
             <text class="info-text">{{item.className}}</text>
+          </view>
+          <view class="reject-hint-row" wx:if="{{item.isChangeRejected}}">
+            <t-icon name="error-circle-filled" size="28rpx" color="#EF4444" />
+            <text class="reject-hint-text">换班申请已被驳回{{item.changeRejectComment ? '：' + item.changeRejectComment : ''}}</text>
           </view>
         </view>
       </view>

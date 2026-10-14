@@ -53,3 +53,20 @@
 .empty-wrap {
   margin-top: 120rpx;
 }
+
+.reject-hint-row {
+  display: flex;
+  align-items: center;
+  margin-top: 8rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx dashed #FEE2E2;
+}
+
+.reject-hint-text {
+  margin-left: 10rpx;
+  font-size: 24rpx;
+  color: #EF4444;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

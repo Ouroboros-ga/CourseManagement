@@ -44,7 +44,7 @@ export const createChangeRequest = (assignmentId, reason) => {
     url: '/api/v1/assignment-change-requests',
     method: 'POST',
     data: {
-      assignment_id: Number(assignmentId),
+      assignment_id: String(assignmentId),
       reason: reason || ''
     }
   });
@@ -57,3 +57,7 @@ export const getMyChangeRequests = (params = { page_size: 50 }) => {
     data: params
   });
 };
+
+// 保留本地调用名，并兼容新上游页面的调用名。
+export const requestChangeAssignment = createChangeRequest;
+export const getMyAssignmentChangeRequests = getMyChangeRequests;

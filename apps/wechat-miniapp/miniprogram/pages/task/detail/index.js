@@ -1,4 +1,5 @@
 import { getTaskDetail, submitTaskResult, getMySubmissions, createChangeRequest } from '../../../api/task';
+import { getMyAssignmentChangeRequests } from '../../../api/task';
 import { uploadFile } from '../../../utils/upload';
 import Toast from 'tdesign-miniprogram/toast/index';
 import { formatPeriodText } from '../../../utils/period';
@@ -34,7 +35,10 @@ Page({
   async fetchDetail(id) {
     try {
       wx.showLoading();
-      const task = await getTaskDetail(id);
+      const [task, changeReqRes] = await Promise.all([
+        getTaskDetail(id),
+        getMyAssignmentChangeRequests({ page_size: 100 }).catch(() => ({ items: [] }))
+      ]);
       if (task) {
         // 兼容新旧字段
         const dateStr = task.inspection_date || task.date;
@@ -84,6 +88,33 @@ Page({
         const d = String(now.getDate()).padStart(2, '0');
         const todayStr = `${y}-${m}-${d}`;
         task.isFuture = Boolean(dateStr && dateStr > todayStr);
+
+        // 提取并匹配针对当前任务的最新调班申请
+        const changeReqList = Array.isArray(changeReqRes) ? changeReqRes : (changeReqRes?.items || []);
+        const myReqs = changeReqList.filter(r => String(r.task_id) === String(id));
+        myReqs.sort((a, b) => Number(b.id) - Number(a.id));
+        const latestChangeReq = myReqs[0];
+
+        let displayStatus = task.status;
+        let isChangePending = false;
+        let isChangeRejected = false;
+
+        if (latestChangeReq && latestChangeReq.status === 'PENDING') {
+          displayStatus = '待换班审核';
+          isChangePending = true;
+        } else if (latestChangeReq && latestChangeReq.status === 'REJECTED') {
+          // 若被驳回(REJECTED)，恢复正常任务状态，但标记驳回以便展示理由
+          displayStatus = task.status;
+          isChangeRejected = true;
+        } else {
+          // 无申请或其它情况
+          displayStatus = task.status;
+        }
+
+        task.displayStatus = displayStatus;
+        task.isChangePending = isChangePending;
+        task.isChangeRejected = isChangeRejected;
+        task.latestChangeReq = latestChangeReq || null;
       }
       this.setData({ task });
       this.fetchSubmission(id); // 获取提交明细用于查看已完成记录
