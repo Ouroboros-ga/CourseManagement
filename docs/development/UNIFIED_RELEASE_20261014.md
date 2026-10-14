@@ -37,3 +37,11 @@
 工具 `rehearse_unified_isolated.py`、`deploy_unified_20261014.py`、`verify_unified_20261014.py` 绑定本次明确基线和目标，不作为无审核通用脚本重跑。后续破坏性升降演练优先独立数据库进程。
 
 未执行微信编译/真机或完整登录后浏览器交互，不宣称多学院全链路隔离、灵活作息和组织排班完成。小程序全量 Node 仍有 30 failed、1 cancelled；详见 [开发者变化清单](../integration/WECHAT_DEVELOPER_CHANGES_20261014.md)。
+
+## 用户授权的临时线上例外
+
+统一发布完成后，最终源码核对发现 `backend/app/modules/inspection/service.py` 另有临时提前提交补丁。已核对另一会话“简化考勤异议为一次审核”的直接用户指令：开发期间只在服务器关闭后端日期限制，不修改远端代码；随后明确“只用动后端限制”。因此不覆盖、撤销或同步这段临时补丁入 Git。
+
+当前运行进程 `CM_DEV_ALLOW_EARLY_SUBMISSION=1`，来自 systemd 临时配置而非主 backend.env。它仅绕过未来日期限制，身份、当前受派及取消任务守卫仍保留；小程序客户端门禁不变。正式源码及正式契约继续禁止提前提交。服务器恢复脚本为 `/var/backups/course-management/dev-early-submission-20261014T072349Z/restore.sh`，测试结束由用户要求恢复。
+
+因此“统一发布来源”不代表此刻线上逐字节等于 Git：只有该文件的已核对临时测试补丁属于有意差异。服务器发布证据记录基线源码摘要、例外实际摘要、启用状态及恢复路径，不能把整体 `source_snapshot_matches` 标成 true。原 D 盘工作区还在另会话开发学籍等业务，未覆盖或发布其未提交修改。
