@@ -1,17 +1,24 @@
+# 2026-10-15 P5 交付增量
+
+云端个人课表实际接口与业务语义见 [微信小程序接口](integration/WECHAT_PERSONAL_TIMETABLE_API_20261015.md)，发布验收见 [P5 发布记录](P5_RELEASE_20261015.md)。以下保留历史契约；与该增量冲突时以本轮已验收接口为准。通知仅展示，没有已读/采用；绑定完成后由客户端调用初始化。
+
 # 后端 API 契约（身份、基础数据、导入、查课、提交、考勤、异议、统计与版本化周报）
 
-## 2026-10-14 账号、学籍与老师数据交接
+## 2026-10-14 开发增量：明确发布、云端私人课表和简单通知
 
-新增路由见本次 OpenAPI。管理员账号集合 GET/POST、单项 PATCH、password-reset POST 均需显式平台能力；新建教师必须指定 college_id。教师学院绑定 PUT 与负责人功能 PUT 使用 lock_version，变更后旧会话失效。
+当前工作树实现，尚未部署。新迁移 `f26a1014p001` 接已发布的合并 head `f26a1014m001`；默认 `ACADEMIC_PUBLICATION_ENABLED=false`。院级正式发布还需学院配置和基础数据范围模式启用，不能与旧全局教学写入口并行开放。
 
-`/academic/students/{student_id}/enrollment-changes/preview` 与集合 POST 共用 EnrollmentChangeRequest：kind、effective_date、target_class_id（按种类）、lock_version、correct_existing、reason、idempotency_key。学生 ID/返回 ID 使用字符串；effective_date 为学校日期。过去日期更正必须明确 correct_existing，不覆盖后续区间或历史考勤。历史 GET 返回有效区间、变更及版本；未来计划 cancel POST 传当前学生 lock_version，只允许撤销未生效且无后续计划的变更。旧 students PATCH 也必须提交 lock_version；禁止绕过流程修改学籍或学院。
+正式发布与管理总课表查询分离。POST `/colleges/{cid}/academic/semesters/{sid}/publication-preview` 返回 `source_revision/current_version/schedule_count/student_count/changed`；随后 `/publish` 接受 `{source_revision}`。均要求本院 `academic.manage`，提交锁学院和源数据；源、授权或已发布版本变化返回 409。相同内容确认返回 `changed=false`，不产生新发布或重复通知。未发布修改不改变初始化来源；名单、时刻、周次和校历冻结，不能把同班选修并集当作本人课程。
 
-`/academic/student-data/preview-file` 接收 multipart college_id/file/purpose；purpose 为 INCREMENTAL、FULL_COMPARE 或 ENROLLMENT_CHANGE。XLSX 或平铺 ZIP 限 10 MiB 输入、40 MiB 解压、200 个 ZIP 项、5000 行及 32 列；不接受嵌套压缩包。数据计划仅暂存，不写正式名单。完整对比 missing_students 只提示；confirm POST 传计划 lock_version，重读版本/范围/学生与班级归属，整批事务落库。预览有效期按日期记录，至次日本地零点失效，最长一天，并非固定 24 小时。导出 include_archive 默认为 false，文本学号和稳定 ID/版本可回导，避免 Excel 截断及姓名匹配。
+绑定后先 GET `/me/timetable/semesters`，再 POST `/me/timetable/initialize`（`{"semester_id":"101"}`）。初始化按学生＋学期唯一，已有副本（包括删空）返回原内容；未发布返回 `NOT_PUBLISHED` 且不创建副本。GET `/me/timetable?semester_id=101` 读取本人最后保存的云端内容，未初始化返回 `NOT_INITIALIZED`。成功初始化状态 `INITIALIZED`，含 `current_version/source_revision/sources/entries`；来源校历是复制内容，不随教务变更移动个人时间。
 
-`/academic/enrollment-handoff/tasks` 返回待核定的未来名单/人工应到数任务。review POST 使用任务 lock_version、confirm_roster、confirm_expected_count、可选 reason；审核前核验真实名单和人数，原快照不被历史异动重写。正式班级课程来源使用 teaching-class audiences PUT 的行政班 ID + ownership_version，不从当前学生集合猜测。
+个人课程 API 均带 semester_id 查询参数：POST `/me/timetable/entries`、PATCH/DELETE `/me/timetable/entries/{eid}`。写请求必填 current_version，旧版本返回 409；条目 ID 为 UUID 字符串。新增示例：`{"current_version":1,"course_name":"本人选修","weekday":1,"week_nos":[1,2],"start_time":"07:00:00","end_time":"07:30:00","note":""}`。可改名称、教师、教室、星期、周次、时刻、备注；拒绝 student_id、college_id 或来源标识等所有权字段。删除体 `{current_version}`。成功返回整份个人内容与新版本；课程重叠不按查课规则拒绝保存。
 
-过期版本/预览基线变化返回 409；越权返回 403 或受限详情的 404。平台能力和学籍规则按服务端事务重核，前端隐藏按钮不是授权。兼容数据 UNKNOWN 不表示允许跨学院管理。
+GET `/me/academic-notices?page=1&page_size=20` 返回 `items,total,page,page_size`，项含 `id,college_id,semester_id,version,published_at,title,message`。仅本人相关内容变化时展示，移出正式名单者仍收到该次提示。没有已读/未读、忽略、采用或微信推送，通知不修改个人副本。
 
+私人课表仅供本人便利使用，管理员无代读/代改入口。每次核对真实账号、学生状态与绑定；私人保存不写正式课表、名单、任务、考勤或报表修订。单次课程例外和整表恢复尚未实现，不宣称已提供。
+
+院级考勤/异议见接口索引；`CAMPUS_BUSINESS_SCOPED_ENABLED` 默认关闭，其他模块未全部接入前不得启用。启用后旧全局考勤管理/更正与异议审核拒绝；本人路径仍限定本人。新版异议改判权限必须来自同一学院，不能拼合外院能力。
 
 ## 考勤现场照片与 Web 时间（2026-10-14）
 
@@ -40,7 +47,7 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 
 ## 2026-10-13 更新：学生考勤异议一次审核
 
-本节替代旧初核/终审两阶段说明。`POST /api/v1/objections/{id}/review` 使用原 `ObjectionFinalReviewRequest`：decision=APPROVED/REJECTED，current_version 必填；通过须提供 final_type，备注选填。学生负责人、教师管理员、超级管理员默认具有 `objection.final_review`；一次异议审核授权包含该次考勤改判，独立手工更正仍需 `attendance.correct`。批准在同一事务更正考勤、追加 OBJECTION_FINAL 版本、记录审核人及审计、推进报表源修订。考勤版本冲突与重复审核仍返回 409。
+本节替代旧初核/终审两阶段说明。`POST /api/v1/objections/{id}/review` 使用原 `ObjectionFinalReviewRequest`：decision=APPROVED/REJECTED，current_version 必填；通过须提供 final_type，备注选填。学生负责人、教师管理员、超级管理员默认具有 `objection.final_review`；更正考勤仍需 `attendance.correct`。批准在同一事务更正考勤、追加 OBJECTION_FINAL 版本、记录审核人及审计、推进报表源修订。考勤版本冲突与重复审核仍返回 409。
 
 `final_status` 为唯一处理状态：PENDING/APPROVED/REJECTED，分别对应待审核/审核通过/审核驳回。列表支持 final_status 与分页，响应增加 final_reviewed_username 和 final_reviewed_display_name，审核人 ID 仍为字符串。旧 initial_* 字段仅保留历史，不是待办步骤；旧 initial-review 入口返回 409 STATE_CONFLICT 提示刷新客户端，旧 final-review 兼容一次审核事务。
 
@@ -402,7 +409,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | `GET /objections` | `objection.read \| initial_review \| final_review`（任一） | Service 解析范围：`MANAGE` 全量 / `OWN` 加 `student_id=本人` 谓词 / `NONE` 403。分页 + `attendance_record_id/final_status/initial_status` 过滤 |
 | `GET /objections/{objection_id}` | 同上（任一） | 越界/不可见与不存在统一 404 防枚举；`MANAGE` 可读任意、`OWN` 仅本人 |
 | `POST /objections/{objection_id}/initial-review` | `objection.initial_review` | `ObjectionInitialReviewRequest{decision∈{PASSED,REJECTED},comment?(≤512)}`。锁异议行，`initial_status≠PENDING` → 409 `STATE_CONFLICT`；置状态/处理人/时刻/意见，**绝不改考勤**，审计 `objection.initial_review` |
-| `POST /objections/{objection_id}/final-review` | `objection.final_review` | `ObjectionFinalReviewRequest{decision∈{APPROVED,REJECTED},final_type?(∈全集),comment?,current_version(ge1)}`。先探异议（不加锁，缺失 404）→ `AttendanceRecord` `FOR UPDATE` → 异议 `FOR UPDATE` 重读；`final_status≠PENDING` → 409。`REJECTED` 不改考勤。`APPROVED` 须给 `final_type`（缺 422）；`final_type≠effective_type` 即"更正"，无需另持独立手工更正权限，但须 `current_version==record.current_version` 且 `record.current_version==base_attendance_version`（任一不符 409 `VERSION_CONFLICT`，不覆盖他人新认定），通过则同事务改 `effective_type`、`current_version=base+1`、**追加** `AttendanceRecordVersion(source=OBJECTION_FINAL,source_id=objection.id)`。审计 `objection.final_review`（before/after 含考勤） |
+| `POST /objections/{objection_id}/final-review` | `objection.final_review` | `ObjectionFinalReviewRequest{decision∈{APPROVED,REJECTED},final_type?(∈全集),comment?,current_version(ge1)}`。先探异议（不加锁，缺失 404）→ `AttendanceRecord` `FOR UPDATE` → 异议 `FOR UPDATE` 重读；`final_status≠PENDING` → 409。`REJECTED` 不改考勤。`APPROVED` 须给 `final_type`（缺 422）；`final_type≠effective_type` 即"更正"，须另持 `attendance.correct`（否则 403），且 `current_version==record.current_version` 且 `record.current_version==base_attendance_version`（任一不符 409 `VERSION_CONFLICT`，不覆盖他人新认定），通过则同事务改 `effective_type`、`current_version=base+1`、**追加** `AttendanceRecordVersion(source=OBJECTION_FINAL,source_id=objection.id)`。审计 `objection.final_review`（before/after 含考勤） |
 
 状态机：`initial_status∈{PENDING,PASSED,REJECTED}`、`final_status∈{PENDING,APPROVED,REJECTED}`（`PENDING` 即"未完成异议"）。`Objection` 用 `TimestampMixin`（可变流转，有 `updated_at`）；`attendance_record_id` 随考勤 `CASCADE`，`student_id` 对主数据 `RESTRICT`。`ObjectionFile` 联合主键、`file_id` 对文件 `RESTRICT`。
 
@@ -465,7 +472,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 - `POST /inspection-tasks/{id}/restore` 用 `inspection.generate` 守卫和 `lock_version`；仅未开始、无提交/考勤/截止考核、课表与名单快照仍兼容的取消任务可恢复。恢复后为未分配，旧 assignment 标记 `revoked_at` 留历史。学生停用也只撤销未来尚未执行且无事实的受派，保留历史与截止事实。
 - `GET/POST /teacher-accounts`、`PATCH /teacher-accounts/{id}`、`POST /teacher-accounts/{id}/password-reset` 仅超管；创建同时赋教师角色，停用和重置口令撤销会话，不回显口令。`POST /me/password-change` 适用于本人密码账号。写入遵守版本冲突与最后超管保护。
 - `GET /course-schedules/export` 需要 `course_schedule.export`，按学期及可选教学班导出最多 10000 行 XLSX；列为教学班、课程、教师、周次、星期、开始节次、结束节次、教室。当前模型没有任课教师字段，教师列为空；文本列强制字符串以避免公式执行。
-- `GET /reports` 需要 `report.read`，仅列学院记录，支持学期/周次过滤与分页；`latest_version_id/no/created_at` 取最新已发布版本，`source_changed` 比较当前考勤源修订。周报内容只含考勤汇总，`CLASS` 请求 422，固定格式 Word 尚未实现。
+- `GET /reports` 需要 `report.read`，仅列学院记录，支持学期/周次过滤与分页；`latest_version_id/no/created_at` 取最新已发布版本，`source_changed` 比较当前考勤源修订。周报内容只含考勤汇总，`CLASS` 请求 422，下载格式按该版本实际产物及当前 API schema 选择。
 - `GET /audit-logs` 和详情仅 `audit.read`；列表时间窗最多 31 天、每页最多 100 条，按操作者、动作和资源筛选；详情 before/after 使用字段白名单，不返回密码、令牌或证明正文。
 
 
@@ -477,7 +484,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 - 学校、学院和院级授权仅有效超管可维护；其他账号只按同学院、同动作、有效期完整子句访问，负责人不自动得权。看不到学院/资源返回 404；已有可见范围但缺动作返回 403。
 - 资源 ID 为字符串；路径仅接受合法正 BIGINT。类型和组的 PATCH/DELETE、组配置发布及授权撤销携带 `lock_version`，旧版本 409；未知所有权字段 422。
 - 类型稳定 code 服务端生成，改名不改 ID/code；院内规范化名称唯一，有历史配置引用不能硬删除。组默认草稿，发布不会自动启用。
-- 范围发布必填非空 `course_type_ids`，`class_mode` 当前只支持 `ALL_AUTHORIZED`；冲突规则独立保存，另一受派冲突首期只允许 BLOCK。范围与规则一次发布，版本历史不覆盖；JSON 原样再发布可用，但不接受未支持的指定班级/支援字段。
+- 范围发布必填非空 `course_type_ids`，`class_mode` 支持 `ALL_AUTHORIZED` 或 `SPECIFIC`（指定本院班级）；冲突规则独立保存，另一受派冲突首期只允许 BLOCK。范围与规则一次发布，版本历史不覆盖；JSON 原样再发布可用，但指定班级通过 class_ids 提供，支援通过独立授权接口提供。
 - 授权起止 HTTP 时间必须带时区，内部统一 UTC；有效动作白名单为 `academic.course_type.read/manage`、`volunteer.group.read/manage`、`volunteer.member.manage`（接入中）、`volunteer.config.publish`。动作应使用完整 code，read/manage 的范围不能跨院组合。
 - 成功继续返回 `{data, requestId}`，业务错误继续采用统一 envelope；未迁移/未启用时新接口 503。新组和类型不参与旧抽查/排班，不能据配置保存成功认定正式业务验收通过。
 
@@ -492,3 +499,17 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | `POST /campus/ownership/apply` | 提交相同映射和预览 `revision`；数据/关联/学院变化返回 409，冲突整批拒绝，写入和审计同事务 |
 
 这些接口使用 `/api/v1` 前缀。已确定归属不能通过回填迁院。课表、任务沿完整父链传播，学院文本不自动映射；部分父链未知不当作完整证据。查询或写入后 `business_ready` 仍为 false，不能由回填成功认定旧业务访问隔离完成。
+
+## 2026-10-14 实际时间、组范围与报表边界
+
+- `CAMPUS_SCHEDULING_ENABLED` 默认 false；实际作息和组业务 HTTP 入口还要求配置/基础数据/正式业务模式开启。本轮不能据新入口通过开启多学院生产。
+- 作息发布请求为 effective_from、periods、calendar、confirm_existing_tasks；先预览，发布另带 revision。节次 1—60、本地分钟精度、同日不重叠；校历日期及来源周次须在学期内。已有未来任务保持原快照，需要明确确认；版本不可覆盖。
+- `class_mode` 支持 ALL_AUTHORIZED / SPECIFIC，SPECIFIC 必须非空 class_ids，均为本院行政班字符串 ID；范围抽查先按同院有效类型/班级/正式名单筛选，缺额 409，不跨类型补齐。抽查生成与指派两阶段分离。
+- group 配置支持 teaching_class_overrides，优先于 type_overrides 和 default_effect。WARN 反馈和部分跨院例外尚待接入，不将未完成的 UI/反馈表述为已验收。
+- 成员有效期左闭右开，允许加入多组；跨院先由超管授权完整覆盖成员有效期的支援。撤销请求增加 confirm_future_assignments；默认遇到未来受派拒绝，确认后返回 retained_future_task_ids，保留任务/受派历史并需管理端处理改派。
+- 任务响应增加可空 college_id、group_id、group_config_version_id、课程类型 ID/名称快照、组名快照、activity_start_at/activity_end_at、time_snapshot。所有新增 ID 为字符串，实际 datetime 返回带 Z 的 UTC；旧历史无可靠时刻时为 null，不重新推断。
+- 启用排班模式后 PATCH 任务必须提供 lock_version；陈旧版本 409。未受派任务改节次同步冻结新实际时间；已受派任务不可直接改时段，需要取消/重新生成及排班。已有正式考勤仍不可修改。
+- 报表唯一键含学院或学校旧范围标识；源修订按学院独立。旧版本 college_id_snapshot 为空时，即使主记录回填学院也不可向学院管理员暴露。下载及文件签发通过同院、已发布且内容归属已验证的版本关联核验。
+- 正式教务发布使用学院校历/作息，必要时同一来源课表拆成多个时间段，occurrence_dates 为实际执行日期。本人课表初始化保留这些日期；正式更新不修改已有个人副本。
+
+学院校历未覆盖的日期继承学校校历，发布学院作息不隐式取消全校停课日。
