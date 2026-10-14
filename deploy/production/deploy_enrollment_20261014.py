@@ -92,6 +92,16 @@ def counts():
     }
 
 
+def parse_backup_output(output: str) -> str:
+    match = re.fullmatch(
+        r"Backup completed: (/var/backups/course-management/\d{8}T\d{6}Z\.[A-Za-z0-9]+)",
+        output.strip(),
+    )
+    if match is None:
+        raise ValueError("Unexpected backup result; no database mutation authorized")
+    return match.group(1)
+
+
 def main():
     candidate_path, web_path, rehearsal_path = map(Path, sys.argv[1:])
     candidate = candidate_path.resolve()
@@ -139,8 +149,12 @@ def main():
     migration_env["PYTHONPATH"] = str(candidate / "backend")
     python = str(candidate / "backend/.venv/bin/python")
     new_web = ROOT / "admin-web/releases" / candidate.name
-    new_web.mkdir(mode=0o755, exist_ok=False)
+    new_web.mkdir(mode=0o755, exist_ok=True)
     with tarfile.open(web_path) as bundle:
+        if (new_web / "index.html").exists():
+            assert (new_web / "index.html").read_bytes() == bundle.extractfile(
+                "index.html"
+            ).read()
         bundle.extractall(new_web, filter="data")
     for source in (old_web / "assets").iterdir():
         destination = new_web / "assets" / source.name
@@ -171,7 +185,9 @@ def main():
         assert (ROOT / "current").resolve() == old
         # App is stopped: this snapshot is the actual rollback boundary for DDL/init.
         backup = Path(
-            subprocess.check_output(["bash", str(ROOT / "backup.sh")]).decode().strip()
+            parse_backup_output(
+                subprocess.check_output(["bash", str(ROOT / "backup.sh")]).decode()
+            )
         )
         assert backup.parent == Path("/var/backups/course-management")
         subprocess.run(
