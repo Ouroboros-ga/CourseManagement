@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:datetime": "node --test tests/datetime.test.mjs",
     "test:campus": "node --test tests/campus-context.test.mjs tests/scoped-academic-data.test.mjs",
     "dev": "vite",
     "build": "run-p type-check \"build-only {@}\" --",

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatBeijingTime } from '@/utils/datetime'
 import { ref, watch, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
@@ -524,33 +525,6 @@ async function handleIssueToken(student: StudentItem) {
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '签发绑定码失败'
     ElMessage.error(msg)
-  }
-}
-
-function formatBeijingTime(dateStr?: string | null): string {
-  if (!dateStr) return '-'
-  try {
-    let iso = dateStr.trim()
-    if (!iso.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(iso)) {
-      iso += 'Z'
-    }
-    const d = new Date(iso)
-    if (isNaN(d.getTime())) return dateStr.substring(0, 19).replace('T', ' ')
-    const formatter = new Intl.DateTimeFormat('zh-CN', {
-      timeZone: 'Asia/Shanghai',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    })
-    const parts = formatter.formatToParts(d)
-    const get = (type: string) => parts.find(p => p.type === type)?.value || ''
-    return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`
-  } catch {
-    return dateStr.substring(0, 19).replace('T', ' ')
   }
 }
 

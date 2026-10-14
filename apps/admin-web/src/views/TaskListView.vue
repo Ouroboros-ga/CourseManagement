@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatBeijingTime } from '@/utils/datetime'
 import { ref, computed, watch, onMounted } from 'vue'
 import TaskStatusTag from '../components/TaskStatusTag.vue'
 import TaskDrawer from '../components/TaskDrawer.vue'
@@ -897,7 +898,7 @@ async function handleConfirmCancelFromEdit() {
               ⚠️ 志愿者发起换班申请
             </span>
             <span class="font-mono text-xs text-slate-500">
-              {{ (assigningTask as any)?.assignment?.change_request_at ? String((assigningTask as any)?.assignment?.change_request_at).substring(0, 16).replace('T', ' ') : '' }}
+              {{ (assigningTask as any)?.assignment?.change_request_at ? formatBeijingTime((assigningTask as any)?.assignment?.change_request_at, 'minute') : '' }}
             </span>
           </div>
           <div class="cr-body">

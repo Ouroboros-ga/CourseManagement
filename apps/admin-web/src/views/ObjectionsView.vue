@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatBeijingTime } from '@/utils/datetime'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
@@ -441,7 +442,7 @@ const decisionOptions: DecisionOption[] = [
 
             <div class="card-bottom">
               <span class="desired-tag font-mono">诉求：{{ typeMap[obj.desired_type] || obj.desired_type }}</span>
-              <span class="card-time font-mono">{{ obj.created_at ? obj.created_at.substring(5, 16).replace('T', ' ') : '' }}</span>
+              <span class="card-time font-mono">{{ obj.created_at ? formatBeijingTime(obj.created_at, 'short') : '' }}</span>
             </div>
           </div>
         </div>
@@ -487,7 +488,7 @@ const decisionOptions: DecisionOption[] = [
 
           <div class="obj-time">
             申诉提交时间<br />
-            <span class="font-mono">{{ activeObjection.created_at ? activeObjection.created_at.substring(0, 19).replace('T', ' ') : '-' }}</span>
+            <span class="font-mono">{{ activeObjection.created_at ? formatBeijingTime(activeObjection.created_at) : '-' }}</span>
           </div>
         </div>
 
@@ -564,7 +565,7 @@ const decisionOptions: DecisionOption[] = [
               {{ activeObjection.initial_comment ? `“${activeObjection.initial_comment}”` : (activeObjection.initial_status === 'PENDING' ? '暂未填写初核意见' : '无详细说明') }}
             </div>
             <div v-if="activeObjection.initial_reviewed_by" class="f-meta cell-sub font-mono">
-              初核人: {{ activeObjection.initial_reviewed_by }} · {{ activeObjection.initial_reviewed_at ? activeObjection.initial_reviewed_at.substring(0, 16).replace('T', ' ') : '' }}
+              初核人: {{ activeObjection.initial_reviewed_by }} · {{ activeObjection.initial_reviewed_at ? formatBeijingTime(activeObjection.initial_reviewed_at, 'minute') : '' }}
             </div>
             <!-- 初核操作按钮 (仅在未初核时提供) -->
             <div v-if="activeObjection.initial_status === 'PENDING' && sessionStore.hasPermission('objection.initial_review')" class="initial-actions">
@@ -602,7 +603,7 @@ const decisionOptions: DecisionOption[] = [
               终审决议备注：{{ activeObjection.final_comment }}
             </div>
             <div class="dr-meta font-mono cell-sub">
-              裁决操作人: {{ activeObjection.final_reviewed_by || '教师管理员' }} · 裁决时间: {{ activeObjection.final_reviewed_at ? activeObjection.final_reviewed_at.substring(0, 19).replace('T', ' ') : '-' }}
+              裁决操作人: {{ activeObjection.final_reviewed_by || '教师管理员' }} · 裁决时间: {{ activeObjection.final_reviewed_at ? formatBeijingTime(activeObjection.final_reviewed_at) : '-' }}
             </div>
           </div>
 
@@ -661,7 +662,7 @@ const decisionOptions: DecisionOption[] = [
             <div class="tl-item done">
               <div class="tl-head">
                 <span class="tl-title">学生发起考勤异议申请</span>
-                <span class="tl-time font-mono">{{ activeObjection.created_at ? activeObjection.created_at.substring(5, 16).replace('T', ' ') : '' }}</span>
+                <span class="tl-time font-mono">{{ activeObjection.created_at ? formatBeijingTime(activeObjection.created_at, 'short') : '' }}</span>
               </div>
               <div class="tl-body">学生提交异议理由与证明材料附件，诉求更正为【{{ typeMap[activeObjection.desired_type] }}】</div>
             </div>
@@ -671,7 +672,7 @@ const decisionOptions: DecisionOption[] = [
               <div class="tl-head">
                 <span class="tl-title">负责人初核</span>
                 <span class="tl-time font-mono">
-                  {{ activeObjection.initial_reviewed_at ? activeObjection.initial_reviewed_at.substring(5, 16).replace('T', ' ') : (activeObjection.initial_status === 'PENDING' ? '待处理' : '') }}
+                  {{ activeObjection.initial_reviewed_at ? formatBeijingTime(activeObjection.initial_reviewed_at, 'short') : (activeObjection.initial_status === 'PENDING' ? '待处理' : '') }}
                 </span>
               </div>
               <div class="tl-body">
@@ -686,7 +687,7 @@ const decisionOptions: DecisionOption[] = [
               <div class="tl-head">
                 <span class="tl-title">教师管理员终审裁决</span>
                 <span class="tl-time font-mono">
-                  {{ activeObjection.final_reviewed_at ? activeObjection.final_reviewed_at.substring(5, 16).replace('T', ' ') : (activeObjection.final_status === 'PENDING' ? '进行中' : '') }}
+                  {{ activeObjection.final_reviewed_at ? formatBeijingTime(activeObjection.final_reviewed_at, 'short') : (activeObjection.final_status === 'PENDING' ? '进行中' : '') }}
                 </span>
               </div>
               <div class="tl-body">

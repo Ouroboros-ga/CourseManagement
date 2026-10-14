@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatBeijingTime } from '@/utils/datetime'
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
@@ -544,7 +545,7 @@ const typeMap: Record<string, string> = {
               <div class="card-meta font-mono">
                 <span class="sub-id">#{{ sub.id }}</span>
                 <span class="sub-date">
-                  {{ sub.submitted_at ? sub.submitted_at.substring(5, 16).replace('T', ' ') : '—' }}
+                  {{ sub.submitted_at ? formatBeijingTime(sub.submitted_at, 'short') : '—' }}
                 </span>
                 <span class="sub-attempt">第 {{ sub.attempt_no }} 轮</span>
               </div>
@@ -639,7 +640,7 @@ const typeMap: Record<string, string> = {
             <div class="detail-meta font-mono">
               <div>查课任务 ID：<strong>#{{ currentSubmission.task_id }}</strong></div>
               <div>提交志愿者 UID：<strong>{{ currentSubmission.volunteer_user_id }}</strong></div>
-              <div>提交时间：{{ currentSubmission.submitted_at ? currentSubmission.submitted_at.substring(0, 19).replace('T', ' ') : '—' }}</div>
+              <div>提交时间：{{ currentSubmission.submitted_at ? formatBeijingTime(currentSubmission.submitted_at) : '—' }}</div>
             </div>
           </div>
 
@@ -739,7 +740,7 @@ const typeMap: Record<string, string> = {
                 <div class="r-title">驳回说明：</div>
                 <div class="r-text">{{ currentSubmission.review_comment }}</div>
                 <div class="r-meta font-mono">
-                  审核人 UID: {{ currentSubmission.reviewed_by }} · {{ currentSubmission.reviewed_at?.substring(0, 19).replace('T', ' ') }}
+                  审核人 UID: {{ currentSubmission.reviewed_by }} · {{ formatBeijingTime(currentSubmission.reviewed_at) }}
                 </div>
               </div>
 
