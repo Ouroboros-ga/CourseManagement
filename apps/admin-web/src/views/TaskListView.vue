@@ -10,10 +10,13 @@ import {
   batchDeleteTasks,
   triggerAutoAssign,
   listSemesterVolunteers,
+  listTaskCandidateVolunteers,
+  reviewChangeRequest,
   assignTask,
   cancelTask,
   type InspectionTaskItem,
-  type SemesterVolunteerItem
+  type SemesterVolunteerItem,
+  type TaskCandidateVolunteerItem
 } from '../api/tasks'
 import { useSessionStore } from '../stores/session'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -29,6 +32,11 @@ const activeTask = ref<InspectionTaskItem | null>(null)
 const searchQuery = ref('')
 const selectedStatus = ref('')
 const selectedDayFilter = ref<string>('ALL')
+const filterOnlyChangeRequests = ref(false)
+
+const pendingChangeRequestsCount = computed(() =>
+  tasks.value.filter(t => (t as any).assignment?.change_request_status === 'PENDING').length
+)
 
 function getTodayDateStr(): string {
   const d = new Date()
@@ -139,6 +147,11 @@ const statusAliasMap: Record<string, string[]> = {
 // 过滤后的任务列表
 const filteredTasks = computed(() => {
   return tasks.value.filter(t => {
+    // 0. 仅看换班申请
+    if (filterOnlyChangeRequests.value) {
+      if ((t as any).assignment?.change_request_status !== 'PENDING') return false
+    }
+
     // 1. 日期 / 周几筛选
     if (selectedDayFilter.value !== 'ALL') {
       const targetWeekday = Number(selectedDayFilter.value)
@@ -165,7 +178,8 @@ const filteredTasks = computed(() => {
       (t.counselor && t.counselor.toLowerCase().includes(q)) ||
       (t.administrative_classes && t.administrative_classes.some(ac => ac.toLowerCase().includes(q))) ||
       (t.assigned_volunteer_name && t.assigned_volunteer_name.toLowerCase().includes(q)) ||
-      ((t as any).assignment?.volunteer_name && (t as any).assignment.volunteer_name.toLowerCase().includes(q))
+      ((t as any).assignment?.volunteer_name && (t as any).assignment.volunteer_name.toLowerCase().includes(q)) ||
+      ((t as any).assignment?.change_request_reason && (t as any).assignment.change_request_reason.toLowerCase().includes(q))
     )
   })
 })
@@ -374,35 +388,83 @@ function handleExportTasks() {
 const assignDialogVisible = ref(false)
 const assigningTask = ref<InspectionTaskItem | null>(null)
 const assignVolunteers = ref<SemesterVolunteerItem[]>([])
+const assignCandidateVolunteers = ref<TaskCandidateVolunteerItem[]>([])
 const loadingVolunteers = ref(false)
+const loadingCandidates = ref(false)
 const selectedVolunteerUserId = ref<string>('')
 const assignReason = ref('')
 const assignSubmitting = ref(false)
+const rejectSubmitting = ref(false)
 
 const selectedVolunteer = computed(() => {
+  const fromCand = assignCandidateVolunteers.value.find(v => v.user_id === selectedVolunteerUserId.value)
+  if (fromCand) return fromCand
   return assignVolunteers.value.find(v => v.user_id === selectedVolunteerUserId.value)
 })
 
-async function loadSemesterVolunteers() {
-  if (!sessionStore.currentSemesterId) return
-  loadingVolunteers.value = true
-  try {
-    const res = await listSemesterVolunteers(sessionStore.currentSemesterId)
-    assignVolunteers.value = res || []
-  } catch (e) {
-    console.error('加载本学期志愿者失败:', e)
-  } finally {
-    loadingVolunteers.value = false
-  }
-}
+const selectedVolunteerCandidate = computed(() => {
+  return assignCandidateVolunteers.value.find(v => v.user_id === selectedVolunteerUserId.value)
+})
 
 async function handleOpenAssignDialog(task: InspectionTaskItem) {
   assigningTask.value = task
   assignReason.value = ''
   const curUid = (task as any).assignment?.volunteer_user_id || task.assigned_volunteer_id
   selectedVolunteerUserId.value = curUid ? String(curUid) : ''
+  assignCandidateVolunteers.value = []
   assignDialogVisible.value = true
-  await loadSemesterVolunteers()
+
+  loadingCandidates.value = true
+  try {
+    const [cands, allVols] = await Promise.all([
+      listTaskCandidateVolunteers(task.id).catch(() => []),
+      sessionStore.currentSemesterId ? listSemesterVolunteers(sessionStore.currentSemesterId).catch(() => []) : []
+    ])
+    assignCandidateVolunteers.value = cands || []
+    assignVolunteers.value = allVols || []
+  } catch (e) {
+    console.error('加载候选人员失败:', e)
+  } finally {
+    loadingCandidates.value = false
+  }
+}
+
+function autoPickRecommendedVolunteer() {
+  const curUid = (assigningTask.value as any)?.assignment?.volunteer_user_id
+  const best = assignCandidateVolunteers.value.find(v => v.eligible && v.user_id !== curUid)
+  if (best) {
+    selectedVolunteerUserId.value = best.user_id
+    ElMessage.success(`已为您推荐选中【${best.name}】（本周已排 ${best.assigned_count_week || 0} 节，无课表/回避冲突）`)
+  } else {
+    ElMessage.warning('当前暂无完全无冲突的空闲志愿者，请手动挑选或联系协调')
+  }
+}
+
+async function handleRejectChangeRequest() {
+  if (!assigningTask.value) return
+  const crId = (assigningTask.value as any).assignment?.change_request_id
+  if (!crId) {
+    ElMessage.warning('未获取到调班申请记录')
+    return
+  }
+  try {
+    const { value: comment } = await ElMessageBox.prompt('请输入驳回原因（选填，将反馈给志愿者）：', '驳回换班申请', {
+      confirmButtonText: '确认驳回',
+      cancelButtonText: '取消',
+      inputPlaceholder: '例如：近期人员紧张，请按时出勤或自行协商'
+    })
+    rejectSubmitting.value = true
+    await reviewChangeRequest(crId, { decision: 'REJECTED', comment: comment || '管理员驳回调班申请' })
+    ElMessage.success('已驳回该志愿者的调班申请')
+    assignDialogVisible.value = false
+    await fetchTasks()
+  } catch (err: any) {
+    if (err !== 'cancel') {
+      ElMessage.error(err?.message || '驳回失败')
+    }
+  } finally {
+    rejectSubmitting.value = false
+  }
 }
 
 async function handleConfirmAssign() {
@@ -411,15 +473,20 @@ async function handleConfirmAssign() {
     ElMessage.warning('请选择受派志愿者')
     return
   }
+  const isChangeReq = (assigningTask.value as any).assignment?.change_request_status === 'PENDING'
   assignSubmitting.value = true
   try {
     await assignTask(assigningTask.value.id, {
       volunteer_user_id: selectedVolunteerUserId.value,
       lock_version: assigningTask.value.lock_version || 0,
-      reason: assignReason.value || '管理端人工指派志愿者'
+      reason: assignReason.value || (isChangeReq ? '管理员同意调班并完成改派' : '管理端人工指派志愿者')
     })
     const vol = selectedVolunteer.value
-    ElMessage.success(`成功将任务 #${assigningTask.value.id} 指派给志愿者【${vol?.name || '志愿者'}】！`)
+    if (isChangeReq) {
+      ElMessage.success(`调班申请审批通过！任务 #${assigningTask.value.id} 已成功改派给【${vol?.name || '志愿者'}】！`)
+    } else {
+      ElMessage.success(`成功将任务 #${assigningTask.value.id} 指派给志愿者【${vol?.name || '志愿者'}】！`)
+    }
     assignDialogVisible.value = false
     await fetchTasks()
     if (activeTask.value?.id === assigningTask.value.id) {
@@ -565,6 +632,21 @@ async function handleConfirmCancelFromEdit() {
       </div>
     </div>
 
+    <!-- 换班申请待处理提醒条 -->
+    <div v-if="pendingChangeRequestsCount > 0" class="cr-alert-bar">
+      <div class="cr-alert-left">
+        <span class="cr-badge font-mono">{{ pendingChangeRequestsCount }}</span>
+        <span>本周有 <strong>{{ pendingChangeRequestsCount }}</strong> 堂查课任务收到志愿者【换班申请】，请及时审批或改派顶班人员。</span>
+      </div>
+      <button
+        class="btn btn-sm"
+        :class="filterOnlyChangeRequests ? 'btn-primary' : 'btn-ghost'"
+        @click="filterOnlyChangeRequests = !filterOnlyChangeRequests"
+      >
+        {{ filterOnlyChangeRequests ? '查看全部任务' : '仅看调班申请' }}
+      </button>
+    </div>
+
     <!-- 任务表 -->
     <div class="tbl-wrap">
       <div class="tbl-head">
@@ -638,7 +720,7 @@ async function handleConfirmCancelFromEdit() {
               <th style="width: 210px">时间与地点</th>
               <th style="width: 260px">课程与教学班</th>
               <th style="width: 130px">班主任</th>
-              <th style="width: 140px">受派志愿者</th>
+              <th style="width: 150px">受派志愿者</th>
               <th style="width: 95px">状态</th>
               <th style="width: 310px; text-align: right">操作</th>
             </tr>
@@ -708,6 +790,27 @@ async function handleConfirmCancelFromEdit() {
                   <div v-else class="cell-sub text-xs text-slate-400">
                     已指派
                   </div>
+                  <!-- 换班申请待处理高亮标签 -->
+                  <div
+                    v-if="(task as any).assignment?.change_request_status === 'PENDING'"
+                    class="mt-1"
+                  >
+                    <span
+                      class="tag cursor-pointer font-bold inline-flex items-center gap-1"
+                      style="background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; font-size: 11px; padding: 1px 6px;"
+                      :title="`志愿者申请调班：${(task as any).assignment?.change_request_reason || '未填写理由'}`"
+                      @click="handleOpenAssignDialog(task)"
+                    >
+                      ⚠️ 申请调班
+                    </span>
+                    <div
+                      v-if="(task as any).assignment?.change_request_reason"
+                      class="text-xs text-amber-700 truncate max-w-[135px] mt-0.5"
+                      :title="(task as any).assignment?.change_request_reason"
+                    >
+                      {{ (task as any).assignment.change_request_reason }}
+                    </div>
+                  </div>
                 </template>
                 <template v-else>
                   <div class="unassigned text-slate-400">未分配</div>
@@ -728,9 +831,10 @@ async function handleConfirmCancelFromEdit() {
                 <div class="inline-flex items-center justify-end gap-1 flex-nowrap">
                   <button
                     class="btn btn-action"
+                    :style="(task as any).assignment?.change_request_status === 'PENDING' ? 'background: #d97706; color: #fff; border-color: #d97706; font-weight: 600;' : ''"
                     @click="handleOpenAssignDialog(task)"
                   >
-                    {{ (task as any).assignment || task.assigned_volunteer_id ? '改派' : '人工指派' }}
+                    {{ (task as any).assignment?.change_request_status === 'PENDING' ? '处理调班' : ((task as any).assignment || task.assigned_volunteer_id ? '改派' : '人工指派') }}
                   </button>
                   <button
                     v-if="task.status !== '已取消' && task.status !== 'CANCELLED' && task.status !== '已完成' && task.status !== 'REVIEWED'"
@@ -774,15 +878,45 @@ async function handleConfirmCancelFromEdit() {
       </div>
     </div>
 
-    <!-- 弹窗 1：人工指派志愿者（支持按姓名搜索本学期已有志愿者） -->
+    <!-- 弹窗 1：人工指派 / 处理调班志愿者 -->
     <el-dialog
       v-model="assignDialogVisible"
-      :title="`人工指派志愿者 · 任务 #${assigningTask?.id || ''}`"
-      width="580px"
+      :title="((assigningTask as any)?.assignment?.change_request_status === 'PENDING' ? '处理调班申请 · 任务 #' : '人工指派志愿者 · 任务 #') + (assigningTask?.id || '')"
+      width="600px"
       :lock-scroll="false"
       destroy-on-close
     >
-      <div v-loading="assignSubmitting" class="assign-dialog-body">
+      <div v-loading="assignSubmitting || rejectSubmitting" class="assign-dialog-body">
+        <!-- 换班申请详情卡片 -->
+        <div
+          v-if="(assigningTask as any)?.assignment?.change_request_status === 'PENDING'"
+          class="change-req-card"
+        >
+          <div class="cr-head">
+            <span class="tag font-bold" style="background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;">
+              ⚠️ 志愿者发起换班申请
+            </span>
+            <span class="font-mono text-xs text-slate-500">
+              {{ (assigningTask as any)?.assignment?.change_request_at ? String((assigningTask as any)?.assignment?.change_request_at).substring(0, 16).replace('T', ' ') : '' }}
+            </span>
+          </div>
+          <div class="cr-body">
+            <div class="cr-row">
+              <span class="cr-label">原受派人：</span>
+              <span class="font-bold text-slate-800">{{ (assigningTask as any)?.assignment?.volunteer_name || '原志愿者' }}</span>
+              <span class="text-xs text-slate-500 font-mono">
+                ({{ (assigningTask as any)?.assignment?.volunteer_student_no || '—' }} · {{ (assigningTask as any)?.assignment?.volunteer_class_name || '未分班' }})
+              </span>
+            </div>
+            <div class="cr-row" style="margin-top: 6px;">
+              <span class="cr-label">申请理由：</span>
+              <span class="cr-reason-text">
+                {{ (assigningTask as any)?.assignment?.change_request_reason || '（志愿者未填写具体说明）' }}
+              </span>
+            </div>
+          </div>
+        </div>
+
         <!-- 任务信息概要卡片 -->
         <div v-if="assigningTask" class="task-info-card">
           <div class="task-info-title font-bold">
@@ -799,31 +933,49 @@ async function handleConfirmCancelFromEdit() {
 
         <!-- 志愿者搜索与选择 -->
         <div class="form-group" style="margin-top: 18px;">
-          <label class="form-label font-bold" style="display: block; margin-bottom: 8px; font-size: 13px;">
-            选择受派志愿者（在【本学期已有志愿者】中搜索）：
-          </label>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <label class="form-label font-bold" style="font-size: 13px; margin: 0;">
+              {{ (assigningTask as any)?.assignment?.change_request_status === 'PENDING' ? '选择顶班 / 新受派志愿者：' : '选择受派志愿者：' }}
+            </label>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm inline-flex items-center gap-1 font-bold"
+              style="color: var(--blue);"
+              title="自动为您挑选无课表冲突、符合本班回避、且本周任务最少的空闲志愿者"
+              @click="autoPickRecommendedVolunteer"
+            >
+              <span>⚡ 智能推荐可用志愿者</span>
+            </button>
+          </div>
           <el-select
             v-model="selectedVolunteerUserId"
             filterable
             placeholder="输入志愿者姓名、学号或行政班级快速搜索…"
             style="width: 100%"
-            :loading="loadingVolunteers"
+            :loading="loadingCandidates || loadingVolunteers"
             no-data-text="本学期暂无启用的志愿者，可先在「人员资质」中添加"
           >
             <el-option
-              v-for="v in assignVolunteers"
+              v-for="v in (assignCandidateVolunteers.length > 0 ? assignCandidateVolunteers : assignVolunteers)"
               :key="v.user_id"
               :label="`${v.name} (${v.student_no} · ${v.class_name || '未分班'})`"
               :value="v.user_id"
+              :disabled="'eligible' in v && !(v as any).eligible && v.user_id !== selectedVolunteerUserId"
             >
               <div class="vol-option-row">
                 <div>
-                  <span class="vol-option-name">{{ v.name }}</span>
+                  <span class="vol-option-name" :class="{ 'text-slate-400': 'eligible' in v && !(v as any).eligible }">{{ v.name }}</span>
                   <span class="vol-option-sub font-mono">{{ v.student_no }} · {{ v.class_name || '未分班' }}</span>
                 </div>
                 <div class="vol-option-tags">
-                  <span v-if="v.has_wechat" class="tag tag-green tag-mini">微信已绑定</span>
-                  <span v-else class="tag tag-blue tag-mini">账号就绪</span>
+                  <template v-if="'eligible' in v">
+                    <span v-if="(v as any).eligible" class="tag tag-green tag-mini">✅ 可派 (本周{{ (v as any).assigned_count_week || 0 }}节)</span>
+                    <span v-else class="tag tag-red tag-mini" :title="(v as any).conflict_message || ''">❌ {{ (v as any).conflict_message || '不可选' }}</span>
+                  </template>
+                  <template v-else>
+                    <span v-if="v.has_wechat" class="tag tag-green tag-mini">微信已绑定</span>
+                    <span v-else class="tag tag-blue tag-mini">账号就绪</span>
+                  </template>
                 </div>
               </div>
             </el-option>
@@ -843,7 +995,10 @@ async function handleConfirmCancelFromEdit() {
             </div>
           </div>
           <div class="vol-status-badge">
-            <span v-if="selectedVolunteer.has_wechat" class="tag tag-green">微信已登录绑定</span>
+            <span v-if="selectedVolunteerCandidate && selectedVolunteerCandidate.eligible" class="tag tag-green">
+              ✅ 无冲突可派 · 本周已排 {{ selectedVolunteerCandidate.assigned_count_week || 0 }} 节
+            </span>
+            <span v-else-if="selectedVolunteer.has_wechat" class="tag tag-green">微信已登录绑定</span>
             <span v-else class="tag tag-blue">账号就绪 · 可直接排班</span>
           </div>
         </div>
@@ -851,28 +1006,41 @@ async function handleConfirmCancelFromEdit() {
         <!-- 改派说明 -->
         <div class="form-group" style="margin-top: 14px;">
           <label class="form-label" style="display: block; margin-bottom: 6px; font-size: 12px; color: var(--ink-soft);">
-            指派 / 改派说明（审计备查，选填）：
+            审批 / 改派说明（审计备查，选填）：
           </label>
           <input
             v-model="assignReason"
             type="text"
             class="input"
             style="width: 100%; box-sizing: border-box;"
-            placeholder="例如：任课老师调整时段改派、原志愿者请假人工调换"
+            :placeholder="(assigningTask as any)?.assignment?.change_request_status === 'PENDING' ? '例如：同意调班申请，改派空闲志愿者顶替' : '例如：任课老师调整时段改派、原志愿者请假人工调换'"
           />
         </div>
       </div>
 
       <template #footer>
-        <div style="display: flex; justify-content: flex-end; gap: 10px;">
-          <button class="btn btn-ghost" @click="assignDialogVisible = false">取消</button>
-          <button
-            class="btn btn-primary"
-            :disabled="assignSubmitting || !selectedVolunteerUserId"
-            @click="handleConfirmAssign"
-          >
-            {{ assignSubmitting ? '指派中…' : '确认指派' }}
-          </button>
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <div>
+            <button
+              v-if="(assigningTask as any)?.assignment?.change_request_status === 'PENDING'"
+              class="btn btn-ghost"
+              style="color: #dc2626; border-color: #fecaca;"
+              :disabled="rejectSubmitting || assignSubmitting"
+              @click="handleRejectChangeRequest"
+            >
+              {{ rejectSubmitting ? '正在处理…' : '驳回申请 (维持原状)' }}
+            </button>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-ghost" @click="assignDialogVisible = false">取消</button>
+            <button
+              class="btn btn-primary"
+              :disabled="assignSubmitting || !selectedVolunteerUserId || ((assigningTask as any)?.assignment?.change_request_status === 'PENDING' && selectedVolunteerUserId === (assigningTask as any)?.assignment?.volunteer_user_id)"
+              @click="handleConfirmAssign"
+            >
+              {{ assignSubmitting ? '处理中…' : ((assigningTask as any)?.assignment?.change_request_status === 'PENDING' ? '同意调班并改派' : '确认指派') }}
+            </button>
+          </div>
         </div>
       </template>
     </el-dialog>
@@ -1227,5 +1395,72 @@ async function handleConfirmCancelFromEdit() {
   font-size: 11px;
   color: var(--ink-mute);
   margin-top: 2px;
+}
+
+/* 换班申请提示横幅与弹窗卡片 */
+.cr-alert-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #f59e0b;
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+}
+.cr-alert-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #92400e;
+}
+.cr-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: #f59e0b;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+}
+.change-req-card {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+.cr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.cr-body {
+  font-size: 12px;
+}
+.cr-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.cr-label {
+  color: #78350f;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+.cr-reason-text {
+  background: #fff;
+  border: 1px solid #fef3c7;
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: #92400e;
+  font-weight: 500;
+  flex: 1;
 }
 </style>

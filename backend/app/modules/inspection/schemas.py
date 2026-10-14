@@ -111,11 +111,17 @@ InspectionTaskStatus = Literal["待执行", "待审核", "已完成", "已逾期
 
 
 class TaskAssignmentBrief(BaseModel):
+    id: IdStr
     volunteer_user_id: IdStr
     assign_method: str
     volunteer_name: str | None = None
     volunteer_student_no: str | None = None
     volunteer_class_name: str | None = None
+    change_request_id: OptIdStr = None
+    change_request_status: str | None = None
+    change_request_reason: str | None = None
+    change_request_comment: str | None = None
+    change_request_at: datetime | None = None
 
 
 DeadlineAssessmentResultLiteral = Literal[
@@ -278,6 +284,21 @@ class SemesterVolunteerCandidateItem(BaseModel):
     name: str
     class_name: str | None = None
     has_wechat: bool = False
+
+
+class TaskCandidateVolunteerItem(BaseModel):
+    """针对特定任务排班/改派时的候选志愿者详情（含无课/回避等冲突检测与本周负载）。"""
+
+    user_id: str
+    student_id: str
+    student_no: str
+    name: str
+    class_name: str | None = None
+    has_wechat: bool = False
+    eligible: bool = True
+    conflict_code: str | None = None
+    conflict_message: str | None = None
+    assigned_count_week: int = 0
 
 
 

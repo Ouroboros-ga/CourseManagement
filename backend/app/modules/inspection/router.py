@@ -361,6 +361,17 @@ def list_semester_volunteers(
     return success([i.model_dump() for i in items], _rid(request))
 
 
+@router.get("/inspection-tasks/{task_id}/candidate-volunteers")
+def list_task_candidate_volunteers(
+    task_id: int,
+    actor: InspectionReadDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    items = service.list_task_volunteer_candidates(task_id)
+    return success([i.model_dump() for i in items], _rid(request))
+
+
 
 # ---- 调班申请：志愿者对本人当前受派发起（assignment.change_request）----
 @router.post("/assignment-change-requests")

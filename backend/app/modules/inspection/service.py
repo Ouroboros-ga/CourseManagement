@@ -133,6 +133,7 @@ from app.modules.inspection.schemas import (
     SubmissionResponse,
     SubmissionReviewRequest,
     TaskAssignmentBrief,
+    TaskCandidateVolunteerItem,
     TaskCancelRequest,
     TaskRosterMemberResponse,
     TaskRosterResponse,
@@ -802,6 +803,22 @@ class InspectionService:
         ac_code_lookup = {ac.class_code: ac for ac in all_acs}
         ac_norm_lookup = {normalize_class_name(ac.class_name): ac for ac in all_acs}
 
+        # 批量获取受派对应的待处理或最新调班申请
+        asgn_ids = [a.id for a in assignments.values() if a is not None]
+        cr_map: dict[int, AssignmentChangeRequest] = {}
+        if asgn_ids:
+            cr_stmt = (
+                select(AssignmentChangeRequest)
+                .where(AssignmentChangeRequest.assignment_id.in_(asgn_ids))
+                .order_by(AssignmentChangeRequest.id.desc())
+            )
+            for cr_row in self._session.scalars(cr_stmt):
+                if (
+                    cr_row.assignment_id not in cr_map
+                    or cr_row.status == ChangeRequestStatus.PENDING.value
+                ):
+                    cr_map[cr_row.assignment_id] = cr_row
+
         result: list[InspectionTaskResponse] = []
         for t in tasks:
             day = deadline_by_date.get((t.semester_id, t.inspection_date))
@@ -815,6 +832,9 @@ class InspectionService:
             vol_info = (
                 vol_info_map.get(asgn.volunteer_user_id) if asgn is not None else None
             )
+            cr = cr_map.get(asgn.id) if asgn is not None else None
+            if cr is not None and asgn is not None and cr.request_user_id != asgn.volunteer_user_id:
+                cr = None
 
             admin_info_list: list[tuple[str, str | None, str | None]] = []
             if t.teaching_class_id and t.teaching_class_id in tc_admin_map:
@@ -863,6 +883,7 @@ class InspectionService:
                     head_teacher=ht_str,
                     counselor=co_str,
                     administrative_classes=admin_classes,
+                    change_request=cr,
                 )
             )
         return result
@@ -906,14 +927,21 @@ class InspectionService:
         head_teacher: str | None = None,
         counselor: str | None = None,
         administrative_classes: list[str] | None = None,
+        change_request: AssignmentChangeRequest | None = None,
     ) -> InspectionTaskResponse:
         brief = (
             TaskAssignmentBrief(
+                id=assignment.id,
                 volunteer_user_id=assignment.volunteer_user_id,
                 assign_method=assignment.assign_method,
                 volunteer_name=vol_info[0] if vol_info else None,
                 volunteer_student_no=vol_info[1] if vol_info else None,
                 volunteer_class_name=vol_info[2] if vol_info else None,
+                change_request_id=str(change_request.id) if change_request else None,
+                change_request_status=change_request.status if change_request else None,
+                change_request_reason=change_request.reason if change_request else None,
+                change_request_comment=change_request.comment if change_request else None,
+                change_request_at=change_request.created_at if change_request else None,
             )
             if assignment is not None
             else None
@@ -1495,6 +1523,29 @@ class InspectionService:
             existing.lock_version += 1
         task.lock_version += 1
         self._repo.flush()
+        # 如果原受派关系存在待处理的调班申请，人工改派时自动将其置为 APPROVED
+        if existing is not None and existing.id and old_v is not None and old_v != target_uid:
+            pending_crs = self._session.scalars(
+                select(AssignmentChangeRequest).where(
+                    AssignmentChangeRequest.assignment_id == existing.id,
+                    AssignmentChangeRequest.status == ChangeRequestStatus.PENDING.value,
+                )
+            ).all()
+            for cr in pending_crs:
+                cr.status = ChangeRequestStatus.APPROVED.value
+                cr.processed_by = actor.id
+                cr.processed_at = utcnow()
+                cr.comment = body.reason or "管理员已完成人工改派"
+                self._audit(
+                    actor_user_id=actor.id,
+                    action="assignment.change_request.review",
+                    resource_type="assignment_change_request",
+                    resource_id=f"{cr.id}",
+                    before={"status": ChangeRequestStatus.PENDING.value},
+                    after={"status": cr.status, "comment": cr.comment},
+                    reason=body.reason or "管理员改派时同步审批通过",
+                    request_id=request_id,
+                )
         self._audit(
             actor_user_id=actor.id,
             action="assignment.manual_set",
@@ -1573,6 +1624,78 @@ class InspectionService:
                     has_wechat=wechat_id is not None,
                 )
             )
+        return items
+
+    def list_task_volunteer_candidates(
+        self, task_id: int
+    ) -> list[TaskCandidateVolunteerItem]:
+        """针对特定任务评估本学期全部合格志愿者的可用性（无课冲突、本班回避、时段冲突等）并按本周负载升序排序。"""
+        task = self._repo.get_task(task_id)
+        if task is None:
+            raise NotFoundError("查课任务不存在")
+        sem = self._academic.get_semester(task.semester_id)
+        if sem is None:
+            raise NotFoundError("学期不存在")
+
+        base_candidates = self.list_semester_volunteers(task.semester_id)
+        if not base_candidates:
+            return []
+
+        roster_acs = self._roster_admin_class_ids(task)
+        existing_asgn = self._repo.get_assignment_by_task(task.id)
+        cur_vol_uid = existing_asgn.volunteer_user_id if existing_asgn is not None else None
+
+        monday = task.inspection_date - timedelta(days=task.inspection_date.weekday())
+        week_counts: dict[int, int] = defaultdict(int)
+        wc_rows = self._session.execute(
+            select(InspectionAssignment.volunteer_user_id, func.count(InspectionAssignment.id))
+            .join(InspectionTask, InspectionTask.id == InspectionAssignment.task_id)
+            .where(
+                InspectionAssignment.revoked_at.is_(None),
+                InspectionTask.semester_id == sem.id,
+                InspectionTask.inspection_date >= monday,
+                InspectionTask.inspection_date < monday + timedelta(days=7),
+                InspectionTask.canceled_at.is_(None),
+                InspectionTask.id != task.id,
+            )
+            .group_by(InspectionAssignment.volunteer_user_id)
+        ).all()
+        for v_uid, cnt in wc_rows:
+            week_counts[int(v_uid)] = int(cnt)
+
+        items: list[TaskCandidateVolunteerItem] = []
+        for c in base_candidates:
+            uid = int(c.user_id)
+            if cur_vol_uid is not None and uid == cur_vol_uid:
+                code: str | None = "CURRENT_ASSIGNEE"
+                msg = "当前受派志愿者"
+            else:
+                prof = self._load_volunteer(uid)
+                code, msg = self._check_eligible(
+                    prof,
+                    task,
+                    sem,
+                    exclude_task_id=task.id,
+                    busy_slots=[],
+                    busy_count=0,
+                    roster_acs=roster_acs,
+                    lock_conflicts=False,
+                )
+            items.append(
+                TaskCandidateVolunteerItem(
+                    user_id=c.user_id,
+                    student_id=c.student_id,
+                    student_no=c.student_no,
+                    name=c.name,
+                    class_name=c.class_name,
+                    has_wechat=c.has_wechat,
+                    eligible=(code is None),
+                    conflict_code=code,
+                    conflict_message=msg if code else None,
+                    assigned_count_week=week_counts.get(uid, 0),
+                )
+            )
+        items.sort(key=lambda x: (0 if x.eligible else 1, x.assigned_count_week, x.name))
         return items
 
 

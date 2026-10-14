@@ -31,12 +31,18 @@ export interface InspectionTaskItem {
   assigned_volunteer_id?: string | null
   assigned_volunteer_name?: string | null
   assignment?: {
+    id?: string
     volunteer_user_id: string
     assign_method?: string
     volunteer_name?: string
     volunteer_student_no?: string
     volunteer_class_name?: string
     assigned_at?: string
+    change_request_id?: string | null
+    change_request_status?: 'PENDING' | 'APPROVED' | 'REJECTED' | null
+    change_request_reason?: string | null
+    change_request_comment?: string | null
+    change_request_at?: string | null
   } | null
   lock_version?: number
   canceled_at?: string | null
@@ -324,4 +330,25 @@ export async function cancelTask(
   })
 }
 
+export interface TaskCandidateVolunteerItem extends SemesterVolunteerItem {
+  eligible: boolean
+  conflict_code?: string | null
+  conflict_message?: string | null
+  assigned_count_week?: number
+}
 
+export async function listTaskCandidateVolunteers(
+  taskId: string | number
+): Promise<TaskCandidateVolunteerItem[]> {
+  return request<TaskCandidateVolunteerItem[]>(`/api/v1/inspection-tasks/${taskId}/candidate-volunteers`)
+}
+
+export async function reviewChangeRequest(
+  requestId: string | number,
+  body: { decision: 'APPROVED' | 'REJECTED'; comment?: string }
+): Promise<unknown> {
+  return request(`/api/v1/assignment-change-requests/${requestId}/review`, {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })
+}
