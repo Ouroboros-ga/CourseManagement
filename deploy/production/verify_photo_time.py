@@ -104,7 +104,7 @@ def synthetic():
                       "unbound_denied": True, "bigint_string": True}))
 
 
-def live():
+def live(require_hotfix_manifest=True):
     import re
     import urllib.error
     import urllib.request
@@ -125,19 +125,21 @@ def live():
     def fetch(path):
         with urllib.request.urlopen("https://course.zsitai.xyz" + path, timeout=15) as response:
             return response.read()
-    html = fetch("/").decode()
-    assert html == (web / "index.html").read_text(), "Public Web release mismatch"
+    raw_html = fetch("/")
+    html = raw_html.decode()
+    assert raw_html == (web / "index.html").read_bytes(), "Public Web release mismatch"
     for asset in re.findall(r'(?:src|href)="(/assets/[^\"]+)"', html):
         assert fetch(asset) == (web / asset.lstrip("/")).read_bytes()
-    manifest = json.loads((web / "PHOTO_TIME_MANIFEST.json").read_text())
-    for target in manifest["renamed_imports"].values():
-        source = fetch("/assets/" + target).decode()
-        for previous in manifest["renamed_imports"]:
-            assert previous not in source, "Mixed old/new Web module graph"
-    for detail in manifest["details"]:
-        bundle = fetch("/assets/" + detail["target"]).decode()
-        assert "function __cmBeijingTime" in bundle
-        assert bundle.count("__cmBeijingTime(") == detail["timestamp_sites"] + 1
+    if require_hotfix_manifest:
+        manifest = json.loads((web / "PHOTO_TIME_MANIFEST.json").read_text())
+        for target in manifest["renamed_imports"].values():
+            source = fetch("/assets/" + target).decode()
+            for previous in manifest["renamed_imports"]:
+                assert previous not in source, "Mixed old/new Web module graph"
+        for detail in manifest["details"]:
+            bundle = fetch("/assets/" + detail["target"]).decode()
+            assert "function __cmBeijingTime" in bundle
+            assert bundle.count("__cmBeijingTime(") == detail["timestamp_sites"] + 1
     for endpoint in ["/api/v1/me/attendance", "/api/v1/files/1/access"]:
         try:
             fetch(endpoint)
@@ -164,8 +166,8 @@ def live():
         link = service.get_access(actor, photo.id)
         assert fetch(link.url), "Real signed photo download empty"
         db.rollback()
-    print(json.dumps({"public_assets_match": True, "import_graph_consistent": True,
-                      "timestamp_calls": 7, "anonymous_401": True,
+    print(json.dumps({"public_assets_match": True, "hotfix_graph_checked": require_hotfix_manifest,
+                      "anonymous_401": True,
                       "real_owned_photo_mapping": True, "real_signed_photo_download": True}))
 
 

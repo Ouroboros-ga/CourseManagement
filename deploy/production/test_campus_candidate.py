@@ -24,6 +24,18 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 
+def select_candidate_python(old: Path, backend: Path, runtime: str | None) -> Path:
+    if (backend / "uv.lock").read_bytes() == (old / "backend/uv.lock").read_bytes():
+        return old / "backend/.venv/bin/python"
+    if runtime is None:
+        raise RuntimeError("Dependency lock changed; build a separate environment first")
+    python = Path(runtime).absolute()
+    installed_lock = python.parents[2] / "uv.lock"
+    if not python.is_file() or installed_lock.read_bytes() != (backend / "uv.lock").read_bytes():
+        raise RuntimeError("Candidate runtime must match the archived dependency lock")
+    return python
+
+
 def main() -> None:
     archive = Path(sys.argv[1]).resolve()
     expected_hash = sys.argv[2].lower()
@@ -41,6 +53,8 @@ def main() -> None:
         "exec",
         "-i",
         container,
+        "timeout",
+        "20",
         "mysql",
         "--defaults-extra-file=/run/cm-root.cnf",
         "-N",
@@ -63,15 +77,14 @@ def main() -> None:
     password = secrets.token_hex(24)
     process = None
     created_db = created_user = False
+    stage = "prepare"
     try:
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 18011))
         with tarfile.open(archive) as bundle:
             bundle.extractall(root, filter="data")
         backend = root / "backend"
-        python = old / "backend/.venv/bin/python"
-        if (backend / "uv.lock").read_bytes() != (old / "backend/uv.lock").read_bytes():
-            raise RuntimeError("Dependency lock changed; build a separate environment first")
+        python = select_candidate_python(old, backend, sys.argv[3] if len(sys.argv) > 3 else None)
         candidate_heads = (
             subprocess.check_output([str(python), "-m", "alembic", "heads"], cwd=backend)
             .decode()
@@ -124,6 +137,7 @@ def main() -> None:
             return hashlib.sha256(data).hexdigest()
 
         before_data = data_digest()
+        report["before_data_sha256"] = before_data
         sql(f"CREATE USER '{account}'@'%' IDENTIFIED BY '{password}';")
         created_user = True
         sql(f"GRANT ALL ON `{database}`.* TO '{account}'@'%';")
@@ -200,20 +214,32 @@ def main() -> None:
             process.wait(timeout=15)
             process = None
 
+        stage = "upgrade"
         migrate("head")
         assert sql(f"SELECT version_num FROM `{database}`.alembic_version;") == candidate_head
         report["checks"].append("clone_upgrade")
         serve(backend, True)
         report["checks"].append("candidate_readiness_openapi_auth")
+        stage = "downgrade"
         migrate(old_head)
+        # A merge downgrade leaves the other branch head intact. Explicitly remove
+        # only campus revisions; keep the already deployed single-review branch.
+        remaining = sql(f"SELECT version_num FROM `{database}`.alembic_version;").splitlines()
+        if old_head == "181729fc7239" and "f26a1013c002" in remaining:
+            migrate("f26a1013c002@b2c3d4e5f6a7")
         assert sql(f"SELECT version_num FROM `{database}`.alembic_version;") == old_head
+        stage = "table_count"
         assert sql(
             f"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='{database}';"
         ) == sql(
             "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='course_management';"
         )
+        stage = "old_release_ready"
         serve(old / "backend", False)
-        assert data_digest() == before_data, "Downgrade changed legacy data"
+        stage = "legacy_digest"
+        after_data = data_digest()
+        report["after_data_sha256"] = after_data
+        assert after_data == before_data, "Downgrade changed legacy data"
         report["checks"].append("downgrade_old_release_readiness")
         report["checks"].append("legacy_data_digest_preserved")
         assert Path("/opt/course-management/current").resolve() == old
@@ -223,6 +249,10 @@ def main() -> None:
             assert json.load(response)["database"] == "up"
         report["checks"].append("production_unchanged_ready")
         report["status"] = "passed"
+    except Exception as error:
+        report["failed_at"] = stage
+        report["error_type"] = type(error).__name__
+        raise
     finally:
         if process is not None:
             process.terminate()
@@ -230,8 +260,11 @@ def main() -> None:
         if created_db:
             sql(f"DROP DATABASE `{database}`;")
         if created_user:
-            sql(f"DROP USER '{account}'@'%';")
-        report["isolated_resources_removed"] = True
+            try:
+                sql(f"DROP USER '{account}'@'%';")
+            except subprocess.CalledProcessError:
+                report["test_user_cleanup_pending"] = account
+        report["isolated_resources_removed"] = not bool(report.get("test_user_cleanup_pending"))
         (root / "result.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps({**report, "evidence_directory": str(root)}))
 
