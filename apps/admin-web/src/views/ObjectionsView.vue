@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
+import AppIcon from '../components/AppIcon.vue'
 import {
   listObjections,
   initialReviewObjection,
@@ -236,6 +237,102 @@ async function handleViewFile(fileId: string) {
     ElMessage.error(msg)
   }
 }
+
+// ---------------- 证明材料：内嵌缩略图 + 灯箱预览 ----------------
+const fileUrlMap = ref<Record<string, string>>({})
+const fileImgError = ref<Record<string, boolean>>({})
+const lightboxIndex = ref<number | null>(null)
+
+// 选中异议变化时预取全部附件签名链接，用于内嵌图片预览
+watch(
+  () => activeObjection.value?.id,
+  async () => {
+    lightboxIndex.value = null
+    const fids = activeObjection.value?.file_ids || []
+    await Promise.allSettled(
+      fids.map(async fid => {
+        if (fileUrlMap.value[fid]) return
+        try {
+          const access = await getFileAccess(fid)
+          if (access && access.url) {
+            fileUrlMap.value[fid] = access.url
+          }
+        } catch {
+          // 预取失败时回退为「新窗口打开」按钮
+        }
+      })
+    )
+  },
+  { immediate: true }
+)
+
+const lightboxUrl = computed<string | null>(() => {
+  const fids = activeObjection.value?.file_ids || []
+  if (lightboxIndex.value === null) return null
+  const fid = fids[lightboxIndex.value]
+  return fid ? (fileUrlMap.value[fid] || null) : null
+})
+
+// 点击缩略图：图片可用则进灯箱，否则回退新窗口打开
+function handleProofClick(fid: string, index: number) {
+  if (fileUrlMap.value[fid] && !fileImgError.value[fid]) {
+    lightboxIndex.value = index
+  } else if (fileUrlMap.value[fid]) {
+    window.open(fileUrlMap.value[fid], '_blank')
+  } else {
+    handleViewFile(fid)
+  }
+}
+
+function closeLightbox() {
+  lightboxIndex.value = null
+}
+
+function stepLightbox(delta: number) {
+  const total = activeObjection.value?.file_ids?.length || 0
+  if (lightboxIndex.value === null || total === 0) return
+  lightboxIndex.value = (lightboxIndex.value + delta + total) % total
+}
+
+function onProofImgError(fid: string) {
+  fileImgError.value[fid] = true
+}
+
+function onLightboxImgError() {
+  const fid = activeObjection.value?.file_ids?.[lightboxIndex.value ?? -1]
+  if (fid) onProofImgError(fid)
+}
+
+function openLightboxOriginal() {
+  if (lightboxUrl.value) window.open(lightboxUrl.value, '_blank')
+}
+
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (lightboxIndex.value === null) return
+  if (e.key === 'Escape') closeLightbox()
+  else if (e.key === 'ArrowLeft') stepLightbox(-1)
+  else if (e.key === 'ArrowRight') stepLightbox(1)
+}
+
+onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
+
+// ---------------- 终审判定选项（语义化卡片） ----------------
+interface DecisionOption {
+  value: 'LEAVE' | 'NORMAL' | 'LATE' | 'ABSENT' | 'REJECTED'
+  label: string
+  en: string
+  desc: string
+  tone: 'blue' | 'green' | 'amber' | 'red' | 'ink'
+}
+
+const decisionOptions: DecisionOption[] = [
+  { value: 'LEAVE', label: '请假', en: 'LEAVE', desc: '合规缺勤，不计入异常', tone: 'blue' },
+  { value: 'NORMAL', label: '正常出勤', en: 'NORMAL', desc: '计入实到，清零异常', tone: 'green' },
+  { value: 'LATE', label: '迟到', en: 'LATE', desc: '计入异常 · 迟到人次', tone: 'amber' },
+  { value: 'ABSENT', label: '旷课', en: 'ABSENT', desc: '计入异常 · 旷课人次', tone: 'red' },
+  { value: 'REJECTED', label: '维持原判定', en: 'REJECT', desc: '驳回申诉，不改动考勤事实', tone: 'ink' }
+]
 </script>
 
 <template>
@@ -419,18 +516,37 @@ async function handleViewFile(fileId: string) {
             <div class="f-reason">
               “{{ activeObjection.reason || '无文字事由说明' }}”
             </div>
-            <div class="f-files" v-if="activeObjection.file_ids && activeObjection.file_ids.length > 0">
-              <button
-                v-for="(fid, i) in activeObjection.file_ids"
-                :key="fid"
-                class="f-link"
-                @click="handleViewFile(fid)"
-              >
-                ▣ 证明附件 {{ i + 1 }} (ID: {{ fid }})
-              </button>
+            <div v-if="activeObjection.file_ids && activeObjection.file_ids.length > 0" class="proof-zone">
+              <div class="proof-grid">
+                <button
+                  v-for="(fid, i) in activeObjection.file_ids"
+                  :key="fid"
+                  type="button"
+                  class="proof-thumb"
+                  :title="'附件 ' + (i + 1) + ' · 点击放大预览'"
+                  @click="handleProofClick(fid, i)"
+                >
+                  <img
+                    v-if="fileUrlMap[fid] && !fileImgError[fid]"
+                    :src="fileUrlMap[fid]"
+                    :alt="'证明附件 ' + (i + 1)"
+                    loading="lazy"
+                    @error="onProofImgError(fid)"
+                  />
+                  <span v-else class="proof-fallback">
+                    <AppIcon name="camera" :size="15" />
+                    <span class="font-mono">附件 {{ i + 1 }}</span>
+                  </span>
+                  <span class="proof-zoom"><AppIcon name="search" :size="11" /></span>
+                </button>
+              </div>
+              <div class="proof-hint">
+                共 {{ activeObjection.file_ids.length }} 份证明材料 · 点击缩略图放大查看，支持 ← → 键切换
+              </div>
             </div>
-            <div v-else class="cell-sub font-mono" style="font-size: 11px">
-              无证明材料附件
+            <div v-else class="proof-empty">
+              <AppIcon name="camera" :size="14" />
+              <span>未附证明材料</span>
             </div>
           </div>
 
@@ -492,28 +608,28 @@ async function handleViewFile(fileId: string) {
 
           <!-- 若未终审，展示操作控件 -->
           <div v-else>
-            <div class="d-radios">
-              <span class="d-rlabel">终审判定：</span>
-              <label class="d-radio">
-                <input v-model="finalDecision" type="radio" value="LEAVE" />
-                <span>改判为 请假 (LEAVE)</span>
-              </label>
-              <label class="d-radio">
-                <input v-model="finalDecision" type="radio" value="NORMAL" />
-                <span>改判为 正常出勤 (NORMAL)</span>
-              </label>
-              <label class="d-radio">
-                <input v-model="finalDecision" type="radio" value="LATE" />
-                <span>改判为 迟到 (LATE)</span>
-              </label>
-              <label class="d-radio">
-                <input v-model="finalDecision" type="radio" value="ABSENT" />
-                <span>改判为 旷课 (ABSENT)</span>
-              </label>
-              <label class="d-radio">
-                <input v-model="finalDecision" type="radio" value="REJECTED" />
-                <span class="text-accent font-semibold">维持原判定（驳回申诉）</span>
-              </label>
+            <div class="d-caption">
+              <span class="d-rlabel">终审判定</span>
+              <span class="d-wish-tip">
+                学生诉求改判为 <b class="font-mono">{{ typeMap[activeObjection.desired_type] || activeObjection.desired_type }}</b>
+              </span>
+            </div>
+
+            <div class="d-options">
+              <button
+                v-for="opt in decisionOptions"
+                :key="opt.value"
+                type="button"
+                class="d-option"
+                :class="[opt.tone, { selected: finalDecision === opt.value }]"
+                @click="finalDecision = opt.value"
+              >
+                <span v-if="opt.value === activeObjection.desired_type" class="do-wish">学生诉求</span>
+                <span class="do-check"><AppIcon name="check" :size="10" /></span>
+                <span class="do-label">{{ opt.label }}</span>
+                <span class="do-en font-mono">{{ opt.en }}</span>
+                <span class="do-desc">{{ opt.desc }}</span>
+              </button>
             </div>
 
             <div class="d-form">
@@ -521,7 +637,10 @@ async function handleViewFile(fileId: string) {
                 v-model="finalReasonNote"
                 type="text"
                 class="input"
-                placeholder="录入终审决议备注说明（驳回时必填，通过时选填，将完整写入不可篡改审计日志）…"
+                :class="{ 'input-required': finalDecision === 'REJECTED' && !finalReasonNote.trim() }"
+                :placeholder="finalDecision === 'REJECTED'
+                  ? '维持原判定时必填驳回理由（将完整写入不可篡改审计日志）…'
+                  : '终审决议备注说明（选填，将完整写入不可篡改审计日志）…'"
               />
               <button
                 class="btn btn-dark"
@@ -590,6 +709,48 @@ async function handleViewFile(fileId: string) {
         </div>
       </main>
     </div>
+
+    <!-- 证明材料灯箱 -->
+    <teleport to="body">
+      <div v-if="lightboxIndex !== null && activeObjection" class="lightbox" @click.self="closeLightbox">
+        <button type="button" class="lb-close" title="关闭（Esc）" @click="closeLightbox">
+          <AppIcon name="close" :size="17" />
+        </button>
+        <button
+          v-if="(activeObjection.file_ids?.length || 0) > 1"
+          type="button"
+          class="lb-nav prev"
+          title="上一份（←）"
+          @click.stop="stepLightbox(-1)"
+        >‹</button>
+        <div class="lb-body">
+          <div class="lb-frame">
+            <img v-if="lightboxUrl" :src="lightboxUrl" alt="证明材料大图" @error="onLightboxImgError" />
+            <div v-else class="lb-broken">附件暂无法内嵌预览</div>
+          </div>
+          <div class="lb-meta">
+            <span class="font-mono">附件 {{ lightboxIndex + 1 }} / {{ activeObjection.file_ids?.length || 0 }}</span>
+            <span class="lb-dot">·</span>
+            <span>OBJ-#{{ activeObjection.id }}</span>
+            <span class="lb-dot">·</span>
+            <span>{{ activeObjection.student_name || '学生 #' + activeObjection.student_id }} 提交的申诉证明</span>
+            <button
+              v-if="lightboxUrl"
+              type="button"
+              class="lb-open"
+              @click.stop="openLightboxOriginal"
+            >新窗口打开原图</button>
+          </div>
+        </div>
+        <button
+          v-if="(activeObjection.file_ids?.length || 0) > 1"
+          type="button"
+          class="lb-nav next"
+          title="下一份（→）"
+          @click.stop="stepLightbox(1)"
+        >›</button>
+      </div>
+    </teleport>
   </div>
 </template>
 
@@ -712,10 +873,10 @@ async function handleViewFile(fileId: string) {
 .obj-sub-class { font-size: 14px; color: var(--ink-mute); }
 .obj-time { text-align: right; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
 
-/* 三方事实栅格 */
+/* 三方事实栅格：申诉栏加宽以容纳证明缩略图 */
 .fact-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 0.85fr 1.3fr 1fr;
   gap: 1px;
   background: var(--line);
   border: 1px solid var(--line);
@@ -736,20 +897,174 @@ async function handleViewFile(fileId: string) {
 .ok-label { color: var(--green); }
 .f-main { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
 .f-bad { font-size: 12px; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
-.f-reason { font-size: 12px; color: var(--ink-soft); line-height: 1.5; margin-bottom: 8px; font-style: italic; }
-.f-files { display: flex; flex-direction: column; gap: 4px; }
-.f-link {
-  border: none;
-  background: none;
-  padding: 0;
-  font-size: 12px;
-  font-family: inherit;
-  color: var(--blue);
-  font-weight: 600;
-  cursor: pointer;
-  text-align: left;
+.f-reason { font-size: 12px; color: var(--ink-soft); line-height: 1.5; margin-bottom: 10px; font-style: italic; }
+
+/* ---------- 证明材料缩略图 ---------- */
+.proof-zone { margin-top: 2px; }
+.proof-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
-.f-link:hover { text-decoration: underline; }
+.proof-thumb {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--paper-deep);
+  padding: 0;
+  cursor: zoom-in;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.proof-thumb:hover {
+  border-color: var(--ink);
+  box-shadow: 0 2px 8px rgba(28, 27, 26, 0.12);
+}
+.proof-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.proof-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  color: var(--ink-mute);
+  font-size: 10px;
+}
+.proof-zoom {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  background: rgba(28, 27, 26, 0.72);
+  color: #faf8f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.proof-thumb:hover .proof-zoom { opacity: 1; }
+.proof-hint {
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--ink-mute);
+  line-height: 1.5;
+}
+.proof-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink-mute);
+  font-size: 11px;
+}
+
+/* ---------- 证明材料灯箱 ---------- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(28, 27, 26, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px;
+}
+.lb-body {
+  max-width: min(880px, 86vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.lb-frame {
+  max-height: 76vh;
+  border: 1px solid rgba(250, 248, 245, 0.25);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: rgba(250, 248, 245, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lb-frame img {
+  max-width: 100%;
+  max-height: 76vh;
+  display: block;
+  object-fit: contain;
+}
+.lb-broken {
+  padding: 60px 40px;
+  color: rgba(250, 248, 245, 0.6);
+  font-size: 13px;
+}
+.lb-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(250, 248, 245, 0.75);
+  font-size: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.lb-dot { opacity: 0.4; }
+.lb-open {
+  margin-left: 10px;
+  background: none;
+  border: 1px solid rgba(250, 248, 245, 0.35);
+  color: rgba(250, 248, 245, 0.85);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lb-open:hover { background: rgba(250, 248, 245, 0.12); }
+.lb-close {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(250, 248, 245, 0.35);
+  background: transparent;
+  color: rgba(250, 248, 245, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lb-close:hover { background: rgba(250, 248, 245, 0.12); }
+.lb-nav {
+  flex-shrink: 0;
+  width: 40px;
+  height: 64px;
+  border: 1px solid rgba(250, 248, 245, 0.3);
+  border-radius: var(--radius);
+  background: transparent;
+  color: rgba(250, 248, 245, 0.85);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lb-nav:hover { background: rgba(250, 248, 245, 0.12); }
 .f-ok-note { font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
 .f-meta { font-size: 11px; margin-top: 6px; }
 .initial-actions { display: flex; gap: 8px; margin-top: 8px; }
@@ -784,23 +1099,109 @@ async function handleViewFile(fileId: string) {
 .dr-comment { font-size: 13px; color: var(--ink); margin-bottom: 6px; }
 .dr-meta { font-size: 11px; }
 
-.d-radios {
+/* ---------- 终审判定选项卡片 ---------- */
+.d-caption {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
   flex-wrap: wrap;
+  gap: 8px;
 }
-.d-rlabel { font-size: 12px; color: var(--ink-soft); font-weight: 600; }
-.d-radio {
+.d-rlabel { font-size: 12px; color: var(--ink-soft); font-weight: 700; letter-spacing: 0.02em; }
+.d-wish-tip { font-size: 11px; color: var(--ink-mute); }
+.d-wish-tip b { color: var(--accent); font-weight: 600; }
+
+.d-options {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.d-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--paper);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.d-option:hover { border-color: var(--ink); }
+.d-option.selected {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink), 0 2px 8px rgba(28, 27, 26, 0.1);
+  background: var(--paper);
+}
+.do-label { font-size: 14px; font-weight: 700; color: var(--ink); }
+.do-en { font-size: 10px; color: var(--ink-mute); letter-spacing: 0.08em; }
+.do-desc { font-size: 11px; color: var(--ink-mute); line-height: 1.5; margin-top: 4px; }
+
+/* 语义色：顶部色条 + 选中态标签色 */
+.d-option::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--line);
+  transition: background 0.15s;
+}
+.d-option.blue::before { background: var(--blue); }
+.d-option.green::before { background: var(--green); }
+.d-option.amber::before { background: var(--amber); }
+.d-option.red::before { background: var(--accent); }
+.d-option.ink::before { background: var(--ink-mute); }
+.d-option.blue.selected .do-label { color: var(--blue); }
+.d-option.green.selected .do-label { color: var(--green); }
+.d-option.amber.selected .do-label { color: var(--amber); }
+.d-option.red.selected .do-label { color: var(--accent); }
+
+/* 选中勾选角标 */
+.do-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  color: transparent;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--ink);
-  cursor: pointer;
+  justify-content: center;
+  transition: all 0.15s;
 }
-.d-radio input { accent-color: var(--ink); cursor: pointer; }
+.d-option.selected .do-check {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+/* 「学生诉求」对齐角标 */
+.do-wish {
+  position: absolute;
+  top: -8px;
+  left: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: var(--accent);
+  color: #faf8f5;
+  letter-spacing: 0.04em;
+}
+
+.input-required { border-color: var(--accent) !important; }
+.input-required::placeholder { color: var(--accent); opacity: 0.75; }
 
 .d-form { display: flex; gap: 12px; }
 .d-form .input { flex: 1; }
@@ -868,5 +1269,11 @@ async function handleViewFile(fileId: string) {
 @media (max-width: 1100px) {
   .obj-layout { grid-template-columns: 1fr; }
   .fact-grid { grid-template-columns: 1fr; }
+  .d-options { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 640px) {
+  .d-options { grid-template-columns: repeat(2, 1fr); }
+  .d-form { flex-direction: column; }
+  .lb-nav { display: none; }
 }
 </style>
