@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatBeijingTime } from '@/utils/datetime'
+import { assignmentWarnings } from '../utils/assignmentWarnings'
 import { ref, computed, watch, onMounted } from 'vue'
 import TaskStatusTag from '../components/TaskStatusTag.vue'
 import TaskDrawer from '../components/TaskDrawer.vue'
@@ -477,12 +478,13 @@ async function handleConfirmAssign() {
   const isChangeReq = (assigningTask.value as any).assignment?.change_request_status === 'PENDING'
   assignSubmitting.value = true
   try {
-    await assignTask(assigningTask.value.id, {
+    const assigned = await assignTask(assigningTask.value.id, {
       volunteer_user_id: selectedVolunteerUserId.value,
       lock_version: assigningTask.value.lock_version || 0,
       reason: assignReason.value || (isChangeReq ? '管理员同意调班并完成改派' : '管理端人工指派志愿者')
     })
     const vol = selectedVolunteer.value
+    if (assigned.operation_warning_codes?.length) ElMessage.warning(assignmentWarnings(assigned.operation_warning_codes))
     if (isChangeReq) {
       ElMessage.success(`调班申请审批通过！任务 #${assigningTask.value.id} 已成功改派给【${vol?.name || '志愿者'}】！`)
     } else {
@@ -502,6 +504,10 @@ async function handleConfirmAssign() {
 
 // ==================== 编辑任务弹窗（方式 A，整合停课免计） ====================
 const editDialogVisible = ref(false)
+const periodLimit = computed(() => sessionStore.campusRuntime?.scheduling ? 60 : 6)
+const periodOptions = computed(() => sessionStore.campusRuntime?.scheduling
+  ? Array.from({ length: 60 }, (_, i) => ({ value: i + 1, label: `第 ${i + 1} 节` }))
+  : PERIOD_PRESET_OPTIONS)
 const editingTask = ref<InspectionTaskItem | null>(null)
 const editForm = ref({
   classroom: '',
@@ -973,6 +979,7 @@ async function handleConfirmCancelFromEdit() {
                   <template v-if="'eligible' in v">
                     <span v-if="(v as any).eligible" class="tag tag-green tag-mini">✅ 可派 (本周{{ (v as any).assigned_count_week || 0 }}节)</span>
                     <span v-else class="tag tag-red tag-mini" :title="(v as any).conflict_message || ''">❌ {{ (v as any).conflict_message || '不可选' }}</span>
+                    <span v-if="v.warning_codes?.length" class="tag tag-mini">{{ assignmentWarnings(v.warning_codes) }}</span>
                   </template>
                   <template v-else>
                     <span v-if="v.has_wechat" class="tag tag-green tag-mini">微信已绑定</span>
@@ -1075,7 +1082,7 @@ async function handleConfirmCancelFromEdit() {
           <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">课程节次时段：</label>
           <el-select v-model="editPeriodPreset" @change="onPeriodPresetChange" style="width: 100%;">
             <el-option
-              v-for="opt in PERIOD_PRESET_OPTIONS"
+              v-for="opt in periodOptions"
               :key="opt.value"
               :label="opt.label"
               :value="opt.value"
@@ -1086,12 +1093,12 @@ async function handleConfirmCancelFromEdit() {
 
         <div v-if="editPeriodPreset === 0" style="display: flex; gap: 12px; margin-bottom: 14px;">
           <div style="flex: 1;">
-            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">开始大节时段 (1-6)：</label>
-            <el-input-number v-model="editForm.start_period" :min="1" :max="6" style="width: 100%;" />
+            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">开始节次（1–{{ periodLimit }}）：</label>
+            <el-input-number v-model="editForm.start_period" :min="1" :max="periodLimit" style="width: 100%;" />
           </div>
           <div style="flex: 1;">
-            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">结束大节时段 (1-6)：</label>
-            <el-input-number v-model="editForm.end_period" :min="editForm.start_period" :max="6" style="width: 100%;" />
+            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">结束节次（1–{{ periodLimit }}）：</label>
+            <el-input-number v-model="editForm.end_period" :min="editForm.start_period" :max="periodLimit" style="width: 100%;" />
           </div>
         </div>
 

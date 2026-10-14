@@ -10,6 +10,8 @@
  * - 大节 6 -> 第 11 节 (20:15 - 21:50, 晚上二)
  */
 
+import { isAcademicScoped } from '../api/workspaceHttp'
+
 export interface PeriodSlotInfo {
   slot: number
   sectionStart: number
@@ -50,6 +52,7 @@ export function formatPeriodText(
   if (start == null && end == null) return '—'
   const s = start ?? end ?? 1
   const e = end ?? start ?? 1
+  if (isAcademicScoped()) return s === e ? `第 ${s} 节` : `第 ${s}-${e} 节`
 
   // 特殊情况：兼容老数据中 10-11 节跨 5..6 或单 6 的情况
   if ((s === 5 && e === 6) || (s === 6 && e === 6) || (s === 10 && e === 11) || (s === 9 && e === 11)) {
@@ -80,6 +83,7 @@ export function formatPeriodText(
  * 仅获取节次对应的时间范围（例如 "08:00 - 09:35"）
  */
 export function getPeriodTimeRange(start?: number | null, end?: number | null): string {
+  if (isAcademicScoped()) return ''
   if (start == null && end == null) return ''
   const s = start ?? end ?? 1
   const e = end ?? start ?? 1

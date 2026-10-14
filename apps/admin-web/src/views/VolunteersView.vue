@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatBeijingTime } from '@/utils/datetime'
+import { assignmentWarnings } from '../utils/assignmentWarnings'
 import { ref, watch, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
@@ -23,7 +24,8 @@ import {
   type AdministrativeClassItem
 } from '../api/academic'
 import { listTasks, type InspectionTaskItem } from '../api/tasks'
-import { request } from '../api/http'
+import { request } from '../api/workspaceHttp'
+import { isAcademicScoped } from '../api/workspaceHttp'
 import { exportBindingTokensExcel, resetStudentBinding } from '../api/auth'
 import AppIcon from '../components/AppIcon.vue'
 import { formatPeriodText } from '../utils/period'
@@ -97,7 +99,7 @@ async function handleDeleteStudent(stu: StudentItem) {
 
   try {
     loading.value = true
-    await deleteStudent(stu.id)
+    await deleteStudent(stu.id, undefined, stu.lock_version)
     ElMessage.success(`学生【${stu.name}】已成功删除`)
     selectedStudentIds.value = selectedStudentIds.value.filter(id => id !== String(stu.id))
     await loadData()
@@ -129,7 +131,9 @@ async function handleBatchDeleteStudents() {
 
   try {
     loading.value = true
-    const res = await batchDeleteStudents(selectedStudentIds.value)
+    const versions = Object.fromEntries(students.value.filter(row => selectedStudentIds.value.includes(row.id) && row.lock_version !== undefined)
+      .map(row => [row.id, row.lock_version!]))
+    const res = await batchDeleteStudents(selectedStudentIds.value, undefined, versions)
     ElMessage.success(`已成功删除 ${res.deleted_count} 名学生底册档案`)
     selectedStudentIds.value = []
     await loadData()
@@ -145,6 +149,13 @@ const adminClassDialogVisible = ref(false)
 const deletingClassId = ref<string | null>(null)
 
 async function handleDeleteAdminClass(cls: AdministrativeClassItem) {
+  if (isAcademicScoped()) {
+    try {
+      await ElMessageBox.confirm(`删除空班级【${cls.class_name}】？存在学籍、名单或历史引用时不会删除，请改为停用。`, '删除行政班', { type: 'warning' })
+      await doDeleteAdminClass(cls, false)
+    } catch { /* 用户取消确认，不执行删除。 */ }
+    return
+  }
   try {
     await ElMessageBox({
       title: `删除行政班级：${cls.class_name}`,
@@ -169,7 +180,7 @@ async function handleDeleteAdminClass(cls: AdministrativeClassItem) {
 async function doDeleteAdminClass(cls: AdministrativeClassItem, cascadeStudents: boolean) {
   try {
     deletingClassId.value = String(cls.id)
-    const res = await deleteAdministrativeClass(cls.id, { cascade_students: cascadeStudents })
+    const res = await deleteAdministrativeClass(cls.id, { cascade_students: cascadeStudents, version: cls.ownership_version })
     ElMessage.success(
       cascadeStudents && res.deleted_students_count > 0
         ? `成功删除班级【${cls.class_name}】，并级联清理了 ${res.deleted_students_count} 名名下学生`
@@ -195,7 +206,7 @@ const adminClassForm = ref({
   class_name: '',
   grade_year: undefined as number | undefined,
   major_name: '',
-  college: '人工智能学院',
+  college: sessionStore.workspace?.name || '',
   head_teacher: '',
   counselor: '',
 })
@@ -208,7 +219,7 @@ function openCreateAdminClassDialog() {
     class_name: '',
     grade_year: new Date().getFullYear(),
     major_name: '',
-    college: '人工智能学院',
+    college: sessionStore.workspace?.name || '',
     head_teacher: '',
     counselor: '',
   }
@@ -222,7 +233,7 @@ function openEditAdminClassDialog(cls: AdministrativeClassItem) {
     class_name: cls.class_name || '',
     grade_year: cls.grade_year ?? undefined,
     major_name: cls.major_name || '',
-    college: cls.college || '人工智能学院',
+    college: sessionStore.workspaceMode ? sessionStore.workspace?.name || '' : cls.college || '',
     head_teacher: cls.head_teacher || '',
     counselor: cls.counselor || '',
   }
@@ -242,6 +253,7 @@ async function handleSaveAdminClass() {
   try {
     if (editingAdminClassId.value) {
       await updateAdministrativeClass(editingAdminClassId.value, {
+        ownership_version: adminClasses.value.find(row => row.id === editingAdminClassId.value)?.ownership_version,
         class_name: adminClassForm.value.class_name.trim(),
         grade_year: adminClassForm.value.grade_year ? Number(adminClassForm.value.grade_year) : undefined,
         major_name: adminClassForm.value.major_name.trim() || undefined,
@@ -331,9 +343,9 @@ const batchExporting = ref(false)
 async function handleBatchExport() {
   batchExporting.value = true
   try {
-    let studentIds: number[] | undefined = undefined
+    let studentIds: string[] | undefined = undefined
     if (batchExportScope.value === 'volunteers') {
-      const volStudentIds = volunteerQuals.value.filter(q => q.enabled).map(q => Number(q.student_id))
+      const volStudentIds = volunteerQuals.value.filter(q => q.enabled).map(q => String(q.student_id))
       studentIds = volStudentIds
     }
     const blob = await exportBindingTokensExcel({
@@ -380,10 +392,10 @@ async function loadData() {
     const stuRes = await listStudents({
       page: currentPage.value,
       page_size: pageSize.value,
-      administrative_class_id: selectedAdminClassId.value ? Number(selectedAdminClassId.value) : undefined,
+      administrative_class_id: selectedAdminClassId.value ? selectedAdminClassId.value : undefined,
       keyword: searchQuery.value.trim() || undefined,
       is_volunteer: filterOnlyVolunteers.value ? true : undefined,
-      semester_id: filterOnlyVolunteers.value ? Number(sessionStore.currentSemesterId) : undefined
+      semester_id: filterOnlyVolunteers.value ? sessionStore.currentSemesterId : undefined
     })
     students.value = stuRes.items || []
     totalStudents.value = stuRes.total || 0
@@ -497,8 +509,9 @@ const stats = computed(() => {
 async function handleToggleVolunteer(student: StudentItem, enabled: boolean) {
   try {
     await upsertVolunteerQualification({
-      semester_id: Number(sessionStore.currentSemesterId),
-      student_id: Number(student.id),
+      semester_id: sessionStore.currentSemesterId,
+      student_id: student.id,
+      student_lock_version: student.lock_version,
       enabled,
       reason: '管理端手动配置资格'
     })
@@ -506,6 +519,7 @@ async function handleToggleVolunteer(student: StudentItem, enabled: boolean) {
     // 重新拉取资质
     const volRes = await listVolunteerQualifications(sessionStore.currentSemesterId)
     volunteerQuals.value = volRes.items || []
+    await loadData()
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '操作失败'
     ElMessage.error(msg)
@@ -577,8 +591,9 @@ async function openAssignDialog(student: StudentItem) {
   if (!boundUser) {
     try {
       await upsertVolunteerQualification({
-        semester_id: Number(sessionStore.currentSemesterId),
-        student_id: Number(student.id),
+        semester_id: sessionStore.currentSemesterId,
+        student_id: student.id,
+      student_lock_version: student.lock_version,
         enabled: true,
         reason: '分配查课任务时确保系统账号就绪'
       })
@@ -618,13 +633,14 @@ async function assignTaskToStudent(task: InspectionTaskItem) {
   if (!assignTargetStudent.value || !assignTargetUser.value) return
   assigning.value = true
   try {
-    await request(`/api/v1/inspection-tasks/${task.id}/assignment`, {
+    const assigned = await request<InspectionTaskItem>(`/api/v1/inspection-tasks/${task.id}/assignment`, {
       method: 'PUT',
       body: JSON.stringify({
-        volunteer_user_id: Number(assignTargetUser.value.id),
+        volunteer_user_id: assignTargetUser.value.id,
         lock_version: task.lock_version || 0
       })
     })
+    if (assigned.operation_warning_codes?.length) ElMessage.warning(assignmentWarnings(assigned.operation_warning_codes))
     ElMessage.success(`已成功将任务 #${task.id} (${task.course_name_snapshot || '查课'}) 指派给 ${assignTargetStudent.value.name} (UID: ${assignTargetUser.value.id})！`)
     assignDialogVisible.value = false
   } catch (err: unknown) {
@@ -659,8 +675,9 @@ async function handleAddConfirm() {
         return
       }
       await upsertVolunteerQualification({
-        semester_id: Number(sessionStore.currentSemesterId),
-        student_id: Number(selectedStudentId.value),
+        semester_id: sessionStore.currentSemesterId,
+        student_id: selectedStudentId.value,
+        student_lock_version: candidateStudents.value.find(row => row.id === selectedStudentId.value)?.lock_version,
         enabled: true,
         reason: '管理端选拔志愿者'
       })
@@ -676,15 +693,16 @@ async function handleAddConfirm() {
       const newStu = await createStudent({
         student_no: newStudentForm.value.student_no.trim(),
         name: newStudentForm.value.name.trim(),
-        administrative_class_id: newStudentForm.value.administrative_class_id ? Number(newStudentForm.value.administrative_class_id) : undefined,
+        administrative_class_id: newStudentForm.value.administrative_class_id ? newStudentForm.value.administrative_class_id : undefined,
         reason: '管理端手动录入'
       })
 
       // 2. 如果勾选设为志愿者
       if (newStudentForm.value.set_as_volunteer) {
         await upsertVolunteerQualification({
-          semester_id: Number(sessionStore.currentSemesterId),
-          student_id: Number(newStu.id),
+          semester_id: sessionStore.currentSemesterId,
+          student_id: newStu.id,
+          student_lock_version: newStu.lock_version,
           enabled: true,
           reason: '新建学生时设为志愿者'
         })

@@ -21,6 +21,7 @@ export function useCampusMutation(collegeId: () => string, changed: () => void) 
       changed()
       return true
     } catch (e) {
+      if (e === 'cancel' || e === 'close') return false
       if (ticket.isCurrent()) ElMessage.error(e instanceof Error ? e.message : '保存失败')
       return false
     } finally { saving.value = false }

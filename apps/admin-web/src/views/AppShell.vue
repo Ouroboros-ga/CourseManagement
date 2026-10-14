@@ -110,6 +110,10 @@ onUnmounted(() => {
 watch(() => route.path, () => {
   fetchBadgeCounts()
 })
+watch(() => sessionStore.workspaceCollegeId, () => {
+  pendingObjectionsCount.value = 0
+  void fetchBadgeCounts()
+})
 
 const currentUser = computed(() => sessionStore.currentUser)
 
@@ -228,7 +232,7 @@ async function handleLogout() {
         <div class="brand-wrap">
           <img :src="schoolLogo" alt="绍兴理工学院校徽" class="brand-logo" />
           <div class="brand-titles">
-            <div class="college-name font-serif">人工智能学院</div>
+            <div class="college-name font-serif">{{ sessionStore.workspace?.name || '学院工作区' }}</div>
             <div class="system-name font-serif">查课管理后台</div>
           </div>
         </div>
@@ -273,6 +277,14 @@ async function handleLogout() {
     <div class="shell-main">
       <!-- 顶部学期周次栏 -->
       <header class="topbar">
+        <div v-if="sessionStore.workspaceMode" class="sem-picker">
+          <select aria-label="业务学院工作区" :value="sessionStore.workspaceCollegeId"
+            @change="event => sessionStore.selectWorkspace((event.target as HTMLSelectElement).value)">
+            <option v-if="!sessionStore.workspaces.length" value="">暂无授权学院</option>
+            <option v-for="row in sessionStore.workspaces" :key="row.id" :value="row.id">{{ row.name }}</option>
+          </select>
+          <button @click="sessionStore.refreshWorkspaces">刷新学院权限</button>
+        </div>
         <div class="term font-mono">
           <!-- 学期选择器 -->
           <div class="sem-picker">
@@ -332,9 +344,10 @@ async function handleLogout() {
       </header>
 
       <main class="main">
+        <el-alert v-if="sessionStore.workspaceError" :title="sessionStore.workspaceError" type="error" :closable="false" />
         <RouterView v-slot="{ Component }">
           <transition name="fade" mode="out-in">
-            <component :is="Component" />
+            <component :is="Component" :key="`${route.path}:${currentUser?.id || ''}:${sessionStore.workspaceCollegeId}:${sessionStore.workspace?.authorization_revision || ''}`" />
           </transition>
         </RouterView>
       </main>

@@ -1,4 +1,4 @@
-import { request } from './http'
+import { isAcademicScoped, request } from './workspaceHttp'
 
 export interface SemesterItem {
   id: string
@@ -24,6 +24,7 @@ export interface TeachingClassItem {
 }
 
 export interface AdministrativeClassItem {
+  ownership_version?: number
   id: string
   class_code: string
   class_name: string
@@ -36,6 +37,7 @@ export interface AdministrativeClassItem {
 }
 
 export interface StudentItem {
+  lock_version?: number
   id: string
   student_no: string
   name: string
@@ -46,6 +48,7 @@ export interface StudentItem {
 }
 
 export interface VolunteerQualificationItem {
+  student_lock_version?: number
   id: string
   semester_id: string
   student_id: string
@@ -135,8 +138,9 @@ export async function listVolunteerQualifications(semesterId: string): Promise<{
 }
 
 export async function upsertVolunteerQualification(payload: {
-  semester_id: number
-  student_id: number
+  student_lock_version?: number
+  semester_id: string | number
+  student_id: string | number
   enabled: boolean
   reason?: string
 }): Promise<VolunteerQualificationItem> {
@@ -178,7 +182,7 @@ export async function listRoleTargets(): Promise<{ items: RoleTargetUser[]; assi
 export async function createStudent(payload: {
   student_no: string
   name: string
-  administrative_class_id?: number
+  administrative_class_id?: string | number
   reason?: string
 }): Promise<StudentItem> {
   return request('/api/v1/academic/students', {
@@ -253,6 +257,7 @@ export async function createAdministrativeClass(payload: {
 export async function updateAdministrativeClass(
   classId: string | number,
   payload: {
+    ownership_version?: number
     class_name?: string
     grade_year?: number | null
     major_name?: string | null
@@ -273,7 +278,7 @@ export async function getMasterTimetable(params: {
   semester_id: string | number
   week_no?: number
   weekday?: number
-  administrative_class_id?: number
+  administrative_class_id?: string | number
   keyword?: string
 }): Promise<{ items: MasterTimetableItem[]; total: number }> {
   const q = new URLSearchParams()
@@ -286,7 +291,7 @@ export async function getMasterTimetable(params: {
 }
 
 export async function batchCreateElectiveCourse(payload: {
-  semester_id: number
+  semester_id: string | number
   course_name: string
   course_code?: string
   teaching_classes: Array<{
@@ -316,9 +321,21 @@ export interface SemesterResetResult {
   cleared_calendar_overrides_count: number
 }
 
+export interface SemesterResetPreview {
+  source_revision: string
+  college_id: string
+  semester_id: string
+  tasks: number
+  schedules: number
+  teaching_classes: number
+  qualifications: number
+}
+export const previewSemesterReset = (semesterId: string) => request<SemesterResetPreview>(
+  `/api/v1/academic/semesters/${encodeURIComponent(semesterId)}/reset-preview`)
+
 export async function resetSemesterData(
   semesterId: string | number,
-  payload: { confirm_name: string; reason?: string }
+  payload: { confirm_name: string; source_revision?: string; reason?: string }
 ): Promise<SemesterResetResult> {
   return request(`/api/v1/academic/semesters/${semesterId}/reset-data`, {
     method: 'POST',
@@ -334,19 +351,21 @@ export interface AdminClassDeleteResult {
 
 export async function deleteAdministrativeClass(
   classId: string | number,
-  params?: { cascade_students?: boolean; reason?: string }
+  params?: { cascade_students?: boolean; reason?: string; version?: number }
 ): Promise<AdminClassDeleteResult> {
   const q = new URLSearchParams()
   if (params?.cascade_students !== undefined) q.set('cascade_students', String(params.cascade_students))
   if (params?.reason) q.set('reason', params.reason)
+  if (params?.version !== undefined) q.set('version', String(params.version))
   return request(`/api/v1/academic/administrative-classes/${classId}?${q.toString()}`, {
     method: 'DELETE'
   })
 }
 
-export async function deleteStudent(studentId: string | number, reason?: string): Promise<void> {
+export async function deleteStudent(studentId: string | number, reason?: string, version?: number): Promise<void> {
   const q = new URLSearchParams()
   if (reason) q.set('reason', reason)
+  if (version !== undefined) q.set('version', String(version))
   return request(`/api/v1/academic/students/${studentId}?${q.toString()}`, {
     method: 'DELETE'
   })
@@ -359,12 +378,15 @@ export interface StudentBatchDeleteResult {
 
 export async function batchDeleteStudents(
   studentIds: (string | number)[],
-  reason?: string
+  reason?: string,
+  versions?: Record<string, number>
 ): Promise<StudentBatchDeleteResult> {
   return request('/api/v1/academic/students/batch-delete', {
     method: 'POST',
-    body: JSON.stringify({
-      student_ids: studentIds.map(Number),
+    body: JSON.stringify(isAcademicScoped() ? {
+      ids: studentIds.map(String), versions: versions || {}, reason
+    } : {
+      student_ids: studentIds.map(String),
       reason
     })
   })
@@ -468,16 +490,7 @@ export async function updateSemester(
 }
 
 export async function exportCourseSchedulesExcel(semesterId: string | number): Promise<Blob> {
-  const token = localStorage.getItem('access_token') || ''
-  const response = await fetch(`/api/v1/course-schedules/export?semester_id=${semesterId}`, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  })
-  if (!response.ok) {
-    throw new Error(`课表导出失败: HTTP ${response.status}`)
-  }
-  return response.blob()
+  return request<Blob>(`/api/v1/course-schedules/export?semester_id=${encodeURIComponent(String(semesterId))}`, {}, false, 'blob')
 }
 
 

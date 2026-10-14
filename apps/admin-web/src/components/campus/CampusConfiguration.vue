@@ -5,7 +5,11 @@ import GroupManager from './GroupManager.vue'
 import CampusAdministration from './CampusAdministration.vue'
 import OwnershipReconciliation from './OwnershipReconciliation.vue'
 import ScopedAcademicBrowser from './ScopedAcademicBrowser.vue'
+import AcademicPublication from './AcademicPublication.vue'
+import CollegeTimeConfiguration from './CollegeTimeConfiguration.vue'
+import CollegeDeadlines from './CollegeDeadlines.vue'
 import StudentHandoff from './StudentHandoff.vue'
+import GroupOperations from './GroupOperations.vue'
 
 const { colleges, collegeId, college, types, groups, error, busy, userId, isSuper, can, reload, loadWorkspaces } = useCampusConfiguration()
 </script>
@@ -13,7 +17,7 @@ const { colleges, collegeId, college, types, groups, error, busy, userId, isSupe
   <section class="campus-page">
     <h1>学院与组织配置</h1>
     <p>维护学院配置、课程分类与志愿者组织。</p>
-    <el-alert title="配置底座阶段：课程类型和组规则尚未接入现有课表及排班，当前仍沿用原业务流程。" type="info" :closable="false" />
+    <el-alert title="启用多学院业务前，请完成存量数据归属核对。作息调整会保留已生成任务的时间快照。" type="info" :closable="false" />
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <div class="toolbar">
       <el-select v-model="collegeId" placeholder="选择学院" :disabled="busy" aria-label="当前学院">
@@ -30,14 +34,27 @@ const { colleges, collegeId, college, types, groups, error, busy, userId, isSupe
         <OwnershipReconciliation :key="`ownership:${userId}`" :colleges="colleges" />
       </el-tab-pane>
       <el-tab-pane v-if="college && ['academic.read', 'student.read', 'volunteer.read'].some(action => can(action))" label="本院基础数据">
-        <ScopedAcademicBrowser :key="`data:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" :capabilities="college.capabilities" />
+        <ScopedAcademicBrowser :key="`data:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" :capabilities="college.capabilities" :course-types="types" />
       </el-tab-pane>
       <el-tab-pane v-if="college && can('student.manage')" label="学生交接与学籍"><StudentHandoff :key="`handoff:${userId}:${collegeId}`" :college-id="collegeId" /></el-tab-pane>
       <el-tab-pane v-if="college && can('academic.course_type.read')" label="课程类型">
         <CourseTypeManager :key="`types:${userId}:${collegeId}`" :college-id="collegeId" :rows="types" :can-manage="can('academic.course_type.manage')" @changed="reload" />
       </el-tab-pane>
+      <el-tab-pane v-if="college && can('academic.manage')" label="教务课表发布">
+        <AcademicPublication :key="`publication:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" />
+      </el-tab-pane>
+      <el-tab-pane v-if="college && can('academic.manage')" label="学院作息与校历">
+        <CollegeTimeConfiguration :key="`time:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" />
+      </el-tab-pane>
       <el-tab-pane v-if="college && can('volunteer.group.read')" label="志愿者组">
         <GroupManager :key="`groups:${userId}:${collegeId}`" :college-id="collegeId" :rows="groups" :types="types" :user-id="userId" :can-manage="can('volunteer.group.manage')" :can-publish="can('volunteer.config.publish')" @changed="reload" />
+      </el-tab-pane>
+      <el-tab-pane v-if="college && can('submission_deadline.read')" label="本院提交截止" lazy>
+        <CollegeDeadlines :key="`deadline:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" :can-manage="can('submission_deadline.manage')" />
+      </el-tab-pane>
+      <el-tab-pane v-if="college && can('volunteer.group.read')" label="组织成员、抽查与排班" lazy>
+        <GroupOperations :key="`operations:${userId}:${collegeId}:${college.authorization_revision}`"
+          :college-id="collegeId" :groups="groups" :capabilities="college.capabilities" :is-super="isSuper" />
       </el-tab-pane>
     </el-tabs>
   </section>

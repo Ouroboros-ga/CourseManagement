@@ -22,5 +22,5 @@ export const previewStudentFile = (college_id: string, file: File, purpose: stri
 export const confirmStudentFile = (plan: DataPlan) => request<DataPlan>(`${root}/student-data/${plan.id}/confirm`, body('POST', { lock_version: plan.lock_version }))
 export const exportStudentFile = (college: string, archive: boolean) => request<Blob>(`${root}/student-data/export?college_id=${college}&include_archive=${archive}`, {}, false, 'blob')
 export interface HandoffTask { id: string; college_id: string | null; inspection_date: string; course_name: string | null; class_name: string | null; expected_count_current: number; roster_review_required: boolean; expected_count_review_required: boolean; lock_version: number }
-export const pendingHandoffTasks = () => request<{ items: HandoffTask[] }>(`${root}/enrollment-handoff/tasks`)
-export const reviewHandoffTask = (task: HandoffTask) => request(`${root}/enrollment-handoff/tasks/${task.id}/review`, body('POST', { lock_version: task.lock_version, confirm_roster: true, confirm_expected_count: true }))
+export const pendingHandoffTasks = (cid: string) => request<{ items: HandoffTask[] }>(`/api/v1/colleges/${encodeURIComponent(cid)}/academic/enrollment-handoff/tasks`)
+export const reviewHandoffTask = (cid: string, task: HandoffTask) => request(`/api/v1/colleges/${encodeURIComponent(cid)}/academic/enrollment-handoff/tasks/${task.id}/review`, body('POST', { lock_version: task.lock_version, confirm_roster: true, confirm_expected_count: true }))

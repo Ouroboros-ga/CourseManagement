@@ -2,11 +2,47 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getMe, login as apiLogin, logout as apiLogout, refresh as apiRefresh, type CurrentUser } from '../api/auth'
 import { listSemesters, type SemesterItem } from '../api/academic'
+import { campusActionLabels, listWorkspaces, type College } from '../api/campus'
+import { request } from '../api/http'
+import { configureWorkspace, type CampusRuntime } from '../api/workspaceHttp'
 
 export const useSessionStore = defineStore('session', () => {
   const currentUser = ref<CurrentUser | null>(null)
   const isRestoring = ref(false)
   const isRestored = ref(false)
+  const campusRuntime = ref<CampusRuntime | null>(null)
+  const workspaces = ref<College[]>([])
+  const workspaceCollegeId = ref('')
+  const workspaceError = ref('')
+  const workspace = computed(() => workspaces.value.find(row => row.id === workspaceCollegeId.value) || null)
+  const workspaceMode = computed(() => !!(campusRuntime.value?.academic_scoped || campusRuntime.value?.business_scoped))
+  let workspaceEpoch = 0
+
+  function selectWorkspace(cid: string) {
+    if (!workspaces.value.some(row => row.id === cid && row.status === 'ACTIVE')) return
+    workspaceCollegeId.value = cid
+    configureWorkspace(campusRuntime.value, cid)
+  }
+
+  async function refreshWorkspaces() {
+    const epoch = ++workspaceEpoch, actorId = currentUser.value?.id
+      configureWorkspace(null, '')
+    workspaceError.value = ''
+    try {
+      const mode = await request<CampusRuntime>('/api/v1/me/campus-runtime')
+      const rows = mode.academic_scoped || mode.business_scoped ? await listWorkspaces() : []
+      if (epoch !== workspaceEpoch || actorId !== currentUser.value?.id) return
+      campusRuntime.value = mode
+      workspaces.value = rows.filter(row => row.status === 'ACTIVE')
+      if (!workspaces.value.some(row => row.id === workspaceCollegeId.value)) workspaceCollegeId.value = workspaces.value[0]?.id || ''
+      configureWorkspace(mode, workspaceCollegeId.value)
+    } catch (e) {
+      if (epoch !== workspaceEpoch) return
+      workspaces.value = []; workspaceCollegeId.value = ''; campusRuntime.value = null
+      configureWorkspace(null, '')
+      workspaceError.value = e instanceof Error ? e.message : '学院权限加载失败'
+    }
+  }
 
   // Academic context
   const semesters = ref<SemesterItem[]>([])
@@ -23,6 +59,9 @@ export const useSessionStore = defineStore('session', () => {
   const permissions = computed(() => new Set(currentUser.value?.permissions || []))
 
   function hasPermission(perm: string): boolean {
+    if (workspaceMode.value && Object.prototype.hasOwnProperty.call(campusActionLabels, perm)) {
+      return !!workspace.value?.capabilities.includes(perm)
+    }
     return permissions.value.has(perm)
   }
 
@@ -129,18 +168,13 @@ export const useSessionStore = defineStore('session', () => {
     try {
       const refreshedToken = await apiRefresh()
       if (!refreshedToken) {
-        if (import.meta.env.DEV) {
-          try {
-            await signIn('admin', 'Passw0rd#1')
-            return true
-          } catch {
-            // fallback
-          }
-        }
         currentUser.value = null
+        workspaces.value = []; workspaceCollegeId.value = ''; campusRuntime.value = null
+        configureWorkspace(null, '')
         return false
       }
       currentUser.value = await getMe()
+      await refreshWorkspaces()
       await fetchAcademicContext()
       return true
     } catch {
@@ -156,6 +190,7 @@ export const useSessionStore = defineStore('session', () => {
     await apiLogin(username, password)
     const user = await getMe()
     currentUser.value = user
+    await refreshWorkspaces()
     await fetchAcademicContext()
     isRestored.value = true
     return user
@@ -166,12 +201,17 @@ export const useSessionStore = defineStore('session', () => {
       await apiLogout()
     } finally {
       currentUser.value = null
+      workspaceEpoch += 1
+      workspaces.value = []; workspaceCollegeId.value = ''; campusRuntime.value = null
+      configureWorkspace(null, '')
       isRestored.value = true
     }
   }
 
   return {
     currentUser,
+    campusRuntime, workspaces, workspace, workspaceCollegeId, workspaceMode, workspaceError,
+    selectWorkspace, refreshWorkspaces,
     isRestoring,
     isRestored,
     semesters,

@@ -3,11 +3,17 @@ import { computed, reactive, shallowRef } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { createGroup, deleteGroup, publishGroup, updateGroup, type CourseType, type GroupConfiguration, type VolunteerGroup } from '../../api/campus'
 import { useCampusMutation } from '../../composables/useCampusMutation'
+import { useConfigurationImpact } from '../../composables/useConfigurationImpact'
 import GroupRuleEditor from './GroupRuleEditor.vue'
 
 const props = defineProps<{ collegeId: string; rows: VolunteerGroup[]; types: CourseType[]; userId: string; canManage: boolean; canPublish: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
 const { saving, run } = useCampusMutation(() => props.collegeId, () => emit('changed'))
+const confirmImpact = useConfigurationImpact(() => props.collegeId)
+const updateExisting = (row: VolunteerGroup, body: Parameters<typeof updateGroup>[2]) => run(async cid => {
+  const revision = await confirmImpact('groups', row.id)
+  return updateGroup(cid, row, body, revision)
+})
 const selected = shallowRef<VolunteerGroup | null>(null)
 const editing = shallowRef(false)
 const configuring = shallowRef(false)
@@ -22,12 +28,15 @@ function edit(row: VolunteerGroup | null) {
 async function save() {
   const row = selected.value
   const body = { ...form }
-  if (await run(cid => row ? updateGroup(cid, row, body) : createGroup(cid, { ...body, owner_user_id: props.userId }))) editing.value = false
+  if (await (row ? updateExisting(row, body) : run(cid => createGroup(cid, { ...body, owner_user_id: props.userId })))) editing.value = false
 }
 async function publish(configuration: GroupConfiguration) {
   const row = selected.value
   if (!row) return
-  if (await run(cid => publishGroup(cid, row, configuration))) configuring.value = false
+  if (await run(async cid => {
+    const revision = await confirmImpact('groups', row.id)
+    return publishGroup(cid, row, configuration, revision)
+  })) configuring.value = false
 }
 async function remove(row: VolunteerGroup) {
   try {
@@ -47,7 +56,7 @@ async function remove(row: VolunteerGroup) {
       <template #default="{ row }">
         <el-button v-if="canManage" link :disabled="saving" @click="edit(row)">编辑</el-button>
         <el-button v-if="canPublish" link :disabled="saving" @click="selected = row; configuring = true">范围与规则</el-button>
-        <el-button v-if="canManage" link :disabled="saving" @click="run(cid => updateGroup(cid, row, { status: row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }))">{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button>
+        <el-button v-if="canManage" link :disabled="saving" @click="updateExisting(row, { status: row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' })">{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button>
         <el-button v-if="canManage" link type="danger" :disabled="saving" @click="remove(row)">删除</el-button>
       </template>
     </el-table-column>

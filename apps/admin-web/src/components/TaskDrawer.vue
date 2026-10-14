@@ -7,6 +7,7 @@ import { useSessionStore } from '../stores/session'
 import TaskStatusTag from './TaskStatusTag.vue'
 import AppIcon from './AppIcon.vue'
 import { formatPeriodText } from '../utils/period'
+import { formatBeijingTime } from '../utils/datetime'
 import { ElMessage } from 'element-plus'
 
 interface Props {
@@ -242,6 +243,8 @@ const close = () => {
           <div>
             <span class="d-label">时间节次</span>
             <p class="d-value">{{ formatPeriodText(task.start_period, task.end_period) }}</p>
+            <p v-if="task.activity_start_at && task.activity_end_at" class="d-value">{{ formatBeijingTime(task.activity_start_at, 'minute') }} — {{ formatBeijingTime(task.activity_end_at, 'minute') }}</p>
+            <p v-else-if="sessionStore.campusRuntime?.scheduling" class="d-value">历史实际时间未确认</p>
           </div>
           <div>
             <span class="d-label">上课教室</span>

@@ -1,4 +1,4 @@
-import { request } from './http'
+import { request } from './workspaceHttp'
 
 export type AttendanceType = 'NORMAL' | 'LEAVE' | 'LATE' | 'ABSENT'
 export type AttendanceSourceType = 'SUBMISSION' | 'CORRECTION' | 'OBJECTION_FINAL'

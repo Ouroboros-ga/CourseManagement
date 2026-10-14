@@ -5,6 +5,10 @@ export interface ScopedAcademicRow { id: string; ownership_version?: number; [fi
 export interface ScopedAcademicPage { items: ScopedAcademicRow[]; total: number; page: number; page_size: number }
 export interface ScopedClassBody { class_code?: string; class_name: string; grade_year?: number | null; reason?: string; ownership_version?: number }
 const root = (cid: string) => `/api/v1/colleges/${encodeURIComponent(cid)}/academic`
+export const setTeachingClassType = (cid: string, id: string, typeId: string, version: number, revision: string) =>
+  request<ScopedAcademicRow>(`${root(cid)}/teaching-classes/${encodeURIComponent(id)}/course-type`, {
+    method: 'PUT', body: JSON.stringify({ course_type_id: typeId, classification_revision: version, future_impact_revision: revision })
+  })
 export function listScopedAcademic(cid: string, kind: ScopedAcademicKind, page: number, keyword: string) {
   const query = new URLSearchParams({ page: String(page), page_size: '20', keyword })
   return request<ScopedAcademicPage>(`${root(cid)}/${kind}?${query}`)

@@ -1,6 +1,10 @@
-import { request } from './http'
+import { request } from './workspaceHttp'
 
 export interface InspectionTaskItem {
+  activity_start_at?: string | null
+  activity_end_at?: string | null
+  time_snapshot?: Record<string, unknown> | null
+  operation_warning_codes?: string[]
   id: string
   task_key: string
   semester_id: string
@@ -173,7 +177,7 @@ export interface AutoAssignResult {
   target_task_count: number
   assigned_count: number
   unassigned_count: number
-  assigned: Array<{ task_id: string; volunteer_user_id: string }>
+  assigned: Array<{ task_id: string; volunteer_user_id: string; warning_codes?: string[] }>
   unassigned: Array<{ task_id: string; reason_code: string; message: string }>
 }
 
@@ -187,16 +191,16 @@ export async function triggerAutoAssign(body: {
   reason?: string
 }): Promise<AutoAssignResult> {
   const payload: Record<string, unknown> = {
-    semester_id: Number(body.semester_id)
+    semester_id: String(body.semester_id)
   }
   if (body.task_ids && body.task_ids.length > 0) {
-    payload.task_ids = body.task_ids.map(Number)
+    payload.task_ids = body.task_ids.map(String)
   }
   if (body.inspection_date) payload.inspection_date = body.inspection_date
   if (body.date_from) payload.date_from = body.date_from
   if (body.date_to) payload.date_to = body.date_to
   if (body.candidate_user_ids && body.candidate_user_ids.length > 0) {
-    payload.candidate_user_ids = body.candidate_user_ids.map(Number)
+    payload.candidate_user_ids = body.candidate_user_ids.map(String)
   }
   if (body.reason) payload.reason = body.reason
 
@@ -286,7 +290,7 @@ export async function batchDeleteTasks(body: {
   return request<{ deleted_count: number; deleted_ids: string[] }>('/api/v1/inspection-tasks/batch-delete', {
     method: 'POST',
     body: JSON.stringify({
-      task_ids: body.task_ids.map(Number),
+      task_ids: body.task_ids.map(String),
       reason: body.reason,
       force: body.force || false
     })
@@ -294,6 +298,7 @@ export async function batchDeleteTasks(body: {
 }
 
 export interface SemesterVolunteerItem {
+  warning_codes?: string[]
   user_id: string
   student_id: string
   student_no: string
@@ -333,6 +338,7 @@ export async function cancelTask(
 }
 
 export interface TaskCandidateVolunteerItem extends SemesterVolunteerItem {
+  warning_codes?: string[]
   eligible: boolean
   conflict_code?: string | null
   conflict_message?: string | null

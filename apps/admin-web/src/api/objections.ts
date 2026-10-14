@@ -1,4 +1,4 @@
-import { request } from './http'
+import { request } from './workspaceHttp'
 import type { AttendanceType } from './attendance'
 
 export type ObjectionType = AttendanceType

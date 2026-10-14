@@ -1,4 +1,4 @@
-import { request } from './http'
+import { request } from './workspaceHttp'
 
 export interface ImportPreviewResult {
   id: string

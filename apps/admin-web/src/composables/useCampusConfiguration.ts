@@ -6,7 +6,7 @@ import { getCollegeCapabilities, listCourseTypes, listGroups, listWorkspaces, ty
 export function useCampusConfiguration() {
   const session = useSessionStore()
   const colleges = ref<College[]>([])
-  const collegeId = shallowRef('')
+  const collegeId = shallowRef(session.workspaceCollegeId || '')
   const college = ref<College | null>(null)
   const types = ref<CourseType[]>([])
   const groups = ref<VolunteerGroup[]>([])
@@ -56,11 +56,15 @@ export function useCampusConfiguration() {
   }
   watch(userId, () => {
     workspaceEpoch.invalidate(); epoch.invalidate()
-    colleges.value = []; college.value = null; collegeId.value = ''
+    colleges.value = []; college.value = null; collegeId.value = session.workspaceCollegeId || ''
     types.value = []; groups.value = []; busy.value = false; error.value = ''
     if (userId.value) void loadWorkspaces()
   }, { immediate: true })
-  watch(collegeId, () => { busy.value = false; void reload() })
+  watch(() => session.workspaceCollegeId, value => { if (value) collegeId.value = value })
+  watch(collegeId, value => {
+    if (session.workspaceMode && colleges.value.some(row => row.id === value && row.status === 'ACTIVE')) session.selectWorkspace(value)
+    busy.value = false; void reload()
+  })
   onUnmounted(() => { epoch.invalidate(); workspaceEpoch.invalidate() })
   return { colleges, collegeId, college, types, groups, error, busy, userId, isSuper, can, reload, loadWorkspaces }
 }

@@ -1,4 +1,5 @@
-import { request, getAccessToken } from './http'
+import { getAccessToken } from './http'
+import { request, workspaceUrl } from './workspaceHttp'
 
 export interface ReportSummaryItem {
   report_id: string
@@ -206,7 +207,7 @@ export async function exportAttendanceAnalytics(params: {
   if (params.date_from) query.set('date_from', params.date_from)
   if (params.date_to) query.set('date_to', params.date_to)
 
-  const res = await fetch(`/api/v1/statistics/attendance/export?${query.toString()}`, {
+  const res = await fetch(workspaceUrl(`/api/v1/statistics/attendance/export?${query.toString()}`), {
     method: 'GET',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -248,7 +249,7 @@ export async function exportAttendanceDetailWord(params: {
   if (params.date_from) query.set('date_from', params.date_from)
   if (params.date_to) query.set('date_to', params.date_to)
 
-  const res = await fetch(`/api/v1/statistics/attendance/export-detail-doc?${query.toString()}`, {
+  const res = await fetch(workspaceUrl(`/api/v1/statistics/attendance/export-detail-doc?${query.toString()}`), {
     method: 'GET',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -295,7 +296,7 @@ export async function exportStudyAttendanceExcel(params: {
   if (params.date_from) query.set('date_from', params.date_from)
   if (params.date_to) query.set('date_to', params.date_to)
 
-  const res = await fetch(`/api/v1/statistics/attendance/export-study-excel?${query.toString()}`, {
+  const res = await fetch(workspaceUrl(`/api/v1/statistics/attendance/export-study-excel?${query.toString()}`), {
     method: 'GET',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -334,7 +335,7 @@ export async function downloadReportVersionFile(
   kind: 'EXCEL' | 'SNAPSHOT' | 'WORD' | 'DETAIL_WORD' | 'STUDY_EXCEL' = 'EXCEL'
 ): Promise<{ blob: Blob; filename: string }> {
   const token = getAccessToken()
-  const res = await fetch(`/api/v1/report-versions/${versionId}/download?kind=${kind}`, {
+  const res = await fetch(workspaceUrl(`/api/v1/report-versions/${versionId}/download?kind=${kind}`), {
     method: 'GET',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {})

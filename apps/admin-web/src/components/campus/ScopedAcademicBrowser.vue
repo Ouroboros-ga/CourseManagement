@@ -1,11 +1,25 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
-import { type ScopedAcademicKind, type ScopedAcademicRow } from '../../api/scopedAcademic'
+import { setTeachingClassType, type ScopedAcademicKind, type ScopedAcademicRow } from '../../api/scopedAcademic'
+import type { CourseType } from '../../api/campus'
+import { useCampusMutation } from '../../composables/useCampusMutation'
+import { useConfigurationImpact } from '../../composables/useConfigurationImpact'
 import { useScopedAcademicData } from '../../composables/useScopedAcademicData'
 import ScopedClassEditor from './ScopedClassEditor.vue'
 
-const props = defineProps<{ collegeId: string; capabilities: string[] }>()
+const props = withDefaults(defineProps<{ collegeId: string; capabilities: string[]; courseTypes?: CourseType[] }>(), { courseTypes: () => [] })
 const { options, kind, page, keyword, rows, total, busy, error, load, search } = useScopedAcademicData(() => props.collegeId, () => props.capabilities)
+const { saving, run } = useCampusMutation(() => props.collegeId, () => { void load() })
+const confirmImpact = useConfigurationImpact(() => props.collegeId)
+const canClassify = computed(() => props.capabilities.includes('academic.manage'))
+function classify(row: ScopedAcademicRow, typeId: string) {
+  if (!canClassify.value || row.course_type_id === typeId) return
+  void run(async cid => {
+    if (typeof row.classification_revision !== 'number') throw new Error('分类版本缺失，请刷新教学班')
+    const revision = await confirmImpact('teaching-classes', row.id)
+    return setTeachingClassType(cid, row.id, typeId, row.classification_revision, revision)
+  })
+}
 const opened = shallowRef(false)
 const editing = shallowRef<ScopedAcademicRow | null>(null)
 const canManageClasses = computed(() => props.capabilities.includes('academic.manage') && kind.value === 'administrative-classes')
@@ -40,6 +54,14 @@ function formatField(row: ScopedAcademicRow, column: { property: string }) {
   </div>
   <el-table :data="rows" v-loading="busy" empty-text="当前学院没有符合条件的数据">
     <el-table-column v-for="column in columns" :key="column.prop" :prop="column.prop" :label="column.label" :formatter="formatField" />
+    <el-table-column v-if="kind === 'teaching-classes'" label="课程类型" min-width="180">
+      <template #default="{ row }">
+        <el-select v-if="canClassify" :model-value="row.course_type_id" placeholder="尚未分类" :disabled="saving" @update:model-value="(value: string) => classify(row, value)">
+          <el-option v-for="type in courseTypes" :key="type.id" :value="type.id" :label="type.name" :disabled="type.status !== 'ACTIVE'" />
+        </el-select>
+        <span v-else>{{ courseTypes.find(type => type.id === row.course_type_id)?.name || '尚未分类' }}</span>
+      </template>
+    </el-table-column>
     <el-table-column v-if="canManageClasses" label="操作" width="100"><template #default="{ row }"><el-button link @click="edit(row)">编辑</el-button></template></el-table-column>
   </el-table>
   <el-pagination v-model:current-page="page" :total="total" :page-size="20" layout="prev, pager, next, total" />

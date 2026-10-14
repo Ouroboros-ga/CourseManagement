@@ -3,10 +3,16 @@ import { reactive, shallowRef } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { createCourseType, updateCourseType, deleteCourseType, type CourseType } from '../../api/campus'
 import { useCampusMutation } from '../../composables/useCampusMutation'
+import { useConfigurationImpact } from '../../composables/useConfigurationImpact'
 
 const props = defineProps<{ collegeId: string; rows: CourseType[]; canManage: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
 const { saving, run } = useCampusMutation(() => props.collegeId, () => emit('changed'))
+const confirmImpact = useConfigurationImpact(() => props.collegeId)
+const updateExisting = (row: CourseType, body: Partial<CourseType>) => run(async cid => {
+  const revision = await confirmImpact('course-types', row.id)
+  return updateCourseType(cid, row, body, revision)
+})
 const editing = shallowRef<CourseType | null>(null)
 const opened = shallowRef(false)
 const form = reactive({ name: '', description: '', display_color: '#409EFF', sort_order: 0 })
@@ -18,7 +24,7 @@ function edit(row: CourseType | null) {
 async function save() {
   const row = editing.value
   const body = { ...form }
-  if (await run(cid => row ? updateCourseType(cid, row, body) : createCourseType(cid, body))) opened.value = false
+  if (await (row ? updateExisting(row, body) : run(cid => createCourseType(cid, body)))) opened.value = false
 }
 async function remove(row: CourseType) {
   const cid = props.collegeId
@@ -39,7 +45,7 @@ async function remove(row: CourseType) {
     <el-table-column v-if="canManage" label="操作" width="220">
       <template #default="{ row }">
         <el-button link :disabled="saving" @click="edit(row)">编辑</el-button>
-        <el-button link :disabled="saving" @click="run(cid => updateCourseType(cid, row, { status: row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }))">{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button>
+        <el-button link :disabled="saving" @click="updateExisting(row, { status: row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' })">{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button>
         <el-button link type="danger" :disabled="saving" @click="remove(row)">删除</el-button>
       </template>
     </el-table-column>

@@ -1,4 +1,4 @@
-import { request } from './http'
+import { request } from './workspaceHttp'
 
 export interface AbnormalStudentItem {
   student_id: string
@@ -126,7 +126,7 @@ export async function batchReviewSubmissions(payload: {
     method: 'POST',
     body: JSON.stringify({
       ...payload,
-      submission_ids: payload.submission_ids.map(id => Number(id))
+      submission_ids: payload.submission_ids.map(String)
     })
   })
 }

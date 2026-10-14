@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import {
@@ -7,6 +7,8 @@ import {
   createSemester,
   updateSemester,
   resetSemesterData,
+  previewSemesterReset,
+  type SemesterResetPreview,
   listPeriodDefinitions,
   upsertPeriodDefinition,
   deletePeriodDefinition,
@@ -18,6 +20,7 @@ import {
   type CalendarOverrideItem
 } from '../api/academic'
 import AppIcon from '../components/AppIcon.vue'
+import { ContextEpoch } from '../utils/contextEpoch'
 
 const sessionStore = useSessionStore()
 
@@ -242,14 +245,29 @@ async function handleToggleArchive(sem: SemesterItem) {
 const showResetSemesterDialog = ref(false)
 const resetConfirmName = ref('')
 const resetSubmitting = ref(false)
+const resetPreview = ref<SemesterResetPreview | null>(null)
+const resetPreviewLoading = ref(false)
+const resetEpoch = new ContextEpoch(() => `${sessionStore.currentUser?.id}:${sessionStore.workspaceCollegeId}:${sessionStore.currentSemesterId}`)
+onUnmounted(() => resetEpoch.invalidate())
 
-function openResetSemesterDialog() {
+async function openResetSemesterDialog() {
   resetConfirmName.value = ''
+  resetPreview.value = null
   showResetSemesterDialog.value = true
+  if (!sessionStore.workspaceMode || !sessionStore.currentSemesterId) return
+  const ticket = resetEpoch.begin(), sid = sessionStore.currentSemesterId
+  resetPreviewLoading.value = true
+  try {
+    const result = await previewSemesterReset(sid)
+    if (ticket.isCurrent()) resetPreview.value = result
+  } catch (e) {
+    if (ticket.isCurrent()) ElMessage.error(e instanceof Error ? e.message : '重置预览失败')
+  } finally { if (ticket.isCurrent()) resetPreviewLoading.value = false }
 }
 
 async function handleResetSemesterData() {
   if (!sessionStore.currentSemesterId) return
+  if (sessionStore.workspaceMode && !resetPreview.value) { ElMessage.warning('请先完成本院重置预览'); return }
   if (resetConfirmName.value.trim() !== (sessionStore.currentSemesterName || '').trim()) {
     ElMessage.warning(`输入的学期名称与当前学期名称【${sessionStore.currentSemesterName}】不一致，请仔细核对`)
     return
@@ -259,6 +277,7 @@ async function handleResetSemesterData() {
   try {
     const res = await resetSemesterData(sessionStore.currentSemesterId, {
       confirm_name: resetConfirmName.value.trim(),
+      source_revision: resetPreview.value?.source_revision,
       reason: '管理员在平台设置模块重置本学期排课与任务业务数据'
     })
     ElMessageBox.alert(
@@ -278,6 +297,7 @@ async function handleResetSemesterData() {
     await sessionStore.fetchAcademicContext()
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '重置学期数据失败'
+    resetPreview.value = null
     ElMessage.error(msg)
   } finally {
     resetSubmitting.value = false
@@ -786,7 +806,7 @@ onMounted(async () => {
             <span>高危操作：清空当前学期排课与任务业务数据</span>
           </div>
           <div class="b-desc">
-            此操作将彻底清空当前学期（{{ sessionStore.currentSemesterName }}）所有查课任务、排班分配及课表节次。
+            此操作将清空{{ sessionStore.workspaceMode ? `学院【${sessionStore.workspace?.name || '未选择'}】` : '' }}当前学期（{{ sessionStore.currentSemesterName }}）的查课任务、排班分配及课表节次。
             <b>学生底册档案、行政班级及公共课程库完整保留</b>。重置后学期变为空白，可在课表中心重新整包导入。
           </div>
         </div>
@@ -1053,19 +1073,22 @@ onMounted(async () => {
 
     <!-- 弹窗 3: 高危重置确认 -->
     <el-dialog v-model="showResetSemesterDialog" title="高危操作：重置当前学期排课与任务数据" width="560px">
+      <p v-if="resetPreviewLoading">正在读取本院重置预览…</p>
+      <p v-if="resetPreview">本次影响：{{ resetPreview.tasks }} 项任务、{{ resetPreview.schedules }} 条排课、{{ resetPreview.teaching_classes }} 个教学班、{{ resetPreview.qualifications }} 项资格。预览后资料变化将整批拒绝。</p>
       <div class="space-y-3 text-sm">
         <div class="banner banner-warn" style="border-left: 4px solid var(--accent);">
           <div>
             <div class="b-title" style="color: var(--accent);">警告：此操作不可撤销！</div>
             <p class="b-desc">
-              重置操作将彻底物理清空【{{ sessionStore.currentSemesterName }}】的所有排课与查课数据：
+              重置操作将物理清空{{ sessionStore.workspaceMode ? `学院【${sessionStore.workspace?.name || '未选择'}】` : '' }}【{{ sessionStore.currentSemesterName }}】的排课与查课数据；存在范围外历史引用时整批拒绝：
             </p>
             <ul class="text-xs list-disc list-inside mt-1 space-y-0.5 text-[var(--ink-soft)]">
               <li>所有查课任务、排班分配及点名名单快照</li>
               <li>所有课表排课节次（含各周上课安排）</li>
               <li>所有教学班及选课名单关系</li>
               <li>所有志愿者本学期资质认定</li>
-              <li>所有校历停补课覆盖设置</li>
+              <li v-if="!sessionStore.workspaceMode">所有校历停补课覆盖设置</li>
+              <li v-else>保留学校共享配置、正式发布快照和个人课表</li>
             </ul>
             <div class="mt-2 text-xs font-semibold text-[var(--ink)]">
               安全保留：学生基础底册档案、行政班级及课程公共库完整保留。
@@ -1090,7 +1113,7 @@ onMounted(async () => {
           <button class="btn btn-ghost" @click="showResetSemesterDialog = false">取消</button>
           <button
             class="btn btn-accent inline-flex items-center gap-1.5"
-            :disabled="resetSubmitting || resetConfirmName.trim() !== (sessionStore.currentSemesterName || '').trim()"
+              :disabled="resetSubmitting || resetPreviewLoading || (sessionStore.workspaceMode && !resetPreview) || resetConfirmName.trim() !== (sessionStore.currentSemesterName || '').trim()"
             @click="handleResetSemesterData"
           >
             <AppIcon name="trash" :size="14" />

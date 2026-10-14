@@ -28,7 +28,7 @@ function impactText(value: Record<string, unknown>) {
 }
 async function loadPending() {
   const cid = props.collegeId
-  try { const response = await pendingHandoffTasks(); if (props.collegeId === cid) pendingTasks.value = response.items.filter(t => t.college_id === cid) }
+  try { const response = await pendingHandoffTasks(cid); if (props.collegeId === cid) pendingTasks.value = response.items }
   catch (e) { error.value = e instanceof Error ? e.message : '复核列表加载失败' }
 }
 async function loadTargetClasses() {
@@ -37,7 +37,7 @@ async function loadTargetClasses() {
   catch (e) { error.value = e instanceof Error ? e.message : '目标班级加载失败' }
 }
 async function review(task: HandoffTask) {
-  try { await ElMessageBox.confirm('请先在任务详情核对冻结名单和当前应到人数。确认后沿用现有名单与人数，并解除提交等待；不会改写历史快照。', '确认任务交接'); await reviewHandoffTask(task); await loadPending() }
+  try { await ElMessageBox.confirm('请先在任务详情核对冻结名单和当前应到人数。确认后沿用现有名单与人数，并解除提交等待；不会改写历史快照。', '确认任务交接'); await reviewHandoffTask(props.collegeId, task); await loadPending() }
   catch (e) { if (e instanceof Error) error.value = e.message }
 }
 let command: EnrollmentCommand | null = null

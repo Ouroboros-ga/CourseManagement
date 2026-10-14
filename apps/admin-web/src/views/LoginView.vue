@@ -43,7 +43,7 @@ async function handleLogin() {
       <div class="login-brand-header">
         <img :src="schoolLogo" alt="绍兴理工学院校徽" class="brand-school-logo" />
         <div class="brand-text">
-          <div class="college-title font-serif">绍兴理工学院 · 人工智能学院</div>
+          <div class="college-title font-serif">绍兴理工学院</div>
           <div class="college-sub font-mono">Shaoxing Institute of Technology</div>
         </div>
       </div>
@@ -78,7 +78,7 @@ async function handleLogin() {
         <div class="form-header">
           <img :src="schoolLogo" alt="绍兴理工学院校徽" class="form-school-logo" />
           <div class="form-header-text">
-            <div class="school-name font-serif">绍兴理工学院 · 人工智能学院</div>
+            <div class="school-name font-serif">绍兴理工学院</div>
             <div class="platform-name font-mono">Shaoxing Institute of Technology</div>
           </div>
         </div>
