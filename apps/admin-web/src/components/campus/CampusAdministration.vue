@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { listTeacherAccounts, type TeacherAccountItem } from '../../api/accounts'
-import { campusActionLabels, createCollege, createGrant, createSchool, listGrants, listSchools, revokeGrant, updateCollege, type College, type School, type ScopedGrant } from '../../api/campus'
+import { createCollege, createSchool, listSchools, updateCollege, type College, type School } from '../../api/campus'
 import { useCampusMutation } from '../../composables/useCampusMutation'
+import TeacherCollegeEditor from './TeacherCollegeEditor.vue'
 import { ContextEpoch } from '../../utils/contextEpoch'
 
 const props = defineProps<{ college: College | null }>()
@@ -11,26 +12,18 @@ const emit = defineEmits<{ changed: [] }>()
 const { saving, run } = useCampusMutation(() => props.college?.id || '', () => { emit('changed'); void load() })
 const schools = ref<School[]>([])
 const teachers = ref<TeacherAccountItem[]>([])
-const grants = ref<ScopedGrant[]>([])
 const error = ref('')
 const basic = reactive({ schoolName: '', schoolCode: '', collegeName: '', collegeCode: '', renamed: props.college?.name || '' })
-const authorization = reactive({ userId: '', actions: [] as string[], expiry: '' })
 const epoch = new ContextEpoch(() => props.college?.id || '')
-const names = computed(() => new Map(teachers.value.map(row => [row.id, row.display_name])))
 async function load(query = '') {
   const ticket = epoch.begin()
   try {
-    const [schoolRows, accounts, grantRows] = await Promise.all([
-      listSchools(), listTeacherAccounts({ page_size: 100, status: 'ACTIVE', query }),
-      props.college ? listGrants(props.college.id) : Promise.resolve([])
+    const [schoolRows, accounts] = await Promise.all([
+      listSchools(), listTeacherAccounts({ page_size: 100, status: 'ACTIVE', query })
     ])
     if (!ticket.isCurrent()) return
-    schools.value = schoolRows; teachers.value = accounts.items; grants.value = grantRows; error.value = ''
+    schools.value = schoolRows; teachers.value = accounts.items; error.value = ''
   } catch (e) { if (ticket.isCurrent()) error.value = e instanceof Error ? e.message : '加载失败' }
-}
-async function addGrant() {
-  const expires = authorization.expiry ? new Date(authorization.expiry).toISOString() : null
-  await run(cid => createGrant(cid, authorization.userId, [...authorization.actions], expires))
 }
 async function toggleCollege() {
   const row = props.college
@@ -64,19 +57,7 @@ onUnmounted(() => epoch.invalidate())
       <el-button :disabled="saving || !basic.renamed.trim()" @click="run(cid => updateCollege(cid, { name: basic.renamed, lock_version: college!.lock_version }))">保存名称</el-button>
       <el-button :disabled="saving" @click="toggleCollege">{{ college.status === 'ACTIVE' ? '停用学院' : '恢复学院' }}</el-button>
     </div>
-    <h3>本学院配置授权</h3>
-    <el-form label-width="90px">
-      <el-form-item label="教师账号"><el-select v-model="authorization.userId" filterable remote :remote-method="load" placeholder="搜索教师姓名或账号"><el-option v-for="row in teachers" :key="row.id" :value="row.id" :label="`${row.display_name}（${row.username}）`" /></el-select></el-form-item>
-      <el-form-item label="操作能力"><el-checkbox-group v-model="authorization.actions"><el-checkbox v-for="(label, action) in campusActionLabels" :key="action" :value="action">{{ label }}</el-checkbox></el-checkbox-group></el-form-item>
-      <el-form-item label="有效期结束"><el-date-picker v-model="authorization.expiry" type="datetime" placeholder="为空则长期有效" /></el-form-item>
-      <el-button type="primary" :loading="saving" :disabled="college.status !== 'ACTIVE' || !authorization.userId || !authorization.actions.length" @click="addGrant">授予本学院能力</el-button>
-    </el-form>
-    <el-table :data="grants">
-      <el-table-column label="被授权人"><template #default="{ row }">{{ names.get(row.user_id) || '账号不在当前搜索结果' }}</template></el-table-column>
-      <el-table-column label="能力"><template #default="{ row }">{{ row.actions.map((a: string) => campusActionLabels[a] || a).join('、') }}</template></el-table-column>
-      <el-table-column label="状态"><template #default="{ row }">{{ row.status === 'ACTIVE' ? '有效（以起止时间为准）' : '撤销' }}</template></el-table-column>
-      <el-table-column label="操作"><template #default="{ row }"><el-button v-if="row.status === 'ACTIVE'" link type="danger" :disabled="saving" @click="run(cid => revokeGrant(cid, row))">撤销授权</el-button></template></el-table-column>
-    </el-table>
+    <TeacherCollegeEditor :teachers="teachers" :college-id="college.id" @changed="emit('changed')" />
   </template>
 </template>
 <style scoped>

@@ -18,6 +18,7 @@ from app.modules.attendance.models import (
     AttendanceRecord,
     AttendanceRecordVersion,
 )
+from app.modules.identity.query_scope import get_scoped
 from app.modules.inspection.models import InspectionTask, SubmissionFile, TaskRosterMember
 
 
@@ -46,12 +47,10 @@ class AttendanceRepository:
 
     # ---- 单条读 / 锁定读 ----
     def get_record(self, record_id: int) -> AttendanceRecord | None:
-        return self._session.get(AttendanceRecord, record_id)
+        return get_scoped(self._session, AttendanceRecord, record_id)
 
     def get_record_for_update(self, record_id: int) -> AttendanceRecord | None:
-        stmt = _for_update(
-            select(AttendanceRecord).where(AttendanceRecord.id == record_id)
-        )
+        stmt = _for_update(select(AttendanceRecord).where(AttendanceRecord.id == record_id))
         return self._session.execute(stmt).scalar_one_or_none()
 
     # ---- 列表（管理全量 / 本人 student_id；可按任务、学期、认定类型过滤）----
@@ -77,9 +76,7 @@ class AttendanceRepository:
         if task_id is not None:
             stmt = stmt.where(AttendanceRecord.task_id == task_id)
         if semester_id is not None:
-            task_subq = select(InspectionTask.id).where(
-                InspectionTask.semester_id == semester_id
-            )
+            task_subq = select(InspectionTask.id).where(InspectionTask.semester_id == semester_id)
             stmt = stmt.where(AttendanceRecord.task_id.in_(task_subq))
         stmt = stmt.order_by(AttendanceRecord.id.desc())
         return _paged(self._session, stmt, params)
@@ -103,7 +100,8 @@ class AttendanceRepository:
         if not record_ids:
             return {}
         rows = self._session.execute(
-            attendance_photo_query().where(AttendanceRecord.id.in_(record_ids))
+            attendance_photo_query()
+            .where(AttendanceRecord.id.in_(record_ids))
             .order_by(SubmissionFile.file_id)
         ).all()
         result: dict[int, list[str]] = {}
@@ -115,9 +113,11 @@ class AttendanceRepository:
         ids = list(task_ids)
         if not ids:
             return {}
-        rows = self._session.execute(
-            select(InspectionTask).where(InspectionTask.id.in_(ids))
-        ).scalars().all()
+        rows = (
+            self._session.execute(select(InspectionTask).where(InspectionTask.id.in_(ids)))
+            .scalars()
+            .all()
+        )
         return {t.id: t for t in rows}
 
     def map_roster_display(

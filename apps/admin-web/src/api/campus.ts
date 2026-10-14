@@ -37,6 +37,7 @@ export const campusActionLabels: Record<string, string> = {
 const path = (cid: string, suffix = '') => `/api/v1/colleges/${encodeURIComponent(cid)}${suffix}`
 const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) })
 export const listWorkspaces = () => request<College[]>('/api/v1/me/workspaces')
+export const listScopedData = (cid: string, kind: string, params: { query?: string; page_size?: number }) => request<{ items: Record<string, unknown>[]; total: number }>(path(cid, `/academic/${kind}?${new URLSearchParams({ keyword: params.query || '', page_size: String(params.page_size || 100) })}`))
 export const getCollegeCapabilities = (cid: string) => request<College>(path(cid, '/capabilities'))
 export const listSchools = () => request<School[]>('/api/v1/schools')
 export const createSchool = (name: string, code: string) => request<School>('/api/v1/schools', json('POST', { name, code }))

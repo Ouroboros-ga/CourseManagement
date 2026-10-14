@@ -32,16 +32,14 @@ from app.modules.inspection.schemas import (
     ExpectedCountUpdateRequest,
     InspectionGenerateRequest,
     InspectionTaskUpdateRequest,
-    SmartSampleRequest,
     ReviewStatusLiteral,
     RosterVersionCreateRequest,
+    SmartSampleRequest,
+    SubmissionBatchReviewRequest,
     SubmissionCreateRequest,
     SubmissionReviewRequest,
-    SubmissionBatchReviewRequest,
     TaskBatchDeleteRequest,
-    TaskBatchDeleteResponse,
     TaskCancelRequest,
-    SemesterVolunteerCandidateItem,
 )
 from app.modules.inspection.service import InspectionService
 
@@ -130,11 +128,14 @@ def get_course_occurrences(
     require_photo: bool = False,
 ) -> dict[str, object]:
     from sqlalchemy import select
+
     from app.modules.inspection.course_occurrences import list_occurrences
 
     if not 0 <= (date_to - date_from).days < 31:
         raise AppError(
-            ErrorCode.VALIDATION_ERROR, "日期范围须为1至31天", http_status=422,
+            ErrorCode.VALIDATION_ERROR,
+            "日期范围须为1至31天",
+            http_status=422,
         )
     service._require(actor.id, PermissionCode.INSPECTION_GENERATE.value)
     semester = service._get_active_semester_read(semester_id)
@@ -163,7 +164,9 @@ def get_course_occurrences(
     elif teaching_class_ids:
         if any(i < 1 for i in teaching_class_ids):
             raise AppError(
-                ErrorCode.VALIDATION_ERROR, "教学班ID须为正数", http_status=422,
+                ErrorCode.VALIDATION_ERROR,
+                "教学班ID须为正数",
+                http_status=422,
             )
         resolved_tc_ids = teaching_class_ids
     else:
@@ -248,13 +251,18 @@ def generate_inspection_tasks(
 
 
 @router.post("/inspection-tasks/{task_id}/restore")
-def restore_inspection_task(task_id: int, body: TaskCancelRequest,
-                            actor: InspectionGenerateDep, service: ServiceDep,
-                            request: Request) -> dict[str, object]:
+def restore_inspection_task(
+    task_id: int,
+    body: TaskCancelRequest,
+    actor: InspectionGenerateDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
     from app.modules.inspection.restore_service import restore_task
 
-    return success(restore_task(service, actor, task_id, body, _rid(request)).model_dump(),
-                   _rid(request))
+    return success(
+        restore_task(service, actor, task_id, body, _rid(request)).model_dump(), _rid(request)
+    )
 
 
 # ---- 本人受派任务（须在 /{task_id} 之前声明，避免 me 被当作 id 路径吞掉）----
@@ -348,8 +356,8 @@ def set_task_assignment(
 
 
 # ---- 查询本学期已有志愿者（人工指派/改派候选）----
-@router.get("/inspection/volunteers")
-@router.get("/inspection-volunteers")
+@router.get("/inspection/volunteers", operation_id="list_semester_volunteers_legacy")
+@router.get("/inspection-volunteers", operation_id="list_semester_volunteers")
 def list_semester_volunteers(
     semester_id: Annotated[int, Query(ge=1)],
     actor: InspectionReadDep,
@@ -370,7 +378,6 @@ def list_task_candidate_volunteers(
 ) -> dict[str, object]:
     items = service.list_task_volunteer_candidates(task_id)
     return success([i.model_dump() for i in items], _rid(request))
-
 
 
 # ---- 调班申请：志愿者对本人当前受派发起（assignment.change_request）----
@@ -472,7 +479,6 @@ def batch_delete_inspection_tasks(
     )
 
 
-
 # ---- 名单改版：生成新版本并冻结快照（inspection.roster.manage）----
 @router.post("/inspection-tasks/{task_id}/roster-versions")
 def create_roster_version(
@@ -555,9 +561,7 @@ def update_deadline_day(
     request: Request,
     semester_id: Annotated[int, Query(ge=1)],
 ) -> dict[str, object]:
-    result = service.update_deadline_day(
-        actor, semester_id, inspection_date, body, _rid(request)
-    )
+    result = service.update_deadline_day(actor, semester_id, inspection_date, body, _rid(request))
     return success(result.model_dump(), _rid(request))
 
 
@@ -681,7 +685,6 @@ def batch_review_submissions(
         request_id=_rid(request),
     )
     return success(result, _rid(request))
-
 
 
 # ---- 人工调整任务当前应到人数（attendance.expected_count_adjust，保留初始快照与历史）----

@@ -17,6 +17,7 @@ export interface ListTeacherAccountsResult {
 }
 
 export interface TeacherAccountCreatePayload {
+  college_id: string
   username: string
   display_name: string
   initial_password?: string

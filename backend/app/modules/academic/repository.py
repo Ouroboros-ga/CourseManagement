@@ -27,6 +27,7 @@ from app.modules.academic.models import (
     TeachingClassStudent,
     VolunteerQualification,
 )
+from app.modules.identity.query_scope import get_scoped
 
 
 def _paged(session: Session, stmt: Select, params: PageParams) -> tuple[list, int]:
@@ -56,7 +57,7 @@ class AcademicRepository:
 
     # ==================== 学期 ====================
     def get_semester(self, semester_id: int) -> Semester | None:
-        return self._session.get(Semester, semester_id)
+        return get_scoped(self._session, Semester, semester_id)
 
     def get_semester_for_update(self, semester_id: int) -> Semester | None:
         stmt = (
@@ -94,7 +95,7 @@ class AcademicRepository:
         )
 
     def get_period_definition(self, pd_id: int) -> PeriodDefinition | None:
-        return self._session.get(PeriodDefinition, pd_id)
+        return get_scoped(self._session, PeriodDefinition, pd_id)
 
     def get_period_definition_by_no(
         self, semester_id: int, period_no: int
@@ -119,7 +120,7 @@ class AcademicRepository:
         )
 
     def get_calendar_override(self, co_id: int) -> CalendarOverride | None:
-        return self._session.get(CalendarOverride, co_id)
+        return get_scoped(self._session, CalendarOverride, co_id)
 
     def get_calendar_override_by_date(self, semester_id: int, on_date) -> CalendarOverride | None:
         return self._session.execute(
@@ -135,7 +136,7 @@ class AcademicRepository:
 
     # ==================== 行政班 ====================
     def get_admin_class(self, class_id: int) -> AdministrativeClass | None:
-        return self._session.get(AdministrativeClass, class_id)
+        return get_scoped(self._session, AdministrativeClass, class_id)
 
     def get_admin_class_for_update(self, class_id: int) -> AdministrativeClass | None:
         stmt = (
@@ -172,7 +173,7 @@ class AcademicRepository:
 
     # ==================== 学生 ====================
     def get_student(self, student_id: int) -> Student | None:
-        return self._session.get(Student, student_id)
+        return get_scoped(self._session, Student, student_id)
 
     def get_student_for_update(self, student_id: int) -> Student | None:
         stmt = (
@@ -233,7 +234,7 @@ class AcademicRepository:
 
     # ==================== 课程 ====================
     def get_course(self, course_id: int) -> Course | None:
-        return self._session.get(Course, course_id)
+        return get_scoped(self._session, Course, course_id)
 
     def get_course_for_update(self, course_id: int) -> Course | None:
         stmt = (
@@ -263,7 +264,7 @@ class AcademicRepository:
 
     # ==================== 教学班 ====================
     def get_teaching_class(self, tc_id: int) -> TeachingClass | None:
-        return self._session.get(TeachingClass, tc_id)
+        return get_scoped(self._session, TeachingClass, tc_id)
 
     def get_teaching_class_for_update(self, tc_id: int) -> TeachingClass | None:
         stmt = (
@@ -349,7 +350,7 @@ class AcademicRepository:
 
     # ==================== 课表 ====================
     def get_schedule(self, schedule_id: int) -> CourseSchedule | None:
-        return self._session.get(CourseSchedule, schedule_id)
+        return get_scoped(self._session, CourseSchedule, schedule_id)
 
     def get_schedule_for_update(self, schedule_id: int) -> CourseSchedule | None:
         stmt = (
@@ -389,7 +390,7 @@ class AcademicRepository:
 
     # ==================== 志愿者资格 ====================
     def get_volunteer_qualification(self, vq_id: int) -> VolunteerQualification | None:
-        return self._session.get(VolunteerQualification, vq_id)
+        return get_scoped(self._session, VolunteerQualification, vq_id)
 
     def get_volunteer_qualification_by_sem_student(
         self, semester_id: int, student_id: int

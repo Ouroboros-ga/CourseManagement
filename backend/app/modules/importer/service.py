@@ -16,11 +16,11 @@ academic、volunteer→volunteer），二者事务内重读有效权限纵深校
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from datetime import timedelta
 import hashlib
-import io
 import re
+from collections.abc import Mapping, Sequence
+from contextlib import suppress
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -72,7 +72,11 @@ _FALSE_TOKENS = {"否", "0", "false", "no", "n", "停用", "禁用", "无效"}
 
 
 def _issue(
-    code: str, message: str, *, field: str | None = None, row: int | None = None,
+    code: str,
+    message: str,
+    *,
+    field: str | None = None,
+    row: int | None = None,
     severity: str = "error",
 ) -> dict[str, object]:
     return {"code": code, "message": message, "field": field, "row": row, "severity": severity}
@@ -103,6 +107,9 @@ class ImporterService:
         actor = self._identity.get_user_by_id_for_update(actor_user_id)
         if actor is None:
             raise UnauthenticatedError("操作者账号不可用")
+        from app.modules.identity.query_scope import recheck_query_scope
+
+        recheck_query_scope(self._session, actor_user_id)
         if code not in set(self._identity.list_effective_permissions(actor_user_id)):
             raise PermissionDeniedError()
 
@@ -110,7 +117,9 @@ class ImporterService:
         """组合权限：import.execute + 目标资源 manage。任一缺失即 403。"""
         if target not in iperm.TARGET_MANAGE_PERMISSION:
             raise AppError(
-                ErrorCode.VALIDATION_ERROR, "未知导入目标", http_status=422,
+                ErrorCode.VALIDATION_ERROR,
+                "未知导入目标",
+                http_status=422,
                 field_errors={"target": target},
             )
         self._require(actor_user_id, PermissionCode.IMPORT_EXECUTE.value)
@@ -120,15 +129,23 @@ class ImporterService:
         """仅要求目标资源 manage（用于下载/查看模板，PERMISSIONS.md 12.5）。"""
         if target not in iperm.TARGET_MANAGE_PERMISSION:
             raise AppError(
-                ErrorCode.VALIDATION_ERROR, "未知导入目标", http_status=422,
+                ErrorCode.VALIDATION_ERROR,
+                "未知导入目标",
+                http_status=422,
                 field_errors={"target": target},
             )
         self._require(actor_user_id, iperm.TARGET_MANAGE_PERMISSION[target])
 
     def _audit(
-        self, *, actor_user_id: int, action: str, resource_id: str,
-        before: Mapping[str, object] | None, after: Mapping[str, object] | None,
-        reason: str | None, request_id: str | None,
+        self,
+        *,
+        actor_user_id: int,
+        action: str,
+        resource_id: str,
+        before: Mapping[str, object] | None,
+        after: Mapping[str, object] | None,
+        reason: str | None,
+        request_id: str | None,
     ) -> None:
         self._session.add(
             AuditLog(
@@ -177,16 +194,16 @@ class ImporterService:
             payload, issues, summary = self._parse_admin_roster(content, filename)
         else:
             try:
-                rows = read_tabular_rows(
-                    content, required_headers=iperm.required_headers(target)
-                )
+                rows = read_tabular_rows(content, required_headers=iperm.required_headers(target))
             except ValueError as exc:
                 raise AppError(
                     ErrorCode.VALIDATION_ERROR, f"文件解析失败：{exc}", http_status=422
                 ) from exc
             except Exception as exc:  # noqa: BLE001 - 非法/损坏 xlsx 统一归为 422
                 raise AppError(
-                    ErrorCode.VALIDATION_ERROR, "文件不是有效的 Excel 表格，无法解析", http_status=422
+                    ErrorCode.VALIDATION_ERROR,
+                    "文件不是有效的 Excel 表格，无法解析",
+                    http_status=422,
                 ) from exc
 
             if len(rows) > settings.import_max_rows:
@@ -205,6 +222,13 @@ class ImporterService:
             else:
                 payload, issues, summary = self._parse_timetable(rows, semester_id)
 
+        if target == ImportTarget.ADMIN_ROSTER.value:
+            payload["student_baseline"] = {}
+            for item in payload.get("students", []):
+                student = self._academic.get_student_by_no(item["student_no"])
+                payload["student_baseline"][item["student_no"]] = (
+                    {"id": str(student.id), "version": student.lock_version} if student else None
+                )
         error_count = sum(1 for i in issues if i["severity"] == "error")
         summary = {**summary, "error_count": error_count}
 
@@ -240,16 +264,20 @@ class ImporterService:
         if "semester_id" in need:
             if semester_id is None:
                 raise AppError(
-                    ErrorCode.VALIDATION_ERROR, "该导入目标必须提供 semester_id",
-                    http_status=422, field_errors={"semester_id": "required"},
+                    ErrorCode.VALIDATION_ERROR,
+                    "该导入目标必须提供 semester_id",
+                    http_status=422,
+                    field_errors={"semester_id": "required"},
                 )
             if self._academic.get_semester(semester_id) is None:
                 raise NotFoundError("学期不存在")
         if "teaching_class_id" in need:
             if teaching_class_id is None:
                 raise AppError(
-                    ErrorCode.VALIDATION_ERROR, "该导入目标必须提供 teaching_class_id",
-                    http_status=422, field_errors={"teaching_class_id": "required"},
+                    ErrorCode.VALIDATION_ERROR,
+                    "该导入目标必须提供 teaching_class_id",
+                    http_status=422,
+                    field_errors={"teaching_class_id": "required"},
                 )
             if self._academic.get_teaching_class(teaching_class_id) is None:
                 raise NotFoundError("教学班不存在")
@@ -268,8 +296,13 @@ class ImporterService:
                 continue
             if no in seen:
                 issues.append(
-                    _issue("duplicate_student", f"学号 {no} 重复", field="学号", row=idx,
-                           severity="warning")
+                    _issue(
+                        "duplicate_student",
+                        f"学号 {no} 重复",
+                        field="学号",
+                        row=idx,
+                        severity="warning",
+                    )
                 )
                 continue
             seen[no] = idx
@@ -296,8 +329,13 @@ class ImporterService:
             enabled = _parse_bool(pick(raw, "是否启用", "启用", "enabled", "enable"))
             if no in by_no:
                 issues.append(
-                    _issue("duplicate_student", f"学号 {no} 重复，取末次", field="学号", row=idx,
-                           severity="warning")
+                    _issue(
+                        "duplicate_student",
+                        f"学号 {no} 重复，取末次",
+                        field="学号",
+                        row=idx,
+                        severity="warning",
+                    )
                 )
             if self._academic.get_student_by_no(no) is None:
                 issues.append(
@@ -333,8 +371,15 @@ class ImporterService:
             classroom = pick(raw, "上课地点", "地点", "classroom")
             teacher = pick(raw, "任课老师", "授课教师", "任课教师", "教师", "老师", "teacher")
             row_issue = self._validate_timetable_row(
-                idx, class_code, course_code, weekday_raw, start_raw, end_raw, weeks_raw,
-                total_weeks, issues,
+                idx,
+                class_code,
+                course_code,
+                weekday_raw,
+                start_raw,
+                end_raw,
+                weeks_raw,
+                total_weeks,
+                issues,
             )
             if row_issue is None:
                 continue
@@ -342,8 +387,13 @@ class ImporterService:
             key = (class_code, course_code, weekday, start, end, tuple(weeks), classroom, teacher)
             if key in seen:
                 issues.append(
-                    _issue("duplicate_entry", "重复课表行，已合并", field=None, row=idx,
-                           severity="warning")
+                    _issue(
+                        "duplicate_entry",
+                        "重复课表行，已合并",
+                        field=None,
+                        row=idx,
+                        severity="warning",
+                    )
                 )
                 continue
             seen.add(key)
@@ -370,8 +420,15 @@ class ImporterService:
         return payload, issues, summary
 
     def _validate_timetable_row(
-        self, idx: int, class_code: str, course_code: str, weekday_raw: str,
-        start_raw: str, end_raw: str, weeks_raw: str, total_weeks: int,
+        self,
+        idx: int,
+        class_code: str,
+        course_code: str,
+        weekday_raw: str,
+        start_raw: str,
+        end_raw: str,
+        weeks_raw: str,
+        total_weeks: int,
         issues: list[dict],
     ) -> tuple[int, int, int, Sequence[int]] | None:
         if not class_code:
@@ -453,9 +510,7 @@ class ImporterService:
         if batch.status == ImportBatchStatus.CONFIRMED.value:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "该批次已确认，不可重复导入")
         if batch.status != ImportBatchStatus.PREVIEW.value:
-            raise ConflictError(
-                ErrorCode.STATE_CONFLICT, f"批次状态 {batch.status} 不可确认"
-            )
+            raise ConflictError(ErrorCode.STATE_CONFLICT, f"批次状态 {batch.status} 不可确认")
         if batch.expires_at <= utcnow():
             batch.status = ImportBatchStatus.EXPIRED.value
             self._session.commit()
@@ -466,9 +521,7 @@ class ImporterService:
             raise AppError(ErrorCode.VALIDATION_ERROR, "存在错误项，无法确认导入", http_status=422)
 
         payload = batch.payload_json or {}
-        self._session.execute(
-            select(Semester.id).order_by(Semester.id).with_for_update()
-        ).all()
+        self._session.execute(select(Semester.id).order_by(Semester.id).with_for_update()).all()
         if batch.target == ImportTarget.ROSTER.value:
             created = self._apply_roster(actor, batch, payload, request_id)
         elif batch.target == ImportTarget.VOLUNTEER.value:
@@ -515,6 +568,11 @@ class ImporterService:
     def _apply_roster(
         self, actor: CurrentUser, batch: ImportBatch, payload: dict, request_id: str | None
     ) -> dict:
+        from app.modules.academic.enrollment_service import EnrollmentService
+        from app.modules.academic.roster_lifecycle import record_roster_replacement
+
+        lifecycle = EnrollmentService(self._session)
+        lifecycle._lock_semesters()
         tc_id = batch.teaching_class_id
         tc = self._academic.get_teaching_class_for_update(tc_id) if tc_id else None
         if tc is None:
@@ -535,7 +593,10 @@ class ImporterService:
                 ErrorCode.VALIDATION_ERROR, f"以下学号已不存在：{missing}", http_status=422
             )
         before_count = len(self._academic.get_roster_students(tc.id))
+        record_roster_replacement(self._session, tc.id, ids, lifecycle.today)
         self._academic.set_roster(tc.id, ids)
+        self._session.flush()
+        lifecycle._refresh_tasks(0, lifecycle.today, actor.id, teaching_class_id=tc.id)
         return {
             "roster_before": before_count,
             "roster_after": len(set(ids)),
@@ -578,6 +639,9 @@ class ImporterService:
                 vq.enabled = enabled
                 self._academic.flush()
             if enabled:
+                from app.modules.identity.authorization import current_student_college
+
+                vq.college_id = current_student_college(self._session, stu)
                 granted_roles += int(self._grant_volunteer_if_bound(stu.id))
         return {
             "qualification_created": created_rows,
@@ -595,9 +659,7 @@ class ImporterService:
             return False
         if RoleCode.VOLUNTEER.value in self._identity.list_role_codes(acct.id):
             return False
-        role = self._identity.get_or_create_role(
-            RoleCode.VOLUNTEER.value, RoleCode.VOLUNTEER.value
-        )
+        role = self._identity.get_or_create_role(RoleCode.VOLUNTEER.value, RoleCode.VOLUNTEER.value)
         self._identity.grant_role(acct.id, role.id)
         acct.lock_version += 1
         return True
@@ -630,9 +692,7 @@ class ImporterService:
                 self._academic.add(course)
                 self._academic.flush()
                 courses_created += 1
-            tc = self._academic.get_teaching_class_by_key(
-                sem.id, course.id, e["class_code"]
-            )
+            tc = self._academic.get_teaching_class_by_key(sem.id, course.id, e["class_code"])
             if tc is None:
                 tc = TeachingClass(
                     semester_id=sem.id,
@@ -674,7 +734,9 @@ class ImporterService:
                             Student.administrative_class_id == ac.id,
                             Student.status == "ACTIVE",
                         )
-                    ).scalars().all()
+                    )
+                    .scalars()
+                    .all()
                 )
                 if stus:
                     existing_sids = set(
@@ -682,7 +744,9 @@ class ImporterService:
                             select(TeachingClassStudent.student_id).where(
                                 TeachingClassStudent.teaching_class_id == tc.id
                             )
-                        ).scalars().all()
+                        )
+                        .scalars()
+                        .all()
                     )
                     for st in stus:
                         if st.id not in existing_sids:
@@ -725,9 +789,13 @@ class ImporterService:
             matrix = read_any_matrix(content)
         except Exception as exc:
             issues.append(_issue("parse_failed", f"文件解析失败：{exc}"))
-            return {"students": [], "class_duties": []}, issues, {"row_total": 0, "student_count": 0}
+            return (
+                {"students": [], "class_duties": []},
+                issues,
+                {"row_total": 0, "student_count": 0},
+            )
 
-        # 1. 扫描第一行可能的标题（例如 "二级学院学生责任区辅导员、班主任名单" 或 "人工智能学院 机自2621 班级2026年"）
+        # 扫描责任区名单或“学院 班名 班级年份”等首行标题。
         if matrix and len(matrix) > 0 and matrix[0]:
             r1_val = " ".join([_clean(c) for c in matrix[0]]).strip()
             m = re.search(r"([\u4e00-\u9fa5]+学院)\s+([\u4e00-\u9fa5\w]+)\s+班级(\d+)年", r1_val)
@@ -802,22 +870,42 @@ class ImporterService:
                 if sno.endswith(".0"):
                     sno = sno[:-2]
                 name = _clean(row[name_col]) if name_col >= 0 and name_col < len(row) else ""
-                cname = _clean(row[class_col]) if class_col >= 0 and class_col < len(row) else default_class_name
-                college = _clean(row[college_col]) if college_col >= 0 and college_col < len(row) else default_college
-                raw_grade = _clean(row[grade_col]) if grade_col >= 0 and grade_col < len(row) else None
+                cname = (
+                    _clean(row[class_col])
+                    if class_col >= 0 and class_col < len(row)
+                    else default_class_name
+                )
+                college = (
+                    _clean(row[college_col])
+                    if college_col >= 0 and college_col < len(row)
+                    else default_college
+                )
+                raw_grade = (
+                    _clean(row[grade_col]) if grade_col >= 0 and grade_col < len(row) else None
+                )
                 grade_year = derive_grade(cname, raw_grade)
-                ht = _clean(row[head_teacher_col]) if head_teacher_col >= 0 and head_teacher_col < len(row) else None
-                co = _clean(row[counselor_col]) if counselor_col >= 0 and counselor_col < len(row) else None
+                ht = (
+                    _clean(row[head_teacher_col])
+                    if head_teacher_col >= 0 and head_teacher_col < len(row)
+                    else None
+                )
+                co = (
+                    _clean(row[counselor_col])
+                    if counselor_col >= 0 and counselor_col < len(row)
+                    else None
+                )
                 if sno and re.match(r"^\d{6,20}$", sno):
-                    parsed_rows.append({
-                        "student_no": sno,
-                        "name": name,
-                        "class_name": cname or default_class_name,
-                        "college": college,
-                        "grade_year": str(grade_year or ""),
-                        "head_teacher": ht or None,
-                        "counselor": co or None,
-                    })
+                    parsed_rows.append(
+                        {
+                            "student_no": sno,
+                            "name": name,
+                            "class_name": cname or default_class_name,
+                            "college": college,
+                            "grade_year": str(grade_year or ""),
+                            "head_teacher": ht or None,
+                            "counselor": co or None,
+                        }
+                    )
         elif header_row_idx >= 0 and class_col >= 0:
             # 纯班级责任区表（如《二级学院学生责任区辅导员、班主任名单》）
             for r_idx in range(header_row_idx + 1, len(matrix)):
@@ -827,18 +915,34 @@ class ImporterService:
                 cname = _clean(row[class_col]) if class_col < len(row) else ""
                 if not cname:
                     continue
-                college = _clean(row[college_col]) if college_col >= 0 and college_col < len(row) else default_college
-                raw_grade = _clean(row[grade_col]) if grade_col >= 0 and grade_col < len(row) else None
+                college = (
+                    _clean(row[college_col])
+                    if college_col >= 0 and college_col < len(row)
+                    else default_college
+                )
+                raw_grade = (
+                    _clean(row[grade_col]) if grade_col >= 0 and grade_col < len(row) else None
+                )
                 grade_year = derive_grade(cname, raw_grade)
-                ht = _clean(row[head_teacher_col]) if head_teacher_col >= 0 and head_teacher_col < len(row) else None
-                co = _clean(row[counselor_col]) if counselor_col >= 0 and counselor_col < len(row) else None
-                class_duties.append({
-                    "class_name": cname,
-                    "college": college or None,
-                    "grade_year": grade_year,
-                    "head_teacher": ht or None,
-                    "counselor": co or None,
-                })
+                ht = (
+                    _clean(row[head_teacher_col])
+                    if head_teacher_col >= 0 and head_teacher_col < len(row)
+                    else None
+                )
+                co = (
+                    _clean(row[counselor_col])
+                    if counselor_col >= 0 and counselor_col < len(row)
+                    else None
+                )
+                class_duties.append(
+                    {
+                        "class_name": cname,
+                        "college": college or None,
+                        "grade_year": grade_year,
+                        "head_teacher": ht or None,
+                        "counselor": co or None,
+                    }
+                )
         else:
             # 尝试降级兼容键值对通用格式
             try:
@@ -846,32 +950,45 @@ class ImporterService:
                 for raw in raw_rows:
                     sno = pick(raw, "学号", "student_no", "studentno", "no")
                     name = pick(raw, "姓名", "name", "student_name")
-                    cname = pick(raw, "班级", "班级名称", "行政班", "class_name", "class") or default_class_name
+                    cname = (
+                        pick(raw, "班级", "班级名称", "行政班", "class_name", "class")
+                        or default_class_name
+                    )
                     college = pick(raw, "学院", "所属学院", "college") or default_college
-                    grade = pick(raw, "年级", "grade_year", "grade") or (str(default_grade) if default_grade else "")
+                    grade = pick(raw, "年级", "grade_year", "grade") or (
+                        str(default_grade) if default_grade else ""
+                    )
                     ht = pick(raw, "班主任", "head_teacher", "班主任姓名")
                     co = pick(raw, "辅导员", "counselor", "辅导员姓名")
                     if sno:
-                        parsed_rows.append({
-                            "student_no": sno,
-                            "name": name,
-                            "class_name": cname,
-                            "college": college,
-                            "grade_year": grade,
-                            "head_teacher": ht or None,
-                            "counselor": co or None,
-                        })
+                        parsed_rows.append(
+                            {
+                                "student_no": sno,
+                                "name": name,
+                                "class_name": cname,
+                                "college": college,
+                                "grade_year": grade,
+                                "head_teacher": ht or None,
+                                "counselor": co or None,
+                            }
+                        )
                     elif cname and (ht or co):
-                        class_duties.append({
-                            "class_name": cname,
-                            "college": college or None,
-                            "grade_year": derive_grade(cname, grade),
-                            "head_teacher": ht or None,
-                            "counselor": co or None,
-                        })
+                        class_duties.append(
+                            {
+                                "class_name": cname,
+                                "college": college or None,
+                                "grade_year": derive_grade(cname, grade),
+                                "head_teacher": ht or None,
+                                "counselor": co or None,
+                            }
+                        )
             except Exception as exc:
                 issues.append(_issue("parse_failed", f"花名册解析失败：{exc}"))
-                return {"students": [], "class_duties": []}, issues, {"row_total": 0, "student_count": 0}
+                return (
+                    {"students": [], "class_duties": []},
+                    issues,
+                    {"row_total": 0, "student_count": 0},
+                )
 
         class_names: set[str] = set()
         for idx, row in enumerate(parsed_rows, start=2):
@@ -882,32 +999,49 @@ class ImporterService:
                 issues.append(_issue("missing_student_no", "学号为空", field="学号", row=idx))
                 continue
             if not re.match(r"^\d{6,20}$", sno):
-                issues.append(_issue("invalid_student_no", f"学号格式不合规：{sno}", field="学号", row=idx))
+                issues.append(
+                    _issue("invalid_student_no", f"学号格式不合规：{sno}", field="学号", row=idx)
+                )
                 continue
             if not name:
-                issues.append(_issue("missing_student_name", f"学生 {sno} 姓名为空", field="姓名", row=idx))
+                issues.append(
+                    _issue("missing_student_name", f"学生 {sno} 姓名为空", field="姓名", row=idx)
+                )
                 continue
             if not cname:
-                issues.append(_issue("missing_class_name", f"学生 {sno} 缺少班级名称", field="班级", row=idx))
+                issues.append(
+                    _issue("missing_class_name", f"学生 {sno} 缺少班级名称", field="班级", row=idx)
+                )
                 continue
             if sno in seen_nos:
                 issues.append(
-                    _issue("duplicate_student", f"学号 {sno} 在文件第 {seen_nos[sno]} 行已出现，本次跳过",
-                           field="学号", row=idx, severity="warning")
+                    _issue(
+                        "duplicate_student",
+                        f"学号 {sno} 在文件第 {seen_nos[sno]} 行已出现，本次跳过",
+                        field="学号",
+                        row=idx,
+                        severity="warning",
+                    )
                 )
                 continue
             seen_nos[sno] = idx
             class_names.add(cname)
-            grade_y = int(row["grade_year"]) if row.get("grade_year") and row["grade_year"].isdigit() else None
-            students.append({
-                "student_no": sno,
-                "name": name,
-                "class_name": cname,
-                "college": row.get("college") or None,
-                "grade_year": grade_y,
-                "head_teacher": row.get("head_teacher") or None,
-                "counselor": row.get("counselor") or None,
-            })
+            grade_y = (
+                int(row["grade_year"])
+                if row.get("grade_year") and row["grade_year"].isdigit()
+                else None
+            )
+            students.append(
+                {
+                    "student_no": sno,
+                    "name": name,
+                    "class_name": cname,
+                    "college": row.get("college") or None,
+                    "grade_year": grade_y,
+                    "head_teacher": row.get("head_teacher") or None,
+                    "counselor": row.get("counselor") or None,
+                }
+            )
 
         for cd in class_duties:
             class_names.add(cd["class_name"])
@@ -927,12 +1061,43 @@ class ImporterService:
     ) -> dict:
         students_data: list[dict] = payload.get("students") or []
         class_duties: list[dict] = payload.get("class_duties") or []
+        if "student_baseline" not in payload:
+            raise ConflictError(message="旧版名单预览缺少学籍版本，请重新上传预览")
+        # 老师旧文件只能增量维护，禁止隐式转班或复活离校身份。
+        for item in students_data:
+            current = self._academic.get_student_by_no(item["student_no"])
+            baseline = payload["student_baseline"].get(item["student_no"])
+            if (baseline is None and current is not None) or (
+                baseline is not None
+                and (
+                    current is None
+                    or str(current.id) != baseline["id"]
+                    or current.lock_version != baseline["version"]
+                )
+            ):
+                raise ConflictError(
+                    ErrorCode.VERSION_CONFLICT, "学生资料在预览后已变化，请重新上传，整批未应用"
+                )
+            if current is not None:
+                ac = (
+                    self._academic.get_admin_class(current.administrative_class_id)
+                    if current.administrative_class_id
+                    else None
+                )
+                if (
+                    current.status != "ACTIVE"
+                    or ac is None
+                    or normalize_class_name(ac.class_name)
+                    != normalize_class_name(item["class_name"])
+                ):
+                    raise ConflictError(
+                        message="名单包含转班或非在读学生，请使用学生数据差异预览及学籍异动流程，整批未应用"
+                    )
         if not students_data and not class_duties:
             return {"students_created": 0, "students_updated": 0, "classes_created": 0}
 
         ac_map: dict[str, AdministrativeClass] = {}
         classes_created = 0
-        duties_updated = 0
 
         existing_acs = list(self._session.execute(select(AdministrativeClass)).scalars().all())
         ac_by_exact = {ac.class_name: ac for ac in existing_acs}
@@ -971,7 +1136,6 @@ class ImporterService:
                 if duty.get("college") and not target_ac.college:
                     target_ac.college = duty["college"]
                 self._academic.flush()
-            duties_updated += 1
             ac_map[cname] = target_ac
 
         for item in students_data:
@@ -1019,6 +1183,7 @@ class ImporterService:
         students_created = 0
         students_updated = 0
         students_transferred = 0
+        affected_students = set()
 
         for item in students_data:
             sno = item["student_no"]
@@ -1032,15 +1197,29 @@ class ImporterService:
                     status="ACTIVE",
                 )
                 self._academic.add(stu)
+                self._academic.flush()
+                from app.modules.academic.enrollment_service import EnrollmentService
+
+                EnrollmentService(self._session)._baseline(stu)
+                affected_students.add(stu.id)
                 students_created += 1
             else:
+                name_changed = stu.name != item["name"]
+                if name_changed:
+                    stu.lock_version += 1
                 stu.name = item["name"]
                 if stu.administrative_class_id is not None and stu.administrative_class_id != ac.id:
                     students_transferred += 1
-                stu.administrative_class_id = ac.id
-                stu.status = "ACTIVE"
                 students_updated += 1
+                if name_changed:
+                    affected_students.add(stu.id)
         self._academic.flush()
+
+        if affected_students:
+            from app.modules.academic.enrollment_service import EnrollmentService
+
+            lifecycle = EnrollmentService(self._session)
+            lifecycle._refresh_tasks(0, lifecycle.today, actor.id, student_ids=affected_students)
 
         return {
             "classes_created": classes_created,
@@ -1090,19 +1269,23 @@ class ImporterService:
                 start_p = min(slots)
                 end_p = max(slots)
             except Exception as exc:
-                issues.append(_issue("bad_time_slot", f"课程【{course_name}】时间段解析异常：{exc}", row=idx))
+                issues.append(
+                    _issue("bad_time_slot", f"课程【{course_name}】时间段解析异常：{exc}", row=idx)
+                )
                 continue
 
-            parsed_courses.append({
-                "course_name": course_name,
-                "weekday": wd,
-                "start_period": start_p,
-                "end_period": end_p,
-                "weeks": weeks,
-                "classroom": row.get("location", "").strip(),
-                "teacher": row.get("teacher", "").strip(),
-                "student_count": row.get("count", ""),
-            })
+            parsed_courses.append(
+                {
+                    "course_name": course_name,
+                    "weekday": wd,
+                    "start_period": start_p,
+                    "end_period": end_p,
+                    "weeks": weeks,
+                    "classroom": row.get("location", "").strip(),
+                    "teacher": row.get("teacher", "").strip(),
+                    "student_count": row.get("count", ""),
+                }
+            )
 
         payload = {
             "semester_id": sem.id,
@@ -1148,7 +1331,9 @@ class ImporterService:
                     Student.administrative_class_id == target_ac.id,
                     Student.status == "ACTIVE",
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
 
         courses_created = 0
@@ -1190,6 +1375,15 @@ class ImporterService:
             elif t_name and not tc.teacher_name:
                 tc.teacher_name = t_name
 
+            from app.modules.academic.enrollment_models import TeachingClassAudience
+
+            if self._session.get(TeachingClassAudience, (tc.id, target_ac.id)) is None:
+                self._session.add(
+                    TeachingClassAudience(
+                        teaching_class_id=tc.id, administrative_class_id=target_ac.id
+                    )
+                )
+
             schedule = CourseSchedule(
                 semester_id=sem.id,
                 teaching_class_id=tc.id,
@@ -1211,7 +1405,9 @@ class ImporterService:
                         select(TeachingClassStudent.student_id).where(
                             TeachingClassStudent.teaching_class_id == tc.id
                         )
-                    ).scalars().all()
+                    )
+                    .scalars()
+                    .all()
                 )
                 for st in students:
                     if st.id not in existing_sids:
@@ -1260,10 +1456,14 @@ class ImporterService:
             sno = pick(raw, "学号", "选课学生学号", "student_no", "no")
 
             if not cname:
-                issues.append(_issue("missing_course_name", "课程名称为空", field="课程名称", row=idx))
+                issues.append(
+                    _issue("missing_course_name", "课程名称为空", field="课程名称", row=idx)
+                )
                 continue
             if not code:
-                issues.append(_issue("missing_class_code", "教学班码为空", field="教学班码", row=idx))
+                issues.append(
+                    _issue("missing_class_code", "教学班码为空", field="教学班码", row=idx)
+                )
                 continue
             if not sno:
                 issues.append(_issue("missing_student_no", "学生学号为空", field="学号", row=idx))
@@ -1280,7 +1480,9 @@ class ImporterService:
 
             stu = self._academic.get_student_by_no(sno)
             if stu is None:
-                issues.append(_issue("unknown_student", f"学号 {sno} 不存在于学生档案", field="学号", row=idx))
+                issues.append(
+                    _issue("unknown_student", f"学号 {sno} 不存在于学生档案", field="学号", row=idx)
+                )
                 continue
 
             key = (cname, code, tname, wd, start, end, tuple(sorted(weeks)), classroom)
@@ -1292,17 +1494,19 @@ class ImporterService:
 
         groups = []
         for (cname, code, tname, wd, start, end, weeks, classroom), snos in groups_map.items():
-            groups.append({
-                "course_name": cname,
-                "class_code": code,
-                "class_name": tname,
-                "weekday": wd,
-                "start_period": start,
-                "end_period": end,
-                "weeks": list(weeks),
-                "classroom": classroom,
-                "student_nos": snos,
-            })
+            groups.append(
+                {
+                    "course_name": cname,
+                    "class_code": code,
+                    "class_name": tname,
+                    "weekday": wd,
+                    "start_period": start,
+                    "end_period": end,
+                    "weeks": list(weeks),
+                    "classroom": classroom,
+                    "student_nos": snos,
+                }
+            )
 
         payload = {"semester_id": sem.id, "groups": groups}
         summary = {
@@ -1394,6 +1598,7 @@ class ImporterService:
         """批量导入多个名单和课表文件，支持 ZIP 压缩包自动解压并按顺序执行。"""
         import io
         import zipfile
+
         from app.modules.importer.models import ImportTarget
 
         # 1. 展开 ZIP 压缩包
@@ -1406,7 +1611,10 @@ class ImporterService:
                             if info.is_dir():
                                 continue
                             fname = info.filename
-                            if any(p in fname for p in ["__MACOSX", "._", ".DS_Store", "desktop.ini", "Thumbs.db"]):
+                            if any(
+                                p in fname
+                                for p in ["__MACOSX", "._", ".DS_Store", "desktop.ini", "Thumbs.db"]
+                            ):
                                 continue
                             try:
                                 clean_name = info.filename.encode("cp437").decode("gbk")
@@ -1419,13 +1627,19 @@ class ImporterService:
                             if base_name and base_name.lower().endswith((".xlsx", ".xls", ".csv")):
                                 expanded_files.append((base_name, z.read(info)))
                 except Exception as exc:
-                    raise AppError(ErrorCode.VALIDATION_ERROR, f"ZIP压缩包解析失败：{exc}", http_status=422)
+                    raise AppError(
+                        ErrorCode.VALIDATION_ERROR, f"ZIP压缩包解析失败：{exc}", http_status=422
+                    ) from exc
             elif filename.lower().endswith((".xlsx", ".xls", ".csv")):
                 base_name = filename.replace("\\", "/").split("/")[-1]
                 expanded_files.append((base_name, data))
 
         if not expanded_files:
-            raise AppError(ErrorCode.VALIDATION_ERROR, "未找到任何有效的表格文件（.xlsx / .xls / .csv）", http_status=422)
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                "未找到任何有效的表格文件（.xlsx / .xls / .csv）",
+                http_status=422,
+            )
 
         # 2. 分类：名单类文件 vs 课表类文件
         roster_files: list[tuple[str, bytes]] = []
@@ -1434,15 +1648,24 @@ class ImporterService:
             lower_fn = fn.lower()
             if "课表" in fn or "排课" in fn or "timetable" in lower_fn:
                 timetable_files.append((fn, data))
-            elif "考勤" in fn or "花名册" in fn or "名单" in fn or "学生" in fn or "责任区" in fn or "班主任" in fn or "辅导员" in fn or "roster" in lower_fn:
+            elif (
+                "考勤" in fn
+                or "花名册" in fn
+                or "名单" in fn
+                or "学生" in fn
+                or "责任区" in fn
+                or "班主任" in fn
+                or "辅导员" in fn
+                or "roster" in lower_fn
+            ):
                 roster_files.append((fn, data))
             else:
                 # 尝试通过内容关键字做轻量嗅探
                 sniff_txt = ""
-                try:
-                    sniff_txt = data[:8192].decode("utf-8", errors="ignore") + data[:8192].decode("gbk", errors="ignore")
-                except Exception:
-                    pass
+                with suppress(Exception):
+                    sniff_txt = data[:8192].decode("utf-8", errors="ignore") + data[:8192].decode(
+                        "gbk", errors="ignore"
+                    )
                 if "星期" in sniff_txt or "周一" in sniff_txt:
                     timetable_files.append((fn, data))
                 elif "学号" in sniff_txt:
@@ -1476,13 +1699,18 @@ class ImporterService:
                 if not preview.can_confirm:
                     err_msg = "存在格式错误"
                     if preview.errors:
-                        err_msg = "；".join(str(e.get("message") if isinstance(e, dict) else e) for e in preview.errors[:3])
-                    file_results.append({
-                        "filename": fn,
-                        "type": "ADMIN_ROSTER",
-                        "status": "FAILED",
-                        "error": err_msg,
-                    })
+                        err_msg = "；".join(
+                            str(e.get("message") if isinstance(e, dict) else e)
+                            for e in preview.errors[:3]
+                        )
+                    file_results.append(
+                        {
+                            "filename": fn,
+                            "type": "ADMIN_ROSTER",
+                            "status": "FAILED",
+                            "error": err_msg,
+                        }
+                    )
                     continue
                 confirmed = self.confirm(actor, batch_id=int(preview.id), request_id=request_id)
                 summary = confirmed.summary or {}
@@ -1490,20 +1718,26 @@ class ImporterService:
                 total_students_created += summary.get("students_created", 0)
                 total_students_updated += summary.get("students_updated", 0)
                 total_transferred += summary.get("students_transferred", 0)
-                total_students_count += summary.get("total_students", summary.get("student_count", 0))
-                file_results.append({
-                    "filename": fn,
-                    "type": "ADMIN_ROSTER",
-                    "status": "SUCCESS",
-                    "summary": summary,
-                })
+                total_students_count += summary.get(
+                    "total_students", summary.get("student_count", 0)
+                )
+                file_results.append(
+                    {
+                        "filename": fn,
+                        "type": "ADMIN_ROSTER",
+                        "status": "SUCCESS",
+                        "summary": summary,
+                    }
+                )
             except Exception as exc:
-                file_results.append({
-                    "filename": fn,
-                    "type": "ADMIN_ROSTER",
-                    "status": "FAILED",
-                    "error": str(exc),
-                })
+                file_results.append(
+                    {
+                        "filename": fn,
+                        "type": "ADMIN_ROSTER",
+                        "status": "FAILED",
+                        "error": str(exc),
+                    }
+                )
 
         # 4. 后执行所有课表 (GRID_TIMETABLE)
         for fn, data in timetable_files:
@@ -1521,31 +1755,40 @@ class ImporterService:
                 if not preview.can_confirm:
                     err_msg = "存在排课错误"
                     if preview.errors:
-                        err_msg = "；".join(str(e.get("message") if isinstance(e, dict) else e) for e in preview.errors[:3])
-                    file_results.append({
-                        "filename": fn,
-                        "type": "GRID_TIMETABLE",
-                        "status": "FAILED",
-                        "error": err_msg,
-                    })
+                        err_msg = "；".join(
+                            str(e.get("message") if isinstance(e, dict) else e)
+                            for e in preview.errors[:3]
+                        )
+                    file_results.append(
+                        {
+                            "filename": fn,
+                            "type": "GRID_TIMETABLE",
+                            "status": "FAILED",
+                            "error": err_msg,
+                        }
+                    )
                     continue
                 confirmed = self.confirm(actor, batch_id=int(preview.id), request_id=request_id)
                 summary = confirmed.summary or {}
                 total_courses_created += summary.get("courses_created", 0)
                 total_schedules_created += summary.get("schedules_created", 0)
-                file_results.append({
-                    "filename": fn,
-                    "type": "GRID_TIMETABLE",
-                    "status": "SUCCESS",
-                    "summary": summary,
-                })
+                file_results.append(
+                    {
+                        "filename": fn,
+                        "type": "GRID_TIMETABLE",
+                        "status": "SUCCESS",
+                        "summary": summary,
+                    }
+                )
             except Exception as exc:
-                file_results.append({
-                    "filename": fn,
-                    "type": "GRID_TIMETABLE",
-                    "status": "FAILED",
-                    "error": str(exc),
-                })
+                file_results.append(
+                    {
+                        "filename": fn,
+                        "type": "GRID_TIMETABLE",
+                        "status": "FAILED",
+                        "error": str(exc),
+                    }
+                )
 
         return {
             "total_files": len(expanded_files),

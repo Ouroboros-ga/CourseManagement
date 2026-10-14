@@ -17,6 +17,7 @@ from app.core.config import get_settings
 from app.core.exceptions import AppError
 from app.core.logging import get_logger, setup_logging
 from app.core.middleware import RequestIdMiddleware
+from app.modules.academic.enrollment_router import router as enrollment_router
 from app.modules.academic.export_router import router as course_export_router
 from app.modules.academic.router import router as academic_router
 from app.modules.academic.scoped_router import router as scoped_academic_router
@@ -92,6 +93,7 @@ def create_app() -> FastAPI:
     # 基础数据路由（阶段 3）：学期/节次/校历/行政班/学生/课程/教学班/课表/志愿者资格。
     app.include_router(academic_router, prefix="/api/v1/academic")
     app.include_router(scoped_academic_router, prefix="/api/v1")
+    app.include_router(enrollment_router, prefix="/api/v1/academic")
     app.include_router(course_export_router, prefix="/api/v1")
     app.include_router(audit_router, prefix="/api/v1")
 

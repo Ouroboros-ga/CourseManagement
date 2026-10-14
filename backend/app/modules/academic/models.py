@@ -35,6 +35,7 @@ from app.core.database import (
     pk_column,
 )
 from app.core.db import MYSQL_TABLE_ARGS
+from app.modules.academic import enrollment_models  # noqa: F401
 from app.modules.organization.ownership_models import CollegeOwned
 
 
@@ -168,6 +169,10 @@ class Student(TimestampMixin, Base):
     id: Mapped[int] = pk_column()
     student_no: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    lock_version: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    history_until: Mapped[date_ | None] = mapped_column(DATE_COL)
     administrative_class_id: Mapped[int | None] = mapped_column(
         ForeignKey("administrative_class.id", ondelete="SET NULL")
     )
@@ -187,7 +192,7 @@ class Student(TimestampMixin, Base):
 # --------------------------------------------------------------------------- #
 # 课程与教学班
 # --------------------------------------------------------------------------- #
-class Course(TimestampMixin, Base):
+class Course(CollegeOwned, TimestampMixin, Base):
     """课程目录。course_code 唯一，供教学班引用。"""
 
     __tablename__ = "course"
@@ -317,6 +322,9 @@ class VolunteerQualification(TimestampMixin, Base):
     )
     student_id: Mapped[int] = mapped_column(
         ForeignKey("student.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    college_id: Mapped[int | None] = mapped_column(
+        ForeignKey("college.id", ondelete="RESTRICT"), index=True
     )
     enabled: Mapped[bool] = mapped_column(default=True, server_default=text("1"), nullable=False)
     created_by: Mapped[int | None] = mapped_column(

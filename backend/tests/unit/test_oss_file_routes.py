@@ -40,7 +40,16 @@ def file_api(monkeypatch):
     actor = CurrentUser(1, "test", "测试用户", "ACTIVE", [], [])
     state = {"actor": actor}
     with Session(engine) as session:
-        session.add(UserAccount(id=1, username="test", display_name="测试用户", status="ACTIVE"))
+        from app.modules.identity.models import Role
+        from app.modules.identity.seed import sync_registry
+
+        sync_registry(session)
+        role = session.scalar(select(Role).where(Role.code == "STUDENT"))
+        session.add(
+            UserAccount(
+                id=1, username="test", display_name="测试用户", status="ACTIVE", roles=[role]
+            )
+        )
         session.commit()
         service = FileService(session, storage)
         app = create_app()

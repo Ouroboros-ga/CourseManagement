@@ -14,12 +14,22 @@ from app.core.security import hash_password, verify_password
 from app.modules.academic.models import Student
 from app.modules.audit.models import AuditLog
 from app.modules.identity.account_schemas import (
+    AdministratorAccountCreate,
+    AdministratorAccountUpdate,
     PasswordChange,
     PasswordReset,
     TeacherAccountCreate,
     TeacherAccountUpdate,
 )
-from app.modules.identity.models import Role, UserAccount, UserRole, UserStatus
+from app.modules.identity.models import (
+    Permission,
+    Role,
+    UserAccount,
+    UserPermission,
+    UserRole,
+    UserStatus,
+)
+from app.modules.identity.policy import can_manage_administrator
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser, IdentityService
 
@@ -52,11 +62,152 @@ def require_another_admin(session: Session, target_id: int) -> None:
         raise ConflictError(ErrorCode.STATE_CONFLICT, "不能停用或撤销最后一个有效超级管理员")
 
 
+def require_another_administrator_manager(session: Session, target_id: int) -> None:
+    """调用者持稳定管理员注册行锁，避免并发撤空平台管理能力。"""
+    ids = session.scalars(
+        select(UserAccount.id)
+        .join(UserRole, UserRole.user_id == UserAccount.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .join(UserPermission, UserPermission.user_id == UserAccount.id)
+        .join(Permission, Permission.id == UserPermission.permission_id)
+        .where(
+            Role.code == "SUPER_ADMIN",
+            Permission.code == "administrator_account.manage",
+            UserAccount.status == "ACTIVE",
+            UserAccount.id != target_id,
+        )
+        .order_by(UserAccount.id)
+        .with_for_update()
+    ).all()
+    if not ids:
+        raise ConflictError(ErrorCode.STATE_CONFLICT, "不能撤销或停用最后一个有效平台管理者")
+
+
 class AccountService:
     def __init__(self, session: Session):
         self.session = session
         self.repo = IdentityRepository(session)
         self.identity = IdentityService(session)
+
+    def _require_administrator_account_manage(self, actor_id: int) -> None:
+        user = self.repo.get_user_by_id_for_update(actor_id)
+        if (
+            user is None
+            or not user.is_active
+            or not can_manage_administrator(
+                frozenset(self.repo.list_role_codes(actor_id)),
+                frozenset(self.repo.list_effective_permissions(actor_id)),
+            )
+        ):
+            raise PermissionDeniedError("需要管理员账号管理能力")
+
+    def _administrator_view(self, user: UserAccount) -> dict:
+        return {
+            **self.view(user),
+            "can_manage_administrators": "administrator_account.manage"
+            in self.repo.list_effective_permissions(user.id),
+        }
+
+    def list_administrators(
+        self, actor: CurrentUser, params: PageParams, query=None, status=None
+    ) -> dict:
+        self._require_administrator_account_manage(actor.id)
+        ids = select(UserRole.user_id).join(Role).where(Role.code == "SUPER_ADMIN")
+        stmt = select(UserAccount).where(UserAccount.id.in_(ids))
+        if query:
+            stmt = stmt.where(
+                UserAccount.username.contains(query, autoescape=True)
+                | UserAccount.display_name.contains(query, autoescape=True)
+            )
+        if status:
+            stmt = stmt.where(UserAccount.status == status)
+        total = self.session.scalar(select(func.count()).select_from(stmt.subquery()))
+        users = self.session.scalars(
+            stmt.order_by(UserAccount.id).limit(params.limit).offset(params.offset)
+        ).all()
+        return {
+            "items": [self._administrator_view(u) for u in users],
+            "total": total,
+            "page": params.page,
+            "page_size": params.page_size,
+        }
+
+    def create_administrator(
+        self, actor: CurrentUser, body: AdministratorAccountCreate, request_id
+    ) -> dict:
+        self.session.rollback()
+        lock_admin_registry(self.session)
+        self._require_administrator_account_manage(actor.id)
+        role = self.repo.get_role_by_code("SUPER_ADMIN")
+        if role is None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "请先同步注册表")
+        user = UserAccount(
+            username=body.username,
+            display_name=body.display_name,
+            password_hash=hash_password(body.initial_password),
+            status="ACTIVE",
+            roles=[role],
+        )
+        self.session.add(user)
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "用户名已存在") from exc
+        if body.can_manage_administrators:
+            perm = self.repo.get_permission_by_code("administrator_account.manage")
+            if perm is None:
+                raise ConflictError(ErrorCode.STATE_CONFLICT, "请先同步注册表")
+            self.repo.set_user_permission(user.id, perm.id, actor.id)
+        self._audit(actor, "account.administrator.create", user, request_id)
+        self.session.commit()
+        return self._administrator_view(user)
+
+    def update_administrator(
+        self, actor: CurrentUser, uid: int, body: AdministratorAccountUpdate, request_id
+    ) -> dict:
+        self.session.rollback()
+        lock_admin_registry(self.session)
+        for account_id in sorted({actor.id, uid}):
+            self.repo.get_user_by_id_for_update(account_id)
+        self._require_administrator_account_manage(actor.id)
+        user = self.repo.get_user_by_id_for_update(uid)
+        if user is None or "SUPER_ADMIN" not in self.repo.list_role_codes(uid):
+            raise NotFoundError("管理员账号不存在")
+        self._version(user, body.lock_version)
+        before = self._administrator_view(user)
+        disabling = body.status is not None and body.status != "ACTIVE"
+        if disabling:
+            require_another_admin(self.session, uid)
+        if before["can_manage_administrators"] and (
+            disabling or body.can_manage_administrators is False
+        ):
+            require_another_administrator_manager(self.session, uid)
+        if body.can_manage_administrators is not None:
+            perm = self.repo.get_permission_by_code("administrator_account.manage")
+            if perm is None:
+                raise ConflictError(ErrorCode.STATE_CONFLICT, "请先同步注册表")
+            if body.can_manage_administrators:
+                self.repo.set_user_permission(uid, perm.id, actor.id)
+            else:
+                self.repo.revoke_user_permission(uid, perm.id)
+        if body.status is not None:
+            user.status = body.status
+        if body.display_name is not None:
+            user.display_name = body.display_name
+        user.lock_version += 1
+        if disabling or body.can_manage_administrators is False:
+            self.repo.revoke_active_sessions(uid, utcnow())
+        self._audit(
+            actor,
+            "account.administrator.update",
+            user,
+            request_id,
+            before=before,
+            reason=body.reason,
+        )
+        self.session.commit()
+        return self._administrator_view(user)
 
     @staticmethod
     def view(user: UserAccount) -> dict:
@@ -85,10 +236,10 @@ class AccountService:
         target = locked[target_id if target_id is not None else actor.id]
         if target is None:
             raise NotFoundError("教师账号不存在")
-        if target_id is not None and RoleCode.TEACHER_ADMIN.value not in (
-            self.repo.list_role_codes(target_id)
-        ):
-            raise NotFoundError("教师账号不存在")
+        if target_id is not None:
+            target_roles = self.repo.list_role_codes(target_id)
+            if "TEACHER_ADMIN" not in target_roles or "SUPER_ADMIN" in target_roles:
+                raise NotFoundError("教师账号不存在")
         return target
 
     def _audit(
@@ -124,11 +275,13 @@ class AccountService:
             select(UserRole.user_id)
             .join(Role)
             .where(
-                Role.code.in_([
-                    RoleCode.TEACHER_ADMIN.value,
-                    RoleCode.SUPER_ADMIN.value,
-                    RoleCode.STUDENT_AFFAIRS_MANAGER.value,
-                ])
+                Role.code.in_(
+                    [
+                        RoleCode.TEACHER_ADMIN.value,
+                        RoleCode.SUPER_ADMIN.value,
+                        RoleCode.STUDENT_AFFAIRS_MANAGER.value,
+                    ]
+                )
             )
         )
         stmt = select(UserAccount).where(UserAccount.id.in_(teacher))
@@ -154,6 +307,12 @@ class AccountService:
         self, actor: CurrentUser, body: TeacherAccountCreate, request_id: str | None
     ) -> dict:
         self._manage(actor)
+        from app.modules.academic.enrollment_models import TeacherCollegeBinding
+        from app.modules.organization.models import College
+
+        college = self.session.get(College, body.college_id)
+        if college is None or college.status != "ACTIVE":
+            raise NotFoundError("教师必须选择有效学院")
         role = self.repo.get_role_by_code(RoleCode.TEACHER_ADMIN.value)
         if role is None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "请先同步权限注册表")
@@ -170,6 +329,8 @@ class AccountService:
         except IntegrityError as exc:
             self.session.rollback()
             raise ConflictError(ErrorCode.STATE_CONFLICT, "用户名已存在") from exc
+        self.session.add(TeacherCollegeBinding(user_id=user.id, college_id=college.id))
+        college.authorization_revision += 1
         self._audit(actor, "account.teacher.create", user, request_id)
         self.session.commit()
         return self.view(user)
@@ -217,11 +378,18 @@ class AccountService:
 
         target_roles = set(self.repo.list_role_codes(uid))
 
-        if RoleCode.TEACHER_ADMIN.value in target_roles or RoleCode.SUPER_ADMIN.value in target_roles:
+        if RoleCode.SUPER_ADMIN.value in target_roles:
+            self._require_administrator_account_manage(actor.id)
+        elif RoleCode.TEACHER_ADMIN.value in target_roles:
             self.identity._require_actor_permission(actor.id, PermissionCode.ACCOUNT_MANAGE.value)
             if not actor.has_role(RoleCode.SUPER_ADMIN.value):
                 raise PermissionDeniedError("仅超级管理员可重置教工密码")
         elif RoleCode.STUDENT_AFFAIRS_MANAGER.value in target_roles:
+            from app.modules.identity.authorization import require_student_scope
+
+            if target.student_id is None:
+                raise ConflictError(message="负责人缺少有效学生绑定")
+            require_student_scope(self.session, actor.id, "role.assign", target.student_id)
             can_manage = (
                 actor.has_role(RoleCode.SUPER_ADMIN.value)
                 or actor.has_role(RoleCode.TEACHER_ADMIN.value)
@@ -254,6 +422,7 @@ class AccountService:
             user is None
             or not user.is_active
             or not user.password_hash
+            or not body.current_password
             or not verify_password(body.current_password, user.password_hash)
         ):
             raise PermissionDeniedError("当前口令不正确或账号未启用密码登录")

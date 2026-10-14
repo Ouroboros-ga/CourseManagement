@@ -1,5 +1,18 @@
 # 后端 API 契约（身份、基础数据、导入、查课、提交、考勤、异议、统计与版本化周报）
 
+## 2026-10-14 账号、学籍与老师数据交接
+
+新增路由见本次 OpenAPI。管理员账号集合 GET/POST、单项 PATCH、password-reset POST 均需显式平台能力；新建教师必须指定 college_id。教师学院绑定 PUT 与负责人功能 PUT 使用 lock_version，变更后旧会话失效。
+
+`/academic/students/{student_id}/enrollment-changes/preview` 与集合 POST 共用 EnrollmentChangeRequest：kind、effective_date、target_class_id（按种类）、lock_version、correct_existing、reason、idempotency_key。学生 ID/返回 ID 使用字符串；effective_date 为学校日期。过去日期更正必须明确 correct_existing，不覆盖后续区间或历史考勤。历史 GET 返回有效区间、变更及版本；未来计划 cancel POST 传当前学生 lock_version，只允许撤销未生效且无后续计划的变更。旧 students PATCH 也必须提交 lock_version；禁止绕过流程修改学籍或学院。
+
+`/academic/student-data/preview-file` 接收 multipart college_id/file/purpose；purpose 为 INCREMENTAL、FULL_COMPARE 或 ENROLLMENT_CHANGE。XLSX 或平铺 ZIP 限 10 MiB 输入、40 MiB 解压、200 个 ZIP 项、5000 行及 32 列；不接受嵌套压缩包。数据计划仅暂存，不写正式名单。完整对比 missing_students 只提示；confirm POST 传计划 lock_version，重读版本/范围/学生与班级归属，整批事务落库。预览有效期按日期记录，至次日本地零点失效，最长一天，并非固定 24 小时。导出 include_archive 默认为 false，文本学号和稳定 ID/版本可回导，避免 Excel 截断及姓名匹配。
+
+`/academic/enrollment-handoff/tasks` 返回待核定的未来名单/人工应到数任务。review POST 使用任务 lock_version、confirm_roster、confirm_expected_count、可选 reason；审核前核验真实名单和人数，原快照不被历史异动重写。正式班级课程来源使用 teaching-class audiences PUT 的行政班 ID + ownership_version，不从当前学生集合猜测。
+
+过期版本/预览基线变化返回 409；越权返回 403 或受限详情的 404。平台能力和学籍规则按服务端事务重核，前端隐藏按钮不是授权。兼容数据 UNKNOWN 不表示允许跨学院管理。
+
+
 ## 考勤现场照片与 Web 时间（2026-10-14）
 
 - `/api/v1/me/attendance`、管理考勤列表及单条详情的每条考勤新增 `photo_file_ids: string[]`；无照片为 `[]`。仅返回文件 ID，不暴露 object_key 或裸下载地址。

@@ -30,6 +30,7 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Computed,
     ForeignKey,
     Integer,
     String,
@@ -103,11 +104,20 @@ class Report(CollegeOwned, TimestampMixin, Base):
         CheckConstraint(f"scope IN {_REPORT_SCOPES}", name="ck_report_scope"),
         CheckConstraint("week_no >= 1", name="ck_report_week"),
         CheckConstraint("latest_version_no >= 0", name="ck_report_latest_version"),
-        UniqueConstraint("semester_id", "week_no", "scope", name="uq_report_sem_week_scope"),
+        UniqueConstraint(
+            "semester_id",
+            "week_no",
+            "scope",
+            "scope_college_key",
+            name="uq_report_sem_week_scope_college",
+        ),
         MYSQL_TABLE_ARGS,
     )
 
     id: Mapped[int] = pk_column()
+    scope_college_key: Mapped[int] = mapped_column(
+        BigInteger, Computed("COALESCE(college_id, 0)", persisted=True)
+    )
     semester_id: Mapped[int] = mapped_column(
         ForeignKey("semester.id", ondelete="RESTRICT"), nullable=False, index=True
     )

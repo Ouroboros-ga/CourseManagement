@@ -7,10 +7,14 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class TeacherAccountCreate(BaseModel):
+class AccountCreate(BaseModel):
     username: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.@\u4e00-\u9fa5-]+$")
     display_name: str = Field(min_length=1, max_length=128)
     initial_password: str = Field(min_length=6, max_length=128)
+
+
+class TeacherAccountCreate(AccountCreate):
+    college_id: int = Field(ge=1)
 
 
 class TeacherAccountUpdate(BaseModel):
@@ -24,6 +28,16 @@ class PasswordReset(BaseModel):
     new_password: str = Field(min_length=6, max_length=128)
     lock_version: int = Field(ge=0)
     reason: str | None = Field(default=None, max_length=512)
+
+
+class AdministratorAccountCreate(AccountCreate):
+    model_config = ConfigDict(extra="forbid")
+    can_manage_administrators: bool = False
+
+
+class AdministratorAccountUpdate(TeacherAccountUpdate):
+    model_config = ConfigDict(extra="forbid")
+    can_manage_administrators: bool | None = None
 
 
 class PasswordChange(BaseModel):

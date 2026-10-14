@@ -71,10 +71,18 @@ class InspectionGenerateRequest(BaseModel):
     @model_validator(mode="after")
     def _check_selection(self) -> InspectionGenerateRequest:
         if self.occurrences is not None:
-            if self.inspection_type != "COURSE" or any(x is not None for x in (
-                self.week_nos, self.date_from, self.date_to, self.teaching_class_ids,
-                self.administrative_class_ids, self.start_period, self.end_period,
-            )):
+            if self.inspection_type != "COURSE" or any(
+                x is not None
+                for x in (
+                    self.week_nos,
+                    self.date_from,
+                    self.date_to,
+                    self.teaching_class_ids,
+                    self.administrative_class_ids,
+                    self.start_period,
+                    self.end_period,
+                )
+            ):
                 raise ValueError("精确课次模式仅支持 COURSE，且不能混用旧选择条件")
             if self.selection_scope is None or self.selection_revision is None:
                 raise ValueError("精确课次模式需要 selection_scope 和 selection_revision")
@@ -124,9 +132,7 @@ class TaskAssignmentBrief(BaseModel):
     change_request_at: datetime | None = None
 
 
-DeadlineAssessmentResultLiteral = Literal[
-    "VALID_SUBMISSION", "OVERDUE_UNEXECUTED", "CANCELED"
-]
+DeadlineAssessmentResultLiteral = Literal["VALID_SUBMISSION", "OVERDUE_UNEXECUTED", "CANCELED"]
 
 
 class DeadlineAssessmentBrief(BaseModel):
@@ -162,6 +168,8 @@ class InspectionTaskResponse(BaseModel):
     require_photo_snapshot: bool
     expected_count_snapshot: int
     expected_count_current: int
+    roster_review_required: bool = False
+    expected_count_review_required: bool = False
     roster_version: int
     status: InspectionTaskStatus
     assignment: TaskAssignmentBrief | None
@@ -299,7 +307,6 @@ class TaskCandidateVolunteerItem(BaseModel):
     conflict_code: str | None = None
     conflict_message: str | None = None
     assigned_count_week: int = 0
-
 
 
 class AutoAssignRequest(BaseModel):
@@ -500,9 +507,7 @@ class SubmissionCreateRequest(BaseModel):
     """
 
     result: SubmissionResultLiteral
-    abnormal_items: list[SubmissionAbnormalItemInput] = Field(
-        default_factory=list, max_length=2000
-    )
+    abnormal_items: list[SubmissionAbnormalItemInput] = Field(default_factory=list, max_length=2000)
     file_ids: list[int] = Field(default_factory=list, max_length=50)
     note: str | None = Field(default=None, max_length=512)
 
@@ -590,7 +595,6 @@ class SubmissionBatchReviewResponse(BaseModel):
     success_count: int
     failed_count: int
     results: list[BatchReviewResultItem]
-
 
 
 # --------------------------------------------------------------------------- #
@@ -681,7 +685,6 @@ REASON_DAY_CAP = "DAY_TASK_CAP"  # 超出单日受派上限（可配置软约束
 REASON_TASK_CANCELED = "TASK_CANCELED"  # 目标任务已取消
 REASON_COURSE_NOT_INSPECTABLE = "COURSE_NOT_INSPECTABLE"  # 体育课不是被查目标
 REASON_DEADLINE_EARLY = "DEADLINE_BEFORE_TASK_END"  # 截止时间早于当日最晚任务结束时刻
-
 
 
 __all__ = [

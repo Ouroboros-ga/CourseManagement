@@ -1,18 +1,27 @@
 """一次异议审核的事务与权限回归；SQLite 不证明 MySQL 锁语义。"""
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 from app.core.database import Base
 from app.core.exceptions import ConflictError, PermissionDeniedError
+from app.modules.academic.enrollment_models import (
+    StudentEnrollment,
+    StudentManagerAppointment,
+    TeacherCollegeBinding,
+)
+from app.modules.academic.models import AdministrativeClass, Student
 from app.modules.attendance.models import AttendanceRecord, AttendanceRecordVersion
 from app.modules.audit.models import AuditLog
 from app.modules.identity.models import Role, UserAccount
+from app.modules.identity.policy import MANAGER_FUNCTION_CODES
 from app.modules.identity.seed import sync_registry
 from app.modules.identity.service import CurrentUser
+from app.modules.inspection.models import InspectionTask
 from app.modules.objection.models import Objection
 from app.modules.objection.schemas import ObjectionFinalReviewRequest, ObjectionInitialReviewRequest
 from app.modules.objection.service import ObjectionService
+from app.modules.organization.models import College, School
 from app.modules.report.source_revision import SourceRevisionService
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -24,9 +33,56 @@ def setup_review(monkeypatch):
     Base.metadata.create_all(engine)
     with Session(engine) as db:
         sync_registry(db)
-        manager = UserAccount(id=1, username="reviewer", display_name="学生负责人", status="ACTIVE")
+        db.add(School(id=1, code="S", name="学校"))
+        db.flush()
+        db.add(College(id=1, school_id=1, code="C", name="学院"))
+        db.flush()
+        db.add(AdministrativeClass(id=1, class_code="C1", class_name="班级", college_id=1))
+        db.flush()
+        db.add(
+            Student(id=2, student_no="reviewer_student", name="负责人", administrative_class_id=1)
+        )
+        db.flush()
+        db.add(
+            StudentEnrollment(
+                student_id=2,
+                administrative_class_id=1,
+                college_id=1,
+                effective_from=date(2020, 1, 1),
+                status="ENROLLED",
+                revision=0,
+                historical_confirmed=True,
+                snapshot={"class_name": "班级"},
+            )
+        )
+        manager = UserAccount(
+            id=1, username="reviewer", display_name="学生负责人", status="ACTIVE", student_id=2
+        )
         manager.roles = [db.scalar(select(Role).where(Role.code == "STUDENT_AFFAIRS_MANAGER"))]
         db.add(manager)
+        db.flush()
+        db.add(
+            StudentManagerAppointment(
+                user_id=1,
+                college_id=1,
+                effective_from=date(2020, 1, 1),
+                allowed_actions=sorted(MANAGER_FUNCTION_CODES),
+            )
+        )
+        db.add(TeacherCollegeBinding(user_id=1, college_id=1))
+        db.add(
+            InspectionTask(
+                id=1,
+                college_id=1,
+                task_key="review",
+                semester_id=1,
+                inspection_date=date(2026, 1, 1),
+                week_no=1,
+                inspection_type="COURSE",
+                start_period=1,
+                end_period=2,
+            )
+        )
         db.add(
             AttendanceRecord(
                 id=1, task_id=1, student_id=1, effective_type="ABSENT", current_version=1

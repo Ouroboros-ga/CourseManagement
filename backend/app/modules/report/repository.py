@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.academic.models import AdministrativeClass
 from app.modules.attendance.models import AttendanceRecord, AttendanceType
+from app.modules.identity.query_scope import get_scoped
 from app.modules.inspection.models import (
     InspectionSubmission,
     InspectionTask,
@@ -177,8 +178,7 @@ class ReportRepository:
             ).where(AdministrativeClass.class_name.in_(class_names))
         ).all()
         return {
-            str(name): (ht, co, int(cid) if cid is not None else None)
-            for name, ht, co, cid in rows
+            str(name): (ht, co, int(cid) if cid is not None else None) for name, ht, co, cid in rows
         }
 
     # ---- 班级维度（按名单快照分组，技术方案 17 第 554 行）----
@@ -482,11 +482,13 @@ class ReportVersionRepository:
         self._session = session
 
     def get_report(self, report_id: int) -> Report | None:
-        return self._session.get(Report, report_id)
+        return get_scoped(self._session, Report, report_id)
 
     def get_report_for_update(self, report_id: int) -> Report | None:
         return self._session.execute(
-            select(Report).where(Report.id == report_id).with_for_update()
+            select(Report)
+            .where(Report.id == report_id)
+            .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
 
@@ -499,14 +501,25 @@ class ReportVersionRepository:
         MySQL 死锁会回滚整个事务，SAVEPOINT 无法只回滚失败的 INSERT。
         重复键只做 id 自赋值，不覆盖既有版本指针或更新时间。
         """
+        college_id = self._session.info.get("college_query_scope", {}).get("college_id")
         statement = mysql_insert(Report).values(
-            semester_id=semester_id, week_no=week_no, scope=scope, latest_version_no=0,
+            semester_id=semester_id,
+            week_no=week_no,
+            scope=scope,
+            latest_version_no=0,
+            college_id=college_id,
         )
         self._session.execute(statement.on_duplicate_key_update(id=Report.id))
         return self._session.execute(
-            select(Report).where(Report.semester_id == semester_id,
-                                 Report.week_no == week_no, Report.scope == scope)
-            .with_for_update().execution_options(populate_existing=True)
+            select(Report)
+            .where(
+                Report.semester_id == semester_id,
+                Report.week_no == week_no,
+                Report.scope == scope,
+                Report.scope_college_key == (college_id or 0),
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
         ).scalar_one()
 
     def latest_version(self, report_id: int) -> ReportVersion | None:
@@ -515,7 +528,9 @@ class ReportVersionRepository:
             select(ReportVersion)
             .where(ReportVersion.report_id == report_id)
             .order_by(ReportVersion.version_no.desc())
-            .limit(1).with_for_update().execution_options(populate_existing=True)
+            .limit(1)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
 
     def list_versions(self, report_id: int) -> list[ReportVersion]:
@@ -532,7 +547,7 @@ class ReportVersionRepository:
         self._session.flush()  # 取回 id 供发布阶段条件更新
 
     def get_version(self, version_id: int) -> ReportVersion | None:
-        return self._session.get(ReportVersion, version_id)
+        return get_scoped(self._session, ReportVersion, version_id)
 
     def get_version_for_update(self, version_id: int) -> ReportVersion | None:
         return self._session.execute(

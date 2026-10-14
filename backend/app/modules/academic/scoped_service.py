@@ -167,6 +167,10 @@ class ScopedAcademicService:
         reason: str | None = None,
     ):
         repo = self._repo("student.manage", write=True)
+        from app.modules.academic.enrollment_service import EnrollmentService
+
+        lifecycle = EnrollmentService(self.db)
+        lifecycle._lock_semesters()
         teaching = repo.get("teaching_classes", teaching_class_id, lock=True)
         if repo.get("semesters", teaching.semester_id).status != "ACTIVE":
             raise ConflictError(message="学期已归档，不能替换名单")
@@ -189,9 +193,15 @@ class ScopedAcademicService:
         previous_students = repo.roster(teaching_class_id)
         before = self._dto(teaching)
         before["roster_student_ids"] = [str(row.id) for row in previous_students]
+        from app.modules.academic.roster_lifecycle import record_roster_replacement
+
+        record_roster_replacement(self.db, teaching_class_id, ids, lifecycle.today)
         repo.replace_roster(teaching_class_id, ids)
         teaching.ownership_version += 1
         self.db.flush()
+        lifecycle._refresh_tasks(
+            0, lifecycle.today, self.actor.id, teaching_class_id=teaching_class_id
+        )
         self._audit(
             "academic.roster.replace",
             teaching,

@@ -51,6 +51,18 @@ def test_ownership_migration_preserves_legacy_rows_and_round_trips():
     old = sa.MetaData(naming_convention=Base.metadata.naming_convention)
     for table in Base.metadata.sorted_tables:
         table.to_metadata(old)
+    # This test targets c002, before the e001 report partition key existed.
+    report = old.tables["report"]
+    for constraint in list(report.constraints):
+        if (
+            isinstance(constraint, sa.UniqueConstraint)
+            and "scope_college_key" in constraint.columns
+        ):
+            report.constraints.remove(constraint)
+    report._columns.remove(report.c.scope_college_key)
+    expected = sa.MetaData(naming_convention=Base.metadata.naming_convention)
+    for table in old.sorted_tables:
+        table.to_metadata(expected)
     for name in migration["TABLES"]:
         table = old.tables[name]
         column = table.c.college_id
@@ -91,7 +103,7 @@ def test_ownership_migration_preserves_legacy_rows_and_round_trips():
             sa.text("SELECT college_id, ownership_version, college FROM administrative_class")
         ).one()
         assert row == (None, 1, "未确认文本")
-        assert compare_metadata(context, Base.metadata) == []
+        assert compare_metadata(context, expected) == []
         with Operations.context(context):
             migration["downgrade"]()
         assert "college_id" not in {

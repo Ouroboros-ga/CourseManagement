@@ -27,6 +27,8 @@ export interface InspectionTaskItem {
   require_photo_snapshot?: boolean
   expected_count_snapshot?: number
   expected_count_current?: number
+  roster_review_required?: boolean
+  expected_count_review_required?: boolean
   roster_version?: number
   assigned_volunteer_id?: string | null
   assigned_volunteer_name?: string | null

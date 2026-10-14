@@ -9,6 +9,8 @@ from app.common.pagination import PageParams, page_params
 from app.common.responses import success
 from app.core.database import get_db
 from app.modules.identity.account_schemas import (
+    AdministratorAccountCreate,
+    AdministratorAccountUpdate,
     PasswordChange,
     PasswordReset,
     TeacherAccountCreate,
@@ -25,6 +27,60 @@ def get_service(db: Annotated[Session, Depends(get_db)]) -> AccountService:
 
 
 ServiceDep = Annotated[AccountService, Depends(get_service)]
+
+
+@router.get("/administrator-accounts")
+def list_administrators(
+    actor: CurrentUserDep,
+    service: ServiceDep,
+    request: Request,
+    params: Annotated[PageParams, Depends(page_params)],
+    query: str | None = None,
+    status: Literal["ACTIVE", "DISABLED", "BANNED"] | None = None,
+) -> dict:
+    return success(
+        service.list_administrators(actor, params, query, status),
+        getattr(request.state, "request_id", None),
+    )
+
+
+@router.post("/administrator-accounts", status_code=201)
+def create_administrator(
+    actor: CurrentUserDep, service: ServiceDep, request: Request, body: AdministratorAccountCreate
+) -> dict:
+    return success(
+        service.create_administrator(actor, body, getattr(request.state, "request_id", None)),
+        getattr(request.state, "request_id", None),
+    )
+
+
+@router.patch("/administrator-accounts/{user_id}")
+def update_administrator(
+    user_id: int,
+    actor: CurrentUserDep,
+    service: ServiceDep,
+    request: Request,
+    body: AdministratorAccountUpdate,
+) -> dict:
+    return success(
+        service.update_administrator(
+            actor, user_id, body, getattr(request.state, "request_id", None)
+        ),
+        getattr(request.state, "request_id", None),
+    )
+
+
+@router.post("/administrator-accounts/{user_id}/password-reset", status_code=204)
+def reset_administrator_password(
+    user_id: int, actor: CurrentUserDep, service: ServiceDep, request: Request, body: PasswordReset
+) -> Response:
+    service._require_administrator_account_manage(actor.id)
+    if "SUPER_ADMIN" not in service.repo.list_role_codes(user_id):
+        from app.core.exceptions import NotFoundError
+
+        raise NotFoundError("管理员账号不存在")
+    service.reset_password(actor, user_id, body, getattr(request.state, "request_id", None))
+    return Response(status_code=204)
 
 
 @router.get("/teacher-accounts")

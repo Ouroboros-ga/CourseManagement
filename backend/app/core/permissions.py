@@ -25,6 +25,7 @@ class PermissionCode(StrEnum):
     # 4.1 身份与账号
     ACCOUNT_READ = "account.read"
     ACCOUNT_MANAGE = "account.manage"
+    ADMINISTRATOR_ACCOUNT_MANAGE = "administrator_account.manage"
     ROLE_ASSIGN = "role.assign"
     OPTIONAL_PERMISSION_MANAGE = "optional_permission.manage"
     IDENTITY_BINDING_MANAGE = "identity.binding.manage"

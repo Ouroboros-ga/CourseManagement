@@ -15,58 +15,130 @@ from app.modules.identity.policy import (
 )
 
 # PERMISSIONS.md 第 5 节：逐列抄录每个"是"（"可选"/"条件派生"/"否"/"自动"不计入默认）。
-_EXPECTED_SUPER_ADMIN = frozenset({
-    "account.read", "account.manage", "role.assign",
-    "optional_permission.manage", "identity.binding.manage",
-    "academic.read", "academic.manage", "student.read", "student.manage",
-    "volunteer.read", "volunteer.manage", "import.execute",
-    "course_schedule.import", "course_schedule.export",
-    "inspection.read", "inspection.generate", "inspection.cancel",
-    "inspection.roster.read", "inspection.roster.manage",
-    "assignment.manage", "assignment.change_review",
-    "submission_deadline.read", "submission_deadline.manage",
-    "submission.read", "submission.review",
-    "attendance.expected_count_adjust", "attendance.read", "attendance.correct",
-    "statistics.read", "report.read", "report.generate",
-    "objection.read", "objection.initial_review", "objection.final_review",
-    "audit.read", "system.config.read", "system.config.manage",
-})
-_EXPECTED_TEACHER_ADMIN = frozenset({
-    "role.assign", "optional_permission.manage", "identity.binding.manage",
-    "academic.read", "academic.manage", "student.read", "student.manage",
-    "volunteer.read", "volunteer.manage", "import.execute",
-    "course_schedule.import", "course_schedule.export",
-    "inspection.read", "inspection.generate", "inspection.cancel",
-    "inspection.roster.read", "inspection.roster.manage",
-    "assignment.manage", "assignment.change_review",
-    "submission_deadline.read", "submission_deadline.manage",
-    "submission.read", "submission.review",
-    "attendance.expected_count_adjust", "attendance.read", "attendance.correct",
-    "statistics.read", "report.read", "report.generate",
-    "objection.read", "objection.initial_review", "objection.final_review",
-})
-_EXPECTED_STUDENT_AFFAIRS_MANAGER = frozenset({
-    "academic.read", "volunteer.read", "import.execute",
-    "course_schedule.import", "course_schedule.export",
-    "inspection.generate", "inspection.cancel", "assignment.manage",
-    "report.generate", "report.read", "identity.binding.manage", "student.read",
-    "inspection.read", "inspection.roster.read", "submission_deadline.read", "attendance.read",
-    "submission.read", "submission.review",
-    "attendance.correct", "attendance.expected_count_adjust", "objection.final_review",
-})
-_EXPECTED_VOLUNTEER = frozenset({
-    "inspection.read", "inspection.roster.read", "assignment.change_request",
-    "submission.create", "submission.read",
-})
-_EXPECTED_STUDENT = frozenset({
-    "attendance.read", "objection.create", "objection.read",
-})
+_EXPECTED_SUPER_ADMIN = frozenset(
+    {
+        "account.read",
+        "account.manage",
+        "role.assign",
+        "optional_permission.manage",
+        "identity.binding.manage",
+        "academic.read",
+        "academic.manage",
+        "student.read",
+        "student.manage",
+        "volunteer.read",
+        "volunteer.manage",
+        "import.execute",
+        "course_schedule.import",
+        "course_schedule.export",
+        "inspection.read",
+        "inspection.generate",
+        "inspection.cancel",
+        "inspection.roster.read",
+        "inspection.roster.manage",
+        "assignment.manage",
+        "assignment.change_review",
+        "submission_deadline.read",
+        "submission_deadline.manage",
+        "submission.read",
+        "submission.review",
+        "attendance.expected_count_adjust",
+        "attendance.read",
+        "attendance.correct",
+        "statistics.read",
+        "report.read",
+        "report.generate",
+        "objection.read",
+        "objection.initial_review",
+        "objection.final_review",
+        "audit.read",
+        "system.config.read",
+        "system.config.manage",
+    }
+)
+_EXPECTED_TEACHER_ADMIN = frozenset(
+    {
+        "role.assign",
+        "optional_permission.manage",
+        "identity.binding.manage",
+        "academic.read",
+        "academic.manage",
+        "student.read",
+        "student.manage",
+        "volunteer.read",
+        "volunteer.manage",
+        "import.execute",
+        "course_schedule.import",
+        "course_schedule.export",
+        "inspection.read",
+        "inspection.generate",
+        "inspection.cancel",
+        "inspection.roster.read",
+        "inspection.roster.manage",
+        "assignment.manage",
+        "assignment.change_review",
+        "submission_deadline.read",
+        "submission_deadline.manage",
+        "submission.read",
+        "submission.review",
+        "attendance.expected_count_adjust",
+        "attendance.read",
+        "attendance.correct",
+        "statistics.read",
+        "report.read",
+        "report.generate",
+        "objection.read",
+        "objection.initial_review",
+        "objection.final_review",
+    }
+)
+_EXPECTED_STUDENT_AFFAIRS_MANAGER = frozenset(
+    {
+        "academic.read",
+        "volunteer.read",
+        "import.execute",
+        "course_schedule.import",
+        "course_schedule.export",
+        "inspection.generate",
+        "inspection.cancel",
+        "assignment.manage",
+        "report.generate",
+        "report.read",
+        "identity.binding.manage",
+        "student.read",
+        "inspection.read",
+        "inspection.roster.read",
+        "submission_deadline.read",
+        "attendance.read",
+        "submission.read",
+        "submission.review",
+        "attendance.correct",
+        "attendance.expected_count_adjust",
+        "objection.final_review",
+    }
+)
+_EXPECTED_VOLUNTEER = frozenset(
+    {
+        "inspection.read",
+        "inspection.roster.read",
+        "assignment.change_request",
+        "submission.create",
+        "submission.read",
+    }
+)
+_EXPECTED_STUDENT = frozenset(
+    {
+        "attendance.read",
+        "objection.create",
+        "objection.read",
+    }
+)
 
 _ALL_CODES = {p.value for p in PermissionCode}
 
 
-def test_registry_is_exactly_40_and_excludes_assignment_read() -> None:
-    assert len(PermissionCode) == 40
+def test_registry_is_exactly_41_and_excludes_assignment_read() -> None:
+    assert len(PermissionCode) == 41
     assert "assignment.read" not in _ALL_CODES
 
 
@@ -75,9 +147,7 @@ def test_registry_member_values_match_baseline() -> None:
     assert PermissionCode.ATTENDANCE_EXPECTED_COUNT_ADJUST.value == (
         "attendance.expected_count_adjust"
     )
-    assert PermissionCode.OPTIONAL_PERMISSION_MANAGE.value == (
-        "optional_permission.manage"
-    )
+    assert PermissionCode.OPTIONAL_PERMISSION_MANAGE.value == ("optional_permission.manage")
     assert PermissionCode.IDENTITY_BINDING_MANAGE.value == "identity.binding.manage"
     # 三个既有成员名保持不变。
     assert PermissionCode.STATISTICS_READ.value == "statistics.read"
@@ -87,18 +157,40 @@ def test_registry_member_values_match_baseline() -> None:
 
 def test_registry_and_manager_defaults() -> None:
     assert set(DEFAULT_ROLE_PERMISSIONS) == {r.value for r in RoleCode}
-    assert DEFAULT_ROLE_PERMISSIONS["STUDENT_AFFAIRS_MANAGER"] == frozenset({
-        "academic.read", "volunteer.read", "import.execute",
-        "course_schedule.import", "course_schedule.export",
-        "inspection.generate", "inspection.cancel", "assignment.manage",
-        "report.generate", "report.read", "identity.binding.manage", "student.read",
-        "inspection.read", "inspection.roster.read", "submission_deadline.read", "attendance.read",
-        "submission.read", "submission.review",
-        "attendance.correct", "attendance.expected_count_adjust", "objection.final_review",
-    })
-    assert frozenset({
-        "statistics.read", "objection.initial_review",
-    }) == OPTIONAL_PERMISSION_CODES
+    assert DEFAULT_ROLE_PERMISSIONS["STUDENT_AFFAIRS_MANAGER"] == frozenset(
+        {
+            "academic.read",
+            "volunteer.read",
+            "import.execute",
+            "course_schedule.import",
+            "course_schedule.export",
+            "inspection.generate",
+            "inspection.cancel",
+            "assignment.manage",
+            "report.generate",
+            "report.read",
+            "identity.binding.manage",
+            "student.read",
+            "inspection.read",
+            "inspection.roster.read",
+            "submission_deadline.read",
+            "attendance.read",
+            "submission.read",
+            "submission.review",
+            "attendance.correct",
+            "attendance.expected_count_adjust",
+            "objection.final_review",
+        }
+    )
+    assert (
+        frozenset(
+            {
+                "statistics.read",
+                "objection.initial_review",
+            }
+        )
+        == OPTIONAL_PERMISSION_CODES
+    )
     for codes in DEFAULT_ROLE_PERMISSIONS.values():
         assert codes <= _ALL_CODES
 
@@ -117,7 +209,9 @@ def test_default_matrix_matches_transcribed_expectations() -> None:
 def test_admin_has_no_automatic_actor_permissions() -> None:
     for role in ("SUPER_ADMIN", "TEACHER_ADMIN"):
         assert not DEFAULT_ROLE_PERMISSIONS[role] & {
-            "submission.create", "assignment.change_request", "objection.create",
+            "submission.create",
+            "assignment.change_request",
+            "objection.create",
         }
 
 
@@ -171,6 +265,11 @@ def test_admin_has_no_automatic_actor_permissions() -> None:
 def test_role_change_boundary(
     actor: set[str], current: set[str], desired: set[str], expected: bool
 ) -> None:
-    assert can_change_roles(
-        frozenset(actor), frozenset(current), frozenset(desired),
-    ) is expected
+    assert (
+        can_change_roles(
+            frozenset(actor),
+            frozenset(current),
+            frozenset(desired),
+        )
+        is expected
+    )

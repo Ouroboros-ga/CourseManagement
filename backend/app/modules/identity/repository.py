@@ -18,6 +18,7 @@ from app.modules.identity.models import (
     WechatIdentity,
 )
 from app.modules.identity.policy import OPTIONAL_PERMISSION_CODES
+from app.modules.identity.query_scope import get_scoped
 
 
 class IdentityRepository:
@@ -26,7 +27,7 @@ class IdentityRepository:
 
     # ---- 账号 ----
     def get_user_by_id(self, user_id: int) -> UserAccount | None:
-        return self._session.get(UserAccount, user_id)
+        return get_scoped(self._session, UserAccount, user_id)
 
     def get_user_by_id_for_update(self, user_id: int) -> UserAccount | None:
         """SELECT ... FOR UPDATE 锁定账号行，并强制回填最新列值。
@@ -63,8 +64,9 @@ class IdentityRepository:
         负责人角色被撤销时其个人授权已在变更服务中清除，重新授角色不自动恢复。
         """
         role_perms = self._session.execute(
-            select(Permission.code)
+            select(Role.code, Permission.code)
             .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .join(Role, Role.id == RolePermission.role_id)
             .join(UserRole, UserRole.role_id == RolePermission.role_id)
             .where(UserRole.user_id == user_id)
         ).all()
@@ -76,8 +78,86 @@ class IdentityRepository:
                 Permission.code.in_(OPTIONAL_PERMISSION_CODES),
             )
         ).all()
-        codes = {row[0] for row in role_perms} | {row[0] for row in user_perms}
+        from app.modules.academic.enrollment_models import StudentManagerAppointment
+        from app.modules.academic.enrollment_service import EnrollmentService
+        from app.modules.identity.authorization import business_today
+
+        today = business_today()
+        user = get_scoped(self._session, UserAccount, user_id)
+        enrollment = (
+            EnrollmentService(self._session).at(user.student_id, today)
+            if user and user.student_id
+            else None
+        )
+        appointments = list(
+            self._session.scalars(
+                select(StudentManagerAppointment).where(
+                    StudentManagerAppointment.user_id == user_id,
+                    StudentManagerAppointment.effective_from <= today,
+                    (
+                        StudentManagerAppointment.effective_to.is_(None)
+                        | (StudentManagerAppointment.effective_to > today)
+                    ),
+                )
+            )
+        )
+        manager = next(
+            (
+                a
+                for a in appointments
+                if enrollment
+                and enrollment.status == "ENROLLED"
+                and enrollment.college_id == a.college_id
+            ),
+            None,
+        )
+        codes = set()
+        for role_code, permission_code in role_perms:
+            if permission_code == "administrator_account.manage":
+                continue
+            if role_code == "STUDENT_AFFAIRS_MANAGER" and (
+                manager is None or permission_code not in manager.allowed_actions
+            ):
+                continue
+            if (
+                role_code == "VOLUNTEER"
+                and enrollment is not None
+                and enrollment.status != "ENROLLED"
+                and permission_code
+                not in {"inspection.read", "inspection.roster.read", "submission.read"}
+            ):
+                continue
+            if role_code in {"STUDENT", "VOLUNTEER"} and user and user.student_id:
+                student = self.get_student_by_id(user.student_id)
+                if student and student.history_until and today > student.history_until:
+                    continue
+            codes.add(permission_code)
+        if manager:
+            codes |= {row[0] for row in user_perms if row[0] in manager.allowed_actions}
+        if "SUPER_ADMIN" in self.list_role_codes(user_id):
+            platform = self._session.scalar(
+                select(UserPermission.id)
+                .join(Permission)
+                .where(
+                    UserPermission.user_id == user_id,
+                    Permission.code == "administrator_account.manage",
+                )
+            )
+            if platform is not None:
+                codes.add("administrator_account.manage")
         return sorted(codes)
+
+    def list_effective_role_codes(self, user_id: int) -> list[str]:
+        roles = self.list_role_codes(user_id)
+        if "STUDENT_AFFAIRS_MANAGER" in roles:
+            from app.modules.identity.authorization import (
+                active_manager_appointment,
+                business_today,
+            )
+
+            if active_manager_appointment(self._session, user_id, business_today()) is None:
+                roles.remove("STUDENT_AFFAIRS_MANAGER")
+        return roles
 
     def get_permission_by_code(self, code: str) -> Permission | None:
         stmt = select(Permission).where(Permission.code == code)
@@ -87,14 +167,10 @@ class IdentityRepository:
         return self.get_permission_by_code(code) is not None
 
     def get_role_by_code(self, code: str) -> Role | None:
-        return self._session.execute(
-            select(Role).where(Role.code == code)
-        ).scalar_one_or_none()
+        return self._session.execute(select(Role).where(Role.code == code)).scalar_one_or_none()
 
     def get_or_create_role(self, code: str, name: str) -> Role:
-        role = self._session.execute(
-            select(Role).where(Role.code == code)
-        ).scalar_one_or_none()
+        role = self._session.execute(select(Role).where(Role.code == code)).scalar_one_or_none()
         if role is None:
             role = Role(code=code, name=name)
             self._session.add(role)
@@ -115,9 +191,7 @@ class IdentityRepository:
         from app.modules.identity.models import UserRole
 
         exists = self._session.execute(
-            select(UserRole).where(
-                UserRole.user_id == user_id, UserRole.role_id == role_id
-            )
+            select(UserRole).where(UserRole.user_id == user_id, UserRole.role_id == role_id)
         ).scalar_one_or_none()
         if exists is None:
             self._session.add(UserRole(user_id=user_id, role_id=role_id))
@@ -125,9 +199,7 @@ class IdentityRepository:
 
     def revoke_role(self, user_id: int, role_id: int) -> None:
         exists = self._session.execute(
-            select(UserRole).where(
-                UserRole.user_id == user_id, UserRole.role_id == role_id
-            )
+            select(UserRole).where(UserRole.user_id == user_id, UserRole.role_id == role_id)
         ).scalar_one_or_none()
         if exists is not None:
             self._session.delete(exists)
@@ -142,9 +214,7 @@ class IdentityRepository:
         ).scalar_one_or_none()
         if exists is None:
             self._session.add(
-                UserPermission(
-                    user_id=user_id, permission_id=permission_id, granted_by=granted_by
-                )
+                UserPermission(user_id=user_id, permission_id=permission_id, granted_by=granted_by)
             )
             self._session.flush()
 
@@ -190,14 +260,18 @@ class IdentityRepository:
 
     def clear_optional_grants(self, user_id: int) -> int:
         """删除该用户的全部可选授权（撤销负责人角色时同事务清理）。返回删除条数。"""
-        rows = self._session.execute(
-            select(UserPermission)
-            .join(Permission, Permission.id == UserPermission.permission_id)
-            .where(
-                UserPermission.user_id == user_id,
-                Permission.code.in_(OPTIONAL_PERMISSION_CODES),
+        rows = (
+            self._session.execute(
+                select(UserPermission)
+                .join(Permission, Permission.id == UserPermission.permission_id)
+                .where(
+                    UserPermission.user_id == user_id,
+                    Permission.code.in_(OPTIONAL_PERMISSION_CODES),
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for row in rows:
             self._session.delete(row)
         self._session.flush()
@@ -205,7 +279,7 @@ class IdentityRepository:
 
     # ---- 会话 ----
     def get_session_by_id(self, session_id: int) -> AuthSession | None:
-        return self._session.get(AuthSession, session_id)
+        return get_scoped(self._session, AuthSession, session_id)
 
     def get_session_by_refresh_hash(self, refresh_hash: str) -> AuthSession | None:
         stmt = select(AuthSession).where(AuthSession.refresh_token_hash == refresh_hash)
@@ -220,12 +294,16 @@ class IdentityRepository:
 
         仅置 revoked_at，不 commit——由调用方在同一事务内与业务写入一起提交。
         """
-        rows = self._session.execute(
-            select(AuthSession).where(
-                AuthSession.user_id == user_id,
-                AuthSession.revoked_at.is_(None),
+        rows = (
+            self._session.execute(
+                select(AuthSession).where(
+                    AuthSession.user_id == user_id,
+                    AuthSession.revoked_at.is_(None),
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         count = 0
         for s in rows:
             s.revoked_at = now
@@ -239,17 +317,13 @@ class IdentityRepository:
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_student_by_id(self, student_id: int) -> Student | None:
-        return self._session.get(Student, student_id)
+        return get_scoped(self._session, Student, student_id)
 
     def get_binding_token_by_hash(self, token_hash: str) -> IdentityBindingToken | None:
-        stmt = select(IdentityBindingToken).where(
-            IdentityBindingToken.token_hash == token_hash
-        )
+        stmt = select(IdentityBindingToken).where(IdentityBindingToken.token_hash == token_hash)
         return self._session.execute(stmt).scalar_one_or_none()
 
-    def get_binding_token_by_hash_for_update(
-        self, token_hash: str
-    ) -> IdentityBindingToken | None:
+    def get_binding_token_by_hash_for_update(self, token_hash: str) -> IdentityBindingToken | None:
         """SELECT ... FOR UPDATE 锁定绑定码行，串行化对同一码的并发核销。
 
         populate_existing 确保持锁后读到其它已提交事务对 status/used_at 的最新写入
@@ -264,7 +338,7 @@ class IdentityRepository:
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_binding_token_by_id(self, token_id: int) -> IdentityBindingToken | None:
-        return self._session.get(IdentityBindingToken, token_id)
+        return get_scoped(self._session, IdentityBindingToken, token_id)
 
     def create_binding_token(
         self, student_id: int, token_hash: str, expires_at

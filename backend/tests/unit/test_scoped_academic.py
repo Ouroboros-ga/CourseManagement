@@ -5,6 +5,7 @@ from app.common.pagination import PageParams
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
 from app.modules.academic.models import AdministrativeClass, Student, TeachingClassStudent
 from app.modules.audit.models import AuditLog
+from app.modules.identity.models import UserAccount
 from sqlalchemy import select
 
 from tests.unit.test_campus_configuration import campus as campus_fixture
@@ -57,13 +58,14 @@ def test_scope_filters_rows_counts_unknown_and_cached_foreign_detail(campus):
 def test_a_manage_and_b_read_do_not_grant_b_write(campus):
     config, db, admin, teacher, a, b = campus
     grant(config, admin, teacher, a, ["academic.read", "academic.manage"])
-    grant(config, admin, teacher, b, ["academic.read"])
+    with pytest.raises(PermissionDeniedError):
+        grant(config, admin, teacher, b, ["academic.read"])
     first = service(db, teacher, a["id"]).create_admin_class(
         {"class_code": "X", "class_name": "甲"}
     )
     assert first["college_id"] == a["id"]
     assert isinstance(first["id"], str)
-    with pytest.raises(PermissionDeniedError):
+    with pytest.raises(NotFoundError):
         service(db, teacher, b["id"]).create_admin_class({"class_code": "Y", "class_name": "越院"})
 
 
@@ -92,7 +94,7 @@ def test_roster_mixed_college_batch_is_atomic(campus):
 def test_update_version_audit_and_revoke_rechecked_on_reused_service(campus):
     config, db, admin, teacher, a, b = campus
     one, *_ = records(db, a, b)
-    delegation = grant(config, admin, teacher, a, ["academic.read", "academic.manage"])
+    grant(config, admin, teacher, a, ["academic.read", "academic.manage"])
     scoped = service(db, teacher, a["id"])
     saved = scoped.update_admin_class(one.id, {"class_name": "新名称", "ownership_version": 1})
     assert saved["ownership_version"] == 2
@@ -104,7 +106,15 @@ def test_update_version_audit_and_revoke_rechecked_on_reused_service(campus):
         ).after_json["college_id"]
         == a["id"]
     )
-    config.revoke_grant(admin, int(a["id"]), int(delegation["id"]), 1)
+    from app.modules.academic.college_service import CollegeService
+
+    CollegeService(db).set_teacher_college(
+        admin.id,
+        teacher.id,
+        int(b["id"]),
+        db.get(UserAccount, teacher.id).lock_version,
+        request_id=None,
+    )
     with pytest.raises(NotFoundError):
         scoped.list_rows("administrative_classes", PageParams(1, 20))
 
@@ -209,7 +219,8 @@ def test_http_scoped_read_write_and_old_url_gate(campus, monkeypatch):
     config, db, admin, teacher, a, b = campus
     _, two, _, _, _, _, _ = records(db, a, b)
     grant(config, admin, teacher, a, ["academic.read", "academic.manage"])
-    grant(config, admin, teacher, b, ["academic.read"])
+    with pytest.raises(PermissionDeniedError):
+        grant(config, admin, teacher, b, ["academic.read"])
     settings = get_settings()
     monkeypatch.setattr(settings, "campus_configuration_enabled", True)
     monkeypatch.setattr(settings, "campus_academic_scoped_enabled", True)
@@ -217,7 +228,11 @@ def test_http_scoped_read_write_and_old_url_gate(campus, monkeypatch):
     app.include_router(router, prefix="/api/v1")
     app.include_router(old_router, prefix="/api/v1/academic")
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_current_user] = lambda: teacher
+    from app.modules.identity.repository import IdentityRepository
+
+    app.dependency_overrides[get_current_user] = lambda: replace(
+        teacher, permissions=IdentityRepository(db).list_effective_permissions(teacher.id)
+    )
 
     @app.exception_handler(AppError)
     async def handle(request: Request, error: AppError):
@@ -227,7 +242,9 @@ def test_http_scoped_read_write_and_old_url_gate(campus, monkeypatch):
         base = f"/api/v1/colleges/{a['id']}/academic/administrative-classes"
         assert client.get(base).json()["data"]["total"] == 1
         assert client.get(f"{base}/{two.id}").status_code == 404
-        assert client.get("/api/v1/academic/administrative-classes").status_code == 403
+        legacy = client.get("/api/v1/academic/administrative-classes")
+        assert legacy.status_code == 200, legacy.text
+        assert legacy.json()["data"]["total"] == 1
         assert (
             client.post(
                 base, json={"class_code": "FAKE", "class_name": "越院", "college_id": b["id"]}
@@ -253,14 +270,14 @@ def test_http_scoped_read_write_and_old_url_gate(campus, monkeypatch):
                 f"/api/v1/colleges/{b['id']}/academic/administrative-classes",
                 json={"class_code": "NO", "class_name": "越院"},
             ).status_code
-            == 403
+            == 404
         )
         # 单独验证共享只读旧目录和关闭开关后的原接口兼容性。
         app.dependency_overrides[get_current_user] = lambda: replace(
             admin, permissions=["academic.read"]
         )
         assert client.get("/api/v1/academic/semesters").status_code == 200
-        assert client.get("/api/v1/academic/administrative-classes").status_code == 403
+        assert client.get("/api/v1/academic/administrative-classes").status_code == 200
         monkeypatch.setattr(settings, "campus_academic_scoped_enabled", False)
         assert client.get("/api/v1/academic/administrative-classes").status_code == 200
         assert client.get(base).status_code == 503

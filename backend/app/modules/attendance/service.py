@@ -65,6 +65,9 @@ class AttendanceService:
             raise UnauthenticatedError("操作者账号不可用")
         if code not in set(self._identity.list_effective_permissions(actor_user_id)):
             raise PermissionDeniedError()
+        from app.modules.identity.query_scope import recheck_query_scope
+
+        recheck_query_scope(self._session, actor_user_id)
 
     def _audit(
         self,
@@ -93,6 +96,9 @@ class AttendanceService:
         self._session.flush()
 
     def _student_id(self, actor_user_id: int) -> int | None:
+        from app.modules.academic.history_policy import require_self_history
+
+        require_self_history(self._session, actor_user_id)
         acct = self._identity.get_user_by_id(actor_user_id)
         return acct.student_id if acct is not None else None
 
@@ -110,7 +116,9 @@ class AttendanceService:
     ) -> dict:
         """管理范围考勤列表（GET /attendance）：仅管理类角色，越权 403。"""
         self._require(actor.id, perms.ATTENDANCE_READ_PERMISSION)
-        if not perms.is_manage_scope(perms.resolve_read_scope(actor.roles)):
+        if not perms.is_manage_scope(
+            perms.resolve_read_scope(self._identity.list_effective_role_codes(actor.id))
+        ):
             raise PermissionDeniedError("仅管理角色可查看全量考勤，请用本人考勤入口")
         rows, total = self._repo.list_records(
             params,
@@ -159,9 +167,7 @@ class AttendanceService:
             raise NotFoundError("考勤记录不存在或不可见")
         return self._assemble([record])[0]
 
-    def list_versions(
-        self, actor: CurrentUser, record_id: int
-    ) -> list[AttendanceVersionResponse]:
+    def list_versions(self, actor: CurrentUser, record_id: int) -> list[AttendanceVersionResponse]:
         self._require(actor.id, perms.ATTENDANCE_READ_PERMISSION)
         record = self._repo.get_record(record_id)
         if record is None or not self._can_read(actor, record):
@@ -183,7 +189,9 @@ class AttendanceService:
 
     def _can_read(self, actor: CurrentUser, record: AttendanceRecord) -> bool:
         """管理范围可读任意记录；否则仅本人 student_id 命中可读。"""
-        if perms.is_manage_scope(perms.resolve_read_scope(actor.roles)):
+        if perms.is_manage_scope(
+            perms.resolve_read_scope(self._identity.list_effective_role_codes(actor.id))
+        ):
             return True
         sid = self._student_id(actor.id)
         return sid is not None and sid == record.student_id
@@ -208,9 +216,7 @@ class AttendanceService:
         if record is None:
             raise NotFoundError("考勤记录不存在")
         if record.current_version != body.current_version:
-            raise ConflictError(
-                ErrorCode.VERSION_CONFLICT, "考勤已被他人更正，请刷新后重看再操作"
-            )
+            raise ConflictError(ErrorCode.VERSION_CONFLICT, "考勤已被他人更正，请刷新后重看再操作")
         prev_type = record.effective_type
         prev_version = record.current_version
         record.effective_type = body.attendance_type
@@ -252,9 +258,7 @@ class AttendanceService:
     # ================================================================== #
     # 装配（批量取任务上下文 + 名单快照，禁 N+1）
     # ================================================================== #
-    def _assemble(
-        self, records: Sequence[AttendanceRecord]
-    ) -> list[AttendanceResponse]:
+    def _assemble(self, records: Sequence[AttendanceRecord]) -> list[AttendanceResponse]:
         if not records:
             return []
         task_ids = list({r.task_id for r in records})

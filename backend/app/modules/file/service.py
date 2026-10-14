@@ -152,13 +152,56 @@ class FileService:
     # 访问授权 + 短时链接
     # ------------------------------------------------------------------ #
     def can_access(self, actor: CurrentUser, file: FileObject) -> bool:
-        if file.uploader_user_id == actor.id:
+        from app.modules.identity.repository import IdentityRepository
+
+        repo = IdentityRepository(self._session)
+        user = repo.get_user_by_id(actor.id)
+        if user is None or not user.is_active:
+            return False
+        permissions = set(repo.list_effective_permissions(actor.id))
+        if (
+            file.uploader_user_id == actor.id
+            and not actor.pre_binding
+            and permissions
+            & {"submission.create", "objection.create", "import.execute", "report.generate"}
+            and not self._repo.has_business_link(file.id)
+        ):
             return True
-        permissions = set(actor.permissions)
+        from app.modules.academic.history_policy import self_history_available
+        from app.modules.identity.query_scope import personal_lookup
+
+        with personal_lookup(self._session):
+            within_history = self_history_available(self._session, actor.id)
+            if (
+                within_history
+                and not actor.pre_binding
+                and file.category == FileCategory.SUBMISSION_PHOTO.value
+            ):
+                if "attendance.read" in permissions and self._repo.is_linked_to_own_attendance(
+                    file_id=file.id, actor_user_id=actor.id
+                ):
+                    return True
+                if "submission.read" in permissions and self._repo.is_linked_to_submittable_for(
+                    file_id=file.id, actor_user_id=actor.id, may_review=False, may_read_own=True
+                ):
+                    return True
+            if (
+                within_history
+                and not actor.pre_binding
+                and file.category == FileCategory.OBJECTION_PROOF.value
+                and "objection.read" in permissions
+                and self._repo.is_linked_to_readable_objection_for(
+                    file_id=file.id, actor_user_id=actor.id, may_manage=False, may_read_own=True
+                )
+            ):
+                return True
+        if file.category == FileCategory.REPORT_FILE.value:
+            return "report.read" in permissions and self._repo.is_linked_to_report(file.id)
         if (
             not actor.pre_binding
             and file.category == FileCategory.SUBMISSION_PHOTO.value
             and "attendance.read" in permissions
+            and within_history
             and self._repo.is_linked_to_own_attendance(file_id=file.id, actor_user_id=actor.id)
         ):
             return True
@@ -205,19 +248,20 @@ class FileService:
         if file.status == FileStatus.PURGED.value or file.status == FileStatus.PURGE_PENDING.value:
             raise FileExpiredError()
         if file.status in (FileStatus.UPLOADING.value, FileStatus.FAILED.value):
-            raise ConflictError(
-                ErrorCode.STATE_CONFLICT, "文件尚未就绪，暂不可访问"
-            )
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "文件尚未就绪，暂不可访问")
         if self._retention_expired(file):
             raise FileExpiredError()
 
     def _retention_expired(self, file: FileObject) -> bool:
         if file.expires_at is None or file.expires_at > utcnow():
             return False
-        return not (
-            file.category == FileCategory.OBJECTION_PROOF.value
-            and self._repo.is_linked_to_pending_objection(file.id)
-        )
+        from app.modules.identity.query_scope import personal_lookup
+
+        with personal_lookup(self._session):
+            return not (
+                file.category == FileCategory.OBJECTION_PROOF.value
+                and self._repo.is_linked_to_pending_objection(file.id)
+            )
 
     def download(self, file_id: int, expires: int, sig: str) -> tuple[bytes, str, str | None]:
         """下载路由取内容：不再鉴权，仅校验对象存在、未清理、签名与有效期（技术方案 16.2）。"""
@@ -293,9 +337,7 @@ class FileService:
     # ------------------------------------------------------------------ #
     # 响应装配 / 审计
     # ------------------------------------------------------------------ #
-    def _to_upload_response(
-        self, file: FileObject, width: int, height: int
-    ) -> FileUploadResponse:
+    def _to_upload_response(self, file: FileObject, width: int, height: int) -> FileUploadResponse:
         return FileUploadResponse(
             id=str(file.id),
             category=file.category,

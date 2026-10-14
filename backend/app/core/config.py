@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, alias="DEBUG")
     # 配置底座先行，默认关闭；启用不代表旧业务已具备学院隔离。
     campus_configuration_enabled: bool = Field(default=False, alias="CAMPUS_CONFIGURATION_ENABLED")
-    # 按入口接入；开启后禁止旧基础数据管理/私有读取 URL，学校共享只读目录除外。
+    # 控制显式学院入口；新旧基础数据路径均由数据库身份限制范围。
     campus_academic_scoped_enabled: bool = Field(
         default=False, alias="CAMPUS_ACADEMIC_SCOPED_ENABLED"
     )
@@ -125,9 +125,7 @@ class Settings(BaseSettings):
     file_allowed_extensions: str = Field(
         default="jpg,jpeg,png,webp", alias="FILE_ALLOWED_EXTENSIONS"
     )
-    file_signed_url_ttl_seconds: int = Field(
-        default=300, ge=1, alias="FILE_SIGNED_URL_TTL_SECONDS"
-    )
+    file_signed_url_ttl_seconds: int = Field(default=300, ge=1, alias="FILE_SIGNED_URL_TTL_SECONDS")
     # 图像像素上限（防解码炸弹）：以纯解析器读头得宽高乘积判定，V1.0 不引入重型解码库。
     file_max_image_pixels: int = Field(default=40_000_000, alias="FILE_MAX_IMAGE_PIXELS")
     # 按材料类别分别设保留天数（起算为上传成功时刻），落库固化为 expires_at。

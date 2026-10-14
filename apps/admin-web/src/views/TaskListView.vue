@@ -820,6 +820,7 @@ async function handleConfirmCancelFromEdit() {
               </td>
               <td>
                 <TaskStatusTag :status="task.status" :deadline-assessment="task.deadline_assessment" />
+                <el-tag v-if="task.roster_review_required || task.expected_count_review_required" type="warning">学籍异动待复核</el-tag>
                 <div
                   v-if="task.cancel_reason"
                   class="cell-sub text-xs text-amber-700 mt-1 max-w-[140px] truncate"

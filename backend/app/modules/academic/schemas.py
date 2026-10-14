@@ -174,6 +174,7 @@ class StudentCreateRequest(BaseModel):
 
 
 class StudentUpdateRequest(BaseModel):
+    lock_version: int = Field(ge=0)
     name: str | None = Field(default=None, min_length=1, max_length=128)
     administrative_class_id: int | None = Field(default=None, ge=1)
     # 传 null 显式清除归属；不传表示不变。用哨兵区分。
@@ -191,6 +192,7 @@ class StudentResponse(BaseModel):
     administrative_class_name: str | None = None
     status: str
     unassigned_task_count: int = 0
+    lock_version: int = 0
 
 
 # --------------------------------------------------------------------------- #
@@ -404,7 +406,9 @@ class BatchElectiveCourseResponse(BaseModel):
 # 学期重置、班级删除与学生批量删除
 # --------------------------------------------------------------------------- #
 class SemesterResetDataRequest(BaseModel):
-    confirm_name: str = Field(min_length=1, max_length=128, description="确认学期名称，必须与当前学期名称一致以防误触")
+    confirm_name: str = Field(
+        min_length=1, max_length=128, description="确认学期名称，必须与当前学期名称一致以防误触"
+    )
     reason: str | None = Field(default=None, max_length=512)
 
 

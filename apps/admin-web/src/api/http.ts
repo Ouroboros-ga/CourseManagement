@@ -73,7 +73,8 @@ async function executeRefresh(): Promise<string | null> {
 export async function request<T = unknown>(
   url: string,
   init: RequestInit = {},
-  isRetry = false
+  isRetry = false,
+  responseType: 'json' | 'blob' = 'json'
 ): Promise<T> {
   const headers = new Headers(init.headers || {})
   headers.set('Accept', 'application/json')
@@ -104,7 +105,7 @@ export async function request<T = unknown>(
     }
     const refreshedToken = await refreshPromise
     if (refreshedToken) {
-      return request<T>(url, init, true)
+      return request<T>(url, init, true, responseType)
     }
     throw new ApiError(401, { code: 'UNAUTHORIZED', message: '登录状态已失效，请重新登录' })
   }
@@ -147,6 +148,7 @@ export async function request<T = unknown>(
     throw new ApiError(response.status, payload)
   }
 
+  if (responseType === 'blob') return await response.blob() as T
   const result = await response.json()
   return result.data as T
 }

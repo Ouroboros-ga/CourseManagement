@@ -89,6 +89,11 @@ class ScopedAcademicRepository:
         student_ids = (
             select(Student.id).where(Student.administrative_class_id.in_(class_ids)).correlate(None)
         )
+        from app.modules.identity.authorization import business_today
+        from app.modules.identity.query_scope import predicates
+
+        student_condition = predicates(cid, business_today(), self.scope.actor_user_id)[Student]
+        student_ids = select(Student.id).where(student_condition).correlate(None)
         stmt = select(model).options(raiseload("*"))
         if model is AdministrativeClass:
             stmt = stmt.where(AdministrativeClass.college_id == cid)
@@ -102,7 +107,7 @@ class ScopedAcademicRepository:
                 )
             )
         elif model is Student:
-            stmt = stmt.where(Student.administrative_class_id.in_(class_ids))
+            stmt = stmt.where(student_condition)
         elif model is VolunteerQualification:
             stmt = stmt.where(VolunteerQualification.student_id.in_(student_ids))
         elif model not in (Course, Semester):

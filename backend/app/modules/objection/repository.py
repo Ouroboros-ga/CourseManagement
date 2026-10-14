@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams
 from app.modules.attendance.models import AttendanceRecord
+from app.modules.identity.query_scope import get_scoped
 from app.modules.objection.models import Objection, ObjectionFile, ObjectionFinalStatus
 
 
@@ -48,11 +49,11 @@ class ObjectionRepository:
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_attendance(self, record_id: int) -> AttendanceRecord | None:
-        return self._session.get(AttendanceRecord, record_id)
+        return get_scoped(self._session, AttendanceRecord, record_id)
 
     # ---- 异议单条读 / 锁定读 ----
     def get_objection(self, objection_id: int) -> Objection | None:
-        return self._session.get(Objection, objection_id)
+        return get_scoped(self._session, Objection, objection_id)
 
     def get_objection_for_update(self, objection_id: int) -> Objection | None:
         stmt = _for_update(select(Objection).where(Objection.id == objection_id))

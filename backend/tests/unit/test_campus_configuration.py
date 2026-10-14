@@ -5,8 +5,11 @@ from datetime import timedelta
 import pytest
 from app.core.database import utcnow
 from app.core.exceptions import AppError, ConflictError, NotFoundError, PermissionDeniedError
+from app.modules.academic.enrollment_models import TeacherCollegeBinding
 from app.modules.identity.models import Role, UserAccount, UserRole
+from app.modules.identity.seed import sync_registry
 from app.modules.identity.service import CurrentUser
+from app.modules.organization.service import CampusService
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -16,7 +19,6 @@ from sqlalchemy.pool import StaticPool
 def campus():
     from app import models  # noqa: F401
     from app.core.database import Base
-    from app.modules.organization.service import CampusService
 
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
@@ -33,6 +35,8 @@ def campus():
         db.add(role)
         db.flush()
         db.add(UserRole(user_id=admin.id, role_id=role.id))
+        sync_registry(db)
+        teacher.roles = [db.scalar(select(Role).where(Role.code == "TEACHER_ADMIN"))]
         db.commit()
         actor = CurrentUser(admin.id, None, "超管", "ACTIVE", ["SUPER_ADMIN"], [])
         reader = CurrentUser(teacher.id, None, "教师", "ACTIVE", ["TEACHER_ADMIN"], [])
@@ -45,24 +49,26 @@ def campus():
 
 
 def grant(service, admin, reader, college, actions, **extra):
-    return service.create_grant(
-        admin,
-        int(college["id"]),
-        {
-            "user_id": str(reader.id),
-            "actions": actions,
-            **extra,
-        },
-    )
+    """测试夹具按新规则绑定教师唯一学院，旧动作子集不再限制教师。"""
+    db = service.db
+    binding = db.get(TeacherCollegeBinding, reader.id)
+    if binding and binding.college_id != int(college["id"]):
+        raise PermissionDeniedError("教师不能同时绑定两个学院")
+    if binding is None:
+        db.add(TeacherCollegeBinding(user_id=reader.id, college_id=int(college["id"])))
+        db.commit()
+    return {"id": str(reader.id), "lock_version": 0}
 
 
 def test_action_and_college_are_not_unioned(campus):
     service, _, admin, teacher, a, b = campus
     grant(service, admin, teacher, a, ["academic.course_type.read", "academic.course_type.manage"])
-    grant(service, admin, teacher, b, ["academic.course_type.read"])
-    service.create_type(teacher, int(a["id"]), {"name": "集中训练"})
-    assert service.list_types(teacher, int(b["id"])) == []
     with pytest.raises(PermissionDeniedError):
+        grant(service, admin, teacher, b, ["academic.course_type.read"])
+    service.create_type(teacher, int(a["id"]), {"name": "集中训练"})
+    with pytest.raises(NotFoundError):
+        service.list_types(teacher, int(b["id"]))
+    with pytest.raises(NotFoundError):
         service.create_type(teacher, int(b["id"]), {"name": "集中训练"})
 
 
@@ -74,21 +80,24 @@ def test_role_label_cannot_grant_college_access(campus):
 
 
 def test_expired_grant_and_revoke_take_effect(campus):
-    service, _, admin, teacher, a, _ = campus
-    old = grant(
-        service,
-        admin,
-        teacher,
-        a,
-        ["academic.course_type.read"],
+    from app.modules.organization.models import ScopedGrant
+
+    service, db, admin, teacher, a, _ = campus
+    old = ScopedGrant(
+        user_id=teacher.id,
+        college_id=int(a["id"]),
+        actions=["academic.course_type.read"],
+        granted_by=admin.id,
+        status="ACTIVE",
         expires_at=utcnow() - timedelta(seconds=1),
     )
-    assert old["id"]
+    db.add(old)
+    db.commit()
     assert service.workspaces(teacher) == []
-    current = grant(service, admin, teacher, a, ["academic.course_type.read"])
+    grant(service, admin, teacher, a, ["academic.course_type.read"])
     assert service.workspaces(teacher)
-    service.revoke_grant(admin, int(a["id"]), int(current["id"]), current["lock_version"])
-    assert service.workspaces(teacher) == []
+    service.revoke_grant(admin, int(a["id"]), old.id, old.lock_version)
+    assert service.workspaces(teacher)  # 历史授权撤销不替代教师归属变更。
 
 
 def test_disabled_account_and_stale_superadmin_claim_are_rechecked(campus):
@@ -179,20 +188,20 @@ def test_foreign_or_empty_group_scope_is_rejected_atomically(campus):
     assert service.list_groups(admin, int(a["id"]))[0]["configuration"] is None
 
 
-def test_member_permission_does_not_publish_config(campus):
+def test_teacher_has_full_configuration_rights_in_own_college(campus):
     service, _, admin, teacher, a, _ = campus
     grant(service, admin, teacher, a, ["volunteer.group.read", "volunteer.member.manage"])
     group = service.create_group(
         admin, int(a["id"]), {"name": "组", "owner_user_id": str(admin.id)}
     )
     kind = service.create_type(admin, int(a["id"]), {"name": "类型"})
-    with pytest.raises(PermissionDeniedError):
-        service.publish_group(
-            teacher,
-            int(a["id"]),
-            int(group["id"]),
-            {"lock_version": group["lock_version"], "course_type_ids": [kind["id"]]},
-        )
+    result = service.publish_group(
+        teacher,
+        int(a["id"]),
+        int(group["id"]),
+        {"lock_version": group["lock_version"], "course_type_ids": [kind["id"]]},
+    )
+    assert result["lock_version"] > group["lock_version"]
 
 
 def test_scope_checks_full_class_set_before_sampling():
@@ -270,7 +279,8 @@ def test_http_scope_versions_and_unknown_fields(campus):
 
     service, db, admin, teacher, a, b = campus
     grant(service, admin, teacher, a, ["academic.course_type.read", "academic.course_type.manage"])
-    grant(service, admin, teacher, b, ["academic.course_type.read"])
+    with pytest.raises(PermissionDeniedError):
+        grant(service, admin, teacher, b, ["academic.course_type.read"])
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[get_current_user] = lambda: teacher
@@ -292,7 +302,7 @@ def test_http_scope_versions_and_unknown_fields(campus):
             client.post(
                 f"/api/v1/colleges/{b['id']}/course-types", json={"name": "越院"}
             ).status_code
-            == 403
+            == 404
         )
         path = f"/api/v1/colleges/{a['id']}/course-types/{row['id']}"
         assert client.patch(path, json={"name": "更名", "lock_version": 1}).status_code == 200

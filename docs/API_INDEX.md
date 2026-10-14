@@ -1,5 +1,32 @@
 # API 路由索引
 
+本次代码重新导出：**147 个路径、183 个操作**。以下为新增账号/学籍/交接入口，完整 schema 以本次 [OpenAPI](openapi.json) 为准；旧快照数字作为历史资料。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/administrator-accounts` | List Administrators |
+| POST | `/api/v1/administrator-accounts` | Create Administrator |
+| PATCH | `/api/v1/administrator-accounts/{user_id}` | Update Administrator |
+| POST | `/api/v1/administrator-accounts/{user_id}/password-reset` | Reset Administrator Password |
+| GET | `/api/v1/academic/enrollment-handoff/tasks` | Handoff Tasks |
+| POST | `/api/v1/academic/enrollment-handoff/tasks/{task_id}/review` | Review Task |
+| PUT | `/api/v1/academic/teaching-classes/{teaching_class_id}/audiences` | Set Audience |
+| GET | `/api/v1/academic/colleges` | List Colleges |
+| POST | `/api/v1/academic/colleges` | Create College |
+| GET | `/api/v1/academic/teacher-colleges/{user_id}` | Teacher College |
+| PUT | `/api/v1/academic/teacher-colleges/{user_id}` | Bind Teacher College |
+| GET | `/api/v1/academic/student-manager-functions/{user_id}` | Manager Functions |
+| PUT | `/api/v1/academic/student-manager-functions/{user_id}` | Set Manager Functions |
+| POST | `/api/v1/academic/students/{student_id}/enrollment-changes/preview` | Preview Change |
+| POST | `/api/v1/academic/students/{student_id}/enrollment-changes` | Commit Change |
+| GET | `/api/v1/academic/students/{student_id}/enrollment-history` | History |
+| POST | `/api/v1/academic/students/{student_id}/enrollment-changes/{change_id}/cancel` | Cancel Change |
+| POST | `/api/v1/academic/student-data/preview` | Preview Data |
+| POST | `/api/v1/academic/student-data/preview-file` | Preview File |
+| POST | `/api/v1/academic/student-data/{plan_id}/confirm` | Confirm Data |
+| GET | `/api/v1/academic/student-data/export` | Export Data |
+
+
 2026-10-14：本人/管理考勤列表和详情新增 `photo_file_ids: string[]`；文件访问按本人正式考勤及已通过提交关联放行现场照片。参见 [接口契约](API_CONTRACT.md) 的“考勤现场照片与 Web 时间”。路径数量不变。
 
 院级基础数据新增六个操作：集合 GET、详情 GET、行政班 POST/PATCH、教学班名单 GET/PUT，均位于 `/api/v1/colleges/{cid}/academic/...`。资源及默认关闭的模式开关见 [院级基础数据契约](API_CONTRACT.md)。新入口通过不代表全链路隔离完成。

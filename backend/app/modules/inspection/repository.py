@@ -18,6 +18,7 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams
+from app.modules.identity.query_scope import get_scoped
 from app.modules.inspection.models import (
     AssignmentChangeRequest,
     InspectionAssignment,
@@ -60,7 +61,7 @@ class InspectionRepository:
 
     # ==================== 任务 ====================
     def get_task(self, task_id: int) -> InspectionTask | None:
-        return self._session.get(InspectionTask, task_id)
+        return get_scoped(self._session, InspectionTask, task_id)
 
     def list_tasks_by_ids(self, task_ids: Sequence[int]) -> list[InspectionTask]:
         if not task_ids:
@@ -68,7 +69,9 @@ class InspectionRepository:
         return list(
             self._session.execute(
                 select(InspectionTask).where(InspectionTask.id.in_(set(task_ids)))
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
 
     def get_task_for_update(self, task_id: int) -> InspectionTask | None:
@@ -172,9 +175,7 @@ class InspectionRepository:
             .all()
         )
 
-    def list_roster_members(
-        self, task_id: int, roster_version: int
-    ) -> list[TaskRosterMember]:
+    def list_roster_members(self, task_id: int, roster_version: int) -> list[TaskRosterMember]:
         return list(
             self._session.execute(
                 select(TaskRosterMember)
@@ -216,15 +217,18 @@ class InspectionRepository:
             .correlate(InspectionTask)
             .scalar_subquery()
         )
-        rows = self._session.execute(
-            select(TaskRosterMember)
-            .where(
-                TaskRosterMember.task_id.in_(ids),
-                TaskRosterMember.roster_version
-                == max_ver,
+        rows = (
+            self._session.execute(
+                select(TaskRosterMember)
+                .where(
+                    TaskRosterMember.task_id.in_(ids),
+                    TaskRosterMember.roster_version == max_ver,
+                )
+                .order_by(TaskRosterMember.task_id, TaskRosterMember.student_id)
             )
-            .order_by(TaskRosterMember.task_id, TaskRosterMember.student_id)
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         grouped: dict[int, list[TaskRosterMember]] = {}
         for m in rows:
             grouped.setdefault(m.task_id, []).append(m)
@@ -249,7 +253,7 @@ class InspectionRepository:
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_assignment(self, assignment_id: int) -> InspectionAssignment | None:
-        return self._session.get(InspectionAssignment, assignment_id)
+        return get_scoped(self._session, InspectionAssignment, assignment_id)
 
     def get_assignment_for_update(self, assignment_id: int) -> InspectionAssignment | None:
         stmt = _for_update(
@@ -264,12 +268,16 @@ class InspectionRepository:
         ids = list(task_ids)
         if not ids:
             return {}
-        rows = self._session.execute(
-            select(InspectionAssignment).where(
-                InspectionAssignment.task_id.in_(ids),
-                InspectionAssignment.revoked_at.is_(None),
+        rows = (
+            self._session.execute(
+                select(InspectionAssignment).where(
+                    InspectionAssignment.task_id.in_(ids),
+                    InspectionAssignment.revoked_at.is_(None),
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         return {a.task_id: a for a in rows}
 
     def list_assignments_for_volunteer_on_date(
@@ -315,9 +323,7 @@ class InspectionRepository:
         self._session.execute(stmt)
         self._session.flush()
 
-    def lock_volunteer_day(
-        self, volunteer_user_id: int, on_date: date_
-    ) -> VolunteerDayLock | None:
+    def lock_volunteer_day(self, volunteer_user_id: int, on_date: date_) -> VolunteerDayLock | None:
         stmt = _for_update(
             select(VolunteerDayLock).where(
                 VolunteerDayLock.volunteer_user_id == volunteer_user_id,
@@ -327,9 +333,7 @@ class InspectionRepository:
         return self._session.execute(stmt).scalar_one_or_none()
 
     # ==================== 截止时间 ====================
-    def get_deadline_day(
-        self, semester_id: int, on_date: date_
-    ) -> SubmissionDeadlineDay | None:
+    def get_deadline_day(self, semester_id: int, on_date: date_) -> SubmissionDeadlineDay | None:
         return self._session.execute(
             select(SubmissionDeadlineDay).where(
                 SubmissionDeadlineDay.semester_id == semester_id,
@@ -349,7 +353,7 @@ class InspectionRepository:
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_deadline_day_by_id(self, day_id: int) -> SubmissionDeadlineDay | None:
-        return self._session.get(SubmissionDeadlineDay, day_id)
+        return get_scoped(self._session, SubmissionDeadlineDay, day_id)
 
     def get_deadline_version(
         self, deadline_day_id: int, version_no: int
@@ -383,11 +387,15 @@ class InspectionRepository:
         day_ids = [d.id for d in day_list]
         if not day_ids:
             return {}
-        vers = self._session.execute(
-            select(SubmissionDeadlineVersion).where(
-                SubmissionDeadlineVersion.deadline_day_id.in_(day_ids)
+        vers = (
+            self._session.execute(
+                select(SubmissionDeadlineVersion).where(
+                    SubmissionDeadlineVersion.deadline_day_id.in_(day_ids)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         by_day: dict[int, dict[int, int]] = {}
         for v in vers:
             by_day.setdefault(v.deadline_day_id, {})[v.version_no] = v.id
@@ -438,9 +446,13 @@ class InspectionRepository:
         ids = list(task_ids)
         if not ids:
             return {}
-        rows = self._session.execute(
-            select(TaskDeadlineAssessment).where(TaskDeadlineAssessment.task_id.in_(ids))
-        ).scalars().all()
+        rows = (
+            self._session.execute(
+                select(TaskDeadlineAssessment).where(TaskDeadlineAssessment.task_id.in_(ids))
+            )
+            .scalars()
+            .all()
+        )
         return {a.task_id: a for a in rows}
 
     def list_unsettled_task_ids(
@@ -458,9 +470,7 @@ class InspectionRepository:
         """
         stmt = (
             select(InspectionTask.id)
-            .outerjoin(
-                TaskDeadlineAssessment, TaskDeadlineAssessment.task_id == InspectionTask.id
-            )
+            .outerjoin(TaskDeadlineAssessment, TaskDeadlineAssessment.task_id == InspectionTask.id)
             .where(
                 InspectionTask.semester_id == semester_id,
                 TaskDeadlineAssessment.id.is_(None),
@@ -475,7 +485,7 @@ class InspectionRepository:
 
     # ==================== 查课提交（P5c）====================
     def get_submission(self, submission_id: int) -> InspectionSubmission | None:
-        return self._session.get(InspectionSubmission, submission_id)
+        return get_scoped(self._session, InspectionSubmission, submission_id)
 
     def get_submission_for_update(self, submission_id: int) -> InspectionSubmission | None:
         stmt = _for_update(
@@ -507,8 +517,7 @@ class InspectionRepository:
                 )
                 .limit(1)
                 .with_for_update(read=True)
-            )
-            .scalar_one_or_none()
+            ).scalar_one_or_none()
             is not None
         )
 
@@ -523,8 +532,7 @@ class InspectionRepository:
                 )
                 .limit(1)
                 .with_for_update(read=True)
-            )
-            .scalar_one_or_none()
+            ).scalar_one_or_none()
             is not None
         )
 
@@ -583,8 +591,7 @@ class InspectionRepository:
                     InspectionSubmission.submitted_at <= deadline_at,
                 )
                 .limit(1)
-            )
-            .scalar_one_or_none()
+            ).scalar_one_or_none()
             is not None
         )
 
@@ -592,10 +599,10 @@ class InspectionRepository:
         return [
             int(fid)
             for fid in self._session.execute(
-                select(SubmissionFile.file_id).where(
-                    SubmissionFile.submission_id == submission_id
-                )
-            ).scalars().all()
+                select(SubmissionFile.file_id).where(SubmissionFile.submission_id == submission_id)
+            )
+            .scalars()
+            .all()
         ]
 
     def list_submission_file_ids_by_ids(
@@ -662,9 +669,7 @@ class InspectionRepository:
         )
         return _paged(self._session, stmt, params)
 
-    def list_submission_roster_members(
-        self, keys: set[tuple[int, int]]
-    ) -> list[TaskRosterMember]:
+    def list_submission_roster_members(self, keys: set[tuple[int, int]]) -> list[TaskRosterMember]:
         """一次读取本页提交引用的所有历史名单版本。"""
         if not keys:
             return []
@@ -673,16 +678,16 @@ class InspectionRepository:
                 select(TaskRosterMember).where(
                     tuple_(TaskRosterMember.task_id, TaskRosterMember.roster_version).in_(keys)
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
 
     # ==================== 调班申请 ====================
     def get_change_request(self, request_id: int) -> AssignmentChangeRequest | None:
-        return self._session.get(AssignmentChangeRequest, request_id)
+        return get_scoped(self._session, AssignmentChangeRequest, request_id)
 
-    def get_change_request_for_update(
-        self, request_id: int
-    ) -> AssignmentChangeRequest | None:
+    def get_change_request_for_update(self, request_id: int) -> AssignmentChangeRequest | None:
         stmt = _for_update(
             select(AssignmentChangeRequest).where(AssignmentChangeRequest.id == request_id)
         )
@@ -699,8 +704,7 @@ class InspectionRepository:
                     AssignmentChangeRequest.status == ChangeRequestStatus.PENDING.value,
                 )
                 .limit(1)
-            )
-            .scalar_one_or_none()
+            ).scalar_one_or_none()
             is not None
         )
 
@@ -773,9 +777,7 @@ class InspectionRepository:
             count_sub = count_sub.where(where)
         total = int(self._session.execute(count_sub).scalar_one())
         rows = self._session.execute(
-            base.order_by(AssignmentChangeRequest.id)
-            .limit(params.limit)
-            .offset(params.offset)
+            base.order_by(AssignmentChangeRequest.id).limit(params.limit).offset(params.offset)
         ).all()
         return [(r[0], int(r[1])) for r in rows], total
 

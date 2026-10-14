@@ -18,10 +18,15 @@ import {
   type OptionalPermissionTargetItem
 } from '../api/accounts'
 import AppIcon from '../components/AppIcon.vue'
+import AdministratorAccounts from '../components/accounts/AdministratorAccounts.vue'
+import { listWorkspaces, type College } from '../api/campus'
+import ManagerFunctionsEditor from '../components/accounts/ManagerFunctionsEditor.vue'
+const creationColleges = ref<College[]>([])
 
 const sessionStore = useSessionStore()
 
-const activeTab = ref<'teachers' | 'managers'>('teachers')
+const activeTab = ref<'teachers' | 'managers' | 'administrators'>('teachers')
+const canManageAdministrators = computed(() => sessionStore.hasPermission('administrator_account.manage'))
 const loading = ref(false)
 
 // ==================== 1. 教工与管理员账号 ====================
@@ -196,6 +201,7 @@ const stats = computed(() => {
 const createDialogVisible = ref(false)
 const createSubmitting = ref(false)
 const createForm = ref({
+  college_id: '',
   username: '',
   display_name: '',
   initial_password: 'Teacher@123456'
@@ -203,11 +209,13 @@ const createForm = ref({
 
 function openCreateDialog() {
   createForm.value = {
+    college_id: '',
     username: '',
     display_name: '',
     initial_password: 'Teacher@123456'
   }
   createDialogVisible.value = true
+  void listWorkspaces().then(rows => { creationColleges.value = rows }).catch(e => ElMessage.error(e.message))
 }
 
 async function handleCreateTeacher() {
@@ -229,7 +237,9 @@ async function handleCreateTeacher() {
   }
   createSubmitting.value = true
   try {
+    if (!createForm.value.college_id) { ElMessage.warning('请选择所属学院'); return }
     await createTeacherAccount({
+      college_id: createForm.value.college_id,
       username: uname,
       display_name: dname,
       initial_password: pwd
@@ -448,7 +458,7 @@ onMounted(async () => {
         <div class="note">协助开展查课、排班与考勤协同</div>
       </div>
       <div class="stat-cell">
-        <div class="label">考勤异议初核权</div>
+        <div class="label">本院功能配置</div>
         <div class="value" style="color: var(--blue)">{{ stats.initialReviewCount }} <span class="text-xs font-normal text-[var(--ink-mute)]">人</span></div>
         <div class="note">已赋权初审学生异议申请</div>
       </div>
@@ -461,6 +471,7 @@ onMounted(async () => {
 
     <!-- 顶部 Tab 切换 -->
     <div class="tab-nav mb-4">
+      <button v-if="canManageAdministrators" class="tab-btn" :class="{ active: activeTab === 'administrators' }" @click="activeTab = 'administrators'">管理员账号</button>
       <button
         class="tab-btn"
         :class="{ active: activeTab === 'teachers' }"
@@ -538,7 +549,7 @@ onMounted(async () => {
               </td>
               <td style="text-align: right;">
                 <div class="flex items-center justify-end gap-3">
-                  <template v-if="isSuperAdmin">
+                  <template v-if="isSuperAdmin && !teacher.roles?.includes('SUPER_ADMIN')">
                     <button class="btn-text text-xs text-blue-700 hover:underline" @click="handleResetPassword(teacher)">
                       重置密码
                     </button>
@@ -565,6 +576,7 @@ onMounted(async () => {
     </div>
 
     <!-- ==================== Tab 2: 学生工作负责人与授权 ==================== -->
+    <AdministratorAccounts v-if="canManageAdministrators && activeTab === 'administrators'" />
     <div v-if="activeTab === 'managers'" class="space-y-4">
       <!-- 业务机制横幅 -->
       <div class="banner">
@@ -572,7 +584,7 @@ onMounted(async () => {
           <div class="b-title">学生工作负责人（STUDENT_AFFAIRS_MANAGER）职责与授权机制</div>
           <div class="b-desc">
             学生工作负责人由教师管理员或系统管理员在已完成微信认证的学生中委任，协助开展学院日常查课与核验工作。
-            除基础排班与课表协同权外，【考勤异议初核】与【数据统计查阅】两项高阶权限由教师按需逐人开启。
+            【异议处理等本院功能】与【数据统计查阅】功能由教师按需逐人开启。
           </div>
         </div>
         <button class="btn btn-sm btn-dark shrink-0" @click="openAppointDialog">
@@ -586,7 +598,7 @@ onMounted(async () => {
           <div>
             <h3>当前在册学生工作负责人名录 ({{ studentAffairsManagers.length }} 人)</h3>
             <div class="meta">
-              点击对应权限状态即可为该学生负责人直接开关【考勤异议初核】或【数据统计查阅】。
+              点击对应权限状态即可为该学生负责人直接开关【异议处理等本院功能】或【数据统计查阅】。
             </div>
           </div>
           <div class="tbl-tools">
@@ -601,7 +613,7 @@ onMounted(async () => {
               <th style="width: 140px;">姓名</th>
               <th style="width: 130px;">微信绑定状态</th>
               <th>当前持有角色</th>
-              <th style="width: 180px;">考勤异议初核权</th>
+              <th style="width: 180px;">本院功能配置</th>
               <th style="width: 180px;">数据统计查阅权</th>
               <th style="width: 210px; text-align: right;">操作</th>
             </tr>
@@ -627,24 +639,7 @@ onMounted(async () => {
                   </span>
                 </div>
               </td>
-              <td>
-                <div class="flex items-center gap-2">
-                  <span
-                    class="tag cursor-pointer"
-                    :class="getOptionalPermState(manager.id, 'objection.initial_review') ? 'tag-blue' : 'tag-gray'"
-                    title="点击切换初核权限"
-                    @click="handleToggleOptionalPermission(manager, 'objection.initial_review', getOptionalPermState(manager.id, 'objection.initial_review'))"
-                  >
-                    {{ getOptionalPermState(manager.id, 'objection.initial_review') ? '已开通初核' : '未开启' }}
-                  </span>
-                  <button
-                    class="btn-text text-xs text-blue-700 hover:underline"
-                    @click="handleToggleOptionalPermission(manager, 'objection.initial_review', getOptionalPermState(manager.id, 'objection.initial_review'))"
-                  >
-                    {{ getOptionalPermState(manager.id, 'objection.initial_review') ? '关闭' : '开启' }}
-                  </button>
-                </div>
-              </td>
+              <td><ManagerFunctionsEditor :user-id="manager.id" @changed="fetchManagersAndRoles" /></td>
               <td>
                 <div class="flex items-center gap-2">
                   <span
@@ -694,6 +689,7 @@ onMounted(async () => {
     <!-- 弹窗 1: 超管专属新增教师 -->
     <el-dialog v-model="createDialogVisible" title="新增教师管理员账号" width="480px">
       <div class="space-y-4">
+        <el-select v-model="createForm.college_id" placeholder="所属学院（本院全部教学与查课权限）"><el-option v-for="c in creationColleges" :key="c.id" :value="c.id" :label="c.name" :disabled="c.status !== 'ACTIVE'" /></el-select>
         <div>
           <label class="block text-xs font-bold text-[var(--ink)] mb-1">教工工号 (作为登录账号) *</label>
           <input

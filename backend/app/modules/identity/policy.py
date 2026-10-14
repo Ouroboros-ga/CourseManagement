@@ -10,18 +10,27 @@ from __future__ import annotations
 from app.core.permissions import PermissionCode, RoleCode
 
 # 逐人开关的可选项，默认不随任何角色授予（PERMISSIONS.md 6.2）。
-OPTIONAL_PERMISSION_CODES: frozenset[str] = frozenset({
-    "statistics.read",
-    "objection.initial_review",
-})
+OPTIONAL_PERMISSION_CODES: frozenset[str] = frozenset(
+    {
+        "statistics.read",
+        "objection.initial_review",
+    }
+)
 
 # 超管基线：全部权限减去三项"执行者身份"权限——
 # 超级管理员不因角色身份自动获得代志愿者提交或代学生提异议的业务身份。
 _admin: frozenset[str] = frozenset(p.value for p in PermissionCode) - {
+    "administrator_account.manage",
     "assignment.change_request",
     "submission.create",
     "objection.create",
 }
+
+
+def can_manage_administrator(role_codes: frozenset[str], permission_codes: frozenset[str]) -> bool:
+    """平台管理是管理员显式补权，不能由角色默认或教师误授派生。"""
+    return "SUPER_ADMIN" in role_codes and "administrator_account.manage" in permission_codes
+
 
 # 默认角色 → 权限 code 集合（PERMISSIONS.md 第 5 节的"是"；可选/条件派生/自动不计入）。
 #
@@ -37,51 +46,61 @@ _admin: frozenset[str] = frozenset(p.value for p in PermissionCode) - {
 # test_volunteer_inherits_student_base_via_bound_student_role_union。
 DEFAULT_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     RoleCode.SUPER_ADMIN.value: _admin,
-    RoleCode.TEACHER_ADMIN.value: _admin - {
+    RoleCode.TEACHER_ADMIN.value: _admin
+    - {
         "account.read",
         "account.manage",
         "audit.read",
         "system.config.read",
         "system.config.manage",
     },
-    RoleCode.STUDENT_AFFAIRS_MANAGER.value: frozenset({
-        "academic.read",
-        "volunteer.read",
-        "import.execute",
-        "course_schedule.import",
-        "course_schedule.export",
-        "inspection.generate",
-        "inspection.cancel",
-        "assignment.manage",
-        "report.generate",
-        "report.read",
-        "identity.binding.manage",
-        "student.read",
-        "inspection.read",
-        "inspection.roster.read",
-        "submission_deadline.read",
-        "attendance.read",
-        "attendance.correct",
-        "objection.final_review",
-        "attendance.expected_count_adjust",
-        "submission.read",
-        "submission.review",
-    }),
+    RoleCode.STUDENT_AFFAIRS_MANAGER.value: frozenset(
+        {
+            "academic.read",
+            "volunteer.read",
+            "import.execute",
+            "course_schedule.import",
+            "course_schedule.export",
+            "inspection.generate",
+            "inspection.cancel",
+            "assignment.manage",
+            "report.generate",
+            "report.read",
+            "identity.binding.manage",
+            "student.read",
+            "inspection.read",
+            "inspection.roster.read",
+            "submission_deadline.read",
+            "attendance.read",
+            "attendance.correct",
+            "objection.final_review",
+            "attendance.expected_count_adjust",
+            "submission.read",
+            "submission.review",
+        }
+    ),
     # VOLUNTEER：仅志愿者专有语义权限；学生基础三项经"绑定同持 STUDENT"并集获得，见上方注释。
-    RoleCode.VOLUNTEER.value: frozenset({
-        "inspection.read",
-        "inspection.roster.read",
-        "assignment.change_request",
-        "submission.create",
-        "submission.read",
-    }),
+    RoleCode.VOLUNTEER.value: frozenset(
+        {
+            "inspection.read",
+            "inspection.roster.read",
+            "assignment.change_request",
+            "submission.create",
+            "submission.read",
+        }
+    ),
     # STUDENT：绑定即获得；解绑即收回；三项基础权限是 VOLUNTEER 继承能力的来源。
-    RoleCode.STUDENT.value: frozenset({
-        "attendance.read",
-        "objection.create",
-        "objection.read",
-    }),
+    RoleCode.STUDENT.value: frozenset(
+        {
+            "attendance.read",
+            "objection.create",
+            "objection.read",
+        }
+    ),
 }
+
+
+MANAGER_FUNCTION_CODES = DEFAULT_ROLE_PERMISSIONS["STUDENT_AFFAIRS_MANAGER"] | {"statistics.read"}
 
 
 def can_change_roles(

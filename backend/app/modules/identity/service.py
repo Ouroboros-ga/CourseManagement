@@ -119,7 +119,7 @@ class IdentityService:
         access = create_access_token(
             user_id=user.id,
             session_id=session.id,
-            roles=self._repo.list_role_codes(user.id),
+            roles=self._repo.list_effective_role_codes(user.id),
             permissions=self._repo.list_effective_permissions(user.id),
         )
         return session, access, refresh
@@ -399,36 +399,84 @@ class IdentityService:
 
         # 权限与边界校验（顺序：先功能权限 403，再角色差集边界 403）。
         self._require_actor_permission(actor_user_id, PermissionCode.ROLE_ASSIGN.value)
+        if "SUPER_ADMIN" in current_roles | desired:
+            from app.modules.identity.account_service import AccountService
+
+            AccountService(self._session)._require_administrator_account_manage(actor_user_id)
         if not can_change_roles(actor_roles, current_roles, desired):
             raise PermissionDeniedError("越权或受保护角色的变更被拒绝")
+        if "SUPER_ADMIN" not in actor_roles and target.student_id is not None:
+            from app.modules.identity.authorization import require_student_scope
+
+            require_student_scope(self._session, actor_user_id, "role.assign", target.student_id)
 
         # 乐观并发：版本不符 → 409。
         if target.lock_version != expected_version:
-            raise ConflictError(
-                ErrorCode.VERSION_CONFLICT, "目标已被并发修改，请刷新后重试"
-            )
+            raise ConflictError(ErrorCode.VERSION_CONFLICT, "目标已被并发修改，请刷新后重试")
 
         before_roles = sorted(current_roles)
-        if (
-            RoleCode.SUPER_ADMIN.value in current_roles - desired
-            and target.status == UserStatus.ACTIVE.value
+        if RoleCode.SUPER_ADMIN.value in current_roles - desired:
+            from app.modules.identity.account_service import require_another_administrator_manager
+
+            if target.status == UserStatus.ACTIVE.value:
+                require_another_admin(self._session, target.id)
+                if "administrator_account.manage" in self._repo.list_effective_permissions(
+                    target.id
+                ):
+                    require_another_administrator_manager(self._session, target.id)
+            platform_permission = self._repo.get_permission_by_code("administrator_account.manage")
+            if platform_permission is not None:
+                self._repo.revoke_user_permission(target.id, platform_permission.id)
+        from app.modules.identity.authorization import active_manager_appointment, business_today
+
+        if RoleCode.STUDENT_AFFAIRS_MANAGER.value in desired and (
+            RoleCode.STUDENT_AFFAIRS_MANAGER.value not in current_roles
+            or active_manager_appointment(self._session, target.id, business_today()) is None
         ):
-            require_another_admin(self._session, target.id)
-        if RoleCode.STUDENT_AFFAIRS_MANAGER.value in desired - current_roles:
+            from app.modules.academic.enrollment_models import StudentManagerAppointment
+            from app.modules.academic.enrollment_service import EnrollmentService
+            from app.modules.identity.authorization import (
+                business_today,
+                require_resource_scope,
+                resolve_scope,
+            )
+            from app.modules.identity.policy import MANAGER_FUNCTION_CODES
+
             student = (
                 self._session.execute(
-                    select(Student).where(Student.id == target.student_id)
-                    .with_for_update().execution_options(populate_existing=True)
+                    select(Student)
+                    .where(Student.id == target.student_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
                 ).scalar_one_or_none()
-                if target.student_id is not None else None
+                if target.student_id is not None
+                else None
             )
             if (
                 target.status != UserStatus.ACTIVE.value
-                or student is None or student.status != "ACTIVE"
+                or student is None
+                or student.status != "ACTIVE"
             ):
                 raise ConflictError(
                     ErrorCode.STATE_CONFLICT, "负责人须使用已绑定有效学生的启用账号"
                 )
+            enrollment_service = EnrollmentService(self._session)
+            enrollment = enrollment_service.at(
+                student.id, business_today()
+            ) or enrollment_service._baseline(student)
+            if enrollment.status != "ENROLLED" or enrollment.college_id is None:
+                raise ConflictError(message="负责人必须有明确的在读学院学籍")
+            require_resource_scope(
+                resolve_scope(self._session, actor_user_id, "role.assign"), enrollment.college_id
+            )
+            self._session.add(
+                StudentManagerAppointment(
+                    user_id=target.id,
+                    college_id=enrollment.college_id,
+                    effective_from=business_today(),
+                    allowed_actions=sorted(MANAGER_FUNCTION_CODES - {"statistics.read"}),
+                )
+            )
         # 应用：把 user_role 关联精确对齐 desired（SQLAlchemy 生成最小增删）。
         role_objs = [self._repo.get_or_create_role(code, code) for code in sorted(desired)]
         target.roles = role_objs
@@ -440,9 +488,20 @@ class IdentityService:
             and RoleCode.STUDENT_AFFAIRS_MANAGER.value not in desired
         ):
             revoked_optional = self._repo.clear_optional_grants(target_user_id)
+            from app.modules.academic.enrollment_models import StudentManagerAppointment
+            from app.modules.identity.authorization import business_today
+
+            for appointment in self._session.scalars(
+                select(StudentManagerAppointment).where(
+                    StudentManagerAppointment.user_id == target_user_id,
+                    StudentManagerAppointment.effective_to.is_(None),
+                )
+            ):
+                appointment.effective_to = business_today()
 
         target.lock_version += 1
         after_roles = sorted(desired)
+        self._repo.revoke_active_sessions(target_user_id, utcnow())
 
         self._record_audit(
             actor_user_id=actor_user_id,
@@ -510,17 +569,35 @@ class IdentityService:
             )
 
         if target.lock_version != expected_version:
-            raise ConflictError(
-                ErrorCode.VERSION_CONFLICT, "目标已被并发修改，请刷新后重试"
-            )
+            raise ConflictError(ErrorCode.VERSION_CONFLICT, "目标已被并发修改，请刷新后重试")
 
         perm = self._repo.get_or_create_permission(code, code)
+        from app.modules.identity.authorization import require_student_scope
+
+        if target.student_id is None:
+            raise ConflictError(message="负责人缺少学生绑定")
+        require_student_scope(
+            self._session, actor_user_id, "optional_permission.manage", target.student_id
+        )
+        from app.modules.identity.authorization import active_manager_appointment, business_today
+
+        appointment = active_manager_appointment(self._session, target_user_id, business_today())
+        if appointment is None:
+            raise ConflictError(message="负责人任命无效，请先重新委任")
+        if code == "statistics.read":
+            allowed = set(appointment.allowed_actions)
+            if enabled:
+                allowed.add(code)
+            else:
+                allowed.discard(code)
+            appointment.allowed_actions = sorted(allowed)
         if enabled:
             self._repo.set_user_permission(target_user_id, perm.id, actor_user_id)
         else:
             self._repo.revoke_user_permission(target_user_id, perm.id)
 
         target.lock_version += 1
+        self._repo.revoke_active_sessions(target_user_id, utcnow())
         self._record_audit(
             actor_user_id=actor_user_id,
             action="optional_permission.update",
@@ -569,9 +646,7 @@ class IdentityService:
     ) -> tuple[list[OptionalPermissionTargetItem], list[str]]:
         configurable = sorted(OPTIONAL_PERMISSION_CODES)
         items: list[OptionalPermissionTargetItem] = []
-        for user in self._repo.list_users_with_role(
-            RoleCode.STUDENT_AFFAIRS_MANAGER.value
-        ):
+        for user in self._repo.list_users_with_role(RoleCode.STUDENT_AFFAIRS_MANAGER.value):
             granted = set(self._repo.list_optional_grant_codes(user.id))
             items.append(
                 OptionalPermissionTargetItem(
@@ -579,8 +654,7 @@ class IdentityService:
                     display_name=user.display_name,
                     status=user.status,
                     permissions=[
-                        OptionalPermissionState(code=c, enabled=c in granted)
-                        for c in configurable
+                        OptionalPermissionState(code=c, enabled=c in granted) for c in configurable
                     ],
                     lock_version=user.lock_version,
                 )
@@ -599,17 +673,13 @@ class IdentityService:
         request_id: str | None,
     ) -> tuple[int, str, datetime]:
         """为指定学生签发一次性 6 位绑定码；明文仅此返回一次，库中只存摘要。"""
-        self._require_actor_permission(
-            actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value
-        )
+        self._require_actor_permission(actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value)
         student = self._repo.get_student_by_id(student_id)
         if student is None:
             raise NotFoundError("学生不存在")
 
         code = generate_friendly_binding_code(6)
-        expires_at = utcnow() + timedelta(
-            minutes=self._settings.binding_token_valid_minutes
-        )
+        expires_at = utcnow() + timedelta(minutes=self._settings.binding_token_valid_minutes)
         token = self._repo.create_binding_token(student.id, hash_token(code), expires_at)
 
         self._record_audit(
@@ -639,9 +709,7 @@ class IdentityService:
         request_id: str | None = None,
     ) -> list[dict]:
         """批量为学生签发 6 位绑定码。"""
-        self._require_actor_permission(
-            actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value
-        )
+        self._require_actor_permission(actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value)
         from app.modules.academic.models import AdministrativeClass, Student
 
         stmt = select(Student).where(Student.status == "ACTIVE")
@@ -655,34 +723,48 @@ class IdentityService:
             u.student_id
             for u in self._session.execute(
                 select(UserAccount).where(UserAccount.student_id.is_not(None))
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         }
 
         ac_ids = {s.administrative_class_id for s in students if s.administrative_class_id}
-        acs = {
-            ac.id: ac
-            for ac in self._session.execute(
-                select(AdministrativeClass).where(AdministrativeClass.id.in_(list(ac_ids)))
-            ).scalars().all()
-        } if ac_ids else {}
+        acs = (
+            {
+                ac.id: ac
+                for ac in self._session.execute(
+                    select(AdministrativeClass).where(AdministrativeClass.id.in_(list(ac_ids)))
+                )
+                .scalars()
+                .all()
+            }
+            if ac_ids
+            else {}
+        )
 
         results = []
         expires_at = utcnow() + timedelta(days=days_valid)
 
         for s in students:
             code = generate_friendly_binding_code(6)
-            token = self._repo.create_binding_token(s.id, hash_token(code), expires_at)
-            ac = acs.get(s.administrative_class_id) if s.administrative_class_id is not None else None
-            results.append({
-                "student_id": s.id,
-                "student_no": s.student_no,
-                "name": s.name,
-                "class_name": ac.class_name if ac else None,
-                "college": ac.college if ac else None,
-                "binding_code": code,
-                "expires_at": expires_at.isoformat() + "Z",
-                "is_bound": s.id in bound_student_ids,
-            })
+            self._repo.create_binding_token(s.id, hash_token(code), expires_at)
+            ac = (
+                acs.get(s.administrative_class_id)
+                if s.administrative_class_id is not None
+                else None
+            )
+            results.append(
+                {
+                    "student_id": s.id,
+                    "student_no": s.student_no,
+                    "name": s.name,
+                    "class_name": ac.class_name if ac else None,
+                    "college": ac.college if ac else None,
+                    "binding_code": code,
+                    "expires_at": expires_at.isoformat() + "Z",
+                    "is_bound": s.id in bound_student_ids,
+                }
+            )
 
         self._record_audit(
             actor_user_id=actor_user_id,
@@ -709,6 +791,7 @@ class IdentityService:
     ):
         """批量生成并导出绑定码 Excel。"""
         import io
+
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
@@ -753,18 +836,22 @@ class IdentityService:
             status_text = "已绑定" if item["is_bound"] else "未绑定"
             try:
                 raw_exp = item["expires_at"].replace("Z", "")
-                bj_exp = (datetime.fromisoformat(raw_exp) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+                bj_exp = (datetime.fromisoformat(raw_exp) + timedelta(hours=8)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
             except Exception:
                 bj_exp = item["expires_at"][:19].replace("T", " ")
-            ws.append([
-                item["student_no"],
-                item["name"],
-                item["class_name"] or "",
-                item["college"] or "",
-                item["binding_code"],
-                bj_exp,
-                status_text,
-            ])
+            ws.append(
+                [
+                    item["student_no"],
+                    item["name"],
+                    item["class_name"] or "",
+                    item["college"] or "",
+                    item["binding_code"],
+                    bj_exp,
+                    status_text,
+                ]
+            )
             ws.row_dimensions[row_idx].height = 22
             for col_idx in range(1, len(headers) + 1):
                 cell = ws.cell(row=row_idx, column=col_idx)
@@ -798,16 +885,12 @@ class IdentityService:
         request_id: str | None,
     ) -> int:
         """作废未使用的绑定码；已核销的码不可作废（409），已作废幂等返回。"""
-        self._require_actor_permission(
-            actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value
-        )
+        self._require_actor_permission(actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value)
         token = self._repo.get_binding_token_by_id(token_id)
         if token is None:
             raise NotFoundError("绑定码不存在")
         if token.status == BindingTokenStatus.USED.value:
-            raise ConflictError(
-                ErrorCode.STATE_CONFLICT, "绑定码已核销，无法作废"
-            )
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "绑定码已核销，无法作废")
         if token.status == BindingTokenStatus.EXPIRED.value:
             return token_id  # 幂等：已作废无需重复
 
@@ -841,18 +924,19 @@ class IdentityService:
         """
         locked = self._lock_accounts_ordered(actor_user_id, target_user_id)
         target = locked[target_user_id]
-        self._require_actor_permission(
-            actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value
-        )
+        self._require_actor_permission(actor_user_id, PermissionCode.IDENTITY_BINDING_MANAGE.value)
 
         before_student = target.student_id
         before_roles = self._repo.list_role_codes(target_user_id)
 
         new_student_id: int | None
         if new_student_no is not None:
-            student = self._session.execute(select(Student).where(
-                Student.student_no == new_student_no
-            ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+            student = self._session.execute(
+                select(Student)
+                .where(Student.student_no == new_student_no)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
             if student is None:
                 raise NotFoundError("学号不存在")
             if student.status != "ACTIVE":
@@ -939,9 +1023,12 @@ class IdentityService:
                 "该账号已绑定学生，如需换绑请走管理端流程",
             )
 
-        student = self._session.execute(select(Student).where(
-            Student.student_no == student_no
-        ).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+        student = self._session.execute(
+            select(Student)
+            .where(Student.student_no == student_no)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
         if student is None:
             raise NotFoundError("学号不存在")
         if student.status != "ACTIVE":
@@ -992,7 +1079,9 @@ class IdentityService:
             if user_wechat is not None:
                 user_wechat.user_id = existing.id
             self._session.execute(
-                update(AuthSession).where(AuthSession.user_id == user.id).values(user_id=existing.id)
+                update(AuthSession)
+                .where(AuthSession.user_id == user.id)
+                .values(user_id=existing.id)
             )
             student_role = self._repo.get_or_create_role(
                 RoleCode.STUDENT.value, RoleCode.STUDENT.value
@@ -1011,7 +1100,6 @@ class IdentityService:
                 pass
             target_user = existing
         else:
-            before_roles = self._repo.list_role_codes(user.id)
             user.student_id = student.id
             user.display_name = student.name
             token.status = BindingTokenStatus.USED.value
@@ -1065,7 +1153,7 @@ class IdentityService:
         before_student = user.student_id
 
         user.student_id = None
-        
+
         # 解绑时必须清除该账号关联的所有角色（user_role 表的记录）
         # 只有确保其角色被清空，下次微信登录时 need_binding 才能正确返回 true
         for role_code in before_roles:
@@ -1127,9 +1215,7 @@ class IdentityService:
             return False
         if RoleCode.VOLUNTEER.value in self._repo.list_role_codes(user.id):
             return False
-        role = self._repo.get_or_create_role(
-            RoleCode.VOLUNTEER.value, RoleCode.VOLUNTEER.value
-        )
+        role = self._repo.get_or_create_role(RoleCode.VOLUNTEER.value, RoleCode.VOLUNTEER.value)
         self._repo.grant_role(user.id, role.id)
         user.lock_version += 1
         return True

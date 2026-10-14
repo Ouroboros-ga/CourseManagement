@@ -22,7 +22,6 @@ from sqlalchemy import select
 
 from app.common.pagination import PageParams
 from app.common.parsing.grid import extract_admin_class_names, normalize_class_name
-from app.core.logging import get_logger
 from app.core.exceptions import (
     AppError,
     ConflictError,
@@ -31,6 +30,7 @@ from app.core.exceptions import (
     PermissionDeniedError,
     UnauthenticatedError,
 )
+from app.core.logging import get_logger
 from app.core.permissions import PermissionCode, RoleCode
 from app.modules.academic import permissions as perms
 from app.modules.academic.models import (
@@ -133,13 +133,14 @@ class AcademicService:
         if actor is None or not actor.is_active:
             raise UnauthenticatedError("操作者账号不可用")
         effective = set(self._identity.list_effective_permissions(actor_user_id))
+        from app.modules.identity.query_scope import recheck_query_scope
+
+        recheck_query_scope(self._session, actor_user_id)
         if code not in effective:
             raise PermissionDeniedError()
         # 学院规模较小：基础数据写入统一先锁学期，再锁课表/名单等子资源。
         # 全局学生、课程、班级快照也可能影响多个学期，按 ID 顺序锁定避免反向锁序。
-        self._session.execute(
-            select(Semester.id).order_by(Semester.id).with_for_update()
-        ).all()
+        self._session.execute(select(Semester.id).order_by(Semester.id).with_for_update()).all()
 
     def _record_audit(
         self,
@@ -196,7 +197,9 @@ class AcademicService:
         if body.end_date < body.start_date:
             raise AppError(ErrorCode.VALIDATION_ERROR, "结束日期不得早于开始日期", http_status=422)
         if body.first_monday.weekday() != 0:
-            raise AppError(ErrorCode.VALIDATION_ERROR, "第一教学周周一必须是星期一", http_status=422)
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR, "第一教学周周一必须是星期一", http_status=422
+            )
         sem = Semester(
             code=body.code,
             name=body.name,
@@ -274,7 +277,9 @@ class AcademicService:
         first_monday_changed = False
         if body.first_monday is not None:
             if body.first_monday.weekday() != 0:
-                raise AppError(ErrorCode.VALIDATION_ERROR, "第一教学周周一必须是星期一", http_status=422)
+                raise AppError(
+                    ErrorCode.VALIDATION_ERROR, "第一教学周周一必须是星期一", http_status=422
+                )
             if body.first_monday != sem.first_monday:
                 first_monday_changed = True
                 sem.first_monday = body.first_monday
@@ -288,13 +293,14 @@ class AcademicService:
         # 核心防呆：若管理员调整了第一教学周周一，级联原子重算本学期所有已生成查课任务的 week_no
         if first_monday_changed:
             from sqlalchemy import text
+
             self._session.execute(
                 text("""
                     UPDATE inspection_task 
                     SET week_no = TIMESTAMPDIFF(DAY, :fm, inspection_date) DIV 7 + 1 
                     WHERE semester_id = :sid
                 """),
-                {"fm": sem.first_monday, "sid": sem.id}
+                {"fm": sem.first_monday, "sid": sem.id},
             )
 
         self._record_audit(
@@ -471,7 +477,9 @@ class AcademicService:
                         InspectionTask.canceled_at.is_(None),
                     )
                     .with_for_update()
-                ).scalars().all()
+                )
+                .scalars()
+                .all()
             )
             if existing_tasks:
                 now = utcnow()
@@ -688,6 +696,10 @@ class AcademicService:
         request_id,  # noqa: ANN001
     ) -> StudentResponse:
         self._require_actor_permission(actor.id, PermissionCode.STUDENT_MANAGE.value)
+        from app.modules.academic.enrollment_service import EnrollmentService
+
+        lifecycle = EnrollmentService(self._session)
+        lifecycle._lock_semesters()
         if self._repo.get_student_by_no(body.student_no) is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "学号已存在")
         if (
@@ -703,6 +715,26 @@ class AcademicService:
         )
         self._repo.add(stu)
         self._repo.flush()
+        if stu.administrative_class_id is not None:
+            from app.modules.academic.enrollment_models import StudentEnrollment
+            from app.modules.academic.enrollment_service import class_snapshot
+            from app.modules.identity.authorization import business_today
+
+            ac = self._repo.get_admin_class(stu.administrative_class_id)
+            self._session.add(
+                StudentEnrollment(
+                    student_id=stu.id,
+                    administrative_class_id=stu.administrative_class_id,
+                    college_id=ac.college_id if ac else None,
+                    effective_from=business_today(),
+                    status="ENROLLED",
+                    revision=0,
+                    historical_confirmed=False,
+                    snapshot=class_snapshot(ac),
+                )
+            )
+        self._session.flush()
+        lifecycle._refresh_tasks(stu.id, lifecycle.today, actor.id)
         self._record_audit(
             actor_user_id=actor.id,
             action="academic.student.create",
@@ -727,22 +759,32 @@ class AcademicService:
         # 否则会与该负责人正在排班的「账号→学期」锁序形成循环等待。
         self._session.rollback()
         self._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
-        bound_ids = set(self._session.scalars(
-            select(UserAccount.id).where(UserAccount.student_id == student_id)
-        ))
+        bound_ids = set(
+            self._session.scalars(
+                select(UserAccount.id).where(UserAccount.student_id == student_id)
+            )
+        )
         locked_ids = bound_ids | {actor.id}
         for user_id in sorted(locked_ids):
             self._identity.get_user_by_id_for_update(user_id)
         self._require_actor_permission(actor.id, PermissionCode.STUDENT_MANAGE.value)
         self._validate_status(body.status)
+        from app.modules.academic.enrollment_service import EnrollmentService
+
+        lifecycle = EnrollmentService(self._session)
+        lifecycle._lock_semesters()
         stu = self._repo.get_student_for_update(student_id)
         if stu is None:
             raise NotFoundError("学生不存在")
         # 预查到锁学生之间可能刚完成新绑定。不在持有学期锁时追加账号锁，
         # 而是让调用者重试；学生锁阻止接下来的新绑定越过此复核点。
-        current_bound_ids = set(self._session.scalars(
-            select(UserAccount.id).where(UserAccount.student_id == student_id)
-        ))
+        if stu.lock_version != body.lock_version:
+            raise ConflictError(ErrorCode.VERSION_CONFLICT, "学生资料已变化，请刷新后重试")
+        current_bound_ids = set(
+            self._session.scalars(
+                select(UserAccount.id).where(UserAccount.student_id == student_id)
+            )
+        )
         if not current_bound_ids <= locked_ids:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "学生绑定已变化，请刷新后重试")
         before = {"name": stu.name, "class": stu.administrative_class_id, "status": stu.status}
@@ -752,21 +794,36 @@ class AcademicService:
         if body.administrative_class_id is not None:
             if self._repo.get_admin_class(body.administrative_class_id) is None:
                 raise NotFoundError("行政班不存在")
-            stu.administrative_class_id = body.administrative_class_id
+            if stu.administrative_class_id != body.administrative_class_id:
+                raise ConflictError(message="转班必须使用带生效日期的学籍异动流程")
         if body.status is not None:
+            from app.modules.academic.enrollment_service import EnrollmentService
+
+            if EnrollmentService(self._session).has_timeline(stu.id) and body.status != stu.status:
+                raise ConflictError(
+                    message="已有正式学籍，请使用休学、复学或离校流程；账号停用请单独操作"
+                )
             stu.status = body.status
             if body.status != "ACTIVE":
                 from app.modules.academic.student_lifecycle import deactivate_student
 
                 unassigned_task_count = deactivate_student(self._session, stu.id)
+        stu.lock_version += 1
+        if body.name is not None and before["name"] != stu.name:
+            self._session.flush()
+            lifecycle._refresh_tasks(stu.id, lifecycle.today, actor.id)
         self._record_audit(
             actor_user_id=actor.id,
             action="academic.student.update",
             resource_type="student",
             resource_id=str(stu.id),
             before=before,
-            after={"name": stu.name, "class": stu.administrative_class_id, "status": stu.status,
-                   "unassigned_task_count": unassigned_task_count},
+            after={
+                "name": stu.name,
+                "class": stu.administrative_class_id,
+                "status": stu.status,
+                "unassigned_task_count": unassigned_task_count,
+            },
             reason=body.reason,
             request_id=request_id,
         )
@@ -998,6 +1055,11 @@ class AcademicService:
         request_id,  # noqa: ANN001
     ) -> list[StudentResponse]:
         self._require_actor_permission(actor.id, PermissionCode.STUDENT_MANAGE.value)
+        from app.modules.academic.enrollment_service import EnrollmentService
+        from app.modules.academic.roster_lifecycle import record_roster_replacement
+
+        lifecycle = EnrollmentService(self._session)
+        lifecycle._lock_semesters()
         tc = self._repo.get_teaching_class_for_update(tc_id)
         if tc is None:
             raise NotFoundError("教学班不存在")
@@ -1009,7 +1071,10 @@ class AcademicService:
             if missing:
                 raise NotFoundError(f"以下学生不存在：{missing}")
         before_ids = [s.id for s in self._repo.get_roster_students(tc_id)]
+        record_roster_replacement(self._session, tc_id, uniq, lifecycle.today)
         self._repo.set_roster(tc_id, uniq)
+        self._session.flush()
+        lifecycle._refresh_tasks(0, lifecycle.today, actor.id, teaching_class_id=tc_id)
         self._record_audit(
             actor_user_id=actor.id,
             action="academic.teaching_class.roster.replace",
@@ -1316,6 +1381,9 @@ class AcademicService:
         else:
             vq.enabled = body.enabled
             self._repo.flush()
+        from app.modules.identity.authorization import current_student_college
+
+        vq.college_id = current_student_college(self._session, stu)
         # 首次获得有效资格：同事务自动维护 VOLUNTEER 身份（PERMISSIONS.md 1.4/1.5）。
         # 停用不回收角色：资格是逐学期闸口，停用即时禁止提交由提交阶段判定，历史只读保留。
         if body.enabled:
@@ -1448,9 +1516,13 @@ class AcademicService:
                         )
 
         # 加载行政班基础信息索引，用于无名单时通过教学班名称穿透匹配班主任与辅导员
-        all_acs = self._session.execute(
-            select(AdministrativeClass).where(AdministrativeClass.status == "ACTIVE")
-        ).scalars().all()
+        all_acs = (
+            self._session.execute(
+                select(AdministrativeClass).where(AdministrativeClass.status == "ACTIVE")
+            )
+            .scalars()
+            .all()
+        )
         ac_name_lookup = {ac.class_name: ac for ac in all_acs}
         ac_code_lookup = {ac.class_code: ac for ac in all_acs}
         ac_norm_lookup = {normalize_class_name(ac.class_name): ac for ac in all_acs}
@@ -1496,10 +1568,12 @@ class AcademicService:
 
             if keyword:
                 kw = keyword.strip().lower()
-                ac_texts = " ".join([
-                    f"{d.class_name} {d.head_teacher or ''} {d.counselor or ''}"
-                    for d in admin_details_list
-                ]).lower()
+                ac_texts = " ".join(
+                    [
+                        f"{d.class_name} {d.head_teacher or ''} {d.counselor or ''}"
+                        for d in admin_details_list
+                    ]
+                ).lower()
                 matches_kw = (
                     kw in (c.course_name or "").lower()
                     or kw in (c.course_code or "").lower()
@@ -1709,9 +1783,7 @@ class AcademicService:
                         self._session.execute(
                             delete(ObjectionFile).where(ObjectionFile.objection_id.in_(obj_ids))
                         )
-                        self._session.execute(
-                            delete(Objection).where(Objection.id.in_(obj_ids))
-                        )
+                        self._session.execute(delete(Objection).where(Objection.id.in_(obj_ids)))
                 except Exception:
                     pass
                 self._session.execute(
@@ -1725,7 +1797,9 @@ class AcademicService:
 
             sub_ids = list(
                 self._session.scalars(
-                    select(InspectionSubmission.id).where(InspectionSubmission.task_id.in_(task_ids))
+                    select(InspectionSubmission.id).where(
+                        InspectionSubmission.task_id.in_(task_ids)
+                    )
                 ).all()
             )
             if sub_ids:
@@ -1744,7 +1818,9 @@ class AcademicService:
             # 调班与受派
             asgn_ids = list(
                 self._session.scalars(
-                    select(InspectionAssignment.id).where(InspectionAssignment.task_id.in_(task_ids))
+                    select(InspectionAssignment.id).where(
+                        InspectionAssignment.task_id.in_(task_ids)
+                    )
                 ).all()
             )
             if asgn_ids:
@@ -1758,9 +1834,7 @@ class AcademicService:
                 )
 
             self._session.execute(
-                delete(TaskDeadlineAssessment).where(
-                    TaskDeadlineAssessment.task_id.in_(task_ids)
-                )
+                delete(TaskDeadlineAssessment).where(TaskDeadlineAssessment.task_id.in_(task_ids))
             )
             self._session.execute(
                 delete(TaskRosterMember).where(TaskRosterMember.task_id.in_(task_ids))
@@ -1768,9 +1842,7 @@ class AcademicService:
             self._session.execute(
                 delete(TaskRosterVersion).where(TaskRosterVersion.task_id.in_(task_ids))
             )
-            self._session.execute(
-                delete(InspectionTask).where(InspectionTask.id.in_(task_ids))
-            )
+            self._session.execute(delete(InspectionTask).where(InspectionTask.id.in_(task_ids)))
 
         # 清理截止时间版本与日当前值
         self._session.execute(
@@ -1783,9 +1855,7 @@ class AcademicService:
             )
         )
         self._session.execute(
-            delete(SubmissionDeadlineDay).where(
-                SubmissionDeadlineDay.semester_id == semester_id
-            )
+            delete(SubmissionDeadlineDay).where(SubmissionDeadlineDay.semester_id == semester_id)
         )
 
         # 2. 级联清理排课课表
@@ -1799,9 +1869,7 @@ class AcademicService:
             self._session.execute(
                 delete(CourseScheduleWeek).where(CourseScheduleWeek.schedule_id.in_(sched_ids))
             )
-            self._session.execute(
-                delete(CourseSchedule).where(CourseSchedule.id.in_(sched_ids))
-            )
+            self._session.execute(delete(CourseSchedule).where(CourseSchedule.id.in_(sched_ids)))
 
         # 3. 级联清理教学班与名单
         tc_ids = list(
@@ -1816,9 +1884,7 @@ class AcademicService:
                     TeachingClassStudent.teaching_class_id.in_(tc_ids)
                 )
             )
-            self._session.execute(
-                delete(TeachingClass).where(TeachingClass.id.in_(tc_ids))
-            )
+            self._session.execute(delete(TeachingClass).where(TeachingClass.id.in_(tc_ids)))
 
         # 4. 清理本学期志愿者学期资格
         vol_del = self._session.execute(
@@ -1877,6 +1943,7 @@ class AcademicService:
 
         # 1. 检查自习查课任务引用
         from app.modules.inspection.models import InspectionTask
+
         task_ref = self._session.scalars(
             select(InspectionTask.id)
             .where(InspectionTask.administrative_class_id == class_id)
@@ -1973,9 +2040,9 @@ class AcademicService:
         # 2. 检查考勤事实记录
         att_rows = list(
             self._session.execute(
-                select(AttendanceRecord.student_id).where(
-                    AttendanceRecord.student_id.in_(target_ids)
-                ).limit(1)
+                select(AttendanceRecord.student_id)
+                .where(AttendanceRecord.student_id.in_(target_ids))
+                .limit(1)
             ).all()
         )
         if att_rows:
@@ -1990,9 +2057,9 @@ class AcademicService:
         # 3. 检查查课任务名单快照成员引用（外键 RESTRICT）
         roster_rows = list(
             self._session.execute(
-                select(TaskRosterMember.student_id).where(
-                    TaskRosterMember.student_id.in_(target_ids)
-                ).limit(1)
+                select(TaskRosterMember.student_id)
+                .where(TaskRosterMember.student_id.in_(target_ids))
+                .limit(1)
             ).all()
         )
         if roster_rows:
@@ -2014,9 +2081,7 @@ class AcademicService:
         self._session.execute(
             delete(TeachingClassStudent).where(TeachingClassStudent.student_id.in_(target_ids))
         )
-        self._session.execute(
-            delete(Student).where(Student.id.in_(target_ids))
-        )
+        self._session.execute(delete(Student).where(Student.id.in_(target_ids)))
         return target_ids
 
     def delete_student(

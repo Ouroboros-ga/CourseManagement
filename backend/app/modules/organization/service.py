@@ -10,7 +10,6 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import utcnow
 from app.core.exceptions import (
     AppError,
     ConflictError,
@@ -20,7 +19,7 @@ from app.core.exceptions import (
 )
 from app.modules.academic.campus_models import CourseType
 from app.modules.audit.models import AuditLog
-from app.modules.identity.authorization import CAMPUS_ACTIONS, effective_actions
+from app.modules.identity.authorization import CAMPUS_ACTIONS, fixed_college_actions
 from app.modules.identity.models import Role, UserAccount, UserRole
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
@@ -29,7 +28,6 @@ from app.modules.organization.repository import CampusRepository
 from app.modules.organization.schemas import (
     CollegeCreate,
     CollegeUpdate,
-    GrantCreate,
     GroupCreate,
     GroupPublish,
     GroupUpdate,
@@ -83,6 +81,10 @@ class CampusService:
         )
         if user is None or user.status != "ACTIVE" or actor.pre_binding:
             raise PermissionDeniedError("账号无效或尚未绑定")
+        if lock:
+            from app.modules.identity.query_scope import recheck_query_scope
+
+            recheck_query_scope(self.db, actor.id)
         roles = (
             select(Role.code)
             .join(UserRole, UserRole.role_id == Role.id)
@@ -99,13 +101,7 @@ class CampusService:
     def _authorize(self, actor, cid, action, *, write=False):
         is_super = self._actor(actor, lock=write)
         college = self.repo.college(cid, lock=write)
-        actions = (
-            CAMPUS_ACTIONS
-            if is_super
-            else effective_actions(
-                self.repo.grants(actor.id, college_id=cid, lock=write), cid, utcnow()
-            )
-        )
+        actions = CAMPUS_ACTIONS if is_super else fixed_college_actions(self.db, actor.id, cid)
         if college is None or not actions:
             raise NotFoundError()
         if action not in actions:
@@ -218,11 +214,10 @@ class CampusService:
 
     def workspaces(self, actor):
         is_super = self._actor(actor)
-        grants = self.repo.grants(actor.id)
         result = []
         for college in self.db.scalars(select(College).order_by(College.id)):
             actions = (
-                CAMPUS_ACTIONS if is_super else effective_actions(grants, college.id, utcnow())
+                CAMPUS_ACTIONS if is_super else fixed_college_actions(self.db, actor.id, college.id)
             )
             if actions:
                 data = self._dto(college)
@@ -249,25 +244,11 @@ class CampusService:
 
     @atomic_write
     def create_grant(self, actor, cid, data):
-        body = validated(GrantCreate, data)
         self._super(actor)
-        college = self.repo.college(cid, lock=True)
-        if college is None:
-            raise NotFoundError()
-        if college.status != "ACTIVE":
-            raise ConflictError(message="学院已停用")
-        target = self.db.get(UserAccount, int(body.user_id))
-        if target is None or target.status != "ACTIVE":
-            raise NotFoundError("目标账号无效")
-        row = ScopedGrant(
-            college_id=cid,
-            granted_by=actor.id,
-            **body.model_dump(exclude={"user_id"}),
-            user_id=int(body.user_id),
+        raise ConflictError(
+            message="院级授权已改为教师固定学院与负责人任命，请使用对应账号配置入口"
         )
-        self.db.add(row)
-        college.authorization_revision += 1
-        return self._commit(actor, "campus.grant.create", row)
+        # 历史表仍可查看/撤销，不作为当前范围授权的输入。
 
     @atomic_write
     def revoke_grant(self, actor, cid, rid, version):

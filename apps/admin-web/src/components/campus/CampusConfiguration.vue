@@ -5,6 +5,7 @@ import GroupManager from './GroupManager.vue'
 import CampusAdministration from './CampusAdministration.vue'
 import OwnershipReconciliation from './OwnershipReconciliation.vue'
 import ScopedAcademicBrowser from './ScopedAcademicBrowser.vue'
+import StudentHandoff from './StudentHandoff.vue'
 
 const { colleges, collegeId, college, types, groups, error, busy, userId, isSuper, can, reload, loadWorkspaces } = useCampusConfiguration()
 </script>
@@ -31,6 +32,7 @@ const { colleges, collegeId, college, types, groups, error, busy, userId, isSupe
       <el-tab-pane v-if="college && ['academic.read', 'student.read', 'volunteer.read'].some(action => can(action))" label="本院基础数据">
         <ScopedAcademicBrowser :key="`data:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" :capabilities="college.capabilities" />
       </el-tab-pane>
+      <el-tab-pane v-if="college && can('student.manage')" label="学生交接与学籍"><StudentHandoff :key="`handoff:${userId}:${collegeId}`" :college-id="collegeId" /></el-tab-pane>
       <el-tab-pane v-if="college && can('academic.course_type.read')" label="课程类型">
         <CourseTypeManager :key="`types:${userId}:${collegeId}`" :college-id="collegeId" :rows="types" :can-manage="can('academic.course_type.manage')" @changed="reload" />
       </el-tab-pane>

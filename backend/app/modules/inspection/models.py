@@ -177,6 +177,12 @@ class InspectionTask(CollegeOwned, TimestampMixin, Base):
     expected_count_current: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
+    roster_review_required: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("0")
+    )
+    expected_count_review_required: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("0")
+    )
 
     roster_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default=text("1")
@@ -202,6 +208,22 @@ class InspectionTask(CollegeOwned, TimestampMixin, Base):
 # --------------------------------------------------------------------------- #
 # 名单版本与成员快照
 # --------------------------------------------------------------------------- #
+class TaskScheduleSource(Base):
+    """生成时冻结合班任务的全部来源，不能仅保存代表教学班。"""
+
+    __tablename__ = "task_schedule_source"
+    __table_args__ = (MYSQL_TABLE_ARGS,)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("inspection_task.id", ondelete="CASCADE"), primary_key=True
+    )
+    course_schedule_id: Mapped[int] = mapped_column(
+        ForeignKey("course_schedule.id", ondelete="RESTRICT"), primary_key=True
+    )
+    teaching_class_id: Mapped[int] = mapped_column(
+        ForeignKey("teaching_class.id", ondelete="RESTRICT")
+    )
+
+
 class TaskRosterVersion(TimestampMixin, Base):
     """任务名单版本。初始为版本 1；执行前更正生成新版本（技术方案 10）。"""
 
@@ -248,6 +270,13 @@ class TaskRosterMember(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     class_name_snapshot: Mapped[str | None] = mapped_column(String(128))
     grade_year_snapshot: Mapped[int | None] = mapped_column(Integer)
+    administrative_class_id_snapshot: Mapped[int | None] = mapped_column(
+        ForeignKey("administrative_class.id", ondelete="RESTRICT")
+    )
+    college_id_snapshot: Mapped[int | None] = mapped_column(
+        ForeignKey("college.id", ondelete="RESTRICT"), index=True
+    )
+    major_name_snapshot: Mapped[str | None] = mapped_column(String(128))
 
 
 # --------------------------------------------------------------------------- #
@@ -522,9 +551,7 @@ class SubmissionAbnormalItem(Base):
 
     __tablename__ = "submission_abnormal_item"
     __table_args__ = (
-        UniqueConstraint(
-            "submission_id", "student_id", name="uq_submission_abnormal_item_sub_stu"
-        ),
+        UniqueConstraint("submission_id", "student_id", name="uq_submission_abnormal_item_sub_stu"),
         CheckConstraint(
             f"attendance_type IN {_ABNORMAL_TYPES}",
             name="ck_submission_abnormal_item_type",

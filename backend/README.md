@@ -179,3 +179,12 @@ Router 处理 HTTP，Schema 定义输入输出，Service 负责授权/规则/事
 定向离线测试：`pytest tests/unit/test_campus_configuration.py tests/unit/test_campus_migration.py -q`。
 实际范围与后续步骤见 [配置底座说明](../docs/development/CAMPUS_CONFIGURATION_GUIDE.md)
 和 [升级实施计划](../docs/development/CAMPUS_IMPLEMENTATION_PLAN.md)。
+
+
+## 学籍交接与固定学院范围（2026-10-14）
+
+最新迁移 head 为 `f26a1014e001`（基于统一主干 `f26a1014m001`）。上线必须先备份、在独立 MySQL 克隆演练，再迁移及核定归属。`deploy/production/initialize_enrollment_20261014.py` 仅用于本次已确认的学校、学院和指定账号，不能当作通用 seed 自动授予所有管理员。平台初始化通用入口见 `python -m app.modules.identity.bootstrap_admin_management --help`。
+
+日期投影维护命令：`python -m app.modules.academic.apply_enrollment_changes`。服务端鉴权请求也会补齐到期投影；权限和正式名单按日期区间解析。生产可配置专用定时器执行该幂等命令，不能用物理删除代替归档。
+
+本轮新增表/权限及 API、导入限制、迁移回滚边界见 [交付记录](../docs/development/ENROLLMENT_IMPLEMENTATION_ACCEPTANCE_20261014.md)。学院独立作息和类型/组排班规则仍属后续开发。

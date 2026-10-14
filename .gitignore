@@ -141,6 +141,25 @@ backend/*.json
 /docs/P7_REPORT_PLAN.md
 /docs/superpowers/plans/
 
+# ===== 本地智能体指引、协作记录与工具配置 =====
+# 保留工作区文件，避免 git add . 将个人开发资料带入远程。
+# 产品需求、后端/Web 设计等项目资料不在本段忽略范围内。
+[Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
+[Aa][Gg][Ee][Nn][Tt].[Mm][Dd]
+CLAUDE.md
+GEMINI.md
+.agents/
+.codex/
+.claude/
+.trae/
+.opencode/
+/.trae-html-share-packages/
+/.uv-cache/
+/docs/AGENT_HANDOFF_WORKFLOW.md
+/docs/DEVELOPMENT_SKILLS_*.md
+/docs/CODE_REVIEW_*.md
+/templates/agent-handoff/
+
 # 用户授权的真实课表/名单测试数据与临时解析依赖，禁止提交个人数据。
 /tmp/
 

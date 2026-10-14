@@ -20,6 +20,50 @@ class FileRepository:
     def get(self, file_id: int) -> FileObject | None:
         return self._session.get(FileObject, file_id)
 
+    def has_business_link(self, file_id: int) -> bool:
+        """只查关联存在性；上传人不能绕过已关联业务资源的范围和身份。"""
+        from app.modules.inspection.models import SubmissionFile
+        from app.modules.objection.models import ObjectionFile
+        from app.modules.report.models import ReportVersion
+
+        for model, columns in [
+            (SubmissionFile, ["file_id"]),
+            (ObjectionFile, ["file_id"]),
+            (ReportVersion, ["snapshot_file_id", "excel_file_id", "word_file_id"]),
+        ]:
+            table = model.__table__
+            condition = None
+            for column in columns:
+                clause = table.c[column] == file_id
+                condition = clause if condition is None else condition | clause
+            if (
+                condition is not None
+                and self._session.scalar(
+                    select(table.c.id if "id" in table.c else table.c.file_id)
+                    .where(condition)
+                    .limit(1)
+                )
+                is not None
+            ):
+                return True
+        return False
+
+    def is_linked_to_report(self, file_id: int) -> bool:
+        from app.modules.report.models import ReportVersion
+
+        return (
+            self._session.scalar(
+                select(ReportVersion.id)
+                .where(
+                    (ReportVersion.snapshot_file_id == file_id)
+                    | (ReportVersion.excel_file_id == file_id)
+                    | (ReportVersion.word_file_id == file_id)
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
     def get_for_update(self, file_id: int) -> FileObject | None:
         stmt = (
             select(FileObject)
@@ -97,12 +141,14 @@ class FileRepository:
         from app.modules.identity.models import UserAccount
         from app.modules.inspection.models import SubmissionFile
 
-        linked = attendance_photo_query().join(
-            UserAccount, UserAccount.student_id == AttendanceRecord.student_id
-        ).where(
-            UserAccount.id == actor_user_id,
-            UserAccount.status == "ACTIVE",
-            SubmissionFile.file_id == file_id,
+        linked = (
+            attendance_photo_query()
+            .join(UserAccount, UserAccount.student_id == AttendanceRecord.student_id)
+            .where(
+                UserAccount.id == actor_user_id,
+                UserAccount.status == "ACTIVE",
+                SubmissionFile.file_id == file_id,
+            )
         )
         return bool(self._session.execute(select(exists(linked))).scalar_one())
 
@@ -123,9 +169,9 @@ class FileRepository:
             .where(ObjectionFile.file_id == file_id)
         )
         if not may_manage:
-            linked = linked.join(
-                UserAccount, UserAccount.student_id == Objection.student_id
-            ).where(UserAccount.id == actor_user_id)
+            linked = linked.join(UserAccount, UserAccount.student_id == Objection.student_id).where(
+                UserAccount.id == actor_user_id
+            )
         return bool(self._session.execute(select(exists(linked))).scalar_one())
 
     def is_linked_to_pending_objection(self, file_id: int) -> bool:

@@ -95,6 +95,9 @@ class ObjectionService:
         actor = self._identity.get_user_by_id_for_update(actor_user_id)
         if actor is None:
             raise UnauthenticatedError("操作者账号不可用")
+        from app.modules.identity.query_scope import recheck_query_scope
+
+        recheck_query_scope(self._session, actor_user_id)
         return set(self._identity.list_effective_permissions(actor_user_id))
 
     def _require(self, actor_user_id: int, code: str) -> set[str]:
@@ -460,10 +463,15 @@ class ObjectionService:
 
         # 一次批量查询审核账号，包含停用账号以保留历史展示；不暴露认证字段。
         reviewer_ids = {o.final_reviewed_by for o in objs if o.final_reviewed_by is not None}
-        reviewers = self._session.execute(
-            select(UserAccount.id, UserAccount.username, UserAccount.display_name)
-            .where(UserAccount.id.in_(reviewer_ids))
-        ).all() if reviewer_ids else []
+        reviewers = (
+            self._session.execute(
+                select(UserAccount.id, UserAccount.username, UserAccount.display_name).where(
+                    UserAccount.id.in_(reviewer_ids)
+                )
+            ).all()
+            if reviewer_ids
+            else []
+        )
         reviewer_map = {r.id: r for r in reviewers}
 
         # 1. 批量取证明材料关联及文件实体 (禁 N+1)
@@ -471,9 +479,11 @@ class ObjectionService:
         all_file_ids = list({fid for fids in file_map.values() for fid in fids})
         file_objs_map: dict[int, FileObject] = {}
         if all_file_ids:
-            f_rows = self._session.execute(
-                select(FileObject).where(FileObject.id.in_(all_file_ids))
-            ).scalars().all()
+            f_rows = (
+                self._session.execute(select(FileObject).where(FileObject.id.in_(all_file_ids)))
+                .scalars()
+                .all()
+            )
             file_objs_map = {f.id: f for f in f_rows}
 
         # 2. 批量取考勤记录及关联的查课任务 (禁 N+1)
@@ -481,7 +491,9 @@ class ObjectionService:
         records = (
             self._session.execute(
                 select(AttendanceRecord).where(AttendanceRecord.id.in_(record_ids))
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
             if record_ids
             else []
         )
@@ -489,9 +501,9 @@ class ObjectionService:
 
         task_ids = list({r.task_id for r in records})
         tasks = (
-            self._session.execute(
-                select(InspectionTask).where(InspectionTask.id.in_(task_ids))
-            ).scalars().all()
+            self._session.execute(select(InspectionTask).where(InspectionTask.id.in_(task_ids)))
+            .scalars()
+            .all()
             if task_ids
             else []
         )
@@ -500,9 +512,9 @@ class ObjectionService:
         # 3. 批量取学生及行政班级 (禁 N+1)
         student_ids = list({o.student_id for o in objs})
         students = (
-            self._session.execute(
-                select(Student).where(Student.id.in_(student_ids))
-            ).scalars().all()
+            self._session.execute(select(Student).where(Student.id.in_(student_ids)))
+            .scalars()
+            .all()
             if student_ids
             else []
         )
@@ -514,7 +526,9 @@ class ObjectionService:
         admin_classes = (
             self._session.execute(
                 select(AdministrativeClass).where(AdministrativeClass.id.in_(admin_class_ids))
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
             if admin_class_ids
             else []
         )

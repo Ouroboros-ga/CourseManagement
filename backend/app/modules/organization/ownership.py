@@ -220,6 +220,37 @@ class OwnershipService:
             row = rows[change["kind"]][int(change["id"])]
             row.college_id = int(change["college_id"])
             row.ownership_version += 1
+            if change["kind"] == "administrative_class":
+                from app.modules.academic.enrollment_models import StudentEnrollment
+                from app.modules.academic.models import VolunteerQualification
+
+                baselines = list(
+                    self.db.scalars(
+                        select(StudentEnrollment).where(
+                            StudentEnrollment.administrative_class_id == row.id,
+                            StudentEnrollment.revision == 0,
+                            StudentEnrollment.historical_confirmed.is_(False),
+                            StudentEnrollment.superseded.is_(False),
+                            StudentEnrollment.college_id.is_(None),
+                        )
+                    )
+                )
+                for baseline in baselines:
+                    baseline.college_id = row.college_id
+                    owner = self.db.get(College, row.college_id)
+                    baseline.snapshot = {
+                        **baseline.snapshot,
+                        "college_id": str(row.college_id),
+                        "college_name": owner.name if owner else row.college,
+                        "ownership_confirmation": revision,
+                    }
+                    for qualification in self.db.scalars(
+                        select(VolunteerQualification).where(
+                            VolunteerQualification.student_id == baseline.student_id,
+                            VolunteerQualification.college_id.is_(None),
+                        )
+                    ):
+                        qualification.college_id = row.college_id
         self.db.add(
             AuditLog(
                 actor_user_id=actor.id,

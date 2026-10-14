@@ -29,12 +29,12 @@ from app.modules.report import aggregation as agg
 from app.modules.report import permissions as perms
 from app.modules.report.repository import ReportRepository
 from app.modules.report.schemas import (
+    AbnormalDetailItem,
     AttendanceStatsQuery,
     AttendanceStatsResponse,
     IncompleteTaskItem,
     IncompleteTasksResponse,
     TaskStatsItem,
-    AbnormalDetailItem,
 )
 
 
@@ -51,7 +51,9 @@ class StatisticsService:
             raise UnauthenticatedError("操作者账号不可用")
         if code not in set(self._identity.list_effective_permissions(actor.id)):
             raise PermissionDeniedError()
-        if not perms.is_manage_scope(perms.resolve_read_scope(actor.roles)):
+        if not perms.is_manage_scope(
+            perms.resolve_read_scope(self._identity.list_effective_role_codes(actor.id))
+        ):
             raise PermissionDeniedError("统计/周报为聚合读数，仅管理范围可见")
 
     # ================================================================== #
@@ -165,7 +167,9 @@ class StatisticsService:
         from app.modules.report.artifacts import build_detail_table_word_document
 
         docx_bytes = build_detail_table_word_document(payload)
-        week_tag = f"第{query.week_no}周" if query.week_no else f"{query.date_from}至{query.date_to}"
+        week_tag = (
+            f"第{query.week_no}周" if query.week_no else f"{query.date_from}至{query.date_to}"
+        )
         filename = f"课堂考勤异常详表_{week_tag}.docx"
         return docx_bytes, filename
 
@@ -190,7 +194,9 @@ class StatisticsService:
         from app.modules.report.artifacts import build_study_attendance_excel
 
         excel_bytes = build_study_attendance_excel(payload)
-        week_tag = f"第{query.week_no}周" if query.week_no else f"{query.date_from}至{query.date_to}"
+        week_tag = (
+            f"第{query.week_no}周" if query.week_no else f"{query.date_from}至{query.date_to}"
+        )
         filename = f"自习与日常考勤表_{week_tag}.xlsx"
         return excel_bytes, filename
 

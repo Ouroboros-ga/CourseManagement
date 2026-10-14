@@ -12,9 +12,9 @@
 """
 
 from __future__ import annotations
+
 import hashlib
 import re
-
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -133,8 +133,8 @@ from app.modules.inspection.schemas import (
     SubmissionResponse,
     SubmissionReviewRequest,
     TaskAssignmentBrief,
-    TaskCandidateVolunteerItem,
     TaskCancelRequest,
+    TaskCandidateVolunteerItem,
     TaskRosterMemberResponse,
     TaskRosterResponse,
     UnassignedTaskBrief,
@@ -205,6 +205,9 @@ class InspectionService:
             raise UnauthenticatedError("操作者账号不可用")
         if code not in set(self._identity.list_effective_permissions(actor_user_id)):
             raise PermissionDeniedError()
+        from app.modules.identity.query_scope import recheck_query_scope
+
+        recheck_query_scope(self._session, actor_user_id)
 
     def _audit(
         self,
@@ -244,7 +247,7 @@ class InspectionService:
                 InspectionAssignment.revoked_at.is_(None),
             )
             return stmt.where(InspectionTask.id.in_(subq))
-        scope = perms.resolve_scope(actor.roles)
+        scope = perms.resolve_scope(self._identity.list_effective_role_codes(actor.id))
         if perms.is_management_scope(scope):
             return None  # 管理范围：不加可见性谓词（V1.0 无学院分区）
         stmt = select(InspectionTask)
@@ -266,7 +269,10 @@ class InspectionService:
         return sem
 
     def _resolve_dates(
-        self, sem: Semester, week_nos: Sequence[int] | None, date_from: date_ | None,
+        self,
+        sem: Semester,
+        week_nos: Sequence[int] | None,
+        date_from: date_ | None,
         date_to: date_ | None,
     ) -> list[tuple[date_, int]]:
         """候选 (date, week_no)：week_nos 整周 7 天与 date_from..date_to 逐日并集，升序去重。"""
@@ -301,36 +307,61 @@ class InspectionService:
         return {c.date: c for c in self._academic.list_calendar_overrides(semester_id)}
 
     def _attach_rosters(self, items: list[PlanItem]) -> list[PlanItem]:
+        from app.modules.identity.query_scope import query_date
+
+        by_date: dict[date_, list[PlanItem]] = defaultdict(list)
+        for item in items:
+            by_date[item.inspection_date].append(item)
+        result = []
+        for on_date, daily in by_date.items():
+            with query_date(self._session, on_date):
+                result.extend(self._attach_rosters_at_date(daily))
+        return result
+
+    def _attach_rosters_at_date(self, items: list[PlanItem]) -> list[PlanItem]:
         """批量取学生与行政班，回填每个计划条目的冻结名单快照。"""
         all_ids = {sid for it in items for sid in it.student_ids}
         if not all_ids:
             return items
         students = {
             s.id: s
-            for s in self._session.execute(
-                select(Student).where(Student.id.in_(list(all_ids)))
-            ).scalars().all()
+            for s in self._session.execute(select(Student).where(Student.id.in_(list(all_ids))))
+            .scalars()
+            .all()
         }
-        ac_ids = {
-            s.administrative_class_id for s in students.values() if s.administrative_class_id
-        }
+        ac_ids = {s.administrative_class_id for s in students.values() if s.administrative_class_id}
         acs = (
             {
                 a.id: a
                 for a in self._session.execute(
                     select(AdministrativeClass).where(AdministrativeClass.id.in_(list(ac_ids)))
-                ).scalars().all()
+                )
+                .scalars()
+                .all()
             }
             if ac_ids
             else {}
         )
         for it in items:
             roster: list[TaskRosterMember] = []
+            from app.modules.academic.enrollment_service import EnrollmentService
+
+            enrollment_service = EnrollmentService(self._session)
             for sid in it.student_ids:
                 s = students.get(sid)
                 if s is None:
                     continue
                 ac = acs.get(s.administrative_class_id) if s.administrative_class_id else None
+                enrollment = enrollment_service.at(s.id, it.inspection_date)
+                if (
+                    enrollment is not None
+                    and enrollment.administrative_class_id != s.administrative_class_id
+                ):
+                    ac = (
+                        self._session.get(AdministrativeClass, enrollment.administrative_class_id)
+                        if enrollment.administrative_class_id
+                        else None
+                    )
                 roster.append(
                     TaskRosterMember(
                         student_id=s.id,
@@ -338,6 +369,17 @@ class InspectionService:
                         name=s.name,
                         class_name_snapshot=ac.class_name if ac else None,
                         grade_year_snapshot=ac.grade_year if ac else None,
+                        administrative_class_id_snapshot=ac.id if ac else None,
+                        college_id_snapshot=enrollment.college_id
+                        if enrollment
+                        else ac.college_id
+                        if ac
+                        else None,
+                        major_name_snapshot=enrollment.snapshot.get("major_name")
+                        if enrollment
+                        else ac.major_name
+                        if ac
+                        else None,
                     )
                 )
             it.roster = roster
@@ -443,10 +485,9 @@ class InspectionService:
                 self._session.rollback()
                 attempt += 1
                 if attempt >= 3:
-                    raise ConflictError(
-                        ErrorCode.STATE_CONFLICT, "并发生成冲突，请重试"
-                    ) from None
+                    raise ConflictError(ErrorCode.STATE_CONFLICT, "并发生成冲突，请重试") from None
                 # 重新锁定学期、重算计划并复核既有键（幂等），再试一次物化+提交。
+                self._require(actor.id, perms.GENERATE_PERMISSION)
                 sem = self._require_active_semester(body.semester_id)
                 items = self._build_plan_no_semlock(sem, body)
 
@@ -496,6 +537,20 @@ class InspectionService:
             )
             self._repo.add(task)
             self._repo.flush()  # 取得 task.id
+            from app.modules.inspection.models import TaskScheduleSource
+
+            for schedule_id in it.constituent_schedule_ids or (
+                [it.course_schedule_id] if it.course_schedule_id else []
+            ):
+                schedule = self._session.get(CourseSchedule, schedule_id)
+                if schedule is not None:
+                    self._repo.add(
+                        TaskScheduleSource(
+                            task_id=task.id,
+                            course_schedule_id=schedule_id,
+                            teaching_class_id=schedule.teaching_class_id,
+                        )
+                    )
             rv = TaskRosterVersion(
                 task_id=task.id, version_no=1, reason=body.reason, created_by=actor_user_id
             )
@@ -523,19 +578,29 @@ class InspectionService:
             reason=body.reason,
             request_id=request_id,
         )
-        selected_tasks = list(self._session.execute(
-            select(InspectionTask).where(
-                InspectionTask.task_key.in_([it.task_key for it in items])
-            ).order_by(InspectionTask.inspection_date, InspectionTask.id)
-        ).scalars())
+        selected_tasks = list(
+            self._session.execute(
+                select(InspectionTask)
+                .where(InspectionTask.task_key.in_([it.task_key for it in items]))
+                .order_by(InspectionTask.inspection_date, InspectionTask.id)
+            ).scalars()
+        )
         views = self._assemble_tasks(selected_tasks)
         assignments = self._repo.list_assignments_by_task_ids([t.id for t in selected_tasks])
-        results = [GeneratedTaskBrief(
-            task_id=view.id, created=view.task_key not in existing, status=view.status,
-            assignment_id=str(assignments[task.id].id) if task.id in assignments else None,
-        ) for task, view in zip(selected_tasks, views, strict=True)]
-        assignable = [r.task_id for r in results
-                      if r.assignment_id is None and r.status in {"待执行", "已逾期"}]
+        results = [
+            GeneratedTaskBrief(
+                task_id=view.id,
+                created=view.task_key not in existing,
+                status=view.status,
+                assignment_id=str(assignments[task.id].id) if task.id in assignments else None,
+            )
+            for task, view in zip(selected_tasks, views, strict=True)
+        ]
+        assignable = [
+            r.task_id
+            for r in results
+            if r.assignment_id is None and r.status in {"待执行", "已逾期"}
+        ]
         # 单一提交点：任务 + 名单快照 + 截止记录 + 审计同事务原子生效。
         self._session.commit()
         return GenerateResultResponse(
@@ -644,9 +709,7 @@ class InspectionService:
             raise NotFoundError("查课任务不存在或不可见")
         return self._assemble_tasks([task])[0]
 
-    def my_tasks(
-        self, actor: CurrentUser, params: PageParams, *, include_canceled: bool
-    ) -> dict:
+    def my_tasks(self, actor: CurrentUser, params: PageParams, *, include_canceled: bool) -> dict:
         # /me 无论角色一律强制限定为本人受派任务。
         self._require(actor.id, perms.READ_PERMISSION)
         scope = self._scope_filter(actor, force_assigned=True)
@@ -698,14 +761,10 @@ class InspectionService:
         for sid in sem_ids:
             for d in self._repo.list_deadline_days_by_semester(sid):
                 deadline_by_date[(sid, d.inspection_date)] = d
-        cur_ver_ids = self._repo.map_current_deadline_version_ids(
-            list(deadline_by_date.values())
-        )
+        cur_ver_ids = self._repo.map_current_deadline_version_ids(list(deadline_by_date.values()))
 
         # 批量获取受派人真实姓名、学号与班级
-        vol_uids = {
-            a.volunteer_user_id for a in assignments.values() if a is not None
-        }
+        vol_uids = {a.volunteer_user_id for a in assignments.values() if a is not None}
         vol_info_map: dict[int, tuple[str, str | None, str | None]] = {}
         if vol_uids:
             vol_stmt = (
@@ -762,19 +821,21 @@ class InspectionService:
                     AdministrativeClass.class_name,
                     AdministrativeClass.head_teacher,
                     AdministrativeClass.counselor,
-                )
-                .where(AdministrativeClass.id.in_(ac_ids))
+                ).where(AdministrativeClass.id.in_(ac_ids))
             ).all()
             for aid, ac_name, ht, co in admin_rows:
                 ac_admin_map[aid] = (ac_name, ht, co)
 
         # 针对未匹配到教学班学生的任务，使用 TaskRosterMember 备用兜底
         unresolved_task_ids = [
-            t.id for t in tasks
+            t.id
+            for t in tasks
             if not (t.teaching_class_id and tc_admin_map.get(t.teaching_class_id))
             and not (t.administrative_class_id and ac_admin_map.get(t.administrative_class_id))
         ]
-        task_roster_admin_map: dict[int, list[tuple[str, str | None, str | None]]] = defaultdict(list)
+        task_roster_admin_map: dict[int, list[tuple[str, str | None, str | None]]] = defaultdict(
+            list
+        )
         if unresolved_task_ids:
             roster_rows = self._session.execute(
                 select(
@@ -796,9 +857,13 @@ class InspectionService:
                     task_roster_admin_map[tid].append((ac_name, ht, co))
 
         # 加载行政班基础信息索引，用于无名单时通过班级快照名称穿透匹配班主任与辅导员
-        all_acs = self._session.execute(
-            select(AdministrativeClass).where(AdministrativeClass.status == "ACTIVE")
-        ).scalars().all()
+        all_acs = (
+            self._session.execute(
+                select(AdministrativeClass).where(AdministrativeClass.status == "ACTIVE")
+            )
+            .scalars()
+            .all()
+        )
         ac_name_lookup = {ac.class_name: ac for ac in all_acs}
         ac_code_lookup = {ac.class_code: ac for ac in all_acs}
         ac_norm_lookup = {normalize_class_name(ac.class_name): ac for ac in all_acs}
@@ -829,9 +894,7 @@ class InspectionService:
                 else (cur_ver_ids.get(day.id) if day is not None else None)
             )
             asgn = assignments.get(t.id)
-            vol_info = (
-                vol_info_map.get(asgn.volunteer_user_id) if asgn is not None else None
-            )
+            vol_info = vol_info_map.get(asgn.volunteer_user_id) if asgn is not None else None
             cr = cr_map.get(asgn.id) if asgn is not None else None
             if cr is not None and asgn is not None and cr.request_user_id != asgn.volunteer_user_id:
                 cr = None
@@ -855,7 +918,9 @@ class InspectionService:
                         or ac_norm_lookup.get(normalize_class_name(cn))
                     )
                     if matched_ac and matched_ac.class_name not in existing_cnames:
-                        admin_info_list.append((matched_ac.class_name, matched_ac.head_teacher, matched_ac.counselor))
+                        admin_info_list.append(
+                            (matched_ac.class_name, matched_ac.head_teacher, matched_ac.counselor)
+                        )
                         existing_cnames.add(matched_ac.class_name)
 
             admin_classes = sorted({x[0] for x in admin_info_list if x[0]})
@@ -980,6 +1045,8 @@ class InspectionService:
             require_photo_snapshot=task.require_photo_snapshot,
             expected_count_snapshot=task.expected_count_snapshot,
             expected_count_current=task.expected_count_current,
+            roster_review_required=task.roster_review_required,
+            expected_count_review_required=task.expected_count_review_required,
             roster_version=task.roster_version,
             status=self._derive_status(task, assignment, day, submission_flags),
             assignment=brief,
@@ -997,9 +1064,9 @@ class InspectionService:
     ) -> list[PlanItem]:
         tc_ids = [int(x) for x in (body.teaching_class_ids or [])]
         tcs = list(
-            self._session.execute(
-                select(TeachingClass).where(TeachingClass.id.in_(tc_ids))
-            ).scalars().all()
+            self._session.execute(select(TeachingClass).where(TeachingClass.id.in_(tc_ids)))
+            .scalars()
+            .all()
         )
         found_ids = {t.id for t in tcs}
         missing = sorted(set(tc_ids) - found_ids)
@@ -1017,14 +1084,17 @@ class InspectionService:
             self._session.execute(
                 select(CourseSchedule)
                 .join(TeachingClass, TeachingClass.id == CourseSchedule.teaching_class_id)
-                .join(Course, Course.id == TeachingClass.course_id).where(
+                .join(Course, Course.id == TeachingClass.course_id)
+                .where(
                     CourseSchedule.teaching_class_id.in_(list(found_ids)),
-                      CourseSchedule.semester_id == sem.id,
+                    CourseSchedule.semester_id == sem.id,
                     CourseSchedule.status == "ACTIVE",
                     TeachingClass.status == "ACTIVE",
                     Course.status == "ACTIVE",
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         tc_course_ids = {t.course_id for t in tcs}
         course_name_by_id = (
@@ -1032,7 +1102,9 @@ class InspectionService:
                 c.id: c.course_name
                 for c in self._session.execute(
                     select(Course).where(Course.id.in_(list(tc_course_ids)))
-                ).scalars().all()
+                )
+                .scalars()
+                .all()
             }
             if tc_course_ids
             else {}
@@ -1040,19 +1112,8 @@ class InspectionService:
         tc_course_name = {t.id: course_name_by_id.get(t.course_id) for t in tcs}
         tc_class_name = {t.id: t.class_name for t in tcs}
         tc_teacher_name = {t.id: t.teacher_name for t in tcs}
-        # 候选页需要计算整个选择范围摘要；批量取名单，避免每个教学班一次查询。
-        tc_roster: dict[int, list[Student]] = {t.id: [] for t in tcs}
-        if found_ids:
-            for tc_id, student in self._session.execute(
-                select(TeachingClassStudent.teaching_class_id, Student)
-                .join(Student, Student.id == TeachingClassStudent.student_id)
-                .where(
-                    TeachingClassStudent.teaching_class_id.in_(list(found_ids)),
-                    Student.status == "ACTIVE",
-                )
-                .order_by(TeachingClassStudent.teaching_class_id, Student.id)
-            ):
-                tc_roster[tc_id].append(student)
+        from app.modules.academic.participation import rosters_at
+
         overrides = self._load_overrides(sem.id)
         items: dict[str, PlanItem] = {}
         for date_key, _week in self._resolve_dates(
@@ -1075,6 +1136,7 @@ class InspectionService:
                     continue
                 day_schedules.append(s)
 
+            dated_rosters = rosters_at(self._session, list(found_ids), date_key)
             groups: dict[tuple, list[CourseSchedule]] = {}
             for s in day_schedules:
                 norm_room = re.sub(r"\s+", "", (s.classroom or "")).upper()
@@ -1097,7 +1159,7 @@ class InspectionService:
                     cl_name = tc_class_name.get(sc.teaching_class_id)
                     if cl_name:
                         class_names_set.add(cl_name)
-                    for st in tc_roster.get(sc.teaching_class_id, []):
+                    for st in dated_rosters.get(sc.teaching_class_id, []):
                         if st.id not in seen_sids:
                             seen_sids.add(st.id)
                             merged_students.append(st)
@@ -1113,8 +1175,19 @@ class InspectionService:
                 actual_week = _week_no_for_date(sem.first_monday, date_key)
                 display_class_name = merged_class_name
                 override_item = overrides.get(date_key)
-                if override_item is not None and override_item.override_type == OverrideType.MAKEUP.value:
-                    wd_names = {1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六", 7: "周日"}
+                if (
+                    override_item is not None
+                    and override_item.override_type == OverrideType.MAKEUP.value
+                ):
+                    wd_names = {
+                        1: "周一",
+                        2: "周二",
+                        3: "周三",
+                        4: "周四",
+                        5: "周五",
+                        6: "周六",
+                        7: "周日",
+                    }
                     from_desc = (
                         f"补第{eff_week}周{wd_names.get(eff_wd, '')}"
                         if eff_week != actual_week
@@ -1127,15 +1200,25 @@ class InspectionService:
 
                 if len(sched_list) > 1:
                     norm_room, norm_course = grp_key[2], grp_key[3]
-                    target_hash = hashlib.md5(f"{norm_room}:{norm_course}".encode("utf-8")).hexdigest()[:10]
+                    target_hash = hashlib.md5(f"{norm_room}:{norm_course}".encode()).hexdigest()[
+                        :10
+                    ]
                     key = self._task_key(
-                        sem.id, date_key, InspectionType.COURSE.value,
-                        rep_s.start_period, rep_s.end_period, f"grp{target_hash}",
+                        sem.id,
+                        date_key,
+                        InspectionType.COURSE.value,
+                        rep_s.start_period,
+                        rep_s.end_period,
+                        f"grp{target_hash}",
                     )
                 else:
                     key = self._task_key(
-                        sem.id, date_key, InspectionType.COURSE.value,
-                        rep_s.start_period, rep_s.end_period, f"cs{rep_s.id}",
+                        sem.id,
+                        date_key,
+                        InspectionType.COURSE.value,
+                        rep_s.start_period,
+                        rep_s.end_period,
+                        f"cs{rep_s.id}",
                     )
 
                 if key in items:
@@ -1170,7 +1253,9 @@ class InspectionService:
         acs = list(
             self._session.execute(
                 select(AdministrativeClass).where(AdministrativeClass.id.in_(ac_ids))
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         found = {a.id: a for a in acs}
         missing = sorted(set(ac_ids) - set(found))
@@ -1183,17 +1268,19 @@ class InspectionService:
         for a in found.values():
             ac_students[a.id] = list(
                 self._session.execute(
-                    select(Student).where(
+                    select(Student)
+                    .where(
                         Student.administrative_class_id == a.id,
                         Student.status == "ACTIVE",
-                    ).order_by(Student.id)
-                ).scalars().all()
+                    )
+                    .order_by(Student.id)
+                )
+                .scalars()
+                .all()
             )
         overrides = self._load_overrides(sem.id)
         items: dict[str, PlanItem] = {}
-        for date_key, week in self._resolve_dates(
-            sem, body.week_nos, body.date_from, body.date_to
-        ):
+        for date_key, week in self._resolve_dates(sem, body.week_nos, body.date_from, body.date_to):
             ov = overrides.get(date_key)
             if ov is not None and ov.override_type == OverrideType.STOP.value:
                 continue
@@ -1236,59 +1323,91 @@ class InspectionService:
     def _load_volunteer(self, user_id: int) -> _VolProfile:
         """取候选志愿者的资格判定快照（状态 / VOLUNTEER 身份 / 绑定学生 / 行政班）。"""
         acct = self._session.scalar(
-            select(UserAccount).where(UserAccount.id == user_id).with_for_update(read=True)
+            select(UserAccount)
+            .where(UserAccount.id == user_id)
+            .with_for_update(read=True)
             .execution_options(populate_existing=True)
         )
         if acct is None:
             return _VolProfile(user_id, "MISSING", False, None, None)
-        is_vol = self._session.execute(
-            select(UserRole.user_id).join(Role, Role.id == UserRole.role_id)
-            .where(UserRole.user_id == user_id, Role.code == RoleCode.VOLUNTEER.value)
-            .with_for_update(read=True)
-        ).first() is not None
+        is_vol = (
+            self._session.execute(
+                select(UserRole.user_id)
+                .join(Role, Role.id == UserRole.role_id)
+                .where(UserRole.user_id == user_id, Role.code == RoleCode.VOLUNTEER.value)
+                .with_for_update(read=True)
+            ).first()
+            is not None
+        )
         admin_class_id: int | None = None
         if acct.student_id is not None:
             stu = self._session.scalar(
-                select(Student).where(Student.id == acct.student_id).with_for_update(read=True)
+                select(Student)
+                .where(Student.id == acct.student_id)
+                .with_for_update(read=True)
                 .execution_options(populate_existing=True)
             )
-            if stu is not None and stu.status == "ACTIVE":
+            if stu is not None:
                 admin_class_id = stu.administrative_class_id
             else:
                 return _VolProfile(user_id, acct.status, is_vol, None, None)
         return _VolProfile(user_id, acct.status, is_vol, acct.student_id, admin_class_id)
 
-    def _has_qualification(self, semester_id: int, student_id: int) -> bool:
+    def _has_qualification(
+        self,
+        semester_id: int,
+        student_id: int,
+        on_date: date_ | None = None,
+        college_id: int | None = None,
+        *,
+        legacy_assignment_created_at: datetime | None = None,
+    ) -> bool:
         row = self._session.execute(
-            select(VolunteerQualification.id)
+            select(VolunteerQualification)
             .where(
                 VolunteerQualification.semester_id == semester_id,
                 VolunteerQualification.student_id == student_id,
                 VolunteerQualification.enabled.is_(True),
             )
-            .limit(1).with_for_update(read=True)
-        ).first()
-        return row is not None
+            .limit(1)
+            .with_for_update(read=True)
+        ).scalar_one_or_none()
+        from app.modules.academic.qualification_policy import qualified_on
+        from app.modules.identity.authorization import business_today
+
+        return qualified_on(
+            self._session,
+            row,
+            on_date or business_today(),
+            college_id,
+            legacy_assignment_created_at=legacy_assignment_created_at,
+        )
 
     def _roster_admin_class_ids(self, task: InspectionTask) -> set[int]:
         """任务当前名单成员所属行政班集合（本班回避判定用）。"""
-        return set(self._session.scalars(
-            select(Student.administrative_class_id)
-            .join(TaskRosterMember, TaskRosterMember.student_id == Student.id)
-            .where(TaskRosterMember.task_id == task.id,
-                   TaskRosterMember.roster_version == task.roster_version,
-                   Student.administrative_class_id.is_not(None))
-            .with_for_update(read=True)
-        ))
+        return set(
+            self._session.scalars(
+                select(Student.administrative_class_id)
+                .join(TaskRosterMember, TaskRosterMember.student_id == Student.id)
+                .where(
+                    TaskRosterMember.task_id == task.id,
+                    TaskRosterMember.roster_version == task.roster_version,
+                    Student.administrative_class_id.is_not(None),
+                )
+                .with_for_update(read=True)
+            )
+        )
 
-    def _own_class_conflict(
-        self, student_id: int, sem: Semester, task: InspectionTask
-    ) -> bool:
+    def _own_class_conflict(self, student_id: int, sem: Semester, task: InspectionTask) -> bool:
         """志愿者以学生身份的课表是否与任务时段冲突（真实起止节次区间重叠）。"""
         override = self._session.execute(
-            select(CalendarOverride).where(CalendarOverride.semester_id == sem.id,
-                                           CalendarOverride.date == task.inspection_date)
-            .with_for_update(read=True).execution_options(populate_existing=True)
+            select(CalendarOverride)
+            .where(
+                CalendarOverride.semester_id == sem.id,
+                CalendarOverride.date == task.inspection_date,
+            )
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         teaching = resolve_teaching_day(sem.first_monday, task.inspection_date, override)
         if teaching is None:
@@ -1297,15 +1416,9 @@ class InspectionService:
         if week < 1 or week > sem.total_weeks:
             return False
         q = (
-            select(CourseSchedule.id)
-            .join(
-                TeachingClassStudent,
-                TeachingClassStudent.teaching_class_id
-                == CourseSchedule.teaching_class_id,
-            )
+            select(CourseSchedule.teaching_class_id)
             .join(CourseScheduleWeek, CourseScheduleWeek.schedule_id == CourseSchedule.id)
             .where(
-                TeachingClassStudent.student_id == student_id,
                 CourseSchedule.semester_id == sem.id,
                 CourseSchedule.status == "ACTIVE",
                 CourseSchedule.weekday == weekday,
@@ -1313,9 +1426,16 @@ class InspectionService:
                 CourseSchedule.start_period <= task.end_period,
                 CourseSchedule.end_period >= task.start_period,
             )
-            .limit(1).with_for_update(read=True)
+            .with_for_update(read=True)
         )
-        return self._session.execute(q).first() is not None
+        from app.modules.academic.participation import rosters_at
+
+        tids = list(self._session.scalars(q))
+        return any(
+            student_id == student.id
+            for roster in rosters_at(self._session, tids, task.inspection_date).values()
+            for student in roster
+        )
 
     def _check_eligible(
         self,
@@ -1334,16 +1454,25 @@ class InspectionService:
         lock_conflicts=True 用于已持有 (志愿者, 日期) 锚点排他锁的临界区（人工改派与自动
         排班落库阶段），冲突扫描改用锁定读以看到并发方刚提交的受派，避免重叠时段双双通过。
         """
-        if (task.inspection_type == InspectionType.COURSE.value
-                and is_physical_education(task.course_name_snapshot)):
+        if task.inspection_type == InspectionType.COURSE.value and is_physical_education(
+            task.course_name_snapshot
+        ):
             return REASON_COURSE_NOT_INSPECTABLE, "体育课不作为被查目标"
         if prof.status != UserStatus.ACTIVE.value or not prof.is_volunteer:
             return REASON_NOT_VOLUNTEER, "账号非启用志愿者"
-        if prof.student_id is None or not self._has_qualification(sem.id, prof.student_id):
+        if prof.student_id is None or not self._has_qualification(
+            sem.id, prof.student_id, task.inspection_date, task.college_id
+        ):
             return REASON_NO_QUALIFICATION, "本学期无有效志愿者资格"
+        from app.modules.academic.enrollment_service import EnrollmentService
+
+        enrollment = EnrollmentService(self._session).at(prof.student_id, task.inspection_date)
+        if enrollment is not None and enrollment.status != "ENROLLED":
+            return REASON_NO_QUALIFICATION, "查课日期不属于在读学籍区间"
         if self._own_class_conflict(prof.student_id, sem, task):
             return REASON_OWN_CLASS, "与本人课表时段冲突"
-        if prof.admin_class_id is not None and prof.admin_class_id in roster_acs:
+        own_class_id = enrollment.administrative_class_id if enrollment else prof.admin_class_id
+        if own_class_id is not None and own_class_id in roster_acs:
             return REASON_SELF_CLASS, "被查名单含本人行政班学生"
         # 与本人其他受派查课任务时段冲突（排除当前任务本身）。
         db_rows = self._repo.list_assignments_for_volunteer_on_date(
@@ -1367,14 +1496,18 @@ class InspectionService:
         week_cap = get_settings().assignment_max_tasks_per_week
         if week_cap:
             monday = task.inspection_date - timedelta(days=task.inspection_date.weekday())
-            query = (select(InspectionAssignment.id)
-                     .join(InspectionTask, InspectionTask.id == InspectionAssignment.task_id)
-                     .where(InspectionAssignment.volunteer_user_id == prof.user_id,
-                            InspectionAssignment.revoked_at.is_(None),
-                            InspectionTask.inspection_date >= monday,
-                            InspectionTask.inspection_date < monday + timedelta(days=7),
-                            InspectionTask.canceled_at.is_(None),
-                            InspectionTask.id != exclude_task_id))
+            query = (
+                select(InspectionAssignment.id)
+                .join(InspectionTask, InspectionTask.id == InspectionAssignment.task_id)
+                .where(
+                    InspectionAssignment.volunteer_user_id == prof.user_id,
+                    InspectionAssignment.revoked_at.is_(None),
+                    InspectionTask.inspection_date >= monday,
+                    InspectionTask.inspection_date < monday + timedelta(days=7),
+                    InspectionTask.canceled_at.is_(None),
+                    InspectionTask.id != exclude_task_id,
+                )
+            )
             if lock_conflicts:
                 query = query.with_for_update(read=True)
             if len(self._session.execute(query).all()) >= week_cap:
@@ -1406,8 +1539,11 @@ class InspectionService:
         """按 (志愿者, 日期) 升序安全建立并锁定日期锚点（技术方案 15 全局锁层级顶层）。"""
         # 周上限启用时，人工和自动共用整周日期锚点，避免异日并发穿透周名额。
         if get_settings().assignment_max_tasks_per_week:
-            day_keys = {(vid, dt - timedelta(days=dt.weekday()) + timedelta(days=i))
-                        for vid, dt in day_keys for i in range(7)}
+            day_keys = {
+                (vid, dt - timedelta(days=dt.weekday()) + timedelta(days=i))
+                for vid, dt in day_keys
+                for i in range(7)
+            }
         for vid, dt in sorted(day_keys):
             self._repo.ensure_volunteer_day_lock(vid, dt)
         for vid, dt in sorted(day_keys):
@@ -1425,15 +1561,14 @@ class InspectionService:
         self, semester_id: int, body: AutoAssignRequest
     ) -> list[InspectionTask]:
         """范围内"未取消且尚未分配"的任务，供自动排班。"""
-        stmt = (
-            select(InspectionTask)
-            .where(
-                InspectionTask.semester_id == semester_id,
-                InspectionTask.canceled_at.is_(None),
-                InspectionTask.id.notin_(select(InspectionAssignment.task_id).where(
+        stmt = select(InspectionTask).where(
+            InspectionTask.semester_id == semester_id,
+            InspectionTask.canceled_at.is_(None),
+            InspectionTask.id.notin_(
+                select(InspectionAssignment.task_id).where(
                     InspectionAssignment.revoked_at.is_(None)
-                )),
-            )
+                )
+            ),
         )
         if body.task_ids:
             stmt = stmt.where(InspectionTask.id.in_([int(x) for x in body.task_ids]))
@@ -1493,8 +1628,14 @@ class InspectionService:
         prof = self._load_volunteer(target_uid)
         roster_acs = self._roster_admin_class_ids(task)
         code, msg = self._check_eligible(
-            prof, task, sem, exclude_task_id=task.id, busy_slots=[], busy_count=0,
-            roster_acs=roster_acs, lock_conflicts=True,
+            prof,
+            task,
+            sem,
+            exclude_task_id=task.id,
+            busy_slots=[],
+            busy_count=0,
+            roster_acs=roster_acs,
+            lock_conflicts=True,
         )
         if code is not None:
             raise AppError(
@@ -1626,9 +1767,7 @@ class InspectionService:
             )
         return items
 
-    def list_task_volunteer_candidates(
-        self, task_id: int
-    ) -> list[TaskCandidateVolunteerItem]:
+    def list_task_volunteer_candidates(self, task_id: int) -> list[TaskCandidateVolunteerItem]:
         """针对特定任务评估本学期全部合格志愿者的可用性（无课冲突、本班回避、时段冲突等）并按本周负载升序排序。"""
         task = self._repo.get_task(task_id)
         if task is None:
@@ -1698,7 +1837,6 @@ class InspectionService:
         items.sort(key=lambda x: (0 if x.eligible else 1, x.assigned_count_week, x.name))
         return items
 
-
     # ---- 自动排班（候选计划 + 提交前锁内重验，V1.0 请求内同步全成全败）----
     def auto_assign(
         self, actor: CurrentUser, body: AutoAssignRequest, request_id: str | None
@@ -1736,12 +1874,19 @@ class InspectionService:
             reader_engine.dispose()
         if not targets:
             return AutoAssignResultResponse(
-                semester_id=sem.id, target_task_count=0, assigned_count=0,
-                unassigned_count=0, assigned=[], unassigned=[],
+                semester_id=sem.id,
+                target_task_count=0,
+                assigned_count=0,
+                unassigned_count=0,
+                assigned=[],
+                unassigned=[],
             )
-        result = plan_assignments(snapshot.tasks, snapshot.volunteers,
-                                  day_cap=get_settings().assignment_max_tasks_per_day,
-                                  week_cap=get_settings().assignment_max_tasks_per_week)
+        result = plan_assignments(
+            snapshot.tasks,
+            snapshot.volunteers,
+            day_cap=get_settings().assignment_max_tasks_per_day,
+            week_cap=get_settings().assignment_max_tasks_per_week,
+        )
         task_by_id = {task.id: task for task in targets}
         plan = [(task_by_id[tid], vid) for tid, vid in result.assignments.items()]
         versions = {task.id: task.lock_version for task in targets}
@@ -1753,42 +1898,69 @@ class InspectionService:
         # Phase B：日期/周锚点 → 批量任务锁 → 输入当前锁定读 → 一次 flush。
         self._lock_day_anchors({(vid, t.inspection_date) for t, vid in plan})
         plan_ids = sorted(result.assignments)
-        locked_tasks = list(self._session.scalars(
-            select(InspectionTask).where(InspectionTask.id.in_(plan_ids))
-            .order_by(InspectionTask.id).with_for_update()
-            .execution_options(populate_existing=True)
-        )) if plan_ids else []
+        locked_tasks = (
+            list(
+                self._session.scalars(
+                    select(InspectionTask)
+                    .where(InspectionTask.id.in_(plan_ids))
+                    .order_by(InspectionTask.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+            if plan_ids
+            else []
+        )
         if len(locked_tasks) != len(plan_ids) or any(
             task.canceled_at is not None or task.lock_version != versions[task.id]
             for task in locked_tasks
         ):
             raise ConflictError(ErrorCode.ASSIGNMENT_CONFLICT, "任务已变化，请重新排班")
-        taken = self._session.execute(
-            select(InspectionAssignment.id).where(
-                InspectionAssignment.task_id.in_(plan_ids),
-                InspectionAssignment.revoked_at.is_(None),
-            )
-            .with_for_update()
-        ).first() if plan_ids else None
+        taken = (
+            self._session.execute(
+                select(InspectionAssignment.id)
+                .where(
+                    InspectionAssignment.task_id.in_(plan_ids),
+                    InspectionAssignment.revoked_at.is_(None),
+                )
+                .with_for_update()
+            ).first()
+            if plan_ids
+            else None
+        )
         if taken is not None:
             raise ConflictError(ErrorCode.ASSIGNMENT_CONFLICT, "任务已被分配，请重新排班")
         if locked_tasks:
-            current = load_snapshot(self._session, sem, locked_tasks,
-                                    sorted(set(result.assignments.values())), lock_inputs=True)
-            failure = validate_plan(current, result.assignments,
-                                    day_cap=get_settings().assignment_max_tasks_per_day,
-                                    week_cap=get_settings().assignment_max_tasks_per_week)
+            current = load_snapshot(
+                self._session,
+                sem,
+                locked_tasks,
+                sorted(set(result.assignments.values())),
+                lock_inputs=True,
+            )
+            failure = validate_plan(
+                current,
+                result.assignments,
+                day_cap=get_settings().assignment_max_tasks_per_day,
+                week_cap=get_settings().assignment_max_tasks_per_week,
+            )
             if failure:
-                raise ConflictError(ErrorCode.ASSIGNMENT_CONFLICT,
-                                    f"排班输入已变化：{REASONS[failure[1]]}，请重试")
+                raise ConflictError(
+                    ErrorCode.ASSIGNMENT_CONFLICT, f"排班输入已变化：{REASONS[failure[1]]}，请重试"
+                )
         assigned: list[PlannedAssignment] = []
         for locked in locked_tasks:
             vid = result.assignments[locked.id]
-            self._repo.add(InspectionAssignment(
-                task_id=locked.id, volunteer_user_id=vid,
-                assign_method=AssignMethod.AUTO.value, assign_reason=body.reason,
-                assigned_by=actor.id, lock_version=0,
-            ))
+            self._repo.add(
+                InspectionAssignment(
+                    task_id=locked.id,
+                    volunteer_user_id=vid,
+                    assign_method=AssignMethod.AUTO.value,
+                    assign_reason=body.reason,
+                    assigned_by=actor.id,
+                    lock_version=0,
+                )
+            )
             locked.lock_version += 1
             assigned.append(PlannedAssignment(task_id=locked.id, volunteer_user_id=vid))
         self._repo.flush()
@@ -1842,9 +2014,7 @@ class InspectionService:
         if task.canceled_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可发起调班申请")
         if self._repo.has_pending_change_request(assignment.id):
-            raise ConflictError(
-                ErrorCode.STATE_CONFLICT, "该受派已有待处理调班申请，请先等待处理"
-            )
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "该受派已有待处理调班申请，请先等待处理")
         req = AssignmentChangeRequest(
             assignment_id=assignment.id,
             request_user_id=actor.id,
@@ -2138,7 +2308,9 @@ class InspectionService:
         if task.canceled_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "已取消任务不可修改")
         if self._repo.has_approved_submission(task.id):
-            raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已有审核通过提交并生成考勤，不可修改")
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT, "任务已有审核通过提交并生成考勤，不可修改"
+            )
 
         before = {
             "classroom": task.classroom_snapshot,
@@ -2199,9 +2371,7 @@ class InspectionService:
 
         tasks = list(
             self._session.scalars(
-                select(InspectionTask)
-                .where(InspectionTask.id.in_(task_ids))
-                .with_for_update()
+                select(InspectionTask).where(InspectionTask.id.in_(task_ids)).with_for_update()
             ).all()
         )
         if not tasks:
@@ -2212,7 +2382,8 @@ class InspectionService:
                 if self._repo.has_approved_submission(t.id):
                     raise ConflictError(
                         ErrorCode.STATE_CONFLICT,
-                        f"任务 #{t.id}（{t.course_name_snapshot or '课程'}）已有审核通过的考勤结果，不可直接删除",
+                        f"任务 #{t.id}（{t.course_name_snapshot or '课程'}）"
+                        "已有审核通过的考勤结果，不可直接删除",
                     )
 
         t_ids = [t.id for t in tasks]
@@ -2225,7 +2396,7 @@ class InspectionService:
         )
         if att_ids:
             try:
-                from app.modules.objection.models import Objection, ObjectionProof
+                from app.modules.objection.models import Objection, ObjectionFile
 
                 obj_ids = list(
                     self._session.scalars(
@@ -2234,11 +2405,9 @@ class InspectionService:
                 )
                 if obj_ids:
                     self._session.execute(
-                        delete(ObjectionProof).where(ObjectionProof.objection_id.in_(obj_ids))
+                        delete(ObjectionFile).where(ObjectionFile.objection_id.in_(obj_ids))
                     )
-                    self._session.execute(
-                        delete(Objection).where(Objection.id.in_(obj_ids))
-                    )
+                    self._session.execute(delete(Objection).where(Objection.id.in_(obj_ids)))
             except Exception:
                 pass
             self._session.execute(
@@ -2246,9 +2415,7 @@ class InspectionService:
                     AttendanceRecordVersion.attendance_record_id.in_(att_ids)
                 )
             )
-            self._session.execute(
-                delete(AttendanceRecord).where(AttendanceRecord.id.in_(att_ids))
-            )
+            self._session.execute(delete(AttendanceRecord).where(AttendanceRecord.id.in_(att_ids)))
 
         # 2. 调班申请与受派关系
         asgn_ids = list(
@@ -2291,14 +2458,10 @@ class InspectionService:
         )
 
         # 5. 名单成员与版本快照
-        self._session.execute(
-            delete(TaskRosterMember).where(TaskRosterMember.task_id.in_(t_ids))
-        )
+        self._session.execute(delete(TaskRosterMember).where(TaskRosterMember.task_id.in_(t_ids)))
         for t in tasks:
             t.roster_versions.clear()
-        self._session.execute(
-            delete(TaskRosterVersion).where(TaskRosterVersion.task_id.in_(t_ids))
-        )
+        self._session.execute(delete(TaskRosterVersion).where(TaskRosterVersion.task_id.in_(t_ids)))
 
         # 6. 删除任务行并写入审计
         for t in tasks:
@@ -2338,26 +2501,45 @@ class InspectionService:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可更正名单")
         if task.lock_version != body.lock_version:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "任务版本已变化，请刷新后重试")
-        if self._repo.has_open_submission(task.id):
+        from app.modules.academic.enrollment_service import EnrollmentService
+
+        if not EnrollmentService(self._session)._editable(task):
             raise ConflictError(
-                ErrorCode.STATE_CONFLICT, "任务已有待审或已通过提交，不可改版名单"
+                ErrorCode.STATE_CONFLICT, "任务已开始或已有提交/截止事实，不可改版名单"
             )
         wanted = sorted({int(s) for s in body.student_ids})
-        rows = self._session.execute(
-            select(Student, AdministrativeClass)
-            .outerjoin(
-                AdministrativeClass,
-                AdministrativeClass.id == Student.administrative_class_id,
+        from app.modules.academic.qualification_policy import enrollment_on
+        from app.modules.identity.query_scope import query_date
+
+        with query_date(self._session, task.inspection_date):
+            students = (
+                list(self._session.scalars(select(Student).where(Student.id.in_(wanted))))
+                if wanted
+                else []
             )
-            .where(Student.id.in_(wanted))
-        ).all() if wanted else []
+        rows = []
+        for stu in students:
+            enrollment = enrollment_on(self._session, stu.id, task.inspection_date)
+            cid = enrollment.administrative_class_id if enrollment else stu.administrative_class_id
+            rows.append((stu, self._session.get(AdministrativeClass, cid) if cid else None))
         found: dict[int, Student] = {}
         snap: dict[int, tuple[Student, AdministrativeClass | None]] = {}
         for stu, ac in rows:
             found[stu.id] = stu
             snap[stu.id] = (stu, ac)
         missing = [s for s in wanted if s not in found]
-        inactive = [s for s in wanted if s in found and found[s].status != "ACTIVE"]
+        lifecycle = EnrollmentService(self._session)
+        inactive = [
+            sid
+            for sid in wanted
+            if sid in found
+            and (
+                (record := lifecycle.at(sid, task.inspection_date)) is not None
+                and record.status != "ENROLLED"
+                or record is None
+                and (lifecycle.has_timeline(sid) or found[sid].status != "ACTIVE")
+            )
+        ]
         if missing or inactive:
             raise AppError(
                 ErrorCode.VALIDATION_ERROR,
@@ -2381,11 +2563,16 @@ class InspectionService:
                     name=stu.name,
                     class_name_snapshot=ac.class_name if ac is not None else None,
                     grade_year_snapshot=ac.grade_year if ac is not None else None,
+                    administrative_class_id_snapshot=ac.id if ac else None,
+                    college_id_snapshot=ac.college_id if ac else None,
+                    major_name_snapshot=ac.major_name if ac else None,
                 )
             )
         prev_version = task.roster_version
         task.roster_version = new_version
         task.expected_count_current = len(wanted)
+        task.roster_review_required = False
+        task.expected_count_review_required = False
         task.lock_version += 1
         self._repo.flush()
         self._audit(
@@ -2404,9 +2591,7 @@ class InspectionService:
         self._session.commit()
         return self._assemble_tasks([task])[0]
 
-    def list_roster_versions(
-        self, actor: CurrentUser, task_id: int
-    ) -> list[RosterVersionResponse]:
+    def list_roster_versions(self, actor: CurrentUser, task_id: int) -> list[RosterVersionResponse]:
         self._require(actor.id, perms.ROSTER_READ_PERMISSION)
         scope = self._scope_filter(actor)
         task = self._repo.get_task_scoped(task_id, scope_filter=scope)
@@ -2498,9 +2683,7 @@ class InspectionService:
             for v in self._repo.list_deadline_versions(day.id)
         ]
 
-    def _latest_task_end_naive_utc(
-        self, semester: Semester, on_date: date_
-    ) -> datetime | None:
+    def _latest_task_end_naive_utc(self, semester: Semester, on_date: date_) -> datetime | None:
         """当日未取消任务的最晚真实结束时刻（naive-UTC），据节次定义换算。
 
         缺节次时刻定义时保守返回 None（不阻断改期），仅在数据齐备时执行下界校验。
@@ -2549,9 +2732,7 @@ class InspectionService:
         if day is None:
             raise NotFoundError("该查课日尚无截止记录")
         if day.version != body.lock_version:
-            raise ConflictError(
-                ErrorCode.VERSION_CONFLICT, "该日截止版本已变化，请刷新后重试"
-            )
+            raise ConflictError(ErrorCode.VERSION_CONFLICT, "该日截止版本已变化，请刷新后重试")
         hh, mm = self._hhmm_to_parts(body.time)
         new_deadline = self._deadline_naive_utc(on_date, hh, mm)
         latest_end = self._latest_task_end_naive_utc(sem, on_date)
@@ -2646,11 +2827,13 @@ class InspectionService:
         # 查课日期校验：志愿者只能在查课当天及以后上传数据（禁止提前提交未来任务）
         # 统一使用中国标准时间 (UTC+8) 的本地日历日期
         from datetime import timedelta
+
         local_today = (utcnow() + timedelta(hours=8)).date()
         if local_today < task.inspection_date:
             raise AppError(
                 ErrorCode.STATE_CONFLICT,
-                f"查课任务尚未开始（查课日期为 {task.inspection_date}），仅可在查课当天及以后上传数据",
+                f"查课任务尚未开始（查课日期为 {task.inspection_date}），"
+                "仅可在查课当天及以后上传数据",
                 http_status=422,
                 field_errors={"inspection_date": str(task.inspection_date)},
             )
@@ -2659,10 +2842,18 @@ class InspectionService:
         assignment = self._repo.get_assignment_by_task(task.id)
         if assignment is None or assignment.volunteer_user_id != actor.id:
             raise PermissionDeniedError("仅可提交本人当前受派的任务")
+        if task.roster_review_required or task.expected_count_review_required:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "学籍异动后名单或应到人数尚待教师复核")
 
         # 本学期有效志愿者资格：资格停用立即禁止提交（保留历史读取，见读取侧）。
         student_id = acct.student_id
-        if student_id is None or not self._has_qualification(task.semester_id, student_id):
+        if student_id is None or not self._has_qualification(
+            task.semester_id,
+            student_id,
+            task.inspection_date,
+            task.college_id,
+            legacy_assignment_created_at=assignment.created_at,
+        ):
             raise PermissionDeniedError("本学期无有效志愿者资格，不可提交")
 
         # "至多一个待审核 / 审核通过提交"不变式：重复提交在锁内命中既有开放提交而拒；
@@ -2998,20 +3189,24 @@ class InspectionService:
         for sid in submission_ids:
             try:
                 res = self.review_submission(actor, sid, req, request_id)
-                results.append({
-                    "submission_id": str(sid),
-                    "success": True,
-                    "review_status": res.review_status,
-                })
+                results.append(
+                    {
+                        "submission_id": str(sid),
+                        "success": True,
+                        "review_status": res.review_status,
+                    }
+                )
                 success_count += 1
             except Exception as e:
                 self._session.rollback()
                 err_msg = str(getattr(e, "detail", getattr(e, "message", str(e))))
-                results.append({
-                    "submission_id": str(sid),
-                    "success": False,
-                    "error": err_msg,
-                })
+                results.append(
+                    {
+                        "submission_id": str(sid),
+                        "success": False,
+                        "error": err_msg,
+                    }
+                )
                 failed_count += 1
 
         return {
@@ -3040,7 +3235,9 @@ class InspectionService:
                     select(SubmissionAbnormalItem).where(
                         SubmissionAbnormalItem.submission_id == sub.id
                     )
-                ).scalars().all()
+                )
+                .scalars()
+                .all()
             )
             if not abnormal_items and sub.abnormal_items:
                 abnormal_items = list(sub.abnormal_items)
@@ -3052,7 +3249,9 @@ class InspectionService:
             rec.student_id: rec
             for rec in self._session.execute(
                 select(AttendanceRecord).where(AttendanceRecord.task_id == sub.task_id)
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         }
 
         new_pending: list[tuple[AttendanceRecord, str, int | None]] = []
@@ -3153,6 +3352,7 @@ class InspectionService:
             )
         prev = task.expected_count_current
         task.expected_count_current = body.expected_count_current
+        task.expected_count_review_required = False
         task.lock_version += 1
         self._repo.flush()
         # 应到人数是统计分母的一部分：真实变化才递增源修订号（无变化不算源变更）。
