@@ -6,7 +6,13 @@
 
 存量归属扩展新增超管接口：`GET /api/v1/campus/ownership/unresolved/{kind}`、`POST /api/v1/campus/ownership/preview`、`POST /api/v1/campus/ownership/apply`。分页、修订及原子确认契约见 [API 契约](API_CONTRACT.md)“存量学院归属核对”。这些入口不开放多学院旧业务。
 
-截至 2026-10-13 的当前工作树代码快照：由 `backend/app/main.py` 注册路由的 OpenAPI 导出核对，共 **129 个路径、161 个操作**。完整请求／响应 schema 见 [openapi.json](./openapi.json)；业务语义见 [API_CONTRACT.md](./API_CONTRACT.md)，角色权限矩阵与数据范围原则见 [PERMISSIONS.md](./PERMISSIONS.md) 第 12 节及 [PERMISSIONS_IMPLEMENTATION.md](./PERMISSIONS_IMPLEMENTATION.md)。本表的权限栏列入口守卫或服务层组合条件；具体可见行、历史快照与防枚举规则由对应 Service 决定。`/api/v1` 是业务前缀，`/health` 是健康检查。OpenAPI 由当前本地代码导出；部分运行时响应信封、鉴权或业务错误并未完整反映在 schema 中，冲突时以实际路由／Service 与 [API_CONTRACT.md](./API_CONTRACT.md) 为准。它不能代替生产联调或验收。
+截至 2026-10-14 的统一工作树代码快照：由 `backend/app/main.py` 注册路由的 OpenAPI 导出核对，共 **130 个路径、162 个操作**。完整请求／响应 schema 见 [openapi.json](./openapi.json)；业务语义见 [API_CONTRACT.md](./API_CONTRACT.md)，角色权限矩阵与数据范围原则见 [PERMISSIONS.md](./PERMISSIONS.md) 第 12 节及 [PERMISSIONS_IMPLEMENTATION.md](./PERMISSIONS_IMPLEMENTATION.md)。本表的权限栏列入口守卫或服务层组合条件；具体可见行、历史快照与防枚举规则由对应 Service 决定。`/api/v1` 是业务前缀，`/health` 是健康检查。OpenAPI 由当前本地代码导出；部分运行时响应信封、鉴权或业务错误并未完整反映在 schema 中，冲突时以实际路由／Service 与 [API_CONTRACT.md](./API_CONTRACT.md) 为准。它不能代替生产联调或验收。
+
+## 2026-10-13 更新：一次异议审核入口
+
+新增 `POST /api/v1/objections/{objection_id}/review`，入口权限 objection.final_review，更正时同时校验 attendance.correct，学生负责人默认获授。旧 final-review 标记 deprecated 并复用同一事务；旧 initial-review 标记 deprecated，返回 409 STATE_CONFLICT，不再形成独立审核阶段。审核人账号展示字段、四种列表筛选语义及迁移见 API_CONTRACT.md 的本次更新。
+
+
 
 周报边界：V1 仅允许 `scope=COLLEGE`，`CLASS` 请求返回 422，不产生冒称班级的全院报表。周报业务内容仅为考勤汇总；任务总数、未完成、逾期清单属于独立统计接口。影响考勤汇总的有效变更推进周报源修订，任务新建、取消及逾期结算本身不推进。`GET /reports` 已提供学院周报主记录发现；固定格式 Word 仍待实现。生成超规模会先留下 `GENERATING` 记录，再转 `FAILED`，版本号保留。
 
@@ -101,7 +107,7 @@
 | `GET` | `/api/v1/management/submissions/{submission_id}` | 管理审核提交详情 (`get_management_submission`) | `submission.review` + 管理角色 | 任务快照、异常项、照片文件 ID |
 | `POST` | `/api/v1/submissions/{submission_id}/review` | 审核提交 (`review_submission`) | `submission.review` | 服务端按业务资源／角色复核 |
 | `PATCH` | `/api/v1/inspection-tasks/{task_id}/expected-count` | 调整当前应到人数 (`update_expected_count`) | `attendance.expected_count_adjust` | 服务端按业务资源／角色复核 |
-| `POST` | `/api/v1/files` | 上传材料 (`upload_file`) | `登录＋绑定完成；类别校验` | 服务端按业务资源／角色复核 |
+| `POST` | `/api/v1/files` | 上传材料 (`upload_file`) | `登录＋绑定完成；类别校验` | 后端代理至 local/OSS；存储成功后建 READY，OSS 故障 503 |
 | `GET` | `/api/v1/files/{file_id}/access` | 获取短时访问链接 (`get_file_access`) | `登录＋父资源可见` | 服务端按业务资源／角色复核 |
 | `GET` | `/api/v1/files/{file_id}/download` | 签名下载材料 (`download_file`) | `有效 HMAC 签名及期限` | 服务端按业务资源／角色复核 |
 | `GET` | `/api/v1/me/attendance` | 本人考勤 (`list_my_attendance`) | `attendance.read` | 仅绑定学生本人 |

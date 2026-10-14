@@ -1,17 +1,15 @@
 <script setup lang="ts">
 import { formatBeijingTime } from '@/utils/datetime'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import AppIcon from '../components/AppIcon.vue'
+import { useFileAccess } from '../composables/useFileAccess'
 import {
   listObjections,
-  initialReviewObjection,
   finalReviewObjection,
-  getFileAccess,
   type ObjectionItem,
-  type ObjectionFinalStatus,
-  type ObjectionInitialStatus
+  type ObjectionFinalStatus
 } from '../api/objections'
 import {
   getAttendanceRecord,
@@ -23,13 +21,15 @@ const sessionStore = useSessionStore()
 
 const loading = ref(false)
 const submitLoading = ref(false)
-const initialLoading = ref(false)
 const objections = ref<ObjectionItem[]>([])
 const activeIndex = ref<number>(0)
-const statusFilter = ref<string>('ALL') // ALL, PENDING_FINAL, PENDING_INITIAL, APPROVED, REJECTED
+const statusFilter = ref<string>('ALL')
+const page = ref(1)
+const total = ref(0)
+let listRequest = 0
 const attendanceMap = ref<Record<string, AttendanceRecord>>({})
 
-// 终审表单
+// 审核表单
 const finalDecision = ref<'LEAVE' | 'NORMAL' | 'LATE' | 'ABSENT' | 'REJECTED'>('LEAVE')
 const finalReasonNote = ref('')
 
@@ -41,15 +41,13 @@ const typeMap: Record<string, string> = {
 }
 
 async function fetchObjections() {
+  const requestId = ++listRequest
   loading.value = true
   try {
     let final_status: ObjectionFinalStatus | undefined = undefined
-    let initial_status: ObjectionInitialStatus | undefined = undefined
 
     if (statusFilter.value === 'PENDING_FINAL') {
       final_status = 'PENDING'
-    } else if (statusFilter.value === 'PENDING_INITIAL') {
-      initial_status = 'PENDING'
     } else if (statusFilter.value === 'APPROVED') {
       final_status = 'APPROVED'
     } else if (statusFilter.value === 'REJECTED') {
@@ -58,11 +56,13 @@ async function fetchObjections() {
 
     const res = await listObjections({
       final_status,
-      initial_status,
+      page: page.value,
       page_size: 50
     })
 
+    if (requestId !== listRequest) return
     objections.value = res.items || []
+    total.value = res.total
     if (activeIndex.value >= objections.value.length) {
       activeIndex.value = 0
     }
@@ -74,7 +74,7 @@ async function fetchObjections() {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '获取考勤异议列表失败'
     ElMessage.error(msg)
   } finally {
-    loading.value = false
+    if (requestId === listRequest) loading.value = false
   }
 }
 
@@ -94,6 +94,7 @@ async function loadAttendanceForRecords(recordIds: string[]) {
 }
 
 watch(statusFilter, () => {
+  page.value = 1
   activeIndex.value = 0
   fetchObjections()
 })
@@ -110,10 +111,6 @@ const activeObjection = computed<ObjectionItem | null>(() => {
 const activeAttendance = computed<AttendanceRecord | null>(() => {
   if (!activeObjection.value) return null
   return attendanceMap.value[activeObjection.value.attendance_record_id] || null
-})
-
-const pendingFinalCount = computed(() => {
-  return objections.value.filter(o => o.final_status === 'PENDING').length
 })
 
 // 默认预设期望改判类型
@@ -134,53 +131,15 @@ watch(
   { immediate: true }
 )
 
-// 初核通过/驳回
-async function handleInitialReview(decision: 'PASSED' | 'REJECTED') {
-  if (!activeObjection.value) return
-  try {
-    let comment: string | undefined = undefined
-    if (decision === 'REJECTED') {
-      const promptRes = await ElMessageBox.prompt(
-        '请输入初核未通过原因说明：',
-        '负责人初核判定',
-        {
-          confirmButtonText: '确定驳回初核',
-          cancelButtonText: '取消',
-          inputPattern: /\S+/,
-          inputErrorMessage: '请填写初核理由'
-        }
-      )
-      comment = promptRes.value
-    } else {
-      const promptRes = await ElMessageBox.prompt(
-        '初核意见说明（选填）：',
-        '负责人初核通过',
-        {
-          confirmButtonText: '初核通过',
-          cancelButtonText: '取消',
-          inputValue: '材料齐全，情况属实，建议终审予以改判'
-        }
-      )
-      comment = promptRes.value
-    }
-
-    initialLoading.value = true
-    await initialReviewObjection(activeObjection.value.id, {
-      decision,
-      comment
-    })
-    ElMessage.success(`异议 #${activeObjection.value.id} 初核已记录（${decision === 'PASSED' ? '初核通过' : '初核未通过'}）`)
-    await fetchObjections()
-  } catch (e) {
-    // cancelled or error
-  } finally {
-    initialLoading.value = false
-  }
+// 审核提交
+function reviewerAccount(obj: ObjectionItem): string {
+  const account = obj.final_reviewed_username || (obj.final_reviewed_by ? `账号 #${obj.final_reviewed_by}` : '历史账号不可用')
+  return obj.final_reviewed_display_name ? `${obj.final_reviewed_display_name}（${account}）` : account
 }
 
-// 终审提交
 async function handleFinalReview() {
-  if (!activeObjection.value) return
+  if (!activeObjection.value || submitLoading.value) return
+  const objection = activeObjection.value
   if (!activeAttendance.value) {
     ElMessage.warning('正在加载考勤基准数据，请稍后重试')
     return
@@ -189,14 +148,9 @@ async function handleFinalReview() {
   const isReject = finalDecision.value === 'REJECTED'
   const targetType = isReject ? undefined : (finalDecision.value as AttendanceType)
 
-  if (isReject && !finalReasonNote.value.trim()) {
-    ElMessage.warning('终审维持原判定/驳回申诉时，请填写决议备注理由')
-    return
-  }
-
   submitLoading.value = true
   try {
-    await finalReviewObjection(activeObjection.value.id, {
+    await finalReviewObjection(objection.id, {
       decision: isReject ? 'REJECTED' : 'APPROVED',
       final_type: targetType,
       comment: finalReasonNote.value.trim() || undefined,
@@ -204,60 +158,66 @@ async function handleFinalReview() {
     })
 
     if (isReject) {
-      ElMessage.warning(`终审已驳回申诉，维持原考勤判定。`)
+      ElMessage.warning(`审核已驳回申诉，维持原考勤判定。`)
     } else {
-      ElMessage.success(`终审通过！考勤事实已更正为【${typeMap[targetType || ''] || targetType}】，已生成新考勤版本并写入审计日志。`)
+      ElMessage.success(`审核通过，考勤认定为【${typeMap[targetType || ''] || targetType}】。`)
     }
 
     // 更新当前考勤快照
     try {
-      const updatedAtt = await getAttendanceRecord(activeObjection.value.attendance_record_id)
-      attendanceMap.value[activeObjection.value.attendance_record_id] = updatedAtt
+      const updatedAtt = await getAttendanceRecord(objection.attendance_record_id)
+      attendanceMap.value[objection.attendance_record_id] = updatedAtt
     } catch {}
 
     await fetchObjections()
   } catch (err: unknown) {
-    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '终审提交失败'
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '审核提交失败'
     ElMessage.error(msg)
   } finally {
     submitLoading.value = false
   }
 }
 
+function changePage(next: number) {
+  page.value = next
+  activeIndex.value = 0
+  fetchObjections()
+}
+
 // 查看证明材料附件
 async function handleViewFile(fileId: string) {
+  const popup = window.open('', '_blank')
+  if (popup) popup.opener = null
   try {
-    const access = await getFileAccess(fileId)
-    if (access && access.url) {
-      window.open(access.url, '_blank')
-    } else {
-      ElMessage.warning('未能获取文件访问链接')
-    }
+    const url = await getFileUrl(fileId)
+    if (popup) popup.location.href = url
+    else ElMessage.warning('浏览器阻止了新窗口，请允许弹窗后重试')
   } catch (err: unknown) {
+    popup?.close()
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '获取证明材料链接失败'
     ElMessage.error(msg)
   }
 }
 
 // ---------------- 证明材料：内嵌缩略图 + 灯箱预览 ----------------
-const fileUrlMap = ref<Record<string, string>>({})
+const fileContext = computed(() => `${sessionStore.currentUser?.id || ''}:${activeObjection.value?.id || ''}`)
+const { urls: fileUrlMap, getUrl: getFileUrl, invalidate: invalidateFileUrl } = useFileAccess(fileContext)
 const fileImgError = ref<Record<string, boolean>>({})
 const lightboxIndex = ref<number | null>(null)
 
 // 选中异议变化时预取全部附件签名链接，用于内嵌图片预览
 watch(
-  () => activeObjection.value?.id,
-  async () => {
+  fileContext,
+  async (_, __, onCleanup) => {
+    let cancelled = false
+    onCleanup(() => { cancelled = true })
     lightboxIndex.value = null
+    fileImgError.value = {}
     const fids = activeObjection.value?.file_ids || []
     await Promise.allSettled(
       fids.map(async fid => {
-        if (fileUrlMap.value[fid]) return
         try {
-          const access = await getFileAccess(fid)
-          if (access && access.url) {
-            fileUrlMap.value[fid] = access.url
-          }
+          if (!cancelled) await getFileUrl(fid)
         } catch {
           // 预取失败时回退为「新窗口打开」按钮
         }
@@ -275,13 +235,16 @@ const lightboxUrl = computed<string | null>(() => {
 })
 
 // 点击缩略图：图片可用则进灯箱，否则回退新窗口打开
-function handleProofClick(fid: string, index: number) {
-  if (fileUrlMap.value[fid] && !fileImgError.value[fid]) {
+async function handleProofClick(fid: string, index: number) {
+  const context = fileContext.value
+  try {
+    await getFileUrl(fid)
+    if (context !== fileContext.value) return
+    fileImgError.value[fid] = false
     lightboxIndex.value = index
-  } else if (fileUrlMap.value[fid]) {
-    window.open(fileUrlMap.value[fid], '_blank')
-  } else {
-    handleViewFile(fid)
+  } catch (err: unknown) {
+    if (context !== fileContext.value) return
+    ElMessage.error(err instanceof Error ? err.message : '获取证明材料链接失败')
   }
 }
 
@@ -297,6 +260,7 @@ function stepLightbox(delta: number) {
 
 function onProofImgError(fid: string) {
   fileImgError.value[fid] = true
+  invalidateFileUrl(fid)
 }
 
 function onLightboxImgError() {
@@ -305,8 +269,19 @@ function onLightboxImgError() {
 }
 
 function openLightboxOriginal() {
-  if (lightboxUrl.value) window.open(lightboxUrl.value, '_blank')
+  const fid = activeObjection.value?.file_ids?.[lightboxIndex.value ?? -1]
+  if (fid) void handleViewFile(fid)
 }
+
+watch(lightboxIndex, async index => {
+  const fid = activeObjection.value?.file_ids?.[index ?? -1]
+  if (!fid) return
+  try {
+    await getFileUrl(fid)
+  } catch {
+    // 打开材料时已有错误反馈；图片失败保留人工重试入口。
+  }
+})
 
 function onGlobalKeydown(e: KeyboardEvent) {
   if (lightboxIndex.value === null) return
@@ -318,7 +293,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
 
-// ---------------- 终审判定选项（语义化卡片） ----------------
+// ---------------- 审核判定选项（语义化卡片） ----------------
 interface DecisionOption {
   value: 'LEAVE' | 'NORMAL' | 'LATE' | 'ABSENT' | 'REJECTED'
   label: string
@@ -341,7 +316,7 @@ const decisionOptions: DecisionOption[] = [
     <header class="page-head">
       <h1>学生考勤异议处理</h1>
       <p class="sub">
-        处理学生对考勤结果提出的异议申诉。终审裁决将同步更正考勤最终事实、递增版本编号、写入操作人审计日志并刷新到课率与考勤详表。
+        处理学生对考勤结果提出的异议申诉。学生负责人及以上权限一次审核即可生效。通过后按审核认定更新考勤，驳回保留原认定，所有结果保留操作账号与审核记录。
       </p>
     </header>
 
@@ -353,35 +328,28 @@ const decisionOptions: DecisionOption[] = [
           :class="{ on: statusFilter === 'ALL' }"
           @click="statusFilter = 'ALL'"
         >
-          全部异议 ({{ objections.length }})
+          全部审核
         </button>
         <button
           class="tab-btn"
           :class="{ on: statusFilter === 'PENDING_FINAL' }"
           @click="statusFilter = 'PENDING_FINAL'"
         >
-          待教师终审 ({{ pendingFinalCount }})
-        </button>
-        <button
-          class="tab-btn"
-          :class="{ on: statusFilter === 'PENDING_INITIAL' }"
-          @click="statusFilter = 'PENDING_INITIAL'"
-        >
-          待负责人初核
+          待审核
         </button>
         <button
           class="tab-btn"
           :class="{ on: statusFilter === 'APPROVED' }"
           @click="statusFilter = 'APPROVED'"
         >
-          终审已改判
+          审核通过
         </button>
         <button
           class="tab-btn"
           :class="{ on: statusFilter === 'REJECTED' }"
           @click="statusFilter = 'REJECTED'"
         >
-          已维持/驳回
+          审核驳回
         </button>
       </div>
 
@@ -401,7 +369,7 @@ const decisionOptions: DecisionOption[] = [
       <aside class="obj-list-panel">
         <div class="list-head">
           <span>异议申诉项</span>
-          <span class="font-mono text-mute">{{ objections.length }} 笔</span>
+          <span class="font-mono text-mute">共 {{ total }} 笔</span>
         </div>
         <div class="obj-items-scroll">
           <div
@@ -423,8 +391,8 @@ const decisionOptions: DecisionOption[] = [
               >
                 {{
                   obj.final_status === 'PENDING'
-                    ? (obj.initial_status === 'PENDING' ? '待初核' : '待终审')
-                    : (obj.final_status === 'APPROVED' ? '已改判' : '已驳回')
+                    ? '待审核'
+                    : (obj.final_status === 'APPROVED' ? '审核通过' : '审核驳回')
                 }}
               </span>
             </div>
@@ -444,11 +412,19 @@ const decisionOptions: DecisionOption[] = [
               <span class="desired-tag font-mono">诉求：{{ typeMap[obj.desired_type] || obj.desired_type }}</span>
               <span class="card-time font-mono">{{ obj.created_at ? formatBeijingTime(obj.created_at, 'short') : '' }}</span>
             </div>
+            <div v-if="obj.final_status !== 'PENDING'" class="cell-sub" style="margin-top: 6px">
+              操作账号：{{ reviewerAccount(obj) }}
+            </div>
           </div>
+        </div>
+        <div v-if="total > 50" class="list-head">
+          <button class="btn btn-sm btn-ghost" :disabled="page <= 1 || loading" @click="changePage(page - 1)">上一页</button>
+          <span>{{ page }} / {{ Math.ceil(total / 50) }}</span>
+          <button class="btn btn-sm btn-ghost" :disabled="page * 50 >= total || loading" @click="changePage(page + 1)">下一页</button>
         </div>
       </aside>
 
-      <!-- 右栏：申诉详情、三方事实与终审决策 -->
+      <!-- 右栏：申诉详情、三方事实与审核决策 -->
       <main v-if="activeObjection" class="obj-detail-panel">
         <div class="obj-head">
           <div>
@@ -463,12 +439,9 @@ const decisionOptions: DecisionOption[] = [
               >
                 {{
                   activeObjection.final_status === 'PENDING'
-                    ? '待终审 OBJ-#' + activeObjection.id
-                    : (activeObjection.final_status === 'APPROVED' ? '终审通过改判' : '终审驳回申诉') + ' OBJ-#' + activeObjection.id
+                    ? '待审核 OBJ-#' + activeObjection.id
+                    : (activeObjection.final_status === 'APPROVED' ? '审核通过' : '审核驳回') + ' OBJ-#' + activeObjection.id
                 }}
-              </span>
-              <span v-if="activeObjection.initial_status !== 'PENDING'" class="tag tag-blue">
-                负责人初核: {{ activeObjection.initial_status === 'PASSED' ? '初核通过' : '初核未通过' }}
               </span>
             </div>
 
@@ -496,12 +469,12 @@ const decisionOptions: DecisionOption[] = [
         <div class="fact-grid">
           <!-- 1. 原考勤认定事实 -->
           <div class="fact">
-            <span class="f-label">原考勤认定事实</span>
+            <span class="f-label">当前考勤认定</span>
             <div class="f-main">
               {{ activeAttendance?.task?.course_name_snapshot || '教学任务' }}
             </div>
             <div class="f-bad font-mono">
-              原判定：{{ typeMap[activeAttendance?.effective_type || ''] || activeAttendance?.effective_type || '-' }} · v{{ activeObjection.base_attendance_version }}
+              当前判定：{{ typeMap[activeAttendance?.effective_type || ''] || activeAttendance?.effective_type || '-' }} · v{{ activeAttendance?.current_version || activeObjection.base_attendance_version }}
             </div>
             <div class="f-meta cell-sub font-mono">
               考勤记录 ID: {{ activeObjection.attendance_record_id }}
@@ -551,66 +524,40 @@ const decisionOptions: DecisionOption[] = [
             </div>
           </div>
 
-          <!-- 3. 负责人初核意见 -->
-          <div class="fact" :class="{ ok: activeObjection.initial_status === 'PASSED', warn: activeObjection.initial_status === 'REJECTED' }">
-            <span class="f-label" :class="{ 'ok-label': activeObjection.initial_status === 'PASSED' }">
-              负责人初核意见
-            </span>
-            <div class="f-main">
-              <span v-if="activeObjection.initial_status === 'PASSED'">初核结论：审核通过</span>
-              <span v-else-if="activeObjection.initial_status === 'REJECTED'">初核结论：审核未通过</span>
-              <span v-else class="cell-sub">待初核审查</span>
-            </div>
-            <div class="f-ok-note">
-              {{ activeObjection.initial_comment ? `“${activeObjection.initial_comment}”` : (activeObjection.initial_status === 'PENDING' ? '暂未填写初核意见' : '无详细说明') }}
-            </div>
-            <div v-if="activeObjection.initial_reviewed_by" class="f-meta cell-sub font-mono">
-              初核人: {{ activeObjection.initial_reviewed_by }} · {{ activeObjection.initial_reviewed_at ? formatBeijingTime(activeObjection.initial_reviewed_at, 'minute') : '' }}
-            </div>
-            <!-- 初核操作按钮 (仅在未初核时提供) -->
-            <div v-if="activeObjection.initial_status === 'PENDING' && sessionStore.hasPermission('objection.initial_review')" class="initial-actions">
-              <button class="btn btn-sm btn-ghost" :disabled="initialLoading" @click="handleInitialReview('PASSED')">
-                ✓ 初核通过
-              </button>
-              <button class="btn btn-sm btn-ghost text-accent" :disabled="initialLoading" @click="handleInitialReview('REJECTED')">
-                ✕ 不通过
-              </button>
-            </div>
-          </div>
         </div>
 
-        <!-- 终审决策与考勤更正区域 -->
+        <!-- 审核决策与考勤更正区域 -->
         <div class="decision">
           <div class="d-head">
-            <span class="d-title">教师管理员终审裁决</span>
+            <span class="d-title">异议审核（一次生效）</span>
             <span class="font-mono d-lock">
-              考勤版本: v{{ activeAttendance?.current_version || activeObjection.base_attendance_version }} · 乐观锁与审计闭环保护
+              考勤版本: v{{ activeAttendance?.current_version || activeObjection.base_attendance_version }}
             </span>
           </div>
 
-          <!-- 若当前已终审，展示终审结论只读状态 -->
+          <!-- 若当前已审核，展示审核结论只读状态 -->
           <div v-if="activeObjection.final_status !== 'PENDING'" class="decision-result">
             <div class="dr-title">
-              终审结果：
+              审核结果：
               <span v-if="activeObjection.final_status === 'APPROVED'" class="text-green font-serif">
-                终审通过并更正为【{{ typeMap[activeObjection.final_attendance_type || ''] || activeObjection.final_attendance_type }}】
+                审核通过，认定为【{{ typeMap[activeObjection.final_attendance_type || ''] || activeObjection.final_attendance_type }}】
               </span>
               <span v-else class="text-red font-serif">
-                终审维持原认定（驳回申诉）
+                审核维持原认定（驳回申诉）
               </span>
             </div>
             <div v-if="activeObjection.final_comment" class="dr-comment">
-              终审决议备注：{{ activeObjection.final_comment }}
+              审核决议备注：{{ activeObjection.final_comment }}
             </div>
             <div class="dr-meta font-mono cell-sub">
-              裁决操作人: {{ activeObjection.final_reviewed_by || '教师管理员' }} · 裁决时间: {{ activeObjection.final_reviewed_at ? formatBeijingTime(activeObjection.final_reviewed_at) : '-' }}
+              操作账号: {{ reviewerAccount(activeObjection) }} · 审核时间: {{ activeObjection.final_reviewed_at ? formatBeijingTime(activeObjection.final_reviewed_at) : '-' }}
             </div>
           </div>
 
-          <!-- 若未终审，展示操作控件 -->
-          <div v-else>
+          <!-- 若未审核，展示操作控件 -->
+          <div v-else-if="sessionStore.hasPermission('objection.final_review')">
             <div class="d-caption">
-              <span class="d-rlabel">终审判定</span>
+              <span class="d-rlabel">审核判定</span>
               <span class="d-wish-tip">
                 学生诉求改判为 <b class="font-mono">{{ typeMap[activeObjection.desired_type] || activeObjection.desired_type }}</b>
               </span>
@@ -638,20 +585,19 @@ const decisionOptions: DecisionOption[] = [
                 v-model="finalReasonNote"
                 type="text"
                 class="input"
-                :class="{ 'input-required': finalDecision === 'REJECTED' && !finalReasonNote.trim() }"
-                :placeholder="finalDecision === 'REJECTED'
-                  ? '维持原判定时必填驳回理由（将完整写入不可篡改审计日志）…'
-                  : '终审决议备注说明（选填，将完整写入不可篡改审计日志）…'"
+                placeholder="审核备注（选填）"
+                maxlength="512"
               />
               <button
                 class="btn btn-dark"
                 :disabled="submitLoading"
                 @click="handleFinalReview"
               >
-                {{ submitLoading ? '正在提交裁决…' : (finalDecision === 'REJECTED' ? '确认维持原判（驳回申诉）' : `提交终审并更正为【${typeMap[finalDecision]}】`) }}
+                {{ submitLoading ? '正在提交裁决…' : (finalDecision === 'REJECTED' ? '确认维持原判（驳回申诉）' : `提交审核并更正为【${typeMap[finalDecision]}】`) }}
               </button>
             </div>
           </div>
+          <div v-else class="cell-sub">需要学生负责人或更高权限管理员审核。</div>
         </div>
 
         <!-- 处理流程时间线 -->
@@ -668,11 +614,11 @@ const decisionOptions: DecisionOption[] = [
             </div>
 
             <!-- 步骤 2 -->
-            <div class="tl-item" :class="{ done: activeObjection.initial_status !== 'PENDING', now: activeObjection.initial_status === 'PENDING' }">
+            <div v-if="activeObjection.initial_status !== 'PENDING'" class="tl-item done">
               <div class="tl-head">
-                <span class="tl-title">负责人初核</span>
+                <span class="tl-title">历史初核记录</span>
                 <span class="tl-time font-mono">
-                  {{ activeObjection.initial_reviewed_at ? formatBeijingTime(activeObjection.initial_reviewed_at, 'short') : (activeObjection.initial_status === 'PENDING' ? '待处理' : '') }}
+                  {{ activeObjection.initial_reviewed_at ? formatBeijingTime(activeObjection.initial_reviewed_at, 'short') : '' }}
                 </span>
               </div>
               <div class="tl-body">
@@ -685,15 +631,15 @@ const decisionOptions: DecisionOption[] = [
             <!-- 步骤 3 -->
             <div class="tl-item" :class="{ done: activeObjection.final_status !== 'PENDING', now: activeObjection.final_status === 'PENDING' }">
               <div class="tl-head">
-                <span class="tl-title">教师管理员终审裁决</span>
+                <span class="tl-title">异议审核（一次生效）</span>
                 <span class="tl-time font-mono">
                   {{ activeObjection.final_reviewed_at ? formatBeijingTime(activeObjection.final_reviewed_at, 'short') : (activeObjection.final_status === 'PENDING' ? '进行中' : '') }}
                 </span>
               </div>
               <div class="tl-body">
-                <span v-if="activeObjection.final_status === 'APPROVED'">终审裁决通过，考勤更正为【{{ typeMap[activeObjection.final_attendance_type || ''] }}】</span>
-                <span v-else-if="activeObjection.final_status === 'REJECTED'">终审驳回申诉，维持原考勤认定事实</span>
-                <span v-else>等待具备 final_review 权限的管理员做出最终裁定</span>
+                <span v-if="activeObjection.final_status === 'APPROVED'">审核裁决通过，考勤更正为【{{ typeMap[activeObjection.final_attendance_type || ''] }}】</span>
+                <span v-else-if="activeObjection.final_status === 'REJECTED'">审核驳回申诉，维持原考勤认定事实</span>
+                <span v-else>等待学生负责人或更高权限管理员审核</span>
               </div>
             </div>
 
@@ -703,7 +649,7 @@ const decisionOptions: DecisionOption[] = [
                 <span class="tl-title">考勤事实与考勤数据同步</span>
               </div>
               <div class="tl-body">
-                终审通过后自动写入新考勤版本，触发全院到课率与考勤详表即时更新
+                审核通过后自动写入新考勤版本，触发全院到课率与考勤详表即时更新
               </div>
             </div>
           </div>
@@ -765,7 +711,7 @@ const decisionOptions: DecisionOption[] = [
   flex-wrap: wrap;
   gap: 16px;
 }
-.sub-nav-tabs { display: flex; gap: 8px; }
+.sub-nav-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .tab-btn {
   padding: 8px 16px;
   border: none;
@@ -877,7 +823,7 @@ const decisionOptions: DecisionOption[] = [
 /* 三方事实栅格：申诉栏加宽以容纳证明缩略图 */
 .fact-grid {
   display: grid;
-  grid-template-columns: 0.85fr 1.3fr 1fr;
+  grid-template-columns: 0.85fr 1.3fr;
   gap: 1px;
   background: var(--line);
   border: 1px solid var(--line);
@@ -1070,7 +1016,7 @@ const decisionOptions: DecisionOption[] = [
 .f-meta { font-size: 11px; margin-top: 6px; }
 .initial-actions { display: flex; gap: 8px; margin-top: 8px; }
 
-/* 终审裁决面板 */
+/* 审核裁决面板 */
 .decision {
   border: 1px solid var(--line-strong);
   border-left: 3px solid var(--ink);
@@ -1100,7 +1046,7 @@ const decisionOptions: DecisionOption[] = [
 .dr-comment { font-size: 13px; color: var(--ink); margin-bottom: 6px; }
 .dr-meta { font-size: 11px; }
 
-/* ---------- 终审判定选项卡片 ---------- */
+/* ---------- 审核判定选项卡片 ---------- */
 .d-caption {
   display: flex;
   justify-content: space-between;

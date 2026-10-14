@@ -115,7 +115,7 @@ def get_objection(
 
 
 # ---- 初核（不改考勤）----
-@router.post("/objections/{objection_id}/initial-review")
+@router.post("/objections/{objection_id}/initial-review", deprecated=True)
 def initial_review(
     objection_id: int,
     body: ObjectionInitialReviewRequest,
@@ -128,7 +128,8 @@ def initial_review(
 
 
 # ---- 终审（通过需更正时同事务改判考勤）----
-@router.post("/objections/{objection_id}/final-review")
+@router.post("/objections/{objection_id}/review", summary="一次审核学生考勤异议")
+@router.post("/objections/{objection_id}/final-review", deprecated=True)
 def final_review(
     objection_id: int,
     body: ObjectionFinalReviewRequest,

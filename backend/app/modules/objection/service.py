@@ -1,4 +1,8 @@
-"""异议域服务：本人异议创建、按范围读取、初核与终审（含终审更正考勤）。
+"""异议域服务：本人异议创建、按范围读取、一次审核并更正考勤。
+
+2026-10-13：final_review 为一次审核事务，学生负责人及以上默认获授权限；
+initial_* 仅保留历史，旧初核入口拒绝写入。底层 final_* 字段和 OBJECTION_FINAL 来源码
+沿用历史命名以兼容既有数据；以下锁序与考勤更正规则保持有效。
 
 事务与守卫约定（PERMISSIONS.md 13.2、技术方案 15，与 attendance/inspection 一致）：
 - 写路径末尾**单次 commit**，失败抛 AppError 由依赖回滚；Repository 只 flush；
@@ -50,6 +54,7 @@ from app.modules.attendance.models import (
 from app.modules.audit.models import AuditLog
 from app.modules.file.models import FileCategory, FileObject, FileStatus
 from app.modules.file.repository import FileRepository
+from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
 from app.modules.inspection.models import InspectionTask
@@ -315,37 +320,12 @@ class ObjectionService:
         body: ObjectionInitialReviewRequest,
         request_id: str | None,
     ) -> ObjectionResponse:
-        """初核：PENDING→PASSED/REJECTED，仅记录参考意见，绝不改考勤（技术方案 14）。
-
-        不改考勤故不触及考勤锁层，仅锁异议行（全局层级对缺席层跳过）。
-        """
+        """旧客户端初核入口：明确提示迁移到一次审核，不修改历史状态。"""
         self._require(actor.id, perms.OBJECTION_INITIAL_REVIEW_PERMISSION)
-        obj = self._repo.get_objection_for_update(objection_id)
-        if obj is None:
-            raise NotFoundError("异议不存在")
-        if obj.initial_status != ObjectionInitialStatus.PENDING.value:
-            raise ConflictError(ErrorCode.STATE_CONFLICT, "该异议已完成初核")
-        prev = obj.initial_status
-        obj.initial_status = body.decision
-        obj.initial_reviewed_by = actor.id
-        obj.initial_reviewed_at = utcnow()
-        obj.initial_comment = body.comment
-        self._repo.flush()
-        self._audit(
-            actor_user_id=actor.id,
-            action="objection.initial_review",
-            resource_id=f"{obj.id}",
-            before={"initial_status": prev},
-            after={
-                "initial_status": obj.initial_status,
-                "initial_reviewed_by": actor.id,
-            },
-            reason=body.comment,
-            request_id=request_id,
+        raise ConflictError(
+            ErrorCode.STATE_CONFLICT,
+            "异议已改为一次审核，请刷新客户端并使用 /objections/{id}/review",
         )
-        self._session.commit()
-        self._session.refresh(obj)
-        return self._assemble([obj])[0]
 
     # ================================================================== #
     # 终审（objection.final_review；通过且需更正时同事务改判考勤）
@@ -479,6 +459,14 @@ class ObjectionService:
         if not objs:
             return []
 
+        # 一次批量查询审核账号，包含停用账号以保留历史展示；不暴露认证字段。
+        reviewer_ids = {o.final_reviewed_by for o in objs if o.final_reviewed_by is not None}
+        reviewers = self._session.execute(
+            select(UserAccount.id, UserAccount.username, UserAccount.display_name)
+            .where(UserAccount.id.in_(reviewer_ids))
+        ).all() if reviewer_ids else []
+        reviewer_map = {r.id: r for r in reviewers}
+
         # 1. 批量取证明材料关联及文件实体 (禁 N+1)
         file_map = self._repo.map_file_ids_by_objection([o.id for o in objs])
         all_file_ids = list({fid for fids in file_map.values() for fid in fids})
@@ -542,6 +530,7 @@ class ObjectionService:
 
         out: list[ObjectionResponse] = []
         for o in objs:
+            reviewer = reviewer_map.get(o.final_reviewed_by)
             rec = record_map.get(o.attendance_record_id)
             task = task_map.get(rec.task_id) if rec else None
             stu = student_map.get(o.student_id)
@@ -637,6 +626,8 @@ class ObjectionService:
                     initial_comment=o.initial_comment,
                     final_status=o.final_status,
                     final_reviewed_by=o.final_reviewed_by,
+                    final_reviewed_username=reviewer.username if reviewer else None,
+                    final_reviewed_display_name=reviewer.display_name if reviewer else None,
                     final_reviewed_at=o.final_reviewed_at,
                     final_comment=o.final_comment,
                     final_attendance_type=o.final_attendance_type,

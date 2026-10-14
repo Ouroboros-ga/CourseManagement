@@ -229,7 +229,7 @@ class FileService:
         ):
             raise FileExpiredError()
         verifier = getattr(self._storage, "verify_download", None)
-        if callable(verifier) and not verifier(file.object_key, expires, sig):
+        if not callable(verifier) or not verifier(file.object_key, expires, sig):
             raise PermissionDeniedError("签名链接无效或已过期")
         data = self._storage.read(file.object_key)
         return data, file.content_type, file.original_name

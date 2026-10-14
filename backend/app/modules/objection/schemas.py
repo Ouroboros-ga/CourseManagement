@@ -121,6 +121,8 @@ class ObjectionResponse(BaseModel):
     initial_comment: str | None
     final_status: ObjectionFinalStatusLiteral
     final_reviewed_by: OptIdStr
+    final_reviewed_username: str | None = None
+    final_reviewed_display_name: str | None = None
     final_reviewed_at: datetime | None
     final_comment: str | None
     final_attendance_type: ObjectionTypeLiteral | None

@@ -9286,6 +9286,7 @@
         ],
         "summary": "Initial Review",
         "operationId": "initial_review_api_v1_objections__objection_id__initial_review_post",
+        "deprecated": true,
         "security": [
           {
             "HTTPBearer": []
@@ -9345,6 +9346,7 @@
         ],
         "summary": "Final Review",
         "operationId": "final_review_api_v1_objections__objection_id__final_review_post",
+        "deprecated": true,
         "security": [
           {
             "HTTPBearer": []
@@ -9380,6 +9382,65 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Final Review Api V1 Objections  Objection Id  Final Review Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/objections/{objection_id}/review": {
+      "post": {
+        "tags": [
+          "objection"
+        ],
+        "summary": "一次审核学生考勤异议",
+        "operationId": "final_review_api_v1_objections__objection_id__review_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "objection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Objection Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObjectionFinalReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Final Review Api V1 Objections  Objection Id  Review Post"
                 }
               }
             }

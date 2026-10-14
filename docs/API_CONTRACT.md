@@ -25,6 +25,15 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 
 `CAMPUS_ACADEMIC_SCOPED_ENABLED=true` 拒绝旧 academic 私有/管理及独立课表导出，保留学校共享只读目录。其他模块全链路隔离仍未完成，`business_ready=false`，不得据此开放第二学院正式业务。
 
+## 2026-10-13 更新：学生考勤异议一次审核
+
+本节替代旧初核/终审两阶段说明。`POST /api/v1/objections/{id}/review` 使用原 `ObjectionFinalReviewRequest`：decision=APPROVED/REJECTED，current_version 必填；通过须提供 final_type，备注选填。学生负责人、教师管理员、超级管理员默认具有 `objection.final_review`；更正考勤仍需 `attendance.correct`。批准在同一事务更正考勤、追加 OBJECTION_FINAL 版本、记录审核人及审计、推进报表源修订。考勤版本冲突与重复审核仍返回 409。
+
+`final_status` 为唯一处理状态：PENDING/APPROVED/REJECTED，分别对应待审核/审核通过/审核驳回。列表支持 final_status 与分页，响应增加 final_reviewed_username 和 final_reviewed_display_name，审核人 ID 仍为字符串。旧 initial_* 字段仅保留历史，不是待办步骤；旧 initial-review 入口返回 409 STATE_CONFLICT 提示刷新客户端，旧 final-review 兼容一次审核事务。
+
+已有数据库发布前执行 Alembic 181729fc7239，或按标准 seed 同步默认角色权限。2026-10-13 已完成线上迁移及权限核验，见 RELEASE_ACCEPTANCE.md 的本次发布记录。
+
+
 | 项目 | 内容 |
 |---|---|
 | 日期 | 2026-09-27（按当前代码修订） |
@@ -315,13 +324,13 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 ### D.1 文件域（Wave 5b，技术方案 16）
 
-文件无独立功能权限，访问按"业务资源归属"放行。当前已实现的上传、按父资源授权签发短时链接及 HMAC 签名下载基于 `FILE_STORAGE_BACKEND=local` 的 `LocalStorage`。配置虽允许 `object`，但 `ObjectStorage.__init__` 直接抛出 `NotImplementedError`，COS/OSS 适配器仍为占位，不能将 `object` 视为可用后端；接入前不可切换该配置。
+文件无独立功能权限，访问按"业务资源归属"放行。`FILE_STORAGE_BACKEND=local` 使用本地目录，`object` 使用已实现的阿里云 OSS 适配器（ECS RAM 临时凭据，需配置 OSS_BUCKET/OSS_REGION/HTTPS OSS_ENDPOINT）。两个后端共用应用 HMAC 短期下载链接，客户端上传/下载仍走后端，不接收 OSS 凭据或对象键。默认 local，旧文件须迁移核验后才切换；真实云端权限和连通性尚未验收。配置、切换与恢复见 [OSS_DEPLOYMENT.md](development/OSS_DEPLOYMENT.md)，小程序说明见 [OSS_MINIAPP_GUIDE.md](development/OSS_MINIAPP_GUIDE.md)。
 
 | 端点 | 守卫 | 说明 |
 |---|---|---|
-| `POST /files` | 类别相关（multipart） | `category ∈ {SUBMISSION_PHOTO,OBJECTION_PROOF,IMPORT_FILE,REPORT_FILE,TEMP}`，受限类别经 `required_upload_permission` 追加校验（如导入/报表需 `import.execute`/`report.*`）。PRE_BINDING 受限会话 403。服务端随机 `object_key`（绝不用原名作路径）、纯解析器读头校验尺寸/像素/类型，超限 422。落 `READY` 行，`expires_at` 按类别保留期（`FILE_RETENTION_*_DAYS`，起算上传成功时刻）固化，`retention_policy_version` 记命中版本。审计 `file.upload` |
+| `POST /files` | 登录＋绑定完成（multipart） | 客户端允许 `category ∈ {SUBMISSION_PHOTO,OBJECTION_PROOF,TEMP}`，不接受导入/报表类别。PRE_BINDING 受限会话 403。字段为 `file`、`category`；服务端随机 `object_key`（绝不用原名作路径）、纯解析器读头校验尺寸/像素/类型，超限 422；默认单文件 10 MiB。同步路由线程池运行数据库与 OSS 操作，最多读限额＋1 字节。存储写成功才落 `READY` 行与 `file.upload` 审计，返回字符串 `id`；OSS 故障返回脱敏 503 `UPSTREAM_UNAVAILABLE`，不自动回退本地。`expires_at` 按类别保留期固化，`retention_policy_version` 记命中版本 |
 | `GET /files/{file_id}/access` | 资源归属 | 不可见/不存在统一 404 防枚举；已清理/到期 → `FILE_EXPIRED`；未就绪（`UPLOADING/FAILED`）→ 409。返回短时签名 GET 链接（`FILE_SIGNED_URL_TTL_SECONDS`，默认 300s） |
-| `GET /files/{file_id}/download` | 仅签名 | **不再鉴权**（技术方案 16.2：不即时撤销已发链接），只校验 HMAC 签名 + 过期时间戳 + 对象未清理；已清理/到期 `FILE_EXPIRED`，签名无效/过期 403 |
+| `GET /files/{file_id}/download` | 仅签名 | **不再鉴权**（技术方案 16.2：不即时撤销已发链接），校验 HMAC 签名 + 过期时间戳 + 对象未清理；无签名验证器也拒绝。已清理/到期 `FILE_EXPIRED`，签名无效/当前秒≥过期时间 403；OSS 对象不存在 404，上游故障 503。返回 private/no-store、nosniff 和 UTF-8 文件名。Web/小程序重新打开材料应按有效期申请新链接，不能永久缓存 |
 
 `can_access`：上传者本人恒可访问自己的 `READY` 材料；已挂到提交的材料，持 `submission.review` 者经任意提交链接可得、仅持 `submission.read` 的志愿者只能经本人受派提交访问。
 

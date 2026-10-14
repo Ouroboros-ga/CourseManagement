@@ -18,6 +18,8 @@ import os
 import shutil
 import tempfile
 from datetime import UTC, datetime
+from functools import lru_cache
+from threading import Lock
 from typing import Protocol
 
 from app.core.config import Settings
@@ -36,6 +38,8 @@ class StorageBackend(Protocol):
 
     def presign_get(self, file_id: int, object_key: str, ttl_seconds: int) -> str: ...
 
+    def verify_download(self, object_key: str, expires_epoch: int, sig: str) -> bool: ...
+
 
 def _safe_relpath(object_key: str) -> str:
     """对象键按 / 分层，禁止越出根目录（防目录穿越）。"""
@@ -43,12 +47,35 @@ def _safe_relpath(object_key: str) -> str:
     return os.path.join(*parts)
 
 
-class LocalStorage:
-    """本地文件适配器（dev/test）。对象键映射到受限根目录下的分层文件。"""
+class SignedDownload:
+    """所有后端共用应用下载签名；OSS 凭据和桶地址不下发客户端。"""
+
+    def __init__(self, secret: str) -> None:
+        self._secret = secret.encode()
+
+    def _sign(self, object_key: str, expires_epoch: int) -> str:
+        msg = f"{object_key}:{expires_epoch}".encode()
+        return hmac.new(self._secret, msg, hashlib.sha256).hexdigest()
+
+    def presign_get(self, file_id: int, object_key: str, ttl_seconds: int) -> str:
+        expires_epoch = int(datetime.now(UTC).timestamp()) + max(ttl_seconds, 1)
+        sig = self._sign(object_key, expires_epoch)
+        return f"/api/v1/files/{file_id}/download?expires={expires_epoch}&sig={sig}"
+
+    def verify_download(self, object_key: str, expires_epoch: int, sig: str) -> bool:
+        """下载路由校验：签名正确且未过期（技术方案 16.2：到期前可复用，不即时撤销）。"""
+        if int(datetime.now(UTC).timestamp()) >= expires_epoch:
+            return False
+        expected = self._sign(object_key, expires_epoch)
+        return hmac.compare_digest(expected, sig)
+
+
+class LocalStorage(SignedDownload):
+    """本地文件适配器。对象键映射到受限目录下的分层文件。"""
 
     def __init__(self, root: str, secret: str) -> None:
+        super().__init__(secret)
         self._root = os.path.abspath(root)
-        self._secret = secret.encode()
 
     def _path(self, object_key: str) -> str:
         return os.path.join(self._root, _safe_relpath(object_key))
@@ -56,7 +83,6 @@ class LocalStorage:
     def save(self, object_key: str, data: bytes, content_type: str) -> None:
         dest = self._path(object_key)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
-        # 先写临时文件再原子替换，避免半写对象被误判为 READY。
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest))
         try:
             with os.fdopen(fd, "wb") as fh:
@@ -81,44 +107,107 @@ class LocalStorage:
     def exists(self, object_key: str) -> bool:
         return os.path.exists(self._path(object_key))
 
-    def _sign(self, object_key: str, expires_epoch: int) -> str:
-        msg = f"{object_key}:{expires_epoch}".encode()
-        return hmac.new(self._secret, msg, hashlib.sha256).hexdigest()
 
-    def presign_get(self, file_id: int, object_key: str, ttl_seconds: int) -> str:
-        expires_epoch = int(datetime.now(UTC).timestamp()) + max(ttl_seconds, 1)
-        sig = self._sign(object_key, expires_epoch)
-        return (
-            f"/api/v1/files/{file_id}/download"
-            f"?expires={expires_epoch}&sig={sig}"
+@lru_cache(maxsize=8)
+def _oss_client(region: str, endpoint: str, role_name: str, timeout: float):
+    import alibabacloud_oss_v2 as oss
+    from alibabacloud_credentials.client import Client
+    from alibabacloud_credentials.models import Config
+
+    credentials = Client(Config(type="ecs_ram_role", role_name=role_name or None))
+    lock = Lock()
+
+    def load_credentials():
+        # 凭据库自动刷新 STS；多请求共享客户端时串行化凭据刷新。
+        with lock:
+            value = credentials.get_credential()
+            return oss.credentials.Credentials(
+                value.access_key_id, value.access_key_secret, value.security_token
+            )
+
+    cfg = oss.config.load_default()
+    cfg.region = region
+    cfg.endpoint = endpoint
+    cfg.connect_timeout = timeout
+    cfg.readwrite_timeout = timeout
+    cfg.retry_max_attempts = 2
+    cfg.credentials_provider = oss.credentials.CredentialsProviderFunc(load_credentials)
+    return oss.Client(cfg)
+
+
+class ObjectStorage(SignedDownload):
+    """阿里云 OSS：ECS RAM 临时凭据，下载仍由应用验签代理。"""
+
+    def __init__(self, settings: Settings, *, client=None) -> None:
+        super().__init__(settings.secret_key)
+        self._bucket = settings.oss_bucket
+        self._client = (
+            client
+            if client is not None
+            else _oss_client(
+                settings.oss_region,
+                settings.oss_endpoint,
+                settings.oss_role_name,
+                settings.oss_timeout_seconds,
+            )
         )
 
-    def verify_download(self, object_key: str, expires_epoch: int, sig: str) -> bool:
-        """下载路由校验：签名正确且未过期（技术方案 16.2：到期前可复用，不即时撤销）。"""
-        if int(datetime.now(UTC).timestamp()) > expires_epoch:
-            return False
-        expected = self._sign(object_key, expires_epoch)
-        return hmac.compare_digest(expected, sig)
+    def _call(self, method: str, *args, **kwargs):
+        from app.core.exceptions import AppError, ErrorCode, NotFoundError
 
+        try:
+            return getattr(self._client, method)(*args, **kwargs)
+        except Exception as exc:
+            # SDK 异常可能包含请求地址、签名和凭据，不直接进入响应或应用日志。
+            unwrap = getattr(exc, "unwrap", None)
+            error = unwrap() if callable(unwrap) else exc
+            if getattr(error, "code", None) == "NoSuchKey":
+                raise NotFoundError("文件不存在") from None
+            raise AppError(
+                ErrorCode.UPSTREAM_UNAVAILABLE, "文件存储暂不可用，请稍后重试", http_status=503
+            ) from None
 
-class ObjectStorage:
-    """对象存储适配器占位（生产接入 COS/OSS 时实现）。
+    def save(self, object_key: str, data: bytes, content_type: str) -> None:
+        import alibabacloud_oss_v2 as oss
 
-    保持接口不变即可替换本地适配器；V1.0 测试与本地开发不依赖真实对象存储，故未落地
-    具体 SDK，调用即显式报错提示需配置凭据与实现，避免静默退化到不安全路径。
-    """
-
-    def __init__(self) -> None:
-        raise NotImplementedError(
-            "对象存储适配器尚未接入：设置 FILE_STORAGE_BACKEND=local 使用本地存储，"
-            "或在生产部署补全本适配器（save/read/delete/presign_get）。"
+        self._call(
+            "put_object",
+            oss.PutObjectRequest(
+                bucket=self._bucket,
+                key=object_key,
+                body=data,
+                content_type=content_type,
+            ),
         )
+
+    def read(self, object_key: str) -> bytes:
+        import alibabacloud_oss_v2 as oss
+
+        from app.core.exceptions import AppError, ErrorCode
+
+        result = self._call("get_object", oss.GetObjectRequest(bucket=self._bucket, key=object_key))
+        try:
+            with result.body as body:
+                return body.read()
+        except Exception:
+            raise AppError(
+                ErrorCode.UPSTREAM_UNAVAILABLE, "文件读取失败，请稍后重试", http_status=503
+            ) from None
+
+    def delete(self, object_key: str) -> bool:
+        import alibabacloud_oss_v2 as oss
+
+        self._call("delete_object", oss.DeleteObjectRequest(bucket=self._bucket, key=object_key))
+        return True  # OSS 对已不存在对象的删除也返回成功。
+
+    def exists(self, object_key: str) -> bool:
+        return bool(self._call("is_object_exist", bucket=self._bucket, key=object_key))
 
 
 def build_default_storage(settings: Settings) -> StorageBackend:
     """按配置选择存储后端。"""
     if settings.file_storage_backend == "object":
-        return ObjectStorage()  # type: ignore[return-value]
+        return ObjectStorage(settings)
     return LocalStorage(settings.file_local_storage_dir, settings.secret_key)
 
 
