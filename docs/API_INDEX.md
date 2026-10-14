@@ -1,5 +1,7 @@
 # API 路由索引
 
+2026-10-14：本人/管理考勤列表和详情新增 `photo_file_ids: string[]`；文件访问按本人正式考勤及已通过提交关联放行现场照片。参见 [接口契约](API_CONTRACT.md) 的“考勤现场照片与 Web 时间”。路径数量不变。
+
 院级基础数据新增六个操作：集合 GET、详情 GET、行政班 POST/PATCH、教学班名单 GET/PUT，均位于 `/api/v1/colleges/{cid}/academic/...`。资源及默认关闭的模式开关见 [院级基础数据契约](API_CONTRACT.md)。新入口通过不代表全链路隔离完成。
 
 存量归属扩展新增超管接口：`GET /api/v1/campus/ownership/unresolved/{kind}`、`POST /api/v1/campus/ownership/preview`、`POST /api/v1/campus/ownership/apply`。分页、修订及原子确认契约见 [API 契约](API_CONTRACT.md)“存量学院归属核对”。这些入口不开放多学院旧业务。

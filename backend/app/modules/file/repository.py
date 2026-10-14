@@ -91,6 +91,21 @@ class FileRepository:
         )
         return bool(self._session.execute(stmt).scalar_one())
 
+    def is_linked_to_own_attendance(self, *, file_id: int, actor_user_id: int) -> bool:
+        from app.modules.attendance.evidence import attendance_photo_query
+        from app.modules.attendance.models import AttendanceRecord
+        from app.modules.identity.models import UserAccount
+        from app.modules.inspection.models import SubmissionFile
+
+        linked = attendance_photo_query().join(
+            UserAccount, UserAccount.student_id == AttendanceRecord.student_id
+        ).where(
+            UserAccount.id == actor_user_id,
+            UserAccount.status == "ACTIVE",
+            SubmissionFile.file_id == file_id,
+        )
+        return bool(self._session.execute(select(exists(linked))).scalar_one())
+
     def is_linked_to_readable_objection_for(
         self, *, file_id: int, actor_user_id: int, may_manage: bool, may_read_own: bool
     ) -> bool:

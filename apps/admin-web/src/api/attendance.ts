@@ -37,6 +37,7 @@ export interface AttendanceRecord {
   source_submission_item_id?: string | null
   task?: AttendanceTaskBrief | null
   created_at: string
+  photo_file_ids?: string[]
   has_objection?: boolean
   objection_id?: string | null
   objection_status?: string | null

@@ -8764,9 +8764,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List My Attendance Api V1 Me Attendance Get"
+                  "$ref": "#/components/schemas/AttendanceListEnvelope"
                 }
               }
             }
@@ -8882,9 +8880,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Attendance Api V1 Attendance Get"
+                  "$ref": "#/components/schemas/AttendanceListEnvelope"
                 }
               }
             }
@@ -8931,9 +8927,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Attendance Api V1 Attendance  Record Id  Get"
+                  "$ref": "#/components/schemas/AttendanceDetailEnvelope"
                 }
               }
             }
@@ -10485,6 +10479,407 @@
         ],
         "title": "AttendanceCorrectionRequest",
         "description": "更正最终考勤：改当前认定并追加版本，不重写原提交与既往版本（技术方案 14）。\n\ncurrent_version 为客户端所见版本，服务端以条件更新校验；不符即 409 VERSION_CONFLICT，\n提示刷新后重看，绝不覆盖他人的新认定（技术方案 15）。reason 选填、可审计。"
+      },
+      "AttendanceDetailEnvelope": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AttendanceResponse"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "AttendanceDetailEnvelope"
+      },
+      "AttendanceListEnvelope": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AttendancePageResponse"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "AttendanceListEnvelope"
+      },
+      "AttendanceObjectionBrief": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "initial_status": {
+            "type": "string",
+            "title": "Initial Status"
+          },
+          "final_status": {
+            "type": "string",
+            "title": "Final Status"
+          },
+          "desired_type": {
+            "type": "string",
+            "enum": [
+              "NORMAL",
+              "LEAVE",
+              "LATE",
+              "ABSENT"
+            ],
+            "title": "Desired Type"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "initial_status",
+          "final_status",
+          "desired_type"
+        ],
+        "title": "AttendanceObjectionBrief",
+        "description": "考勤记录所关联的异议概况（小程序/移动端重点消费）。"
+      },
+      "AttendancePageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AttendanceResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "title": "AttendancePageResponse"
+      },
+      "AttendanceResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "student_id": {
+            "type": "string",
+            "title": "Student Id"
+          },
+          "student_no": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student No"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "effective_type": {
+            "type": "string",
+            "enum": [
+              "NORMAL",
+              "LEAVE",
+              "LATE",
+              "ABSENT"
+            ],
+            "title": "Effective Type"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version"
+          },
+          "source_submission_item_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Submission Item Id"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttendanceTaskBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "photo_file_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Photo File Ids"
+          },
+          "has_objection": {
+            "type": "boolean",
+            "title": "Has Objection",
+            "default": false
+          },
+          "objection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objection Id"
+          },
+          "objection_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objection Status"
+          },
+          "objection_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttendanceObjectionBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          },
+          "classroom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classroom"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "task_id",
+          "student_id",
+          "student_no",
+          "name",
+          "effective_type",
+          "current_version",
+          "source_submission_item_id",
+          "task",
+          "created_at"
+        ],
+        "title": "AttendanceResponse",
+        "description": "当前有效考勤：一任务一学生一条，附学生快照、任务上下文与异议标识。"
+      },
+      "AttendanceTaskBrief": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "inspection_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Inspection Date"
+          },
+          "inspection_type": {
+            "type": "string",
+            "title": "Inspection Type"
+          },
+          "course_name_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Name Snapshot"
+          },
+          "class_name_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Name Snapshot"
+          },
+          "classroom_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classroom Snapshot"
+          },
+          "start_period": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Period"
+          },
+          "end_period": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Period"
+          },
+          "period_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Text"
+          },
+          "week_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Week No"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "inspection_date",
+          "inspection_type"
+        ],
+        "title": "AttendanceTaskBrief",
+        "description": "考勤所属查课任务的展示信息（列表按任务上下文回看，技术方案 14）。"
       },
       "AutoAssignRequest": {
         "properties": {

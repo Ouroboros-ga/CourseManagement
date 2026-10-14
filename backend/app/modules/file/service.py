@@ -155,6 +155,13 @@ class FileService:
         if file.uploader_user_id == actor.id:
             return True
         permissions = set(actor.permissions)
+        if (
+            not actor.pre_binding
+            and file.category == FileCategory.SUBMISSION_PHOTO.value
+            and "attendance.read" in permissions
+            and self._repo.is_linked_to_own_attendance(file_id=file.id, actor_user_id=actor.id)
+        ):
+            return True
         if file.category == FileCategory.OBJECTION_PROOF.value:
             from app.modules.objection.permissions import (
                 MANAGE_READ_PERMISSIONS,

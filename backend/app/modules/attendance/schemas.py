@@ -62,6 +62,8 @@ class AttendanceResponse(BaseModel):
     source_submission_item_id: OptIdStr
     task: AttendanceTaskBrief | None
     created_at: datetime
+    # 任务的已通过提交现场照片；访问仍须申请授权的短期链接。
+    photo_file_ids: list[IdStr] = Field(default_factory=list)
 
     # 异议标识扩展字段（小程序判断是否允许发起异议 / 展示申诉状态）
     has_objection: bool = False
@@ -73,6 +75,23 @@ class AttendanceResponse(BaseModel):
     period: str | None = None
     classroom: str | None = None
 
+
+
+class AttendancePageResponse(BaseModel):
+    items: list[AttendanceResponse]
+    page: int
+    page_size: int
+    total: int
+
+
+class AttendanceListEnvelope(BaseModel):
+    data: AttendancePageResponse
+    requestId: str | None = None
+
+
+class AttendanceDetailEnvelope(BaseModel):
+    data: AttendanceResponse
+    requestId: str | None = None
 
 
 class AttendanceVersionResponse(BaseModel):

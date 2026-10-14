@@ -265,6 +265,7 @@ class AttendanceService:
 
         # 批量查所涉考勤记录的异议信息（取最新一条，禁 N+1）
         record_ids = [r.id for r in records]
+        photos_by_record = self._repo.map_photo_file_ids(record_ids)
         objections_by_record: dict[int, Objection] = {}
         if record_ids:
             stmt = (
@@ -338,6 +339,7 @@ class AttendanceService:
                     effective_type=r.effective_type,
                     current_version=r.current_version,
                     source_submission_item_id=r.source_submission_item_id,
+                    photo_file_ids=photos_by_record.get(r.id, []),
                     task=task_brief,
                     created_at=r.created_at,
                     has_objection=has_obj,

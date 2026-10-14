@@ -18,7 +18,7 @@ from app.modules.attendance.models import (
     AttendanceRecord,
     AttendanceRecordVersion,
 )
-from app.modules.inspection.models import InspectionTask, TaskRosterMember
+from app.modules.inspection.models import InspectionTask, SubmissionFile, TaskRosterMember
 
 
 def _paged(session: Session, stmt: Select, params: PageParams) -> tuple[list, int]:
@@ -97,6 +97,20 @@ class AttendanceRepository:
         )
 
     # ---- 批量装配辅助（禁 N+1，技术方案 12）----
+    def map_photo_file_ids(self, record_ids: Sequence[int]) -> dict[int, list[str]]:
+        from app.modules.attendance.evidence import attendance_photo_query
+
+        if not record_ids:
+            return {}
+        rows = self._session.execute(
+            attendance_photo_query().where(AttendanceRecord.id.in_(record_ids))
+            .order_by(SubmissionFile.file_id)
+        ).all()
+        result: dict[int, list[str]] = {}
+        for record_id, file_id in rows:
+            result.setdefault(record_id, []).append(str(file_id))
+        return result
+
     def map_tasks_by_ids(self, task_ids: Sequence[int]) -> dict[int, InspectionTask]:
         ids = list(task_ids)
         if not ids:

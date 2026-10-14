@@ -18,7 +18,11 @@ from app.common.pagination import PageParams, page_params
 from app.common.responses import success
 from app.core.database import get_db
 from app.core.permissions import PermissionCode
-from app.modules.attendance.schemas import AttendanceCorrectionRequest
+from app.modules.attendance.schemas import (
+    AttendanceCorrectionRequest,
+    AttendanceDetailEnvelope,
+    AttendanceListEnvelope,
+)
 from app.modules.attendance.service import AttendanceService
 from app.modules.identity.deps import CurrentUserDep, require_permission
 
@@ -46,7 +50,7 @@ def _rid(request: Request) -> str | None:
 
 
 # ---- 本人考勤（SELF_STUDENT；须在 /{record_id} 之前声明，避免 me 被当 id 吞掉）----
-@router.get("/me/attendance")
+@router.get("/me/attendance", response_model=AttendanceListEnvelope)
 def list_my_attendance(
     actor: AttendanceReadDep,
     service: ServiceDep,
@@ -62,7 +66,7 @@ def list_my_attendance(
 
 
 # ---- 管理范围考勤列表 ----
-@router.get("/attendance")
+@router.get("/attendance", response_model=AttendanceListEnvelope)
 def list_attendance(
     actor: AttendanceReadDep,
     service: ServiceDep,
@@ -83,7 +87,7 @@ def list_attendance(
 
 
 # ---- 单条考勤详情（按范围鉴权）----
-@router.get("/attendance/{record_id}")
+@router.get("/attendance/{record_id}", response_model=AttendanceDetailEnvelope)
 def get_attendance(
     record_id: int,
     actor: AttendanceReadDep,
