@@ -54,6 +54,18 @@ def counts():
     )}
 
 
+def relocate_launchers(source, target):
+    """Console scripts embed absolute interpreter paths even after copying a venv."""
+    old, new = str(source).encode(), str(target).encode()
+    for script in (target / "bin").iterdir():
+        if script.is_symlink() or not script.is_file():
+            continue
+        value = script.read_bytes()
+        first, separator, rest = value.partition(b"\n")
+        if first.startswith(b"#!") and old in first:
+            script.write_bytes(first.replace(old, new) + separator + rest)
+
+
 def main():
     manifest_path, archive, web_archive, evidence_path = map(Path, sys.argv[1:])
     manifest, evidence = json.loads(manifest_path.read_text()), json.loads(evidence_path.read_text())
@@ -63,7 +75,8 @@ def main():
     for file, key in [(archive, "backend_sha256"), (web_archive, "web_sha256")]:
         assert hashlib.sha256(file.read_bytes()).hexdigest() == manifest[key]
     old, old_web = (ROOT / "current").resolve(), (ROOT / "admin-web/current").resolve()
-    assert sql("SELECT version_num FROM course_management.alembic_version") == "f26a1014e001"
+    initial_head = sql("SELECT version_num FROM course_management.alembic_version")
+    assert initial_head in {"f26a1014e001", HEAD}
     config = Path("/etc/course-management/backend.env")
     old_config = config.read_bytes()
     runtime = {**os.environ, **{k: v for k, v in dotenv_values(config).items() if v is not None}}
@@ -99,6 +112,7 @@ def main():
     assert runtime_backend.joinpath("uv.lock").read_bytes().replace(b"\r\n", b"\n") == (
         candidate / "backend/uv.lock").read_bytes().replace(b"\r\n", b"\n")
     subprocess.run(["cp", "-a", str(runtime_backend / ".venv"), str(candidate / "backend/.venv")], check=True)
+    relocate_launchers(runtime_backend / ".venv", candidate / "backend/.venv")
     python, backend = str(candidate / "backend/.venv/bin/python"), candidate / "backend"
     runtime["PYTHONPATH"] = migration["PYTHONPATH"] = str(backend)
     before = counts()
@@ -108,7 +122,8 @@ def main():
     assert match, "Unverified backup output; production was not stopped"
     subprocess.run(["sha256sum", "-c", "SHA256SUMS"], cwd=match[1], stdout=subprocess.DEVNULL, check=True)
     report = {**manifest, "backup": match[1], "previous_backend": str(old), "previous_web": str(old_web),
-              "release": release, "migration_head": HEAD, "flags": flags, "rehearsal": str(evidence_path)}
+              "release": release, "previous_migration_head": initial_head,
+              "migration_head": HEAD, "flags": flags, "rehearsal": str(evidence_path)}
     (candidate / "backend.env.before").write_bytes(old_config)
     (candidate / "backend.env.before").chmod(0o600)
     process = None
@@ -124,7 +139,7 @@ def main():
             sql(f"GRANT SELECT,INSERT,UPDATE,DELETE ON course_management.`{table}` TO '{user}'@'%'")
         assert counts() == before, "Unexpected existing business row count change"
         with (candidate / "candidate.log").open("wb") as log:
-            process = subprocess.Popen([python, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",
+            process = subprocess.Popen([str(backend / ".venv/bin/uvicorn"), "app.main:app", "--host", "127.0.0.1",
                                         "--port", "18013", "--no-access-log"], cwd=backend, env=runtime,
                                        stdout=log, stderr=log, user="course-management", group="course-management")
             ready("http://127.0.0.1:18013/health/ready")
