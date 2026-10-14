@@ -6,7 +6,7 @@
 
 ## 2026-10-13 更新：异议审核权限
 
-本节优先于本文旧的两阶段异议规则：学生工作负责人默认具有 objection.final_review，与其已有 attendance.correct 组合可一次审核并更正考勤。教师管理员、超级管理员同样可以审核；学生/志愿者不获得审核权限。管理范围和证明读取由审核权限派生。旧 objection.initial_review 可选授权保留兼容，但初核入口不再写入；开启或关闭该旧权限不会影响负责人的默认一次审核权限。审核结果及操作账号保留，旧初核记录只读，不转化为通过/驳回结果。
+本节优先于本文旧的两阶段异议规则：学生工作负责人默认具有 objection.final_review，该权限包含本次异议改判，可一次审核并更正考勤；独立手工更正仍需 attendance.correct。教师管理员、超级管理员同样可以审核；学生/志愿者不获得审核权限。管理范围和证明读取由审核权限派生。旧 objection.initial_review 可选授权保留兼容，但初核入口不再写入；开启或关闭该旧权限不会影响负责人的默认一次审核权限。审核结果及操作账号保留，旧初核记录只读，不转化为通过/驳回结果。
 
 
 | 项目 | 内容 |
@@ -662,7 +662,7 @@ objection.initial_review
 - 可读取全学院异议。
 - 可执行初核。
 - 可执行终审。
-- 终审需要更正考勤时，必须同时具备 `attendance.correct`。
+- 一次审核授权包含该次异议考勤改判；独立手工更正才需要 `attendance.correct`。
 
 ---
 
@@ -767,7 +767,7 @@ submission_deadline.manage
 | 审核查课提交 | `submission.review` + 管理角色及合法状态 |
 | 自动或人工排班 | `assignment.manage` + 时间冲突/本班回避/资格检查 |
 | 周报生成 | `report.generate`；范围限 `COLLEGE`，只汇总考勤 |
-| 异议终审并更正考勤 | `objection.final_review` AND `attendance.correct` + 版本一致 |
+| 异议终审并更正考勤 | `objection.final_review` + 版本一致 |
 | 读取异议证明 | 合法管理异议读取路径 OR 本人异议路径 |
 | 获取文件短时链接 | 父资源读取权 + FILE_PARENT + 文件状态有效 |
 
@@ -908,7 +908,7 @@ submission_deadline.manage
 | `GET /objections` | 管理读取路径或本人读取路径 |
 | `GET /objections/{id}` | 同上 |
 | `POST /objections/{id}/initial-review` | `objection.initial_review` |
-| `POST /objections/{id}/final-review` | `objection.final_review` + 必要时 `attendance.correct` |
+| `POST /objections/{id}/final-review` | `objection.final_review`（包含该次异议改判） |
 
 ---
 

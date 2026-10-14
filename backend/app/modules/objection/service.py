@@ -23,7 +23,7 @@ initial_* 仅保留历史，旧初核入口拒绝写入。底层 final_* 字段�
 - 初核：PENDING→PASSED/REJECTED，**不改考勤**，为终审提供参考；
 - 终审：PENDING→APPROVED/REJECTED。通过且需更正时，同一事务改判考勤当前值、追加
   OBJECTION_FINAL 版本并审计；考勤版本≠发起时版本 → VERSION_CONFLICT，绝不覆盖他人新认定。
-  更正需 objection.final_review AND attendance.correct。**报表源修订号统一留 P7 施加**。
+  一次审核包含该异议的考勤改判能力，不依赖独立的 attendance.correct 权限。
 """
 
 from __future__ import annotations
@@ -339,11 +339,11 @@ class ObjectionService:
     ) -> ObjectionResponse:
         """终审：PENDING→APPROVED/REJECTED（技术方案 14、15；PERMISSIONS.md 758）。
 
-        通过并给出与当前认定不同的 final_type 即"更正"，须 objection.final_review AND
-        attendance.correct；更正前校验考勤当前版本 == 异议发起版本，否则 VERSION_CONFLICT，
+        objection.final_review 包含通过该异议时的考勤改判能力；独立手工更正仍由
+        attendance.correct 控制。更正前校验考勤当前版本 == 异议发起版本，否则 VERSION_CONFLICT，
         不覆盖他人新认定。锁序：先锁考勤、再锁异议（populate_existing 重读状态）。驳回不改考勤。
         """
-        permissions = self._require(actor.id, perms.OBJECTION_FINAL_REVIEW_PERMISSION)
+        self._require(actor.id, perms.OBJECTION_FINAL_REVIEW_PERMISSION)
 
         anchor = self._repo.get_objection(objection_id)
         if anchor is None:
@@ -392,8 +392,7 @@ class ObjectionService:
             "current_version": record.current_version,
         }
         if needs_correction:
-            if perms.ATTENDANCE_CORRECT_PERMISSION not in permissions:
-                raise PermissionDeniedError("终审更正考勤需同时具备 attendance.correct")
+            # 审核授权包含本次异议改判，不赋予独立的手工考勤更正能力。
             # 审阅者所见版本须与考勤当前一致（乐观锁），且不覆盖他人在异议发起后的新认定。
             if body.current_version != record.current_version:
                 raise ConflictError(

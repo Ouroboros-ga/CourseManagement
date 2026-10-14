@@ -5,7 +5,7 @@
 - GET /objections：管理路径（initial_review / final_review）或本人路径（objection.read）；
 - GET /objections/{id}：同上（越界/不可见统一 404 防枚举）；
 - POST /objections/{id}/initial-review：objection.initial_review（不改考勤）；
-- POST /objections/{id}/final-review：objection.final_review（更正时另校验 correct）。
+- POST /objections/{id}/review：objection.final_review（包含该次异议改判）。
 """
 
 from __future__ import annotations

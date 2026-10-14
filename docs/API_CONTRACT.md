@@ -27,7 +27,7 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 
 ## 2026-10-13 更新：学生考勤异议一次审核
 
-本节替代旧初核/终审两阶段说明。`POST /api/v1/objections/{id}/review` 使用原 `ObjectionFinalReviewRequest`：decision=APPROVED/REJECTED，current_version 必填；通过须提供 final_type，备注选填。学生负责人、教师管理员、超级管理员默认具有 `objection.final_review`；更正考勤仍需 `attendance.correct`。批准在同一事务更正考勤、追加 OBJECTION_FINAL 版本、记录审核人及审计、推进报表源修订。考勤版本冲突与重复审核仍返回 409。
+本节替代旧初核/终审两阶段说明。`POST /api/v1/objections/{id}/review` 使用原 `ObjectionFinalReviewRequest`：decision=APPROVED/REJECTED，current_version 必填；通过须提供 final_type，备注选填。学生负责人、教师管理员、超级管理员默认具有 `objection.final_review`；一次异议审核授权包含该次考勤改判，独立手工更正仍需 `attendance.correct`。批准在同一事务更正考勤、追加 OBJECTION_FINAL 版本、记录审核人及审计、推进报表源修订。考勤版本冲突与重复审核仍返回 409。
 
 `final_status` 为唯一处理状态：PENDING/APPROVED/REJECTED，分别对应待审核/审核通过/审核驳回。列表支持 final_status 与分页，响应增加 final_reviewed_username 和 final_reviewed_display_name，审核人 ID 仍为字符串。旧 initial_* 字段仅保留历史，不是待办步骤；旧 initial-review 入口返回 409 STATE_CONFLICT 提示刷新客户端，旧 final-review 兼容一次审核事务。
 
@@ -389,7 +389,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | `GET /objections` | `objection.read \| initial_review \| final_review`（任一） | Service 解析范围：`MANAGE` 全量 / `OWN` 加 `student_id=本人` 谓词 / `NONE` 403。分页 + `attendance_record_id/final_status/initial_status` 过滤 |
 | `GET /objections/{objection_id}` | 同上（任一） | 越界/不可见与不存在统一 404 防枚举；`MANAGE` 可读任意、`OWN` 仅本人 |
 | `POST /objections/{objection_id}/initial-review` | `objection.initial_review` | `ObjectionInitialReviewRequest{decision∈{PASSED,REJECTED},comment?(≤512)}`。锁异议行，`initial_status≠PENDING` → 409 `STATE_CONFLICT`；置状态/处理人/时刻/意见，**绝不改考勤**，审计 `objection.initial_review` |
-| `POST /objections/{objection_id}/final-review` | `objection.final_review` | `ObjectionFinalReviewRequest{decision∈{APPROVED,REJECTED},final_type?(∈全集),comment?,current_version(ge1)}`。先探异议（不加锁，缺失 404）→ `AttendanceRecord` `FOR UPDATE` → 异议 `FOR UPDATE` 重读；`final_status≠PENDING` → 409。`REJECTED` 不改考勤。`APPROVED` 须给 `final_type`（缺 422）；`final_type≠effective_type` 即"更正"，须另持 `attendance.correct`（否则 403），且 `current_version==record.current_version` 且 `record.current_version==base_attendance_version`（任一不符 409 `VERSION_CONFLICT`，不覆盖他人新认定），通过则同事务改 `effective_type`、`current_version=base+1`、**追加** `AttendanceRecordVersion(source=OBJECTION_FINAL,source_id=objection.id)`。审计 `objection.final_review`（before/after 含考勤） |
+| `POST /objections/{objection_id}/final-review` | `objection.final_review` | `ObjectionFinalReviewRequest{decision∈{APPROVED,REJECTED},final_type?(∈全集),comment?,current_version(ge1)}`。先探异议（不加锁，缺失 404）→ `AttendanceRecord` `FOR UPDATE` → 异议 `FOR UPDATE` 重读；`final_status≠PENDING` → 409。`REJECTED` 不改考勤。`APPROVED` 须给 `final_type`（缺 422）；`final_type≠effective_type` 即"更正"，无需另持独立手工更正权限，但须 `current_version==record.current_version` 且 `record.current_version==base_attendance_version`（任一不符 409 `VERSION_CONFLICT`，不覆盖他人新认定），通过则同事务改 `effective_type`、`current_version=base+1`、**追加** `AttendanceRecordVersion(source=OBJECTION_FINAL,source_id=objection.id)`。审计 `objection.final_review`（before/after 含考勤） |
 
 状态机：`initial_status∈{PENDING,PASSED,REJECTED}`、`final_status∈{PENDING,APPROVED,REJECTED}`（`PENDING` 即"未完成异议"）。`Objection` 用 `TimestampMixin`（可变流转，有 `updated_at`）；`attendance_record_id` 随考勤 `CASCADE`，`student_id` 对主数据 `RESTRICT`。`ObjectionFile` 联合主键、`file_id` 对文件 `RESTRICT`。
 

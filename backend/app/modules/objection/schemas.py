@@ -49,7 +49,7 @@ class ObjectionFinalReviewRequest(BaseModel):
     """终审（POST /objections/{id}/final-review）：PENDING→APPROVED/REJECTED。
 
     - APPROVED 须给出 final_type（终审判定类型）。若 final_type 与考勤当前认定一致，仅关闭
-      异议不改考勤；若不一致则更正考勤并追加版本，此时须同时具备 attendance.correct；
+      异议不改考勤；若不一致则在一次审核授权下更正考勤并追加版本；
     - REJECTED 不接受 final_type（维持原考勤），comment 记录驳回理由；
     - current_version 为审阅者所见考勤当前版本，与 base_attendance_version 一致性用于
       "不覆盖他人新认定"的判断（技术方案 14、15）。
