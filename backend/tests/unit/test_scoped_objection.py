@@ -69,6 +69,19 @@ def test_foreign_list_count_detail_and_review_are_hidden(campus):
     assert two.final_status == "PENDING"
 
 
+def test_semester_filter_keeps_scope_and_count_in_agreement(campus):
+    from app.modules.attendance.models import AttendanceRecord
+    from app.modules.inspection.models import InspectionTask
+
+    db, teacher, a, _, one, _ = prepare(campus)
+    task = db.get(InspectionTask, db.get(AttendanceRecord, one.attendance_record_id).task_id)
+    scoped = service(db, teacher, a["id"])
+    args = dict(attendance_record_id=None, final_status=None, initial_status=None)
+    matching = scoped.list_objections(teacher, PageParams(1, 20), semester_id=task.semester_id, **args)
+    assert matching["total"] == 1
+    assert scoped.list_objections(teacher, PageParams(1, 20), semester_id=task.semester_id + 999, **args)["total"] == 0
+
+
 def test_review_permission_includes_correction_only_inside_authorized_college(campus, monkeypatch):
     db, teacher, a, b, one, two = prepare(campus)
     from app.modules.report.source_revision import SourceRevisionService

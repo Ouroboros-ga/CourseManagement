@@ -98,9 +98,16 @@ def restore_task(
             end_period=task.end_period,
             require_photo=task.require_photo_snapshot,
         )
+    if get_settings().campus_scheduling_enabled and task.group_id:
+        from app.modules.inspection.execution_group import prepare
+        request.execution_group_id = str(task.group_id)
+        prepare(service, actor, request)
+    from app.modules.inspection.responsibility import task_occurrences, sync_responsibility
     match = next(
         (i for i in service._build_plan_no_semlock(sem, request)
-         if task.task_key in {i.task_key, i.task_key + (f":group:{task.group_id}" if task.group_id else "")}),
+         if task.task_key in {i.task_key, i.task_key + (f":group:{task.group_id}" if task.group_id else "")}
+         or (i.occurrence_keys and set(i.occurrence_keys) == set(task_occurrences(service._session, task))
+             and i.teaching_class_id == task.teaching_class_id)),
         None,
     )
     members = service._repo.list_roster_members(task.id, task.roster_version)
@@ -131,6 +138,7 @@ def restore_task(
     task.cancel_reason = None
     task.lock_version += 1
     service._repo.flush()
+    sync_responsibility(service._session, task)
     service._audit(
         actor_user_id=actor.id,
         action="inspection.task.restore",

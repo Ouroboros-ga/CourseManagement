@@ -50,6 +50,20 @@ def test_existing_task_read_and_count_are_college_scoped(campus, monkeypatch):
         service.get_roster(teacher, foreign.task_id, None)
 
 
+def test_workbench_filters_share_task_list_scope(campus, monkeypatch):
+    from app.modules.inspection.models import InspectionTask
+    db, teacher, _, _, own, _ = setup(campus, monkeypatch)
+    service = InspectionService(db)
+    rows, total = service._repo.list_tasks(PageParams(1, 20),
+        scope_filter=service._scope_filter(teacher), needs_attention="roster")
+    assert total == 0
+    db.get(InspectionTask, own.task_id).roster_review_required = True
+    db.commit()
+    rows, total = service._repo.list_tasks(PageParams(1, 20),
+        scope_filter=service._scope_filter(teacher), needs_attention="roster")
+    assert total == 1 and rows[0].id == own.task_id
+
+
 def test_task_read_cross_grant_does_not_grant_roster(campus, monkeypatch):
     db, teacher, a, b, own, foreign = setup(campus, monkeypatch)
     config, _, admin, _, _, _ = campus

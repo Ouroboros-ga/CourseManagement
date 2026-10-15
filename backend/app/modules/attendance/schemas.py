@@ -26,6 +26,9 @@ class AttendanceTaskBrief(BaseModel):
     """考勤所属查课任务的展示信息（列表按任务上下文回看，技术方案 14）。"""
 
     task_id: IdStr
+    responsible_college_id: OptIdStr = None
+    responsible_college_name: str | None = None
+    semester_status: str | None = None
     inspection_date: date
     inspection_type: str
     course_name_snapshot: str | None = None

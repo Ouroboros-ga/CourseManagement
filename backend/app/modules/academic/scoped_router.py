@@ -1,5 +1,6 @@
 """学院路径中的正式基础数据入口；范围鉴权在 Service 内逐操作执行。"""
 
+from datetime import date
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Path, Query, Request
@@ -116,6 +117,7 @@ def list_rows(
     keyword: Annotated[str | None, Query(max_length=128)] = None,
     semester_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     administrative_class_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
+    as_of: Annotated[date | None, Query(description="学生学籍在指定日期的归属；无历史事实不推断")] = None,
 ):
     result = service.list_rows(
         kind.replace("-", "_"),
@@ -123,6 +125,7 @@ def list_rows(
         keyword=keyword,
         semester_id=semester_id,
         administrative_class_id=administrative_class_id,
+        as_of=as_of,
     )
     return success(result, getattr(request.state, "request_id", None))
 

@@ -95,7 +95,11 @@ class InspectionRepository:
 
     def get_task_for_update(self, task_id: int) -> InspectionTask | None:
         stmt = _for_update(self.scoped_tasks().where(InspectionTask.id == task_id))
-        return self._session.execute(stmt).scalar_one_or_none()
+        task = self._session.execute(stmt).scalar_one_or_none()
+        if task is not None:
+            from app.modules.academic.archive import require_open_task
+            require_open_task(self._session, task.id)
+        return task
 
     def get_task_by_key(self, task_key: str) -> InspectionTask | None:
         return self._session.execute(
@@ -134,6 +138,7 @@ class InspectionRepository:
         teaching_class_id: int | None = None,
         administrative_class_id: int | None = None,
         include_canceled: bool = True,
+        needs_attention: str | None = None,
     ) -> tuple[list[InspectionTask], int]:
         """按数据范围谓词 + 可选业务过滤列出任务。
 
@@ -171,6 +176,13 @@ class InspectionRepository:
             )
         if not include_canceled:
             stmt = stmt.where(InspectionTask.canceled_at.is_(None))
+        if needs_attention:
+            stmt = stmt.where(InspectionTask.canceled_at.is_(None))
+            if needs_attention == "unassigned":
+                stmt = stmt.where(InspectionTask.id.not_in(select(InspectionAssignment.task_id).where(
+                    InspectionAssignment.revoked_at.is_(None))))
+            elif needs_attention == "roster":
+                stmt = stmt.where(InspectionTask.roster_review_required.is_(True))
         stmt = stmt.order_by(InspectionTask.inspection_date, InspectionTask.id)
         return _paged(self._session, stmt, params)
 

@@ -306,6 +306,7 @@ def list_inspection_tasks(
     teaching_class_id: Annotated[int | None, Query(ge=1)] = None,
     administrative_class_id: Annotated[int | None, Query(ge=1)] = None,
     include_canceled: Annotated[bool, Query()] = True,
+    needs_attention: Annotated[str | None, Query(pattern="^(unassigned|roster)$")] = None,
 ) -> dict[str, object]:
     return success(
         service.list_tasks(
@@ -318,6 +319,7 @@ def list_inspection_tasks(
             teaching_class_id=teaching_class_id,
             administrative_class_id=administrative_class_id,
             include_canceled=include_canceled,
+            needs_attention=needs_attention,
         ),
         _rid(request),
     )

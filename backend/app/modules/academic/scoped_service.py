@@ -10,6 +10,7 @@ from app.core.exceptions import (
     ConflictError,
     ErrorCode,
     NotFoundError,
+    PermissionDeniedError,
 )
 from app.modules.academic.models import AdministrativeClass
 from app.modules.academic.schemas import (
@@ -59,13 +60,17 @@ class ScopedAcademicService:
         scope = resolve_scope(self.db, self.actor, self.college_id, action, write=write)
         return ScopedAcademicRepository(self.db, scope)
 
-    def _dto(self, row):
+    def _dto(self, row, *, as_of=None):
         result = self.campus._dto(row)
         if row.__tablename__ == "student":
             from app.modules.academic.enrollment_service import EnrollmentService
             from app.modules.identity.role_scope import business_today
 
-            enrollment = EnrollmentService(self.db).at(row.id, business_today())
+            day = as_of or business_today()
+            enrollment = EnrollmentService(self.db).at(row.id, day)
+            result["as_of"] = day.isoformat()
+            result["enrollment_snapshot"] = enrollment.snapshot if enrollment else None
+            result["enrollment_source"] = "DATED" if enrollment else "CURRENT_LEGACY"
             if enrollment:
                 result["administrative_class_id"] = (
                     str(enrollment.administrative_class_id)
@@ -91,11 +96,18 @@ class ScopedAcademicService:
         return result
 
     def list_rows(self, kind: str, params: PageParams, **filters):
-        rows, total = self._repo(READ_ACTIONS.get(kind, "academic.read")).page(
-            kind, params, **filters
-        )
+        if filters.get("as_of") is not None and kind != "students":
+            raise AppError(ErrorCode.VALIDATION_ERROR, "日期学籍筛选仅适用于学生列表", 422)
+        try:
+            repo = self._repo(READ_ACTIONS.get(kind, "academic.read"))
+        except (PermissionDeniedError, NotFoundError):
+            if kind != "teaching_classes":
+                raise
+            # 名单维护者需要选择教学班；仓储已明确允许该动作，不授予课表等其他读取。
+            repo = self._repo("student.manage")
+        rows, total = repo.page(kind, params, **filters)
         return {
-            "items": [self._dto(row) for row in rows],
+            "items": [self._dto(row, as_of=filters.get("as_of")) for row in rows],
             "total": total,
             "page": params.page,
             "page_size": params.page_size,

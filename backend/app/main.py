@@ -95,6 +95,8 @@ def create_app() -> FastAPI:
     app.include_router(scoped_identity_router, prefix="/api/v1")
     app.include_router(account_router, prefix="/api/v1")
     app.include_router(campus_router, prefix="/api/v1")
+    from app.modules.organization.overview_router import router as overview_router
+    app.include_router(overview_router, prefix="/api/v1")
     from app.modules.academic.school_time_router import router as school_time_router
     app.include_router(school_time_router, prefix="/api/v1")
     from app.modules.report.summary_router import router as summary_router
@@ -109,9 +111,17 @@ def create_app() -> FastAPI:
     app.include_router(academic_publication_router, prefix="/api/v1")
     from app.modules.academic.time_router import router as college_time_router
     app.include_router(college_time_router, prefix="/api/v1")
-    from app.modules.inspection.group_router import router as group_inspection_router
+    from app.modules.academic.semester_defaults_router import router as semester_defaults_router
+    app.include_router(semester_defaults_router, prefix="/api/v1")
+    from app.modules.academic.offering_router import router as offering_router
+    app.include_router(offering_router, prefix="/api/v1")
+    from app.modules.academic.management_router import router as academic_management_router
+    app.include_router(academic_management_router, prefix="/api/v1")
     from app.modules.volunteer.member_router import router as member_router
+    from app.modules.inspection.group_router import router as group_inspection_router
     app.include_router(member_router, prefix="/api/v1")
+    from app.modules.volunteer.management_router import router as organization_management_router
+    app.include_router(organization_management_router, prefix="/api/v1")
     app.include_router(group_inspection_router, prefix="/api/v1")
     app.include_router(personal_timetable_router, prefix="/api/v1")
     app.include_router(scoped_attendance_router, prefix="/api/v1")
@@ -130,6 +140,8 @@ def create_app() -> FastAPI:
     app.include_router(importer_router, prefix="/api/v1")
     from app.modules.importer.scoped_router import router as scoped_importer_router
     app.include_router(scoped_importer_router, prefix="/api/v1")
+    from app.modules.importer.confirmation_router import router as confirmation_router
+    app.include_router(confirmation_router, prefix="/api/v1")
 
     # 查课任务与排班路由（阶段 4）：任务预览/生成、列表/详情/本人任务、名单读取。
     app.include_router(inspection_router, prefix="/api/v1")

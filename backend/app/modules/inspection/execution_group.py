@@ -7,7 +7,7 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.modules.academic.campus_models import CourseType
 from app.modules.academic.models import CourseSchedule, TeachingClass
 from app.modules.identity.resource_scope import resolve_scope
-from app.modules.volunteer.models import GroupConfigVersion, VolunteerGroup
+from app.modules.volunteer.models import VolunteerGroup
 from app.modules.volunteer.policy import InspectionScope
 
 
@@ -33,13 +33,8 @@ def prepare(service, actor, body):
         .with_for_update(read=True)
         .execution_options(populate_existing=True)
     )
-    version = service._session.scalar(
-        select(GroupConfigVersion).where(
-            GroupConfigVersion.group_id == group.id,
-            GroupConfigVersion.college_id == group.college_id,
-            GroupConfigVersion.version == group.config_version,
-        )
-    )
+    from app.modules.volunteer.preparation_models import semester_group_config
+    version = semester_group_config(service._session, group, body.semester_id)
     if group.status != "ACTIVE" or version is None:
         raise ConflictError(message="执行组未启用或未发布范围")
     service._repo.college_ids = frozenset({group.college_id})
@@ -83,10 +78,18 @@ def validate(service, plans, *, strict=True):
     )).all())
     allowed = []
     for plan in plans:
+        target_classes = getattr(service, "_target_class_filter", rule.class_ids)
+        if rule.class_ids is not None and target_classes is not None:
+            target_classes = target_classes & rule.class_ids
+        if target_classes is not None:
+            from dataclasses import replace
+            roster = [m for m in plan.roster if m.administrative_class_id_snapshot in target_classes]
+            plan = replace(plan, roster=roster, student_ids=[m.student_id for m in roster],
+                class_name_snapshot="、".join(sorted({m.class_name_snapshot for m in roster if m.class_name_snapshot})))
         teaching = parents.get(plan.teaching_class_id)
         kind = kinds.get(teaching.course_type_id) if teaching else None
         if (
-            kind is None
+            not plan.roster or kind is None
             or kind.status != "ACTIVE"
             or kind.college_id != group.college_id
             or teaching.status != "ACTIVE"
@@ -106,5 +109,7 @@ def validate(service, plans, *, strict=True):
                     message="所选课次未分类、名单不明或超出执行组范围/有效期，整批未生成"
                 )
             continue
-        allowed.append(plan)
-    return allowed
+        from app.modules.inspection.responsibility import normalize_plan
+        allowed.append(normalize_plan(service, plan))
+    from app.modules.inspection.responsibility import available_plans
+    return available_plans(service, allowed, strict=strict)

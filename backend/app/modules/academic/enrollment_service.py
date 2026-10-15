@@ -912,6 +912,10 @@ class EnrollmentService:
             if version_changed:
                 task.lock_version += 1
         self.db.flush()
+        from app.modules.inspection.responsibility import sync_responsibility
+        for task in tasks:
+            if str(task.id) in changed:
+                sync_responsibility(self.db, task)
         return {
             "refreshed_task_ids": changed,
             "protected_task_ids": protected,

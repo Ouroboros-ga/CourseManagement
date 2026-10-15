@@ -1,10 +1,13 @@
 """显式院级查询。详情和分页计数共享 SQL 谓词，不从身份缓存直接返回外院行。"""
 
+from datetime import date
+
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, raiseload
 
 from app.common.pagination import PageParams
 from app.core.exceptions import NotFoundError, PermissionDeniedError
+from app.modules.academic.enrollment_models import StudentEnrollment
 from app.modules.academic.models import (
     AdministrativeClass,
     Course,
@@ -16,7 +19,6 @@ from app.modules.academic.models import (
     VolunteerQualification,
 )
 from app.modules.academic.repository import _paged
-from app.modules.academic.enrollment_models import StudentEnrollment
 from app.modules.identity.resource_scope import ResourceScope
 from app.modules.identity.role_scope import business_today
 
@@ -47,7 +49,7 @@ class ScopedAcademicRepository:
         self.db = db
         self.scope = scope
 
-    def query(self, kind: str):
+    def query(self, kind: str, *, as_of: date | None = None):
         model = RESOURCES.get(kind)
         if model is None:
             raise PermissionDeniedError("未实现的资源范围")
@@ -94,7 +96,7 @@ class ScopedAcademicRepository:
         teaching_ids = (
             select(TeachingClass.id).where(TeachingClass.college_id == cid).correlate(None)
         )
-        day = business_today()
+        day = as_of or business_today()
         timeline_ids = select(StudentEnrollment.student_id).correlate(None)
         dated_ids = (
             select(StudentEnrollment.student_id)
@@ -110,6 +112,9 @@ class ScopedAcademicRepository:
             Student.id.in_(dated_ids),
             Student.id.not_in(timeline_ids) & Student.administrative_class_id.in_(class_ids),
         )
+        # 显式日期只返回有学籍事实的人员，不以今日投影伪造过去或未来归属。
+        if as_of is not None:
+            student_scope = Student.id.in_(dated_ids)
         student_ids = select(Student.id).where(student_scope).correlate(None)
         stmt = select(model).options(raiseload("*"))
         if model is AdministrativeClass:
@@ -152,8 +157,9 @@ class ScopedAcademicRepository:
         keyword: str | None = None,
         semester_id: int | None = None,
         administrative_class_id: int | None = None,
+        as_of: date | None = None,
     ):
-        stmt = self.query(kind)
+        stmt = self.query(kind, as_of=as_of)
         model = RESOURCES[kind]
         if keyword:
             column = {
@@ -176,7 +182,7 @@ class ScopedAcademicRepository:
         if semester_id is not None and semester_column is not None:
             stmt = stmt.where(semester_column == semester_id)
         if administrative_class_id is not None and model is Student:
-            day = business_today()
+            day = as_of or business_today()
             stmt = stmt.where(
                 or_(
                     Student.id.in_(

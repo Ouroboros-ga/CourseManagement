@@ -246,9 +246,15 @@ class AcademicRepository:
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_course_by_code(self, course_code: str) -> Course | None:
-        return self._session.execute(
-            select(Course).where(Course.course_code == course_code)
-        ).scalar_one_or_none()
+        query = select(Course).where(Course.course_code == course_code)
+        cid = self._session.info.get("college_query_scope", {}).get("college_id")
+        if cid is not None:
+            query = query.where(Course.college_id == cid)
+        rows = list(self._session.scalars(query.limit(2)))
+        if len(rows) > 1:
+            from app.core.exceptions import ConflictError
+            raise ConflictError(message="课程编码涉及多个学院，请使用明确学院的教务入口")
+        return rows[0] if rows else None
 
     def list_courses(
         self, params: PageParams, *, status: str | None, keyword: str | None

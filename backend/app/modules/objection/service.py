@@ -165,6 +165,8 @@ class ObjectionService:
             raise NotFoundError("考勤记录不存在或不可提出异议")
 
         self._assert_within_window(record)
+        from app.modules.academic.archive import require_open_task
+        require_open_task(self._session, record.task_id)
         if body.desired_type == record.effective_type:
             raise AppError(
                 ErrorCode.VALIDATION_ERROR,
@@ -269,6 +271,7 @@ class ObjectionService:
         attendance_record_id: int | None,
         final_status: str | None,
         initial_status: str | None,
+        semester_id: int | None = None,
         dimensions: TaskDimensions | None = None,
     ) -> dict:
         permissions = self._lock_actor(actor.id)
@@ -281,6 +284,7 @@ class ObjectionService:
             attendance_record_id=attendance_record_id,
             final_status=final_status,
             initial_status=initial_status,
+            semester_id=semester_id,
             dimensions=dimensions,
         )
         return {
@@ -373,6 +377,8 @@ class ObjectionService:
         obj = self._repo.get_objection_for_update(objection_id)
         if record is None or obj is None:
             raise NotFoundError("异议不存在")
+        from app.modules.academic.archive import require_open_task
+        require_open_task(self._session, record.task_id)
         if obj.final_status != ObjectionFinalStatus.PENDING.value:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "该异议已完成终审")
 

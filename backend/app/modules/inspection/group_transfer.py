@@ -30,7 +30,7 @@ from app.modules.inspection.models import (
 from app.modules.organization.router import require_campus_enabled
 from app.modules.organization.schemas import StrictModel
 from app.modules.organization.service import atomic_write
-from app.modules.volunteer.models import GroupConfigVersion, VolunteerGroup
+from app.modules.volunteer.models import VolunteerGroup
 from app.modules.volunteer.policy import InspectionScope
 
 
@@ -103,14 +103,8 @@ class TaskGroupTransferService:
             select(AttendanceRecord.id).where(AttendanceRecord.task_id == tid).limit(1)
         ):
             raise ConflictError(message="任务已有提交或考勤，不允许更换执行组或规则快照")
-        config = self.db.scalar(
-            select(GroupConfigVersion)
-            .where(
-                GroupConfigVersion.group_id == target_gid,
-                GroupConfigVersion.version == group.config_version,
-            )
-            .with_for_update(read=True)
-        )
+        from app.modules.volunteer.preparation_models import semester_group_config
+        config = semester_group_config(self.db, group, semester.id)
         if config is None:
             raise ConflictError(message="目标组尚未发布范围")
         teaching_ids = set(

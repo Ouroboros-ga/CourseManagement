@@ -15,7 +15,7 @@ from app.modules.inspection.models import InspectionAssignment, InspectionTask
 from app.modules.organization.service import CampusService, atomic_write, validated
 from app.modules.volunteer.member_models import VolunteerGroupMember, VolunteerGroupSupport
 from app.modules.volunteer.member_schemas import MemberCreate, MemberUpdate
-from app.modules.volunteer.models import GroupConfigVersion, VolunteerGroup
+from app.modules.volunteer.models import VolunteerGroup
 
 
 class GroupMemberService:
@@ -422,13 +422,8 @@ class GroupMemberService:
         )
         if overlap:
             raise ConflictError(message="同组、同学期已有重叠的有效支援授权")
-        version = self.db.scalar(
-            select(GroupConfigVersion).where(
-                GroupConfigVersion.group_id == self.gid,
-                GroupConfigVersion.college_id == self.cid,
-                GroupConfigVersion.version == group.config_version,
-            )
-        )
+        from app.modules.volunteer.preparation_models import semester_group_config
+        version = semester_group_config(self.db, group, int(body.semester_id))
         config = version.configuration if version else {}
         row = VolunteerGroupSupport(
             college_id=self.cid,

@@ -27,6 +27,29 @@ class CollegeTimeVersion(TimestampMixin, Base):
     effective_from: Mapped[date] = mapped_column(DATE_COL)
     configuration: Mapped[dict] = mapped_column(JSON)
     published_by: Mapped[int] = mapped_column(ForeignKey("user_account.id", ondelete="RESTRICT"))
+    source_template_id: Mapped[int | None] = mapped_column(
+        ForeignKey("school_semester_default.id", ondelete="RESTRICT"), nullable=True
+    )
+
+
+class SchoolSemesterDefault(TimestampMixin, Base):
+    """Published defaults are immutable; colleges explicitly adopt a particular version."""
+
+    __tablename__ = "school_semester_default"
+    __table_args__ = (
+        UniqueConstraint("school_id", "semester_id", "version", name="uq_school_semester_default_version"),
+        MYSQL_TABLE_ARGS,
+    )
+    id: Mapped[int] = pk_column()
+    school_id: Mapped[int] = mapped_column(ForeignKey("school.id", ondelete="RESTRICT"))
+    semester_id: Mapped[int] = mapped_column(ForeignKey("semester.id", ondelete="RESTRICT"), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    version: Mapped[int] = mapped_column(Integer)
+    configuration: Mapped[dict] = mapped_column(JSON)
+    published_by: Mapped[int] = mapped_column(ForeignKey("user_account.id", ondelete="RESTRICT"))
+    period_template_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("school_time_template_version.id", ondelete="RESTRICT"), nullable=True
+    )
 
 
 class CollegeTimeProfile(TimestampMixin, Base):

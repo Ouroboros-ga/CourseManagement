@@ -111,6 +111,7 @@ class ObjectionRepository:
         attendance_record_id: int | None = None,
         final_status: str | None = None,
         initial_status: str | None = None,
+        semester_id: int | None = None,
         dimensions: TaskDimensions | None = None,
     ) -> tuple[list[Objection], int]:
         """按数据范围取异议。
@@ -119,6 +120,11 @@ class ObjectionRepository:
         （PERMISSIONS.md 7.6 / 8）。
         """
         stmt = self._objections()
+        if semester_id is not None:
+            stmt = stmt.where(Objection.attendance_record_id.in_(
+                select(AttendanceRecord.id).join(InspectionTask, InspectionTask.id == AttendanceRecord.task_id)
+                .where(InspectionTask.semester_id == semester_id)
+            ))
         if dimensions is not None:
             stmt = stmt.where(Objection.attendance_record_id.in_(select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(select(InspectionTask.id).where(*dimensions.conditions())))))
         if student_id is not None:

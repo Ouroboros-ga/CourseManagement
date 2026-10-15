@@ -52,6 +52,7 @@ class CollegeTimeService:
                 "version": v.version,
                 "effective_from": v.effective_from,
                 "configuration": v.configuration,
+                "source_template_id": str(v.source_template_id) if v.source_template_id else None,
             }
             for v in self._versions()
         ]
@@ -153,7 +154,7 @@ class CollegeTimeService:
         return self._preview(data)[3]
 
     @atomic_write
-    def publish(self, data, revision: str):
+    def publish(self, data, revision: str, *, source_template_id: int | None = None, commit=True):
         body, snapshot, versions, preview = self._preview(data, lock=True)
         if revision != preview["revision"]:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "配置、任务或授权已变化，请重新预览")
@@ -167,6 +168,7 @@ class CollegeTimeService:
             effective_from=body.effective_from,
             configuration=snapshot,
             published_by=self.actor.id,
+            source_template_id=source_template_id or (versions[-1].source_template_id if versions else None),
         )
         if self.profile_id is not None:
             profile = self.db.get(CollegeTimeProfile, self.profile_id)
@@ -189,7 +191,8 @@ class CollegeTimeService:
         from app.modules.organization.impact_service import capture_impacts
         capture_impacts(self.db, self.cid, "time_version", row.id, row.version,
                         task_ids=[int(value) for value in preview["retained_future_task_ids"]], after=snapshot)
-        self.db.commit()
+        if commit:
+            self.db.commit()
         return {"id": str(row.id), "version": row.version, **preview}
 
 
@@ -265,7 +268,7 @@ class TimeResolver:
                 ),
                 None,
             )
-        if override is None:
+        if override is None and not (version and version.source_template_id):
             override = (
                 self._calendar_cache[sid].get(day)
                 if sid in self._calendar_cache
@@ -276,6 +279,19 @@ class TimeResolver:
                 )
             )
         return resolve_teaching_day(semester.first_monday, day, override)
+
+    def calendar_provenance(self, cid, sid, day):
+        from app.modules.academic.time_models import SchoolSemesterDefault
+        version = self.version(cid, sid, day)
+        if version:
+            entry = next((c for c in version.configuration.get("calendar", []) if c["date"] == day.isoformat()), None)
+            if version.source_template_id:
+                template = self.db.get(SchoolSemesterDefault, version.source_template_id)
+                base = next((c for c in template.configuration.get("calendar", []) if c["date"] == day.isoformat()), None)
+                return "SCHOOL_CALENDAR" if entry == base else "COLLEGE_CALENDAR"
+            if entry:
+                return "COLLEGE_CALENDAR"
+        return "SCHOOL_CALENDAR"
 
     def interval(self, cid: int | None, sid: int, day: date, start: int, end: int, *, teaching_class_id=None):
         if cid is None or start < 1 or end < start:
@@ -322,10 +338,21 @@ class TimeResolver:
         first, last = complete[0][0], complete[-1][1]
         if first >= last or any(a[1] > b[0] for a, b in zip(complete, complete[1:], strict=False)):
             raise ConflictError(message="正式作息起止顺序不合法")
+        template_id = version.source_template_id if version else None
+        source = "COLLEGE_VERSION" if version else "SCHOOL_PERIODS"
+        if template_id:
+            from app.modules.academic.time_models import SchoolSemesterDefault
+            template = self.db.get(SchoolSemesterDefault, template_id)
+            base_periods = {p["period_no"]: p for p in template.configuration["periods"]}
+            selected_periods = {p["period_no"]: p for p in version.configuration["periods"]}
+            if all(selected_periods.get(no) == base_periods.get(no) for no in range(start, end + 1)):
+                source = "SCHOOL_TEMPLATE"
         return {
             "start_minute": first.hour * 60 + first.minute,
             "end_minute": last.hour * 60 + last.minute,
             "time_version_id": str(version.id) if version else None,
             "time_profile_id": str(version.profile_id) if version and version.profile_id else None,
-            "source": "COLLEGE_VERSION" if version else "SCHOOL_PERIODS",
+            "source": source,
+            "source_template_id": str(template_id) if template_id else None,
+            "calendar_source": self.calendar_provenance(cid, sid, day),
         }

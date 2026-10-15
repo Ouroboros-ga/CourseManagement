@@ -25,7 +25,7 @@ from app.modules.inspection.schemas import (
 from app.modules.inspection.service import InspectionService
 from app.modules.organization.schemas import StrictModel
 from app.modules.organization.service import atomic_write, validated
-from app.modules.volunteer.models import GroupConfigVersion, VolunteerGroup
+from app.modules.volunteer.models import VolunteerGroup
 
 
 def choose_exact(candidates: list[tuple[str, frozenset[int]]], counts: dict[int, int], seed: str):
@@ -184,17 +184,8 @@ class GroupSamplingService:
         if write:
             group_query = group_query.with_for_update().execution_options(populate_existing=True)
         group = self.db.scalar(group_query)
-        version = (
-            self.db.scalar(
-                select(GroupConfigVersion).where(
-                    GroupConfigVersion.group_id == self.gid,
-                    GroupConfigVersion.college_id == self.cid,
-                    GroupConfigVersion.version == group.config_version,
-                )
-            )
-            if group
-            else None
-        )
+        from app.modules.volunteer.preparation_models import semester_group_config
+        version = semester_group_config(self.db, group, semester.id) if group else None
         if group is None or group.status != "ACTIVE" or version is None:
             raise ConflictError(message="组尚未启用或未发布查课范围")
         requested = {int(k): n for k, n in body.counts.items()}
@@ -233,6 +224,7 @@ class GroupSamplingService:
         inspection._repo.college_ids = frozenset({self.cid})
         inspection._generation_group = group, version
         inspection._generation_scope = scope
+        inspection._target_class_filter = frozenset(requested)
         occurrence_scope = CourseOccurrenceScope(
             date_from=body.date_from,
             date_to=body.date_to,
@@ -243,7 +235,15 @@ class GroupSamplingService:
             build_scope(inspection, semester, occurrence_scope) if teaching else ([], "EMPTY_SCOPE")
         )
         candidates = []
+        scoped_plans = []
         for plan in plans:
+            from dataclasses import replace
+            from app.modules.inspection.responsibility import normalize_plan
+            roster = [m for m in plan.roster if m.administrative_class_id_snapshot in requested]
+            if not roster:
+                continue
+            plan = normalize_plan(inspection, replace(plan, roster=roster, student_ids=[m.student_id for m in roster]))
+            scoped_plans.append(plan)
             if (group.starts_on and plan.inspection_date < group.starts_on) or (
                 group.ends_on and plan.inspection_date > group.ends_on
             ):
@@ -284,7 +284,7 @@ class GroupSamplingService:
         }
         revision = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         selected_keys = choose_exact(candidates, requested, revision)
-        selected = [p for p in plans if p.task_key in set(selected_keys)]
+        selected = [p for p in scoped_plans if p.task_key in set(selected_keys)]
         # A group owns an occurrence; it must not create another occurrence identity.
         if selected:
             existing = self.db.scalars(select(InspectionTask).where(

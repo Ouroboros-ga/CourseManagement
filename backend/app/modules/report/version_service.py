@@ -120,6 +120,11 @@ class ReportService:
         request_id: str | None,
     ) -> GenerateReportResponse:
         self._guard(actor, perms.REPORT_GENERATE_PERMISSION)
+        from sqlalchemy import select
+        from app.modules.academic.models import Semester
+        status = self._session.scalar(select(Semester.status).where(Semester.id == semester_id).with_for_update(read=True))
+        if status == "ARCHIVED":
+            raise ConflictError(message="学期已归档，保留原报表版本；历史更正后的当前统计可另行查看")
         if scope != "COLLEGE":
             raise AppError(
                 ErrorCode.VALIDATION_ERROR,

@@ -141,6 +141,7 @@ from app.modules.inspection.schemas import (
 )
 from app.modules.report.source_revision import SourceRevisionService
 from app.modules.volunteer.models import GroupConfigVersion, VolunteerGroup
+from app.modules.organization.service import atomic_write
 
 
 # --------------------------------------------------------------------------- #
@@ -166,6 +167,7 @@ class PlanItem:
     student_ids: list[int] = field(default_factory=list)
     roster: list[TaskRosterMember] = field(default_factory=list)
     constituent_schedule_ids: list[int] = field(default_factory=list)
+    occurrence_keys: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -506,6 +508,7 @@ class InspectionService:
     # ================================================================== #
     # 生成（整批单事务原子，幂等跳过既有）
     # ================================================================== #
+    @atomic_write
     def generate(
         self, actor: CurrentUser, body: InspectionGenerateRequest, request_id: str | None
     ) -> GenerateResultResponse:
@@ -559,6 +562,15 @@ class InspectionService:
         request_id: str | None,
     ) -> GenerateResultResponse:
         existing = self._repo.find_task_ids_by_keys([it.task_key for it in items])
+        if existing:
+            matching = list(self._session.scalars(select(InspectionTask).where(InspectionTask.task_key.in_(existing))))
+            planned_by_key = {item.task_key: item for item in items}
+            for old in matching:
+                wanted = {m.student_id for m in planned_by_key[old.task_key].roster}
+                actual = set(self._session.scalars(select(TaskRosterMember.student_id).where(
+                    TaskRosterMember.task_id == old.id, TaskRosterMember.roster_version == old.roster_version)))
+                if old.canceled_at is not None or wanted != actual:
+                    raise ConflictError(message="原任务已取消或名单已改版，请先核对原任务，不能以旧请求重建或覆盖")
         if self._generation_group and existing:
             if self._session.scalar(select(InspectionTask.id).where(
                 InspectionTask.task_key.in_(existing),
@@ -566,22 +578,6 @@ class InspectionService:
             ).limit(1)):
                 raise ConflictError(message="所选课次已有其他执行组或旧任务，请先明确换组处置")
         new_items = [it for it in items if it.task_key not in existing]
-        if get_settings().campus_scheduling_enabled and new_items:
-            from app.modules.inspection.models import TaskScheduleSource
-            source_pairs = {(sid, item.inspection_date): item.task_key for item in new_items
-                for sid in (item.constituent_schedule_ids or [item.course_schedule_id]) if sid is not None}
-            if source_pairs:
-                stmt = select(InspectionTask.task_key, InspectionTask.inspection_date,
-                    InspectionTask.course_schedule_id, TaskScheduleSource.course_schedule_id).outerjoin(
-                    TaskScheduleSource, TaskScheduleSource.task_id == InspectionTask.id).where(
-                    InspectionTask.semester_id == sem.id, InspectionTask.canceled_at.is_(None),
-                    InspectionTask.inspection_date.in_({day for _, day in source_pairs}),
-                    or_(InspectionTask.course_schedule_id.in_({sid for sid, _ in source_pairs}),
-                        TaskScheduleSource.course_schedule_id.in_({sid for sid, _ in source_pairs})))
-                for key, day, primary_sid, constituent_sid in self._session.execute(stmt):
-                    for sid in (primary_sid, constituent_sid):
-                        if (sid, day) in source_pairs and source_pairs[sid, day] != key:
-                            raise ConflictError(message="该课次已有有效任务；作息或合班方式变化须先处置原任务，不能重复生成")
         new_tasks = []
         if get_settings().campus_scheduling_enabled:
             if self._repo.college_ids is None or len(self._repo.college_ids) != 1:
@@ -609,11 +605,13 @@ class InspectionService:
                 expected_count_current=len(it.roster),
                 roster_version=1,
                 lock_version=0,
+                occurrence_keys_snapshot=it.occurrence_keys or None,
             )
             parent = (self._session.get(TeachingClass, it.teaching_class_id) if it.teaching_class_id
                       else self._session.get(AdministrativeClass, it.administrative_class_id)
                       if it.administrative_class_id else None)
-            task.college_id = parent.college_id if parent else None
+            task.college_id = (next(iter(self._repo.college_ids))
+                if get_settings().campus_scheduling_enabled else parent.college_id if parent else None)
             if isinstance(parent, TeachingClass):
                 from app.modules.academic.campus_models import CourseType
 
@@ -625,10 +623,6 @@ class InspectionService:
                 group, group_version = self._generation_group
                 task.group_id, task.group_config_version_id = group.id, group_version.id
                 task.group_name_snapshot = group.name
-            if get_settings().campus_scheduling_enabled:
-                from app.modules.inspection.task_time import freeze_time
-
-                freeze_time(self._session, task)
             self._repo.add(task)
             new_tasks.append(task)
             self._repo.flush()  # 取得 task.id
@@ -655,6 +649,13 @@ class InspectionService:
                 m.roster_version = 1
                 self._repo.add(m)
             self._repo.flush()
+
+            if get_settings().campus_scheduling_enabled:
+                from app.modules.inspection.task_time import freeze_time
+                from app.modules.inspection.responsibility import sync_responsibility
+                # Sources now exist, so every merged teaching-class interval is checked.
+                freeze_time(self._session, task)
+                sync_responsibility(self._session, task)
 
         seeded = self._seed_deadlines(sem.id, new_items if get_settings().campus_scheduling_enabled else items, actor_user_id)
         if get_settings().campus_scheduling_enabled:
@@ -791,6 +792,7 @@ class InspectionService:
         teaching_class_id: int | None = None,
         administrative_class_id: int | None = None,
         include_canceled: bool,
+        needs_attention: str | None = None,
     ) -> dict:
         self._require(actor.id, perms.READ_PERMISSION)
         scope = self._scope_filter(actor)
@@ -804,6 +806,7 @@ class InspectionService:
             teaching_class_id=teaching_class_id,
             administrative_class_id=administrative_class_id,
             include_canceled=include_canceled,
+            needs_attention=needs_attention,
         )
         dto = self._assemble_tasks(rows)
         return {
@@ -1186,6 +1189,7 @@ class InspectionService:
     def _build_course_plan_core(
         self, sem: Semester, body: InspectionGenerateRequest
     ) -> list[PlanItem]:
+        self._shared_identity_checked = set()
         tc_ids = [int(x) for x in (body.teaching_class_ids or [])]
         tcs = list(
             self._session.execute(select(TeachingClass).where(TeachingClass.id.in_(tc_ids)))
@@ -2524,6 +2528,7 @@ class InspectionService:
         )
 
     # ---- 取消任务（inspection.cancel）：锁内先结算、再置取消（技术方案 9.2、13.3）----
+    @atomic_write
     def cancel_task(
         self,
         actor: CurrentUser,
@@ -2554,6 +2559,8 @@ class InspectionService:
         task.cancel_reason = body.reason
         task.lock_version += 1
         self._repo.flush()
+        from app.modules.inspection.responsibility import sync_responsibility
+        sync_responsibility(self._session, task)
         self._audit(
             actor_user_id=actor.id,
             action="inspection.task.cancel",
@@ -2619,6 +2626,8 @@ class InspectionService:
             from app.modules.inspection.task_time import freeze_time
 
             freeze_time(self._session, task)
+        if scheduling and task.time_snapshot:
+            task.time_snapshot = {**task.time_snapshot, "adjustment_source": "SINGLE_OCCURRENCE"}
 
         task.lock_version += 1
         self._repo.flush()
@@ -2669,6 +2678,13 @@ class InspectionService:
             raise NotFoundError("批量请求包含不存在或未授权的任务，整批未执行")
         if not tasks:
             return []
+
+        from app.modules.academic.archive import require_open_task
+        for task in tasks:
+            require_open_task(self._session, task.id)
+        if self._session.scalar(select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(task_ids)).limit(1)) or self._session.scalar(
+            select(TaskDeadlineAssessment.id).where(TaskDeadlineAssessment.task_id.in_(task_ids)).limit(1)):
+            raise ConflictError(message="任务已有正式考勤或截止时事实，不能通过强制删除绕过历史保护；请使用更正流程")
 
         if not force:
             for t in tasks:
@@ -2779,6 +2795,7 @@ class InspectionService:
         return t_ids
 
     # ---- 名单改版（inspection.roster.manage）：执行前更正，生成新版本并冻结快照 ----
+    @atomic_write
     def create_roster_version(
         self,
         actor: CurrentUser,
@@ -2868,6 +2885,8 @@ class InspectionService:
         task.expected_count_review_required = False
         task.lock_version += 1
         self._repo.flush()
+        from app.modules.inspection.responsibility import sync_responsibility
+        sync_responsibility(self._session, task)
         self._audit(
             actor_user_id=actor.id,
             action="inspection.roster.revise",

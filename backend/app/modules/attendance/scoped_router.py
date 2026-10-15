@@ -92,3 +92,10 @@ def correct(
 ):
     request_id = getattr(request.state, "request_id", None)
     return success(service.correct(actor, rid, body, request_id).model_dump(), request_id)
+
+
+@router.post("/colleges/{cid}/attendance/{rid}/archived-corrections", response_model=AttendanceDetailEnvelope)
+def correct_archived(cid: ResourceId, rid: ResourceId, body: AttendanceCorrectionRequest,
+                     actor: CurrentUserDep, service: Service, request: Request):
+    request_id = getattr(request.state, "request_id", None)
+    return success(service.correct_archived(actor, rid, body, request_id).model_dump(), request_id)

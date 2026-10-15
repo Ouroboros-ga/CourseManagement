@@ -39,6 +39,7 @@ def list_objections(
     dimensions: DimensionsDep,
     attendance_record_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     final_status: Annotated[str | None, Query(max_length=16)] = None,
+    semester_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
 ):
     return success(
         service.list_objections(
@@ -46,7 +47,9 @@ def list_objections(
             params,
             attendance_record_id=attendance_record_id,
             final_status=final_status,
-            dimensions=dimensions, initial_status=None,
+            initial_status=None,
+            semester_id=semester_id,
+            dimensions=dimensions,
         ),
         getattr(request.state, "request_id", None),
     )

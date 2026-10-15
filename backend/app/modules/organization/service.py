@@ -68,7 +68,7 @@ def atomic_write(method):
         try:
             return method(self, *args, **kwargs)
         except Exception:
-            self.db.rollback()
+            (self.db if hasattr(self, "db") else self._session).rollback()
             raise
 
     return call
@@ -530,6 +530,8 @@ class CampusService:
         college = self._authorize_group(actor, cid, "volunteer.group.manage", rid, write=True)
         row = self._resource(VolunteerGroup, cid, rid)
         self._version(row, body.lock_version)
+        if body.owner_user_id is not None and int(body.owner_user_id) != row.owner_user_id:
+            raise ConflictError(message="负责人变更请使用交接预览与确认，以同步负责人专属授权")
         from app.modules.identity.resource_scope import resolve_scope
         impact_scope = resolve_scope(self.db, actor, cid, "volunteer.group.manage" if isinstance(body, GroupUpdate) else "volunteer.config.publish", write=True)
         confirm_impact(self.db, cid, "group", row, body.future_impact_revision, resource_scope=impact_scope)
@@ -581,7 +583,8 @@ class CampusService:
         configuration = body.model_dump(mode="json", exclude={"lock_version", "future_impact_revision"})
         configuration["course_type_ids"] = sorted(body.course_type_ids, key=int)
         configuration["class_ids"] = sorted(body.class_ids, key=int)
-        row.config_version += 1
+        row.config_version = (self.db.scalar(select(func.max(GroupConfigVersion.version)).where(
+            GroupConfigVersion.group_id == row.id)) or 0) + 1
         row.lock_version += 1
         college.configuration_revision += 1
         config = GroupConfigVersion(

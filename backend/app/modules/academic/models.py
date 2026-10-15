@@ -195,13 +195,13 @@ class Student(TimestampMixin, Base):
 # 课程与教学班
 # --------------------------------------------------------------------------- #
 class Course(CollegeOwned, TimestampMixin, Base):
-    """课程目录。course_code 唯一，供教学班引用。"""
+    """学院课程目录；同一学院 course_code 唯一，共享教学班身份单独确认。"""
 
     __tablename__ = "course"
-    __table_args__ = (MYSQL_TABLE_ARGS,)
+    __table_args__ = (UniqueConstraint("college_id", "course_code", name="uq_course_college_code"), MYSQL_TABLE_ARGS)
 
     id: Mapped[int] = pk_column()
-    course_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    course_code: Mapped[str] = mapped_column(String(64), nullable=False)
     course_name: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="ACTIVE", server_default=text("'ACTIVE'")
@@ -229,6 +229,9 @@ class TeachingClass(CollegeOwned, TimestampMixin, Base):
     course_type_id: Mapped[int | None] = mapped_column(ForeignKey("course_type.id", ondelete="RESTRICT"))
     time_profile_id: Mapped[int | None] = mapped_column(ForeignKey("college_time_profile.id", ondelete="RESTRICT"), nullable=True, index=True)
     classification_revision: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
+    academic_offering_id: Mapped[str | None] = mapped_column(
+        ForeignKey("academic_offering.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     class_code: Mapped[str | None] = mapped_column(String(64))
     class_name: Mapped[str] = mapped_column(String(128), nullable=False)
     teacher_name: Mapped[str | None] = mapped_column(String(128))
@@ -279,6 +282,8 @@ class CourseSchedule(CollegeOwned, TimestampMixin, Base):
     start_period: Mapped[int] = mapped_column(Integer, nullable=False)
     end_period: Mapped[int] = mapped_column(Integer, nullable=False)
     classroom: Mapped[str | None] = mapped_column(String(128))
+    shared_meeting_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    shared_identity_from: Mapped[date_ | None] = mapped_column(DATE_COL, nullable=True)
     teacher: Mapped[str | None] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="ACTIVE", server_default=text("'ACTIVE'")

@@ -47,7 +47,7 @@ def create(service, body):
         or f"C_{service.college_id}_{hashlib.sha256(name.encode()).hexdigest()[:16]}"
     ).strip()
     course = service.db.scalar(
-        select(Course).where(Course.course_code == course_code).with_for_update()
+        select(Course).where(Course.course_code == course_code, Course.college_id == service.college_id).with_for_update()
     )
     if course and (course.college_id != service.college_id or course.course_name != name):
         raise ConflictError(message="课程编码不可用于本次新建，请使用学院独立编码")

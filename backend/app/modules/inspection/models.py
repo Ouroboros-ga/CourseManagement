@@ -138,6 +138,7 @@ class InspectionTask(CollegeOwned, TimestampMixin, Base):
     )
 
     id: Mapped[int] = pk_column()
+    occurrence_keys_snapshot: Mapped[list | None] = mapped_column(JSON, nullable=True)
     task_key: Mapped[str] = mapped_column(String(191), unique=True, nullable=False)
     # None 表示升级前已冻结的学校日截止；新任务绑定本院日截止，不按当前归属搬迁历史。
     deadline_day_id: Mapped[int | None] = mapped_column(

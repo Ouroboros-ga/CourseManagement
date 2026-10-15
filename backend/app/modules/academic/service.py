@@ -260,6 +260,14 @@ class AcademicService:
         sem = self._repo.get_semester_for_update(semester_id)
         if sem is None:
             raise NotFoundError("学期不存在")
+        if sem.status == "ARCHIVED":
+            raise ConflictError(message="已归档学期不能通过普通编辑修改或重新开放")
+        if body.status == "ARCHIVED":
+            raise ConflictError(message="学期归档请使用归档预览与确认，先处置未完成事项")
+        if body.first_monday is not None and body.first_monday != sem.first_monday:
+            from app.modules.inspection.models import InspectionTask
+            if self._session.scalar(select(InspectionTask.id).where(InspectionTask.semester_id == semester_id).limit(1)):
+                raise ConflictError(message="学期已有任务快照，不能直接更改首周一并重算历史周次")
         if body.status is not None and body.status not in perms.ALLOWED_SEMESTER_STATUS:
             raise AppError(
                 ErrorCode.VALIDATION_ERROR,

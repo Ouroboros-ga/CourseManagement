@@ -29,9 +29,8 @@ class GroupRules:
         )
         if self.group is None or self.group.status != "ACTIVE" or version is None:
             raise ConflictError(message="任务组已停用或规则快照不属于该组")
-        current = db.scalar(select(GroupConfigVersion).where(
-            GroupConfigVersion.group_id == self.group.id,
-            GroupConfigVersion.version == self.group.config_version).with_for_update(read=True))
+        from app.modules.volunteer.preparation_models import semester_group_config
+        current = semester_group_config(db, self.group, task.semester_id)
         if current is None or current.id != version.id:
             raise ConflictError(message="组配置已更新，请先预览并确认任务执行组/规则后重新排班")
         from app.modules.academic.models import TeachingClass

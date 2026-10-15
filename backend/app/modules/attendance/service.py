@@ -227,6 +227,9 @@ class AttendanceService:
         record = self._repo.get_record_for_update(record_id)
         if record is None:
             raise NotFoundError("考勤记录不存在")
+        if not getattr(self, "_archive_correction", False):
+            from app.modules.academic.archive import require_open_task
+            require_open_task(self._session, record.task_id)
         if record.current_version != body.current_version:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "考勤已被他人更正，请刷新后重看再操作")
         prev_type = record.effective_type
@@ -248,7 +251,7 @@ class AttendanceService:
         self._repo.flush()
         self._audit(
             actor_user_id=actor.id,
-            action="attendance.correct",
+            action="attendance.archived.correct" if getattr(self, "_archive_correction", False) else "attendance.correct",
             resource_type="attendance_record",
             resource_id=f"{record.id}",
             before={
@@ -275,6 +278,12 @@ class AttendanceService:
             return []
         task_ids = list({r.task_id for r in records})
         tasks = self._repo.map_tasks_by_ids(task_ids)
+        from app.modules.organization.models import College
+        colleges = {c.id: c.name for c in self._session.scalars(select(College).where(
+            College.id.in_({t.college_id for t in tasks.values() if t.college_id}))) }
+        from app.modules.academic.models import Semester
+        semester_states = {s.id: s.status for s in self._session.scalars(select(Semester).where(
+            Semester.id.in_({t.semester_id for t in tasks.values()})))}
         version_by_task = {tid: t.roster_version for tid, t in tasks.items()}
         pairs = [(r.task_id, r.student_id) for r in records]
         display = self._repo.map_roster_display(pairs, version_by_task)
@@ -312,6 +321,9 @@ class AttendanceService:
             task_brief = (
                 AttendanceTaskBrief(
                     task_id=task.id,
+                    responsible_college_id=task.college_id,
+                    responsible_college_name=colleges.get(task.college_id),
+                    semester_status=semester_states.get(task.semester_id),
                     inspection_date=task.inspection_date,
                     inspection_type=task.inspection_type,
                     course_name_snapshot=task.course_name_snapshot,

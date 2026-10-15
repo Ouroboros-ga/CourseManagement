@@ -24,6 +24,7 @@ class School(TimestampMixin, Base):
     lock_version: Mapped[int] = mapped_column(Integer, default=1)
 
 
+
 class College(TimestampMixin, Base):
     __tablename__ = "college"
     __table_args__ = (
@@ -66,4 +67,7 @@ class ScopedGrant(TimestampMixin, Base):
     expires_at: Mapped[datetime | None] = mapped_column(DATETIME_3)
     status: Mapped[str] = mapped_column(String(16), default="ACTIVE")
     granted_by: Mapped[int] = mapped_column(ForeignKey("user_account.id", ondelete="RESTRICT"))
+    owner_group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("volunteer_group.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     lock_version: Mapped[int] = mapped_column(Integer, default=1)
