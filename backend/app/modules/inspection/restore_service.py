@@ -100,7 +100,7 @@ def restore_task(
         )
     match = next(
         (i for i in service._build_plan_no_semlock(sem, request)
-         if i.task_key + (f":group:{task.group_id}" if task.group_id else "") == task.task_key),
+         if task.task_key in {i.task_key, i.task_key + (f":group:{task.group_id}" if task.group_id else "")}),
         None,
     )
     members = service._repo.list_roster_members(task.id, task.roster_version)

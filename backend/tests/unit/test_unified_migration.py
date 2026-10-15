@@ -11,7 +11,7 @@ def test_unified_release_has_one_head_and_keeps_both_published_branches():
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["f26a1015s001"]
+    assert script.get_heads() == ["f26a1015u001"]
     assert script.get_revision("f26a1015d001").down_revision == "f26a1014x001"
     assert script.get_revision("f26a1014x001").down_revision == "f26a1014r001"
     assert script.get_revision("f26a1014r001").down_revision == "f26a1014g001"

@@ -98,7 +98,6 @@ def create_app() -> FastAPI:
 
     # 基础数据路由（阶段 3）：学期/节次/校历/行政班/学生/课程/教学班/课表/志愿者资格。
     app.include_router(academic_router, prefix="/api/v1/academic")
-    app.include_router(scoped_academic_router, prefix="/api/v1")
     from app.modules.academic.scoped_write_router import router as scoped_write_router
     app.include_router(scoped_write_router, prefix="/api/v1")
     app.include_router(academic_publication_router, prefix="/api/v1")
@@ -145,6 +144,9 @@ def create_app() -> FastAPI:
     app.include_router(report_listing_router, prefix="/api/v1")
     from app.modules.report.scoped_router import router as scoped_report_router
     app.include_router(scoped_report_router, prefix="/api/v1")
+
+    # Literal academic endpoints must precede the generic /{kind}/{rid} reader.
+    app.include_router(scoped_academic_router, prefix="/api/v1")
 
     return app
 

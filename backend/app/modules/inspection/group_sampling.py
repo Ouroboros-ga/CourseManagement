@@ -282,8 +282,13 @@ class GroupSamplingService:
         revision = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         selected_keys = choose_exact(candidates, requested, revision)
         selected = [p for p in plans if p.task_key in set(selected_keys)]
-        for plan in selected:
-            plan.task_key += f":group:{self.gid}"
+        # A group owns an occurrence; it must not create another occurrence identity.
+        if selected:
+            existing = self.db.scalars(select(InspectionTask).where(
+                InspectionTask.task_key.in_([p.task_key for p in selected])
+            ))
+            if any(task.group_id != self.gid for task in existing):
+                raise ConflictError(message="所选课次已有其他执行组任务，请先明确处理换组，不能重复生成")
         inspection._generation_group = (group, version)
         return (
             body,
