@@ -69,7 +69,10 @@ async def create_import(
     teaching_class_id: Annotated[int | None, Form()] = None,
     replace: Annotated[bool, Form()] = True,
 ) -> dict[str, object]:
-    content = await file.read()
+    from app.core.exceptions import AppError, ErrorCode
+    content = await file.read(10 * 1024 * 1024 + 1)
+    if len(content) > 10 * 1024 * 1024:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "单个导入文件不能超过 10 MiB", 422)
     result = service.create_preview(
         actor,
         target=target,
@@ -119,7 +122,7 @@ async def bulk_import(
     semester_id: Annotated[int, Form()],
     files: Annotated[list[UploadFile], File()],
 ) -> dict[str, object]:
-    """批量上传多个名单/课表文件或一个 ZIP 压缩包，自动化流水线解析并原子入库。"""
+    """旧兼容入口逐文件预览并确认；前面的成功文件不会随后续文件失败回滚。"""
     raw_files: list[tuple[str, bytes]] = []
     for f in files:
         data = await f.read()

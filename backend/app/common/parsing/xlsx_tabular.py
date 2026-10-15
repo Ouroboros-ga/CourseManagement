@@ -37,6 +37,7 @@ def _read_xls_tabular_rows(
     sheet_index: int = 0,
     header_row: int = 1,
     required_headers: Iterable[str] | None = None,
+    include_source: bool = False,
 ) -> list[dict[str, str]]:
     import xlrd
 
@@ -69,6 +70,9 @@ def _read_xls_tabular_rows(
             if v:
                 non_empty = True
         if non_empty:
+            if include_source:
+                record["_source_row"] = str(r + 1)
+                record["_source_sheet"] = ws.name
             rows.append(record)
     return rows
 
@@ -143,6 +147,7 @@ def read_tabular_rows(
     sheet_index: int = 0,
     header_row: int = 1,
     required_headers: Iterable[str] | None = None,
+    include_source: bool = False,
 ) -> list[dict[str, str]]:
     """读取 xlsx/xls 指定工作表，返回以**原始表头文本**为键的行字典列表。
 
@@ -156,6 +161,7 @@ def read_tabular_rows(
             sheet_index=sheet_index,
             header_row=header_row,
             required_headers=required_headers,
+            include_source=include_source,
         )
 
     try:
@@ -191,6 +197,9 @@ def read_tabular_rows(
                     if v:
                         non_empty = True
                 if non_empty:
+                    if include_source:
+                        record["_source_row"] = str(r)
+                        record["_source_sheet"] = ws.title
                     rows.append(record)
             return rows
         finally:
@@ -203,6 +212,7 @@ def read_tabular_rows(
                 sheet_index=sheet_index,
                 header_row=header_row,
                 required_headers=required_headers,
+            include_source=include_source,
             )
         except Exception:
             pass
@@ -225,7 +235,7 @@ def read_tabular_rows(
                 if missing:
                     raise ValueError(f"缺少必需列：{', '.join(missing)}")
             rows = []
-            for r_row in matrix[h_idx + 1:]:
+            for source_row, r_row in enumerate(matrix[h_idx + 1:], start=h_idx + 2):
                 record = {}
                 non_empty = False
                 for c, h in enumerate(headers):

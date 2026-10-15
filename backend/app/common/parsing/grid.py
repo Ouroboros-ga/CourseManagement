@@ -273,13 +273,15 @@ def load_xls_grid(data: bytes, sheet_index: int = 0) -> tuple[str, list[dict[str
         for c in range(ws.ncols)
     ]
     class_id = extract_class_id(header_texts)
-    cells: list[tuple[str, str]] = []
+    sourced_rows: list[dict[str, str]] = []
     for r in range(header_row + 1, ws.nrows):
         for c, wd in col_of_weekday.items():
             v = ws.cell_value(r, c)
             if isinstance(v, str) and v.strip():
-                cells.append((wd, v))
-    return class_id, _number_rows(grid_to_rows(cells), class_id)
+                for item in grid_to_rows([(wd, v)]):
+                    sourced_rows.append({**item, "source_row": str(r + 1),
+                        "source_column": str(c + 1), "source_sheet": ws.name})
+    return class_id, _number_rows(sourced_rows, class_id)
 
 
 def load_grid(data: bytes, sheet_index: int = 0) -> tuple[str, list[dict[str, str]]]:
@@ -322,12 +324,14 @@ def load_xlsx_grid(data: bytes, sheet_index: int = 0) -> tuple[str, list[dict[st
             for c in range(1, ws.max_column + 1)
         ]
         class_id = extract_class_id(header_texts)
-        cells: list[tuple[str, str]] = []
+        sourced_rows: list[dict[str, str]] = []
         for r in range(header_row + 1, ws.max_row + 1):
             for c, wd in col_of_weekday.items():
                 v = ws.cell(row=r, column=c).value
                 if isinstance(v, str) and v.strip():
-                    cells.append((wd, v))
-        return class_id, _number_rows(grid_to_rows(cells), class_id)
+                    for item in grid_to_rows([(wd, v)]):
+                        sourced_rows.append({**item, "source_row": str(r),
+                            "source_column": str(c), "source_sheet": ws.title})
+        return class_id, _number_rows(sourced_rows, class_id)
     finally:
         wb.close()

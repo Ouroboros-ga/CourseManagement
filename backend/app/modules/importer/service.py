@@ -197,7 +197,7 @@ class ImporterService:
             payload, issues, summary = self._parse_admin_roster(content, filename)
         else:
             try:
-                rows = read_tabular_rows(content, required_headers=iperm.required_headers(target))
+                rows = read_tabular_rows(content, required_headers=iperm.required_headers(target), include_source=True)
             except ValueError as exc:
                 raise AppError(
                     ErrorCode.VALIDATION_ERROR, f"文件解析失败：{exc}", http_status=422
@@ -233,6 +233,7 @@ class ImporterService:
                     {"id": str(student.id), "version": student.lock_version} if student else None
                 )
         error_count = sum(1 for i in issues if i["severity"] == "error")
+        payload["source_file_sha256"] = hashlib.sha256(content).hexdigest()
         summary = {**summary, "error_count": error_count}
 
         batch = ImportBatch(
@@ -292,7 +293,9 @@ class ImporterService:
         issues: list[dict] = []
         seen: dict[str, int] = {}
         student_nos: list[str] = []
+        student_sources = {}
         for idx, raw in enumerate(rows, start=2):
+            idx = int(raw.get("_source_row", idx))
             no = pick(raw, "学号", "student_no", "studentno", "no")
             if not no:
                 issues.append(_issue("missing_student_no", "学号为空", field="学号", row=idx))
@@ -315,7 +318,8 @@ class ImporterService:
                 )
                 continue
             student_nos.append(no)
-        payload = {"student_nos": student_nos, "replace": bool(teaching_class_id)}
+            student_sources[no] = {"row": idx, "sheet": raw.get("_source_sheet")}
+        payload = {"student_nos": student_nos, "student_sources": student_sources, "replace": bool(teaching_class_id)}
         summary = {"row_total": len(rows), "student_total": len(student_nos)}
         return payload, issues, summary
 
@@ -325,6 +329,7 @@ class ImporterService:
         issues: list[dict] = []
         by_no: dict[str, dict] = {}
         for idx, raw in enumerate(rows, start=2):
+            idx = int(raw.get("_source_row", idx))
             no = pick(raw, "学号", "student_no", "studentno", "no")
             if not no:
                 issues.append(_issue("missing_student_no", "学号为空", field="学号", row=idx))
@@ -345,7 +350,7 @@ class ImporterService:
                     _issue("unknown_student", f"学号 {no} 不存在于学生名单", field="学号", row=idx)
                 )
                 continue
-            by_no[no] = {"student_no": no, "enabled": enabled}
+            by_no[no] = {"student_no": no, "enabled": enabled, "source_row": idx, "source_sheet": raw.get("_source_sheet")}
         entries = list(by_no.values())
         payload = {"semester_id": semester_id, "rows": entries}
         summary = {
@@ -364,6 +369,7 @@ class ImporterService:
         seen: set[tuple] = set()
         entries: list[dict] = []
         for idx, raw in enumerate(rows, start=2):
+            idx = int(raw.get("_source_row", idx))
             class_code = pick(raw, "教学班码", "教学班", "class_code")
             course_code = pick(raw, "课程代码", "课程编码", "course_code")
             course_name = pick(raw, "课程名称", "课程", "course_name")
@@ -403,6 +409,8 @@ class ImporterService:
             entries.append(
                 {
                     "class_code": class_code,
+                    "source_row": idx,
+                    "source_sheet": raw.get("_source_sheet"),
                     "course_code": course_code,
                     "course_name": course_name or course_code,
                     "weekday": weekday,
@@ -504,7 +512,8 @@ class ImporterService:
     # 确认（整批原子落库）
     # ================================================================== #
     def confirm(
-        self, actor: CurrentUser, batch_id: int, request_id: str | None
+        self, actor: CurrentUser, batch_id: int, request_id: str | None,
+        *, commit: bool = True, prepared_payload: dict | None = None,
     ) -> ImportConfirmResponse:
         batch = self._repo.get_for_update(batch_id)
         if batch is None:
@@ -517,16 +526,19 @@ class ImporterService:
             raise ConflictError(ErrorCode.STATE_CONFLICT, f"批次状态 {batch.status} 不可确认")
         if batch.expires_at <= utcnow():
             batch.status = ImportBatchStatus.EXPIRED.value
-            self._session.commit()
+            if commit:
+                self._session.commit()
             raise ConflictError(ErrorCode.STATE_CONFLICT, "预览已过期，请重新上传")
 
         issues = batch.error_json or []
         if any(i.get("severity") == "error" for i in issues):
             raise AppError(ErrorCode.VALIDATION_ERROR, "存在错误项，无法确认导入", http_status=422)
 
-        payload = batch.payload_json or {}
+        payload = prepared_payload if prepared_payload is not None else (batch.payload_json or {})
         self._session.execute(select(Semester.id).order_by(Semester.id).with_for_update()).all()
-        if batch.target == ImportTarget.ROSTER.value:
+        if payload.get("confirmation_skip"):
+            created = {"unchanged": True}
+        elif batch.target == ImportTarget.ROSTER.value:
             created = self._apply_roster(actor, batch, payload, request_id)
         elif batch.target == ImportTarget.VOLUNTEER.value:
             created = self._apply_volunteer(actor, batch, payload, request_id)
@@ -551,7 +563,8 @@ class ImporterService:
             request_id=request_id,
         )
         # 单一提交点：以上所有业务写入 + 状态变更 + 审计同事务原子生效。
-        self._session.commit()
+        if commit:
+            self._session.commit()
         return ImportConfirmResponse(
             id=batch.id,
             target=batch.target,
@@ -597,6 +610,8 @@ class ImporterService:
                 ErrorCode.VALIDATION_ERROR, f"以下学号已不存在：{missing}", http_status=422
             )
         before_count = len(self._academic.get_roster_students(tc.id))
+        if payload.get("preserve_existing"):
+            ids = sorted(set(ids) | {student.id for student in self._academic.get_roster_students(tc.id)})
         record_roster_replacement(self._session, tc.id, ids, lifecycle.today)
         self._academic.set_roster(tc.id, ids)
         self._session.flush()
@@ -723,6 +738,8 @@ class ImporterService:
             self._check_schedule_overlap(schedule, e["weeks"])
             self._academic.add(schedule)
             self._academic.flush()
+            self._academic.set_schedule_weeks(schedule, e["weeks"])
+            schedules_created += 1
             # 若教学班码对应行政班，自动将行政班学生关联入教学班名单
             ac = self._academic.get_admin_class_by_code(e["class_code"])
             if ac is None:
@@ -902,6 +919,7 @@ class ImporterService:
                     parsed_rows.append(
                         {
                             "student_no": sno,
+                            "_source_row": str(r_idx + 1),
                             "name": name,
                             "class_name": cname or default_class_name,
                             "college": college,
@@ -950,7 +968,7 @@ class ImporterService:
         else:
             # 尝试降级兼容键值对通用格式
             try:
-                raw_rows = read_tabular_rows(content)
+                raw_rows = read_tabular_rows(content, include_source=True)
                 for raw in raw_rows:
                     sno = pick(raw, "学号", "student_no", "studentno", "no")
                     name = pick(raw, "姓名", "name", "student_name")
@@ -968,6 +986,7 @@ class ImporterService:
                         parsed_rows.append(
                             {
                                 "student_no": sno,
+                                "_source_row": raw.get("_source_row"),
                                 "name": name,
                                 "class_name": cname,
                                 "college": college,
@@ -996,6 +1015,7 @@ class ImporterService:
 
         class_names: set[str] = set()
         for idx, row in enumerate(parsed_rows, start=2):
+            idx = int(row.get("_source_row") or idx)
             sno = row["student_no"]
             name = row["name"]
             cname = row["class_name"]
@@ -1038,6 +1058,7 @@ class ImporterService:
             students.append(
                 {
                     "student_no": sno,
+                    "source_row": idx,
                     "name": name,
                     "class_name": cname,
                     "college": row.get("college") or None,
@@ -1322,6 +1343,7 @@ class ImporterService:
             issues.append(_issue("missing_grid_mapping", str(exc)))
             return {"class_name": class_id, "courses": []}, issues, {"course_count": 0}
         for idx, row in enumerate(raw_rows, start=1):
+            idx = int(row.get("source_row") or idx)
             course_name = row.get("course_name", "").strip()
             if not course_name:
                 continue
@@ -1341,6 +1363,9 @@ class ImporterService:
 
             parsed_courses.append(
                 {
+                    "source_row": int(row["source_row"]) if row.get("source_row") else None,
+                    "source_sheet": row.get("source_sheet"),
+                    "source_column": row.get("source_column"),
                     "course_name": course_name,
                     "weekday": wd,
                     "start_period": start_p,
@@ -1510,9 +1535,11 @@ class ImporterService:
             return {"groups": []}, issues, {"teaching_classes_count": 0}
 
         groups_map: dict[tuple, list[str]] = {}
+        group_sources = {}
         unique_students = set()
 
         for idx, raw in enumerate(rows, start=2):
+            idx = int(raw.get("_source_row", idx))
             cname = pick(raw, "课程名称", "课程", "course_name")
             code = pick(raw, "教学班码", "教学班", "class_code")
             tname = pick(raw, "教学班名", "教学班名称", "class_name") or f"{cname}-{code}"
@@ -1558,10 +1585,13 @@ class ImporterService:
                 groups_map[key] = []
             if sno not in groups_map[key]:
                 groups_map[key].append(sno)
+            group_sources.setdefault(key, {}).setdefault(sno, {"row": idx, "sheet": raw.get("_source_sheet")})
             unique_students.add(sno)
 
         groups = []
-        for (cname, code, tname, wd, start, end, weeks, classroom), snos in groups_map.items():
+        for group_key, snos in groups_map.items():
+            cname, code, tname, wd, start, end, weeks, classroom = group_key
+            first_source = next(iter(group_sources[group_key].values()))
             groups.append(
                 {
                     "course_name": cname,
@@ -1573,6 +1603,9 @@ class ImporterService:
                     "weeks": list(weeks),
                     "classroom": classroom,
                     "student_nos": snos,
+                    "source_row": first_source["row"],
+                    "source_sheet": first_source["sheet"],
+                    "student_sources": group_sources[group_key],
                 }
             )
 
@@ -1624,20 +1657,21 @@ class ImporterService:
                 self._academic.flush()
                 tcs_created += 1
 
-            schedule = CourseSchedule(
-                semester_id=sem.id,
-                teaching_class_id=tc.id,
-                weekday=g["weekday"],
-                start_period=g["start_period"],
-                end_period=g["end_period"],
-                classroom=g["classroom"] or None,
-                status="ACTIVE",
-            )
-            self._check_schedule_overlap(schedule, g["weeks"])
-            self._academic.add(schedule)
-            self._academic.flush()
-            self._academic.set_schedule_weeks(schedule, g["weeks"])
-            schedules_created += 1
+            if not (payload.get("preserve_existing") and g.get("schedule_unchanged")):
+                schedule = CourseSchedule(
+                    semester_id=sem.id,
+                    teaching_class_id=tc.id,
+                    weekday=g["weekday"],
+                    start_period=g["start_period"],
+                    end_period=g["end_period"],
+                    classroom=g["classroom"] or None,
+                    status="ACTIVE",
+                )
+                self._check_schedule_overlap(schedule, g["weeks"])
+                self._academic.add(schedule)
+                self._academic.flush()
+                self._academic.set_schedule_weeks(schedule, g["weeks"])
+                schedules_created += 1
 
             nos = g.get("student_nos") or []
             sids = [
@@ -1645,7 +1679,16 @@ class ImporterService:
                 for no in nos
                 if self._academic.get_student_by_no(no) is not None
             ]
+            if payload.get("preserve_existing"):
+                from app.modules.academic.roster_lifecycle import record_roster_replacement
+                from app.modules.identity.role_scope import business_today
+                sids = sorted(set(sids) | {s.id for s in self._academic.get_roster_students(tc.id)})
+                record_roster_replacement(self._session, tc.id, sids, business_today())
             self._academic.set_roster(tc.id, sids)
+            if payload.get("preserve_existing"):
+                from app.modules.academic.enrollment_service import EnrollmentService
+                lifecycle = EnrollmentService(self._session)
+                lifecycle._refresh_tasks(0, lifecycle.today, actor.id, teaching_class_id=tc.id)
             students_linked += len(sids)
 
         return {
