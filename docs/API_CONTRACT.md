@@ -531,3 +531,17 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 `GET /api/v1/colleges/{cid}/configuration-impacts?page=1&page_size=50&status=OPEN`返回范围内持久影响项及当前任务/受派修订；`status`可省略，或OPEN/KEEP/CANCEL/REASSIGNED。
 
 `POST /api/v1/colleges/{cid}/configuration-impacts/{id}/resolve`接收`{decision,lock_version,task_lock_version,assignment_revision,note?}`。KEEP需`inspection.generate`，CANCEL需`inspection.cancel`，REASSIGNED需`assignment.manage`；范围、状态及任何修订不符均拒绝。CANCEL复用正式取消校验；REASSIGNED仅登记已经通过正常流程完成的新受派。原影响快照保持不变，处置独立审计。现阶段尚未部署。
+
+
+### 2026-10-15 待发布：命名作息方案
+
+在`/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles`下：
+
+- `GET/POST /`：列表/创建草稿；创建体`{name,configuration}`，configuration复用默认作息结构，但calendar和grid_slot_mapping必须为空。
+- `PATCH /{pid}`：`{name,configuration,lock_version}`保存草稿。
+- `GET /{pid}/preview`和`POST /{pid}/publish`：发布体`{lock_version,revision,confirm_existing_tasks}`；只发布已保存草稿。
+- `POST /{pid}/archive`：`{lock_version}`；有效教学班仍绑定时409。
+- `POST /teaching-classes/{tid}/binding/preview`：`{profile_id}`，null表示学院默认；返回修订和保留的未来任务。
+- `POST /teaching-classes/{tid}/binding`：`{profile_id,revision}`确认；课表必须能按目标方案解析，旧任务快照不改。
+
+时段增量字段`slot_id`（稳定标识，省略时由节次生成）及`name`（显示名称）兼容旧请求。显式方案只覆盖上课时刻，学院统一校历仍适用；首版生效前跟随默认。当前为开发分支，未部署。

@@ -94,7 +94,7 @@ def formal_course_slots(db: Session, student_ids: set[int], days: set[date], *, 
             ):
                 continue
             interval = resolver.interval(
-                teaching.college_id, semester.id, day, schedule.start_period, schedule.end_period
+                teaching.college_id, semester.id, day, schedule.start_period, schedule.end_period, teaching_class_id=teaching.id
             )
             for sid in attendees:
                 slots[sid, day].append(

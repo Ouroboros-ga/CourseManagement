@@ -2,18 +2,25 @@
 
 from datetime import datetime, time, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError
 from app.modules.academic.time_service import TimeResolver
-from app.modules.inspection.models import InspectionTask
+from app.modules.inspection.models import InspectionTask, TaskScheduleSource
 
 
 def freeze_time(db: Session, task: InspectionTask):
-    interval = TimeResolver(db).interval(
-        task.college_id, task.semester_id, task.inspection_date, task.start_period, task.end_period
-    )
+    resolver = TimeResolver(db)
+    resolver.prefetch(task.college_id, task.semester_id)
+    interval = resolver.interval(task.college_id, task.semester_id, task.inspection_date,
+        task.start_period, task.end_period, teaching_class_id=task.teaching_class_id)
+    for teaching_id in db.scalars(select(TaskScheduleSource.teaching_class_id).where(TaskScheduleSource.task_id == task.id).distinct()):
+        other = resolver.interval(task.college_id, task.semester_id, task.inspection_date,
+            task.start_period, task.end_period, teaching_class_id=teaching_id)
+        if (other["start_minute"], other["end_minute"]) != (interval["start_minute"], interval["end_minute"]):
+            raise ConflictError(message="原合班教学班已采用不同作息，请先处置合班任务后再调整时间")
     offset = get_settings().app_utc_offset_hours
     midnight = datetime.combine(task.inspection_date, time.min)
     task.activity_start_at = midnight + timedelta(minutes=interval["start_minute"], hours=-offset)

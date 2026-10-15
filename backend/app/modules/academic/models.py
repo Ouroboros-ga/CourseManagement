@@ -227,6 +227,7 @@ class TeachingClass(CollegeOwned, TimestampMixin, Base):
         ForeignKey("course.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     course_type_id: Mapped[int | None] = mapped_column(ForeignKey("course_type.id", ondelete="RESTRICT"))
+    time_profile_id: Mapped[int | None] = mapped_column(ForeignKey("college_time_profile.id", ondelete="RESTRICT"), nullable=True, index=True)
     classification_revision: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
     class_code: Mapped[str | None] = mapped_column(String(64))
     class_name: Mapped[str] = mapped_column(String(128), nullable=False)

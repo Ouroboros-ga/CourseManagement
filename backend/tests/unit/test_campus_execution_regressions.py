@@ -1,9 +1,9 @@
 import pytest
-from sqlalchemy import func, select
-
 from app.core.exceptions import ConflictError
 from app.modules.inspection.group_sampling import GroupSamplingService
 from app.modules.inspection.models import InspectionTask
+from sqlalchemy import func, select
+
 from tests.unit.test_campus_configuration import campus as campus_fixture
 from tests.unit.test_group_sampling_business import arrange
 
@@ -14,13 +14,13 @@ def fixture():
 
 
 def test_static_handoff_route_reaches_its_service(monkeypatch):
-    from fastapi.testclient import TestClient
     from app.core.config import get_settings
     from app.core.database import get_db
     from app.main import create_app
     from app.modules.academic.enrollment_service import EnrollmentService
     from app.modules.identity.deps import get_current_user
     from app.modules.identity.service import CurrentUser
+    from fastapi.testclient import TestClient
 
     for flag in ("campus_configuration_enabled", "campus_academic_scoped_enabled"):
         monkeypatch.setattr(get_settings(), flag, True)
@@ -74,3 +74,17 @@ def test_generic_generation_requires_and_obeys_execution_group(campus, monkeypat
         service.preview(actor, body)
     preview = service.preview(actor, body.model_copy(update={"execution_group_id": group["id"]}))
     assert preview.task_count == 1
+
+
+def test_noncanonical_old_task_key_cannot_duplicate_same_source_occurrence(campus, monkeypatch):
+    from datetime import date
+    db, actor, a, sem, group, own, *_ = arrange(campus, monkeypatch)
+    legacy = db.scalar(select(InspectionTask).where(InspectionTask.task_key == "OLD"))
+    legacy.inspection_date = date(2026, 9, 7)
+    db.commit()
+    service = GroupSamplingService(db, actor, int(a["id"]), int(group["id"]))
+    body = {"semester_id": str(sem.id), "date_from": "2026-09-07", "date_to": "2026-09-07",
+            "counts": {str(own.administrative_class_id): 1}, "draw_id": "legacy-source"}
+    with pytest.raises(ConflictError):
+        service.generate(body, service.preview(body)["selection_revision"])
+    assert db.scalar(select(func.count()).select_from(InspectionTask)) == 1

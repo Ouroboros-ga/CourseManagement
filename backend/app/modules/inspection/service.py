@@ -566,6 +566,22 @@ class InspectionService:
             ).limit(1)):
                 raise ConflictError(message="所选课次已有其他执行组或旧任务，请先明确换组处置")
         new_items = [it for it in items if it.task_key not in existing]
+        if get_settings().campus_scheduling_enabled and new_items:
+            from app.modules.inspection.models import TaskScheduleSource
+            source_pairs = {(sid, item.inspection_date): item.task_key for item in new_items
+                for sid in (item.constituent_schedule_ids or [item.course_schedule_id]) if sid is not None}
+            if source_pairs:
+                stmt = select(InspectionTask.task_key, InspectionTask.inspection_date,
+                    InspectionTask.course_schedule_id, TaskScheduleSource.course_schedule_id).outerjoin(
+                    TaskScheduleSource, TaskScheduleSource.task_id == InspectionTask.id).where(
+                    InspectionTask.semester_id == sem.id, InspectionTask.canceled_at.is_(None),
+                    InspectionTask.inspection_date.in_({day for _, day in source_pairs}),
+                    or_(InspectionTask.course_schedule_id.in_({sid for sid, _ in source_pairs}),
+                        TaskScheduleSource.course_schedule_id.in_({sid for sid, _ in source_pairs})))
+                for key, day, primary_sid, constituent_sid in self._session.execute(stmt):
+                    for sid in (primary_sid, constituent_sid):
+                        if (sid, day) in source_pairs and source_pairs[sid, day] != key:
+                            raise ConflictError(message="该课次已有有效任务；作息或合班方式变化须先处置原任务，不能重复生成")
         new_tasks = []
         if get_settings().campus_scheduling_enabled:
             if self._repo.college_ids is None or len(self._repo.college_ids) != 1:
@@ -1279,6 +1295,10 @@ class InspectionService:
                     grp_key = (s.start_period, s.end_period, f"single:{s.id}", norm_course)
                 if get_settings().campus_business_scoped_enabled:
                     grp_key = (*grp_key, tc_colleges[s.teaching_class_id], tc_types[s.teaching_class_id])
+                if get_settings().campus_scheduling_enabled:
+                    timing = time_resolver.interval(tc_colleges[s.teaching_class_id], sem.id, date_key,
+                        s.start_period, s.end_period, teaching_class_id=s.teaching_class_id)
+                    grp_key = (*grp_key, timing["time_profile_id"], timing["start_minute"], timing["end_minute"])
                 groups.setdefault(grp_key, []).append(s)
 
             for grp_key, sched_list in groups.items():
@@ -1337,6 +1357,8 @@ class InspectionService:
                     target_identity = f"{norm_room}:{norm_course}"
                     if get_settings().campus_business_scoped_enabled:
                         target_identity += f":college:{tc_colleges[rep_s.teaching_class_id]}:type:{tc_types[rep_s.teaching_class_id]}"
+                    if get_settings().campus_scheduling_enabled and grp_key[-3] is not None:
+                        target_identity += f":profile:{grp_key[-3]}"
                     target_hash = hashlib.md5(target_identity.encode("utf-8")).hexdigest()[:10]
                     key = self._task_key(
                         sem.id,

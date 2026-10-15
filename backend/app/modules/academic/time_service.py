@@ -7,8 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppError, ConflictError, ErrorCode, NotFoundError
 from app.modules.academic.calendar import TeachingDayOverride, resolve_teaching_day
-from app.modules.academic.models import CalendarOverride, CourseSchedule, PeriodDefinition, Semester
-from app.modules.academic.time_models import CollegeTimeVersion
+from app.modules.academic.models import (
+    CalendarOverride,
+    CourseSchedule,
+    PeriodDefinition,
+    Semester,
+    TeachingClass,
+)
+from app.modules.academic.time_models import CollegeTimeProfile, CollegeTimeVersion
 from app.modules.academic.time_schemas import TimeCalendarOverride, TimeConfiguration
 from app.modules.audit.models import AuditLog
 from app.modules.audit.provenance import scoped_snapshot
@@ -19,8 +25,9 @@ from app.modules.organization.service import atomic_write, validated
 
 
 class CollegeTimeService:
-    def __init__(self, db: Session, actor, cid: int, sid: int):
+    def __init__(self, db: Session, actor, cid: int, sid: int, *, profile_id: int | None = None):
         self.db, self.actor, self.cid, self.sid = db, actor, cid, sid
+        self.profile_id = profile_id
 
     def _versions(self, *, lock=False):
         stmt = (
@@ -28,6 +35,7 @@ class CollegeTimeService:
             .where(
                 CollegeTimeVersion.college_id == self.cid,
                 CollegeTimeVersion.semester_id == self.sid,
+                CollegeTimeVersion.profile_id == self.profile_id,
             )
             .order_by(CollegeTimeVersion.version)
             .execution_options(populate_existing=True)
@@ -51,6 +59,14 @@ class CollegeTimeService:
     def _preview(self, data, *, lock=False):
         scope = resolve_scope(self.db, self.actor, self.cid, "academic.manage", write=lock)
         body = validated(TimeConfiguration, data)
+        profile = None
+        if self.profile_id is not None:
+            profile = self.db.scalar(select(CollegeTimeProfile).where(CollegeTimeProfile.id == self.profile_id,
+                CollegeTimeProfile.college_id == self.cid, CollegeTimeProfile.semester_id == self.sid).with_for_update(read=not lock).execution_options(populate_existing=True))
+            if profile is None or profile.status == "ARCHIVED":
+                raise ConflictError(message="作息方案已归档或不属于本院本学期")
+            if body.calendar or body.grid_slot_mapping:
+                raise ConflictError(message="教学班方案只调整时段；校历与教务映射统一由学院默认方案管理")
         stmt = select(Semester).where(Semester.id == self.sid)
         if lock:
             stmt = stmt.with_for_update().execution_options(populate_existing=True)
@@ -94,12 +110,19 @@ class CollegeTimeService:
                     InspectionTask.semester_id == self.sid,
                     InspectionTask.inspection_date >= max(body.effective_from, business_today()),
                     InspectionTask.canceled_at.is_(None),
+                    (InspectionTask.teaching_class_id.in_(select(TeachingClass.id).where(TeachingClass.time_profile_id == self.profile_id))
+                     if self.profile_id is not None else True),
                 )
                 .order_by(InspectionTask.id)
             )
         )
         snapshot = body.model_dump(mode="json", exclude={"confirm_existing_tasks"})
+        sequence = max(self.db.scalars(select(CollegeTimeVersion.version).where(
+            CollegeTimeVersion.college_id == self.cid, CollegeTimeVersion.semester_id == self.sid
+        ).with_for_update(read=True)), default=0)
         source = {
+            "version_sequence": sequence,
+            "profile": [profile.id, profile.lock_version] if profile else None,
             "college": self.cid,
             "semester": [
                 self.sid,
@@ -120,7 +143,7 @@ class CollegeTimeService:
             versions,
             {
                 "revision": revision,
-                "next_version": (versions[-1].version + 1) if versions else 1,
+                "next_version": sequence + 1,
                 "retained_future_task_ids": [str(r.id) for r in affected],
                 "existing_tasks_keep_snapshot": True,
             },
@@ -139,13 +162,21 @@ class CollegeTimeService:
         row = CollegeTimeVersion(
             college_id=self.cid,
             semester_id=self.sid,
+            profile_id=self.profile_id,
             version=preview["next_version"],
             effective_from=body.effective_from,
             configuration=snapshot,
             published_by=self.actor.id,
         )
+        if self.profile_id is not None:
+            profile = self.db.get(CollegeTimeProfile, self.profile_id)
+            profile.status = "ACTIVE"
+            profile.lock_version += 1
         self.db.add(row)
         self.db.flush()
+        from app.modules.academic.time_profiles import validate_profile_schedules
+        validate_profile_schedules(self.db, self.actor, self.cid, self.sid, profile_id=self.profile_id)
+
         self.db.add(
             AuditLog(
                 actor_user_id=self.actor.id,
@@ -165,6 +196,7 @@ class CollegeTimeService:
 class TimeResolver:
     def __init__(self, db: Session):
         self.db = db
+        self._profile_bindings: dict[int, int | None] = {}
         self._version_cache: dict[tuple[int, int], list[CollegeTimeVersion]] = {}
         self._period_cache: dict[int, dict[int, tuple[time | None, time | None]]] = {}
         self._calendar_cache: dict[int, dict[date, CalendarOverride]] = {}
@@ -182,6 +214,8 @@ class TimeResolver:
                 )
             )
         )
+        self._profile_bindings.update({row.id: row.time_profile_id for row in rows(
+            select(TeachingClass).where(TeachingClass.college_id == cid, TeachingClass.semester_id == sid))})
         self._version_cache[cid, sid] = versions
         if sid not in self._period_cache:
             self._period_cache[sid] = {
@@ -194,10 +228,10 @@ class TimeResolver:
             }
         return versions
 
-    def version(self, cid: int, sid: int, day: date):
+    def version(self, cid: int, sid: int, day: date, *, profile_id=None):
         if (cid, sid) in self._version_cache:
             return max(
-                (v for v in self._version_cache[cid, sid] if v.effective_from <= day),
+                (v for v in self._version_cache[cid, sid] if v.effective_from <= day and v.profile_id == profile_id),
                 key=lambda v: (v.effective_from, v.version),
                 default=None,
             )
@@ -207,6 +241,7 @@ class TimeResolver:
                 CollegeTimeVersion.college_id == cid,
                 CollegeTimeVersion.semester_id == sid,
                 CollegeTimeVersion.effective_from <= day,
+                CollegeTimeVersion.profile_id == profile_id,
             )
             .order_by(CollegeTimeVersion.effective_from.desc(), CollegeTimeVersion.version.desc())
             .limit(1)
@@ -242,10 +277,20 @@ class TimeResolver:
             )
         return resolve_teaching_day(semester.first_monday, day, override)
 
-    def interval(self, cid: int | None, sid: int, day: date, start: int, end: int):
+    def interval(self, cid: int | None, sid: int, day: date, start: int, end: int, *, teaching_class_id=None):
         if cid is None or start < 1 or end < start:
             raise ConflictError(message="课次归属或时间范围未确认")
-        version = self.version(cid, sid, day)
+        profile_id = None
+        if teaching_class_id is not None:
+            if teaching_class_id not in self._profile_bindings:
+                teaching = self.db.get(TeachingClass, teaching_class_id)
+                if teaching is None or teaching.college_id != cid or teaching.semester_id != sid:
+                    raise ConflictError(message="教学班不属于当前作息工作区")
+                self._profile_bindings[teaching_class_id] = teaching.time_profile_id
+            profile_id = self._profile_bindings[teaching_class_id]
+        version = self.version(cid, sid, day, profile_id=profile_id)
+        if version is None and profile_id is not None:
+            version = self.version(cid, sid, day)
         periods: dict[int, tuple[time | None, time | None]]
         if version:
             periods = {
@@ -281,5 +326,6 @@ class TimeResolver:
             "start_minute": first.hour * 60 + first.minute,
             "end_minute": last.hour * 60 + last.minute,
             "time_version_id": str(version.id) if version else None,
+            "time_profile_id": str(version.profile_id) if version and version.profile_id else None,
             "source": "COLLEGE_VERSION" if version else "SCHOOL_PERIODS",
         }

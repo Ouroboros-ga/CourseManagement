@@ -81,6 +81,15 @@ def build_scope(
             for i in items
         ],
     }
+    from app.core.config import get_settings
+    if get_settings().campus_scheduling_enabled:
+        from app.modules.academic.models import TeachingClass
+        from app.modules.academic.time_models import CollegeTimeVersion
+        teaching = list(service._session.scalars(select(TeachingClass).where(TeachingClass.id.in_(scope.teaching_class_ids))))
+        payload["time_bindings"] = sorted((row.id, row.time_profile_id, row.ownership_version) for row in teaching)
+        payload["time_versions"] = sorted((row.id, row.version, row.profile_id) for row in service._session.scalars(
+            select(CollegeTimeVersion).where(CollegeTimeVersion.semester_id == semester.id,
+                CollegeTimeVersion.college_id.in_({row.college_id for row in teaching if row.college_id}))))
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     return items, hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -178,9 +187,14 @@ def smart_sample_occurrences(
     body: SmartSampleRequest,
 ) -> dict[str, object]:
     """智能抽查推荐：根据早八优先、每班限额、指定班级、排除已生成等规则推荐课次。"""
-    from app.modules.academic.models import TeachingClass, AdministrativeClass, Student, TeachingClassStudent
     from app.core.config import get_settings
     from app.core.exceptions import NotFoundError
+    from app.modules.academic.models import (
+        AdministrativeClass,
+        Student,
+        TeachingClass,
+        TeachingClassStudent,
+    )
 
     target_class_ids_set = set(body.target_class_ids) if body.target_class_ids else set()
     scoped = get_settings().campus_business_scoped_enabled
@@ -299,7 +313,7 @@ def smart_sample_occurrences(
         key = (item.teaching_class_id, item.inspection_date, item.start_period, item.end_period)
         if key not in starts:
             starts[key] = resolver.interval(tc_colleges[item.teaching_class_id], semester.id,
-                item.inspection_date, item.start_period, item.end_period)["start_minute"]
+                item.inspection_date, item.start_period, item.end_period, teaching_class_id=item.teaching_class_id)["start_minute"]
         return starts[key]
 
     def tier(item):

@@ -134,6 +134,7 @@ class AcademicPublicationRepository:
                     "id": str(v.id),
                     "version": v.version,
                     "effective_from": str(v.effective_from),
+                    "profile_id": str(v.profile_id) if v.profile_id else None,
                     "configuration": v.configuration,
                 }
                 for v in sorted(versions, key=lambda v: v.version)
@@ -167,6 +168,7 @@ class AcademicPublicationRepository:
                             day,
                             schedule.start_period,
                             schedule.end_period,
+                            teaching_class_id=schedule.teaching_class_id,
                         )
                         timing = (interval["start_minute"], interval["end_minute"])
                         timed_audiences[schedule.id][timing]

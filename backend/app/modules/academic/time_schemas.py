@@ -7,6 +7,8 @@ from app.modules.organization.schemas import StrictModel
 
 
 class PeriodTime(StrictModel):
+    slot_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    name: str = Field(default="", max_length=128)
     period_no: int = Field(ge=1, le=60)
     start_time: time
     end_time: time
@@ -20,6 +22,8 @@ class PeriodTime(StrictModel):
             raise ValueError("作息使用本地分钟精度，不接受时区或秒")
         if self.start_time >= self.end_time:
             raise ValueError("开始须早于结束，跨午夜课程须拆开")
+        if self.slot_id is None:
+            self.slot_id = f"period-{self.period_no}"
         return self
 
 
@@ -71,6 +75,8 @@ class TimeConfiguration(StrictModel):
     @classmethod
     def periods_ordered(cls, values):
         values = sorted(values, key=lambda v: v.period_no)
+        if len({v.slot_id for v in values}) != len(values):
+            raise ValueError("时段稳定标识重复")
         if len({v.period_no for v in values}) != len(values):
             raise ValueError("节次号重复")
         if any(a.end_time > b.start_time for a, b in zip(values, values[1:], strict=False)):

@@ -20,6 +20,12 @@ def arrange(campus, monkeypatch):
     from app.modules.academic.scoped_service import ScopedAcademicService
 
     config, db, admin, a, b, sem, group, _, own, foreign = prepare(campus)
+    from datetime import date
+
+    from app.modules.inspection.models import InspectionTask
+    # The ownership fixture also seeds a legacy task. Keep it on another occurrence;
+    # a different task key must never authorize duplicate generation for the same day.
+    db.scalar(select(InspectionTask)).inspection_date = date(2026, 9, 8)
     teaching = db.scalar(select(TeachingClass))
     schedule = db.scalar(select(CourseSchedule))
     kind = config.create_type(admin, int(a["id"]), {"name": "早查"})

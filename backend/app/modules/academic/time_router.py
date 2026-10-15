@@ -7,10 +7,19 @@ from app.common.responses import success
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.exceptions import PermissionDeniedError
+from app.modules.academic.time_profiles import (
+    ProfileBinding,
+    ProfileDraft,
+    ProfilePublish,
+    ProfileSave,
+    ProfileSelection,
+    TimeProfileService,
+)
 from app.modules.academic.time_schemas import TimeConfiguration, TimePublish
 from app.modules.academic.time_service import CollegeTimeService
 from app.modules.identity.deps import CurrentUserDep
 from app.modules.organization.router import require_campus_enabled
+from app.modules.organization.schemas import Versioned
 
 
 def require_scheduling_enabled():
@@ -65,4 +74,46 @@ def publish(
     result = CollegeTimeService(db, actor, cid, sid).publish(
         body.model_dump(exclude={"revision"}), body.revision
     )
+    return success(result, getattr(request.state, "request_id", None))
+
+
+@router.get("/profiles")
+def profiles(cid: ResourceId, sid: ResourceId, actor: CurrentUserDep, db: Db, request: Request):
+    return success(TimeProfileService(db, actor, cid, sid).list(), getattr(request.state, "request_id", None))
+
+
+@router.post("/profiles")
+def create_profile(cid: ResourceId, sid: ResourceId, body: ProfileDraft, actor: CurrentUserDep, db: Db, request: Request):
+    return success(TimeProfileService(db, actor, cid, sid).create(body.model_dump()), getattr(request.state, "request_id", None))
+
+
+@router.patch("/profiles/{pid}")
+def save_profile(cid: ResourceId, sid: ResourceId, pid: ResourceId, body: ProfileSave, actor: CurrentUserDep, db: Db, request: Request):
+    return success(TimeProfileService(db, actor, cid, sid).save(pid, body.model_dump()), getattr(request.state, "request_id", None))
+
+
+@router.get("/profiles/{pid}/preview")
+def preview_profile(cid: ResourceId, sid: ResourceId, pid: ResourceId, actor: CurrentUserDep, db: Db, request: Request):
+    return success(TimeProfileService(db, actor, cid, sid).preview(pid), getattr(request.state, "request_id", None))
+
+
+@router.post("/profiles/{pid}/publish")
+def publish_profile(cid: ResourceId, sid: ResourceId, pid: ResourceId, body: ProfilePublish, actor: CurrentUserDep, db: Db, request: Request):
+    return success(TimeProfileService(db, actor, cid, sid).publish(pid, body.lock_version, body.revision, body.confirm_existing_tasks), getattr(request.state, "request_id", None))
+
+
+@router.post("/profiles/{pid}/archive")
+def archive_profile(cid: ResourceId, sid: ResourceId, pid: ResourceId, body: Versioned, actor: CurrentUserDep, db: Db, request: Request):
+    return success(TimeProfileService(db, actor, cid, sid).archive(pid, body.lock_version), getattr(request.state, "request_id", None))
+
+
+@router.post("/profiles/teaching-classes/{tid}/binding/preview")
+def preview_profile_binding(cid: ResourceId, sid: ResourceId, tid: ResourceId, body: ProfileSelection, actor: CurrentUserDep, db: Db, request: Request):
+    result = TimeProfileService(db, actor, cid, sid).binding_preview(tid, int(body.profile_id) if body.profile_id else None)
+    return success(result, getattr(request.state, "request_id", None))
+
+
+@router.post("/profiles/teaching-classes/{tid}/binding")
+def bind_profile(cid: ResourceId, sid: ResourceId, tid: ResourceId, body: ProfileBinding, actor: CurrentUserDep, db: Db, request: Request):
+    result = TimeProfileService(db, actor, cid, sid).bind(tid, int(body.profile_id) if body.profile_id else None, body.revision)
     return success(result, getattr(request.state, "request_id", None))

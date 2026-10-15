@@ -96,7 +96,8 @@ def test_enrollment_upgrade_preserves_current_identity_and_matches_models():
                                     "f26a1015u001_occurrence_identity.py",
                                     "f26a1015a001_assignment_plans.py",
                                     "f26a1015b001_resource_grants.py",
-                                    "f26a1015c001_configuration_impacts.py")]
+                                    "f26a1015c001_configuration_impacts.py",
+                                    "f26a1015d002_time_profiles.py")]
         with Operations.context(context):
             for descendant in descendants:
                 descendant["upgrade"]()

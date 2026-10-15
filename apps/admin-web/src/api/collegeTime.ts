@@ -1,6 +1,8 @@
 import { request } from './http'
 
 export interface CollegePeriodTime {
+  slot_id?: string | null
+  name?: string
   period_no: number
   start_time: string
   end_time: string

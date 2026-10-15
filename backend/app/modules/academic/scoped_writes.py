@@ -153,19 +153,20 @@ class ScopedAcademicWriteService(ScopedAcademicService):
             raise AppError(ErrorCode.VALIDATION_ERROR, "必须填写有效学期周次", 422)
         return sorted(set(values))
 
-    def _schedule_time(self, row, semester, weeks):
+    def _schedule_time(self, row, semester, weeks, *, resolver=None):
         if row.start_period > row.end_period:
             raise AppError(ErrorCode.VALIDATION_ERROR, "结束节次小于开始节次", 422)
         if not get_settings().campus_scheduling_enabled:
             return
-        resolver = TimeResolver(self.db)
-        resolver.prefetch(self.college_id, semester.id, lock=True)
+        if resolver is None:
+            resolver = TimeResolver(self.db)
+            resolver.prefetch(self.college_id, semester.id, lock=True)
         day = semester.start_date
         while day <= semester.end_date:
             actual = resolver.teaching_day(self.college_id, semester.id, day)
             if actual and actual[0] in weeks and actual[1] == row.weekday:
                 resolver.interval(
-                    self.college_id, semester.id, day, row.start_period, row.end_period
+                    self.college_id, semester.id, day, row.start_period, row.end_period, teaching_class_id=row.teaching_class_id
                 )
             day += timedelta(days=1)
 

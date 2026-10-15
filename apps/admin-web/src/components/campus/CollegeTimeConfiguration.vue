@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TimeProfiles from './TimeProfiles.vue'
 import { computed, onUnmounted, shallowRef, watch } from 'vue'
 import { listScopedAcademic, type ScopedAcademicRow } from '../../api/scopedAcademic'
 import { useCollegeTimeConfiguration } from '../../composables/useCollegeTimeConfiguration'
@@ -56,7 +57,7 @@ onUnmounted(() => semesterEpoch.invalidate())
 function updateEffectiveFrom(value: string) {
   form.value = { ...form.value, effective_from: value || '' }
 }
-function updatePeriod(index: number, field: 'period_no' | 'start_time' | 'end_time', value: string | number) {
+function updatePeriod(index: number, field: 'period_no' | 'start_time' | 'end_time' | 'name', value: string | number) {
   const periods = form.value.periods.map((period, row) => row === index
     ? { ...period, [field]: field === 'period_no' ? Number(value) : String(value) }
     : period)
@@ -126,6 +127,9 @@ function updateConfirmation(value: boolean | string | number) {
         <template #default="scope">
           <el-input-number :model-value="scope.row.period_no" :min="1" :max="60" @update:model-value="updatePeriod(scope.$index, 'period_no', $event ?? 1)" />
         </template>
+      </el-table-column>
+      <el-table-column label="时段名称">
+        <template #default="scope"><el-input :model-value="scope.row.name || ''" @update:model-value="updatePeriod(scope.$index, 'name', $event)" /></template>
       </el-table-column>
       <el-table-column label="开始时间">
         <template #default="scope">
@@ -207,6 +211,7 @@ function updateConfirmation(value: boolean | string | number) {
       </el-table-column>
       <el-table-column prop="id" label="版本 ID" />
     </el-table>
+    <TimeProfiles v-if="semesterId" :key="`${collegeId}:${semesterId}`" :college-id="collegeId" :semester-id="semesterId" :default-configuration="form" />
   </section>
 </template>
 

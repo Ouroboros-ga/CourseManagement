@@ -300,3 +300,5 @@
 2026-10-15待发布补充：`POST /colleges/{cid}/grants/preview` 授权预览；`GET /colleges/{cid}/groups/{gid}/references` 组配置引用元数据。详细范围及版本规则见API_CONTRACT末节。
 
 待发布：`GET /colleges/{cid}/configuration-impacts`、`POST /colleges/{cid}/configuration-impacts/{id}/resolve`；变更影响清单与处置。
+
+待发布：`.../time-versions/profiles`命名作息草稿/发布/归档，以及其`teaching-classes/{tid}/binding`预览/确认接口，详见API契约末节。
