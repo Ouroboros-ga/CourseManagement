@@ -11975,6 +11975,56 @@
         }
       }
     },
+    "/api/v1/me/timetable/official-source": {
+      "get": {
+        "tags": [
+          "personal-timetable"
+        ],
+        "summary": "Get Official Source",
+        "description": "获取当前学期教务处最新已发布排课（只读，供前端比对 Diff）",
+        "operationId": "get_official_source_api_v1_me_timetable_official_source_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Semester Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InitializeEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/timetable/deleted-entries": {
       "get": {
         "tags": [
@@ -28044,6 +28094,31 @@
         ],
         "title": "ImpactDecision"
       },
+      "InitializeEnvelope": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InitializeResult"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "requestId"
+        ],
+        "title": "InitializeEnvelope"
+      },
       "InitializeRequest": {
         "properties": {
           "semester_id": {
@@ -28058,6 +28133,51 @@
           "semester_id"
         ],
         "title": "InitializeRequest"
+      },
+      "InitializeResult": {
+        "properties": {
+          "semester_id": {
+            "type": "string",
+            "title": "Semester Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "NO_ENROLLMENT",
+              "NOT_PUBLISHED"
+            ],
+            "title": "Status"
+          },
+          "source_revision": {
+            "type": "string",
+            "title": "Source Revision"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/PublishedSource"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/SourceEntry"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "semester_id",
+          "status",
+          "source_revision",
+          "sources",
+          "entries"
+        ],
+        "title": "InitializeResult"
       },
       "InspectionGenerateRequest": {
         "properties": {
@@ -30834,6 +30954,104 @@
           "week_no"
         ],
         "title": "SmartSampleRequest"
+      },
+      "SourceEntry": {
+        "properties": {
+          "source_schedule_id": {
+            "type": "string",
+            "title": "Source Schedule Id"
+          },
+          "teaching_class_id": {
+            "type": "string",
+            "title": "Teaching Class Id"
+          },
+          "college_id": {
+            "type": "string",
+            "title": "College Id"
+          },
+          "course_name": {
+            "type": "string",
+            "title": "Course Name"
+          },
+          "class_name": {
+            "type": "string",
+            "title": "Class Name"
+          },
+          "teacher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teacher"
+          },
+          "classroom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classroom"
+          },
+          "weekday": {
+            "type": "integer",
+            "title": "Weekday"
+          },
+          "week_nos": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Week Nos"
+          },
+          "start_period": {
+            "type": "integer",
+            "title": "Start Period"
+          },
+          "end_period": {
+            "type": "integer",
+            "title": "End Period"
+          },
+          "start_time": {
+            "type": "string",
+            "title": "Start Time"
+          },
+          "end_time": {
+            "type": "string",
+            "title": "End Time"
+          },
+          "occurrence_dates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Occurrence Dates"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_schedule_id",
+          "teaching_class_id",
+          "college_id",
+          "course_name",
+          "class_name",
+          "teacher",
+          "classroom",
+          "weekday",
+          "week_nos",
+          "start_period",
+          "end_period",
+          "start_time",
+          "end_time"
+        ],
+        "title": "SourceEntry"
       },
       "StudentBatchDeleteRequest": {
         "properties": {

@@ -357,3 +357,5 @@
 | GET | `/api/v1/colleges/{cid}/academic/master-timetable` | college-academic |
 | GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
 | PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
+
+| GET | `/api/v1/me/timetable/official-source` | personal-timetable |

@@ -349,6 +349,22 @@ def test_two_college_real_http_lifecycle(campus, tmp_path):
                 )
 
             own, other = views
+            for view in views:
+                publication = view["prefix"] + f"/academic/semesters/{sid}"
+                publication_preview = call(
+                    "POST", publication + "/publication-preview", view["token"]
+                )
+                call(
+                    "POST",
+                    publication + "/publish",
+                    view["token"],
+                    json={"source_revision": publication_preview["source_revision"]},
+                )
+                official = call(
+                    "GET", f"/me/timetable/official-source?semester_id={sid}", view["student_token"]
+                )
+                assert official["status"] == "AVAILABLE" and len(official["entries"]) == 1
+                assert official["entries"][0]["course_name"] == "R6 shared course"
             identity = own["prefix"] + f"/academic/teaching-classes/{own['tid']}/shared-identity"
             candidates = call("GET", identity + "/candidates", own["token"])
             assert candidates
