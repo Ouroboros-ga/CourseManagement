@@ -40,7 +40,7 @@ def downgrade():
     for table, column, name in (("teaching_class", "time_profile_id", "fk_teaching_class_time_profile"),
                                  ("college_time_version", "profile_id", "fk_college_time_version_profile")):
         with op.batch_alter_table(table) as batch:
-            batch.drop_index(f"ix_{table}_{column}")
             batch.drop_constraint(name, type_="foreignkey")
+            batch.drop_index(f"ix_{table}_{column}")
             batch.drop_column(column)
     op.drop_table("college_time_profile")
