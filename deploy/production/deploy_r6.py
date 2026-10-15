@@ -49,7 +49,7 @@ def main():
     old = (ROOT / "current").resolve()
     old_web = (ROOT / "admin-web/current").resolve()
     initial_head = sql("SELECT version_num FROM course_management.alembic_version")
-    assert initial_head == "f26a1015h001", (
+    assert initial_head in {"f26a1015h001", HEAD}, (
         "Unexpected live schema; refresh rehearsal first"
     )
     release = "20261016-campus-r6-" + manifest["source_commit"][:10]
@@ -212,9 +212,15 @@ print('Runtime app role schema reads passed')
         for url in (
             "http://127.0.0.1:8011/health/ready",
             "https://course.zsitai.xyz/health/ready",
-            "https://vol.zsitai.xyz/health/ready",
         ):
             ready(url)
+        # vol is an HTTP redirect alias, not a separately configured TLS service.
+        with urllib.request.urlopen("http://vol.zsitai.xyz/", timeout=10) as response:
+            assert response.geturl() == "https://course.zsitai.xyz/"
+            assert (
+                hashlib.sha256(response.read()).hexdigest()
+                == manifest["web_files"]["index.html"]
+            )
         with urllib.request.urlopen("http://127.0.0.1:8011/openapi.json") as response:
             paths = json.load(response)["paths"]
         assert "/api/v1/colleges/{cid}/imports/confirmation-set/confirm" in paths
@@ -250,7 +256,16 @@ print('Runtime app role schema reads passed')
         (candidate / "CAMPUS_RELEASE.json").write_text(
             json.dumps(report, indent=2) + "\n"
         )
-        print(json.dumps(report), flush=True)
+        print(
+            json.dumps(
+                {
+                    key: value
+                    for key, value in report.items()
+                    if key not in {"source_files", "web_files"}
+                }
+            ),
+            flush=True,
+        )
 
 
 if __name__ == "__main__":
