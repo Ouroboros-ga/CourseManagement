@@ -141,3 +141,29 @@ def test_personal_http_crud_version_and_owner_boundary(campus, monkeypatch):
         )
         assert client.get(base + query).json()["data"]["status"] == "NOT_INITIALIZED"
         assert client.patch(target, json={"current_version": 4, "note": "越权"}).status_code == 409
+
+
+def test_personal_custom_fields_and_periods(campus):
+    db, teacher, a, _, teaching, _, _, user, _ = prepare(campus)
+    publish(db, teacher, a["id"], teaching.semester_id)
+    own = personal(db, user.id)
+    val = own.initialize(teaching.semester_id)
+    entry_id = val["entries"][0]["id"]
+    updated = own.update_entry(
+        teaching.semester_id,
+        entry_id,
+        {
+            "current_version": 1,
+            "start_period": 3,
+            "end_period": 4,
+            "color": "#4F46E5",
+            "custom_tag": "重点复习",
+        },
+    )
+    assert updated["current_version"] == 2
+    saved_entry = next(e for e in updated["entries"] if e["id"] == entry_id)
+    assert saved_entry["start_period"] == 3
+    assert saved_entry["end_period"] == 4
+    assert saved_entry["color"] == "#4F46E5"
+    assert saved_entry.get("custom_tag") == "重点复习"
+
