@@ -9,9 +9,7 @@ from app.modules.academic.publication_service import MyAcademicSourceService
 from app.modules.organization.service import atomic_write, validated
 from app.modules.timetable.models import PersonalTimetable
 from app.modules.timetable.repository import PersonalTimetableRepository
-from app.modules.timetable.schemas import EntryCreate, EntryUpdate, EntryValues
-
-EDIT_FIELDS = set(EntryValues.model_fields)
+from app.modules.timetable.schemas import SERVER_ENTRY_FIELDS, EntryCreate, EntryUpdate, EntryValues
 
 
 class PersonalTimetableService:
@@ -123,7 +121,8 @@ class PersonalTimetableService:
             (row.occurrence_exceptions or {}).get(entry_id)
         ):
             raise ConflictError(message="该课程存在单次修改，请先撤销单次修改再调整重复日期规则")
-        values = {key: found.get(key) for key in EDIT_FIELDS}
+        # Preserve private extensions across partial edits, excluding server-owned metadata.
+        values = {key: value for key, value in found.items() if key not in SERVER_ENTRY_FIELDS}
         if {
             "week_nos",
             "weekday",
@@ -180,7 +179,9 @@ class PersonalTimetableService:
         row = self._editable(semester_id, version)
         if not any(entry["id"] == entry_id for entry in row.entries):
             raise NotFoundError("个人课程不存在")
-        exceptions = {key: dict(values) for key, values in (row.occurrence_exceptions or {}).items()}
+        exceptions = {
+            key: dict(values) for key, values in (row.occurrence_exceptions or {}).items()
+        }
         values = exceptions.get(entry_id, {})
         if day.isoformat() not in values:
             raise NotFoundError("单次修改不存在")

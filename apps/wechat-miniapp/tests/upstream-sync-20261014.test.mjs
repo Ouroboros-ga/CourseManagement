@@ -32,3 +32,23 @@ test('upstream UI does not remove the future inspection date gate', async () => 
   await page.fetchDetail('1');
   assert.equal(page.data.task.isFuture, true);
 });
+
+test('submission keeps student and file BIGINT ids as strings', async () => {
+  let options;
+  let submitted;
+  const source = readFileSync(new URL('../miniprogram/pages/task/detail/index.js', import.meta.url), 'utf8')
+    .replace(/^import .*;\s*$/gm, '');
+  vm.runInNewContext(source, {
+    Page: value => { options = value; },
+    wx: { showLoading() {}, hideLoading() {}, navigateBack() {} },
+    Toast() {}, setTimeout() {},
+    submitTaskResult: async (_id, value) => { submitted = value; }
+  });
+  await options.handleSubmit.call({ data: {
+    taskId: '1', task: { inspection_date: '2020-01-01' }, resultType: 'ABNORMAL',
+    abnormalList: [{ studentId: '9007199254740993', type: '迟到' }],
+    fileList: [{ file_id: '9007199254740995' }]
+  }});
+  assert.equal(submitted.abnormal_items[0].student_id, '9007199254740993');
+  assert.equal(submitted.file_ids[0], '9007199254740995');
+});

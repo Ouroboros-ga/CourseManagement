@@ -228,7 +228,7 @@ Page({
       wx.showLoading({ title: '提交中' });
 
       // 提取上传后获得的文件 IDs
-      const fileIds = fileList.map(f => f.file_id).filter(id => id != null).map(Number);
+      const fileIds = fileList.map(f => f.file_id).filter(id => id != null).map(String);
 
       const typeMap = {
         '迟到': 'LATE',
@@ -238,7 +238,7 @@ Page({
 
       // 组装符合后端要求的异常明细结构
       const abnormalItems = resultType === 'NORMAL' ? [] : abnormalList.map(record => ({
-        student_id: Number(record.studentId),
+        student_id: String(record.studentId),
         attendance_type: typeMap[record.type] || record.type,
         note: record.note || null
       }));

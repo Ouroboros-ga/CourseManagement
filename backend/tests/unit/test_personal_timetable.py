@@ -166,6 +166,10 @@ def test_personal_custom_fields_and_periods(campus):
     assert saved_entry["end_period"] == 4
     assert saved_entry["color"] == "#4F46E5"
     assert saved_entry.get("custom_tag") == "重点复习"
+    updated_again = own.update_entry(
+        teaching.semester_id, entry_id, {"current_version": 2, "note": "第二次修改"}
+    )
+    assert updated_again["entries"][0]["custom_tag"] == "重点复习"
 
 
 def test_personal_get_official_source_http(campus, monkeypatch):

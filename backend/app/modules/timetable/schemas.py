@@ -9,6 +9,15 @@ from app.modules.academic.publication_schemas import PublishedSource
 from app.modules.organization.schemas import StrictModel
 
 Week = Annotated[int, Field(ge=1, le=60, strict=True)]
+SERVER_ENTRY_FIELDS = frozenset({
+    "id", "source_schedule_id", "teaching_class_id", "college_id", "class_name", "exceptions",
+})
+
+
+def reject_server_fields(value):
+    if isinstance(value, dict) and SERVER_ENTRY_FIELDS.intersection(value):
+        raise ValueError("个人课程不能修改条目标识、正式来源或单次修改列表")
+    return value
 
 
 class EntryValues(StrictModel):
@@ -39,10 +48,12 @@ class EntryValues(StrictModel):
 
 class EntryCreate(EntryValues):
     current_version: int = Field(ge=1, strict=True)
+    _server_fields = model_validator(mode="before")(reject_server_fields)
 
 
 class EntryUpdate(StrictModel):
     model_config = ConfigDict(extra="allow", strict=False)
+    _server_fields = model_validator(mode="before")(reject_server_fields)
 
     current_version: int = Field(ge=1, strict=True)
     course_name: str | None = Field(default=None, min_length=1, max_length=128)
