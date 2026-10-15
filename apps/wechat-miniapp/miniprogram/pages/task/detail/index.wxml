@@ -68,7 +68,7 @@
     </view>
 
     <view class="footer-btn">
-      <t-button theme="primary" size="large" block disabled="{{task.isFuture}}" bind:tap="handleSubmit">
+      <t-button theme="primary" size="large" block disabled="{{task.isFuture}}" bind:tap="handleSubmit" style="margin-bottom: 24rpx;">
         {{task.isFuture ? '尚未到查课日期 (未开放上传)' : '提交记录'}}
       </t-button>
       <t-button wx:if="{{task.assignment && task.assignment.change_request_status !== 'PENDING'}}"
