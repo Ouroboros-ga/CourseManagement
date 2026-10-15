@@ -14,8 +14,6 @@ from app.core.database import get_db
 from app.core.exceptions import AppError, ErrorCode
 from app.modules.academic.scoped_service import (
     ScopedAcademicService,
-    ScopedClassCreate,
-    ScopedClassUpdate,
 )
 from app.modules.identity.deps import CurrentUserDep
 from app.modules.organization.router import require_campus_enabled
@@ -84,8 +82,9 @@ def classify(
     service: ServiceDep,
     request: Request,
 ):
-    result = service.set_course_type(rid, int(body.course_type_id), body.classification_revision,
-                                     body.future_impact_revision)
+    result = service.set_course_type(
+        rid, int(body.course_type_id), body.classification_revision, body.future_impact_revision
+    )
     return success(result, getattr(request.state, "request_id", None))
 
 
@@ -95,16 +94,29 @@ def classification_impact(cid: ResourceId, rid: ResourceId, service: ServiceDep,
 
 
 @router.get("/colleges/{cid}/academic/master-timetable")
-def master_timetable(cid: ResourceId, service: ServiceDep, request: Request,
-                     semester_id: Annotated[int, Query(gt=0, le=2**63 - 1)],
-                     week_no: Annotated[int | None, Query(ge=1, le=60)] = None,
-                     weekday: Annotated[int | None, Query(ge=1, le=7)] = None,
-                     administrative_class_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
-                     keyword: Annotated[str | None, Query(max_length=128)] = None):
+def master_timetable(
+    cid: ResourceId,
+    service: ServiceDep,
+    request: Request,
+    semester_id: Annotated[int, Query(gt=0, le=2**63 - 1)],
+    week_no: Annotated[int | None, Query(ge=1, le=60)] = None,
+    weekday: Annotated[int | None, Query(ge=1, le=7)] = None,
+    administrative_class_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
+    keyword: Annotated[str | None, Query(max_length=128)] = None,
+):
     from app.modules.academic.scoped_timetable import master_timetable as query
-    return success(query(service, semester_id, week_no=week_no, weekday=weekday,
-                         administrative_class_id=administrative_class_id, keyword=keyword),
-                   getattr(request.state, "request_id", None))
+
+    return success(
+        query(
+            service,
+            semester_id,
+            week_no=week_no,
+            weekday=weekday,
+            administrative_class_id=administrative_class_id,
+            keyword=keyword,
+        ),
+        getattr(request.state, "request_id", None),
+    )
 
 
 @router.get("/colleges/{cid}/academic/{kind}")
@@ -117,7 +129,9 @@ def list_rows(
     keyword: Annotated[str | None, Query(max_length=128)] = None,
     semester_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     administrative_class_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
-    as_of: Annotated[date | None, Query(description="学生学籍在指定日期的归属；无历史事实不推断")] = None,
+    as_of: Annotated[
+        date | None, Query(description="学生学籍在指定日期的归属；无历史事实不推断")
+    ] = None,
 ):
     result = service.list_rows(
         kind.replace("-", "_"),
@@ -136,23 +150,6 @@ def get_row(
 ):
     return success(
         service.get_row(kind.replace("-", "_"), rid), getattr(request.state, "request_id", None)
-    )
-
-
-@router.post("/colleges/{cid}/academic/administrative-classes")
-def create_class(cid: ResourceId, body: ScopedClassCreate, service: ServiceDep, request: Request):
-    return success(
-        service.create_admin_class(body.model_dump()), getattr(request.state, "request_id", None)
-    )
-
-
-@router.patch("/colleges/{cid}/academic/administrative-classes/{rid}")
-def update_class(
-    cid: ResourceId, rid: ResourceId, body: ScopedClassUpdate, service: ServiceDep, request: Request
-):
-    return success(
-        service.update_admin_class(rid, body.model_dump(exclude_unset=True)),
-        getattr(request.state, "request_id", None),
     )
 
 

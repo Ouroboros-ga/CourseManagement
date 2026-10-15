@@ -62,7 +62,7 @@ async function handleLogin() {
         </div>
         <div>
           <span class="num font-mono">闭环</span>
-          <span>双审异议复核</span>
+          <span>一次异议审核</span>
         </div>
         <div>
           <span class="num font-mono">协同</span>

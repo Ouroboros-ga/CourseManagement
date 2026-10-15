@@ -6882,6 +6882,131 @@
         ]
       }
     },
+    "/api/v1/colleges/{cid}/academic/administrative-classes": {
+      "post": {
+        "tags": [
+          "college-academic-writes"
+        ],
+        "summary": "Create Class",
+        "operationId": "create_class_api_v1_colleges__cid__academic_administrative_classes_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScopedClassCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/administrative-classes/{rid}": {
+      "patch": {
+        "tags": [
+          "college-academic-writes"
+        ],
+        "summary": "Update Class",
+        "operationId": "update_class_api_v1_colleges__cid__academic_administrative_classes__rid__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScopedClassUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/colleges/{cid}/academic/teaching-classes/batch-elective": {
       "post": {
         "tags": [
@@ -14875,6 +15000,120 @@
         ]
       }
     },
+    "/api/v1/colleges/{cid}/imports/confirmation-set/preview": {
+      "post": {
+        "tags": [
+          "import-confirmation"
+        ],
+        "summary": "Preview",
+        "operationId": "preview_api_v1_colleges__cid__imports_confirmation_set_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmationSelection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/imports/confirmation-set/confirm": {
+      "post": {
+        "tags": [
+          "import-confirmation"
+        ],
+        "summary": "Confirm",
+        "operationId": "confirm_api_v1_colleges__cid__imports_confirmation_set_confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/colleges/{cid}/import-templates/{target}": {
       "get": {
         "tags": [
@@ -15238,120 +15477,6 @@
                   "additionalProperties": true,
                   "title": "Response College Bulk Import Imports Bulk Post"
                 }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/colleges/{cid}/imports/confirmation-set/preview": {
-      "post": {
-        "tags": [
-          "import-confirmation"
-        ],
-        "summary": "Preview",
-        "operationId": "preview_api_v1_colleges__cid__imports_confirmation_set_preview_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "cid",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "maximum": 9223372036854775807,
-              "exclusiveMinimum": 0,
-              "title": "Cid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfirmationSelection"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/colleges/{cid}/imports/confirmation-set/confirm": {
-      "post": {
-        "tags": [
-          "import-confirmation"
-        ],
-        "summary": "Confirm",
-        "operationId": "confirm_api_v1_colleges__cid__imports_confirmation_set_confirm_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "cid",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "maximum": 9223372036854775807,
-              "exclusiveMinimum": 0,
-              "title": "Cid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfirmationRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           },
@@ -24146,131 +24271,6 @@
         }
       }
     },
-    "/api/v1/colleges/{cid}/academic/administrative-classes": {
-      "post": {
-        "tags": [
-          "college-academic"
-        ],
-        "summary": "Create Class",
-        "operationId": "create_class_api_v1_colleges__cid__academic_administrative_classes_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "cid",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "maximum": 9223372036854775807,
-              "exclusiveMinimum": 0,
-              "title": "Cid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScopedClassCreate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/colleges/{cid}/academic/administrative-classes/{rid}": {
-      "patch": {
-        "tags": [
-          "college-academic"
-        ],
-        "summary": "Update Class",
-        "operationId": "update_class_api_v1_colleges__cid__academic_administrative_classes__rid__patch",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "cid",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "maximum": 9223372036854775807,
-              "exclusiveMinimum": 0,
-              "title": "Cid"
-            }
-          },
-          {
-            "name": "rid",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "maximum": 9223372036854775807,
-              "exclusiveMinimum": 0,
-              "title": "Rid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScopedClassUpdate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster": {
       "get": {
         "tags": [
@@ -27041,13 +27041,51 @@
             ],
             "title": "Occurrence Dates"
           },
+          "start_period": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Period"
+          },
+          "end_period": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Period"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
           "current_version": {
             "type": "integer",
             "minimum": 1.0,
             "title": "Current Version"
           }
         },
-        "additionalProperties": false,
+        "additionalProperties": true,
         "type": "object",
         "required": [
           "course_name",
@@ -27200,9 +27238,47 @@
               }
             ],
             "title": "Occurrence Dates"
+          },
+          "start_period": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Period"
+          },
+          "end_period": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Period"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
           }
         },
-        "additionalProperties": false,
+        "additionalProperties": true,
         "type": "object",
         "required": [
           "current_version"
@@ -27289,9 +27365,47 @@
               }
             ],
             "title": "Occurrence Dates"
+          },
+          "start_period": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Period"
+          },
+          "end_period": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Period"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
           }
         },
-        "additionalProperties": false,
+        "additionalProperties": true,
         "type": "object",
         "required": [
           "course_name",
@@ -29125,6 +29239,39 @@
             ],
             "title": "Occurrence Dates"
           },
+          "start_period": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Period"
+          },
+          "end_period": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Period"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
           "exceptions": {
             "items": {
               "$ref": "#/components/schemas/OccurrenceException"
@@ -29179,31 +29326,9 @@
               }
             ],
             "title": "Class Name"
-          },
-          "start_period": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start Period"
-          },
-          "end_period": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "End Period"
           }
         },
-        "additionalProperties": false,
+        "additionalProperties": true,
         "type": "object",
         "required": [
           "course_name",
@@ -29215,9 +29340,7 @@
           "source_schedule_id",
           "teaching_class_id",
           "college_id",
-          "class_name",
-          "start_period",
-          "end_period"
+          "class_name"
         ],
         "title": "PersonalEntry"
       },

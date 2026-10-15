@@ -63,6 +63,16 @@ def main():
         "production_touched": False,
         "candidate": str(candidate),
     }
+    bundle = os.environ.get("CAMPUS_REHEARSAL_BUNDLE")
+    if bundle:
+        bundle_path = Path(bundle).resolve()
+        if not str(bundle_path).startswith("/opt/course-management/rehearsals/"):
+            raise RuntimeError(
+                "Rehearsal bundle must be inside the rehearsal directory"
+            )
+        report["source_bundle_sha256"] = hashlib.sha256(
+            bundle_path.read_bytes()
+        ).hexdigest()
     created = False
     try:
         sql(

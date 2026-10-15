@@ -1,6 +1,6 @@
 # API 路由索引
 
-2026-10-16，依据当前候选 FastAPI OpenAPI 生成。R4/R5 本轮尚未部署；路由存在不代表生产能力已开启。业务边界见 [API 契约](API_CONTRACT.md)，小程序增量见 [开发者交接](integration/WECHAT_DEVELOPER_CHANGES_20261014.md)。
+2026-10-16，依据 R6 候选 FastAPI OpenAPI 生成。实际部署及启用状态见 [当前实施状态](development/IMPLEMENTATION_STATUS.md)。业务边界见 [API 契约](API_CONTRACT.md)。
 
 | 方法 | 路径 | 标签 |
 | --- | --- | --- |
@@ -121,6 +121,8 @@
 | GET | `/api/v1/academic/volunteer-qualifications` | academic |
 | GET | `/api/v1/academic/master-timetable` | academic |
 | POST | `/api/v1/academic/teaching-classes/batch-elective` | academic |
+| POST | `/api/v1/colleges/{cid}/academic/administrative-classes` | college-academic-writes |
+| PATCH | `/api/v1/colleges/{cid}/academic/administrative-classes/{rid}` | college-academic-writes |
 | POST | `/api/v1/colleges/{cid}/academic/teaching-classes/batch-elective` | college-academic-writes |
 | POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/reset-data` | college-academic-writes |
 | GET | `/api/v1/colleges/{cid}/academic/semesters/{sid}/reset-preview` | college-academic-writes |
@@ -238,14 +240,14 @@
 | POST | `/api/v1/imports/{batch_id}/confirm` | import |
 | GET | `/api/v1/imports/{batch_id}/errors` | import |
 | POST | `/api/v1/imports/bulk` | import |
+| POST | `/api/v1/colleges/{cid}/imports/confirmation-set/preview` | import-confirmation |
+| POST | `/api/v1/colleges/{cid}/imports/confirmation-set/confirm` | import-confirmation |
 | GET | `/api/v1/colleges/{cid}/import-templates/{target}` | college-import |
 | POST | `/api/v1/colleges/{cid}/imports` | college-import |
 | GET | `/api/v1/colleges/{cid}/imports/{batch_id}` | college-import |
 | POST | `/api/v1/colleges/{cid}/imports/{batch_id}/confirm` | college-import |
 | GET | `/api/v1/colleges/{cid}/imports/{batch_id}/errors` | college-import |
 | POST | `/api/v1/colleges/{cid}/imports/bulk` | college-import |
-| POST | `/api/v1/colleges/{cid}/imports/confirmation-set/preview` | import-confirmation |
-| POST | `/api/v1/colleges/{cid}/imports/confirmation-set/confirm` | import-confirmation |
 | GET | `/api/v1/inspection-course-occurrences` | inspection |
 | POST | `/api/v1/inspection-course-occurrences/smart-sample` | inspection |
 | POST | `/api/v1/inspection-tasks/preview` | inspection |
@@ -353,7 +355,5 @@
 | PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/course-type` | college-academic |
 | GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/classification-impact` | college-academic |
 | GET | `/api/v1/colleges/{cid}/academic/master-timetable` | college-academic |
-| POST | `/api/v1/colleges/{cid}/academic/administrative-classes` | college-academic |
-| PATCH | `/api/v1/colleges/{cid}/academic/administrative-classes/{rid}` | college-academic |
 | GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
 | PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |

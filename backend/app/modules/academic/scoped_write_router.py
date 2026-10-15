@@ -6,6 +6,11 @@ from sqlalchemy.orm import Session
 from app.common.responses import success
 from app.core.database import get_db
 from app.modules.academic.scoped_router import require_scoped_academic_enabled
+from app.modules.academic.scoped_service import (
+    ScopedAcademicService,
+    ScopedClassCreate,
+    ScopedClassUpdate,
+)
 from app.modules.academic.scoped_write_schemas import (
     CreateBody,
     DeleteMany,
@@ -26,6 +31,30 @@ router = APIRouter(
 ResourceId = Annotated[int, Path(gt=0, le=2**63 - 1)]
 Kind = Literal["students", "courses", "teaching-classes", "schedules", "administrative-classes"]
 Db = Annotated[Session, Depends(get_db)]
+
+
+# Register concrete class writes before /{kind}; its union body excludes classes.
+@router.post("/administrative-classes")
+def create_class(
+    cid: ResourceId, body: ScopedClassCreate, actor: CurrentUserDep, db: Db, request: Request
+):
+    service = ScopedAcademicService(db, actor, cid, getattr(request.state, "request_id", None))
+    return success(service.create_admin_class(body.model_dump()), service.request_id)
+
+
+@router.patch("/administrative-classes/{rid}")
+def update_class(
+    cid: ResourceId,
+    rid: ResourceId,
+    body: ScopedClassUpdate,
+    actor: CurrentUserDep,
+    db: Db,
+    request: Request,
+):
+    service = ScopedAcademicService(db, actor, cid, getattr(request.state, "request_id", None))
+    return success(
+        service.update_admin_class(rid, body.model_dump(exclude_unset=True)), service.request_id
+    )
 
 
 @router.post("/teaching-classes/batch-elective")

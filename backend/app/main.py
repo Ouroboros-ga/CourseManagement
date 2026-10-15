@@ -138,10 +138,11 @@ def create_app() -> FastAPI:
 
     # 导入路由（阶段 3）：名单/课表/志愿者资格的预览→确认两步原子导入。
     app.include_router(importer_router, prefix="/api/v1")
-    from app.modules.importer.scoped_router import router as scoped_importer_router
-    app.include_router(scoped_importer_router, prefix="/api/v1")
+    # Literal confirmation-set paths must precede /imports/{batch_id}/confirm.
     from app.modules.importer.confirmation_router import router as confirmation_router
     app.include_router(confirmation_router, prefix="/api/v1")
+    from app.modules.importer.scoped_router import router as scoped_importer_router
+    app.include_router(scoped_importer_router, prefix="/api/v1")
 
     # 查课任务与排班路由（阶段 4）：任务预览/生成、列表/详情/本人任务、名单读取。
     app.include_router(inspection_router, prefix="/api/v1")
