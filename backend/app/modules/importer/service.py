@@ -22,7 +22,7 @@ from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.common.parsing.grid import (
@@ -47,6 +47,8 @@ from app.modules.academic.models import (
     AdministrativeClass,
     Course,
     CourseSchedule,
+    CourseScheduleWeek,
+    PeriodDefinition,
     Semester,
     Student,
     TeachingClass,
@@ -718,6 +720,7 @@ class ImporterService:
                 teacher=e.get("teacher"),
                 status="ACTIVE",
             )
+            self._check_schedule_overlap(schedule, e["weeks"])
             self._academic.add(schedule)
             self._academic.flush()
             # 若教学班码对应行政班，自动将行政班学生关联入教学班名单
@@ -1235,8 +1238,59 @@ class ImporterService:
     # ================================================================== #
     # 学校网格课表导入 (GRID_TIMETABLE)
     # ================================================================== #
+    def _check_grid_target_empty(self, administrative_class, semester_id):
+        from app.modules.academic.enrollment_models import TeachingClassAudience
+
+        existing = self._session.scalar(
+            select(CourseSchedule.id).join(TeachingClass,
+                TeachingClass.id == CourseSchedule.teaching_class_id)
+            .outerjoin(TeachingClassAudience,
+                TeachingClassAudience.teaching_class_id == TeachingClass.id)
+            .where(CourseSchedule.semester_id == semester_id,
+                   CourseSchedule.status == "ACTIVE",
+                   or_(TeachingClassAudience.administrative_class_id == administrative_class.id,
+                       TeachingClass.class_code == administrative_class.class_code,
+                       TeachingClass.class_code.startswith(
+                           administrative_class.class_code + "_", autoescape=True)))
+            .limit(1).with_for_update()
+        )
+        if existing is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT,
+                "该行政班已有有效课表，不能把整张网格课表再次追加；请先明确处理旧课表后再导入")
+
+    def _check_schedule_overlap(self, candidate, weeks):
+        from app.modules.academic.schedule_integrity import require_no_schedule_overlap
+
+        existing = list(self._session.scalars(
+            select(CourseSchedule).where(
+                CourseSchedule.teaching_class_id == candidate.teaching_class_id,
+                CourseSchedule.semester_id == candidate.semester_id,
+                CourseSchedule.weekday == candidate.weekday,
+                CourseSchedule.status == "ACTIVE",
+                CourseSchedule.start_period <= candidate.end_period,
+                CourseSchedule.end_period >= candidate.start_period,
+            ).with_for_update()
+        ))
+        week_map = {row.id: [] for row in existing}
+        for sid, week in self._session.execute(
+            select(CourseScheduleWeek.schedule_id, CourseScheduleWeek.week_no).where(
+                CourseScheduleWeek.schedule_id.in_(week_map)
+            )
+        ):
+            week_map[sid].append(week)
+        week_map[None] = weeks
+        require_no_schedule_overlap([*existing, candidate], week_map)
+
     def grid_slot_mapping(self, semester_id: int) -> dict[int, int]:
-        return SCHOOL_SLOT_MAPPING
+        periods = set(self._session.scalars(
+            select(PeriodDefinition.period_no).where(PeriodDefinition.semester_id == semester_id)
+        ))
+        if periods == set(range(1, 13)):
+            return {number: number for number in periods}
+        if periods == set(range(1, 6)):
+            return SCHOOL_SLOT_MAPPING
+        raise AppError(ErrorCode.VALIDATION_ERROR,
+                       "学期节次口径不明确，请使用已配置教务小节映射的学院导入入口", 422)
 
     def _parse_grid_timetable(
         self, content: bytes, semester_id: int | None, filename: str | None
@@ -1336,6 +1390,8 @@ class ImporterService:
             self._academic.add(target_ac)
             self._academic.flush()
 
+        self._check_grid_target_empty(target_ac, sem.id)
+
         students = list(
             self._session.execute(
                 select(Student).where(
@@ -1405,6 +1461,7 @@ class ImporterService:
                 teacher=t_name,
                 status="ACTIVE",
             )
+            self._check_schedule_overlap(schedule, item["weeks"])
             self._academic.add(schedule)
             self._academic.flush()
             self._academic.set_schedule_weeks(schedule, item["weeks"])
@@ -1576,6 +1633,7 @@ class ImporterService:
                 classroom=g["classroom"] or None,
                 status="ACTIVE",
             )
+            self._check_schedule_overlap(schedule, g["weeks"])
             self._academic.add(schedule)
             self._academic.flush()
             self._academic.set_schedule_weeks(schedule, g["weeks"])

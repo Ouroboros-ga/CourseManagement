@@ -121,6 +121,9 @@ class AcademicPublicationRepository:
             .order_by(CourseScheduleWeek.schedule_id, CourseScheduleWeek.week_no)
         ):
             weeks[sid].append(week)
+        from app.modules.academic.schedule_integrity import require_no_schedule_overlap
+
+        require_no_schedule_overlap([schedule for schedule, _, _ in schedules], weeks)
         if (semester.end_date - semester.start_date).days > 420:
             raise AppError(ErrorCode.VALIDATION_ERROR, "学期跨度超过 60 周，不能发布", 422)
         index = RosterIndex(self.db, teaching_ids, lock=lock)
