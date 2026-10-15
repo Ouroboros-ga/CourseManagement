@@ -62,6 +62,9 @@ def test_grant_preview_rejects_changed_scope_and_group_cannot_expand_it(campus, 
     references = config.group_references(teacher, cid, gid)
     assert {item["id"] for item in references["types"]} == {str(teaching.course_type_id), other["id"]}
     extra = config.create_type(admin, cid, {"name": "not in frozen grant"})
+    references = config.group_references(teacher, cid, gid)
+    assert extra["id"] not in {item["id"] for item in references["types"]}
+    assert extra["id"] in {item["id"] for item in references["conflict_types"]}
     with pytest.raises(PermissionDeniedError):
         config.publish_group(teacher, cid, gid, {"lock_version": current["lock_version"],
                                                "course_type_ids": [extra["id"]]})

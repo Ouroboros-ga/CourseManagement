@@ -105,5 +105,5 @@ export interface GrantPreview { revision: string; resource_scope: GrantBody['res
 export const previewGrant = (cid: string, body: GrantBody) => request<GrantPreview>(path(cid, '/grants/preview'), json('POST', body))
 export const submitGrant = (cid: string, body: GrantBody) => request<ScopedGrant>(path(cid, '/grants'), json('POST', body))
 export const groupReferences = (cid: string, gid: string) => request<{
-  types: CourseType[]; classes: import('./scopedAcademic').ScopedAcademicRow[]; teaching_classes: import('./scopedAcademic').ScopedAcademicRow[]
+  types: CourseType[]; conflict_types: CourseType[]; classes: import('./scopedAcademic').ScopedAcademicRow[]; teaching_classes: import('./scopedAcademic').ScopedAcademicRow[]
 }>(path(cid, `/groups/${encodeURIComponent(gid)}/references`))

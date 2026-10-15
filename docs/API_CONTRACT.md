@@ -552,3 +552,6 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 `POST /api/v1/colleges/{cid}/groups/{gid}/members/batch/preview`请求`{semester_id,student_nos,effective_from,effective_to}`，明确最多200个不重复学号，日期沿用左闭右开成员有效期。返回`revision,count,items`；仅返回已经通过纳入校验的人员。
 
 `POST .../members/batch/commit`在同一结构附`revision`，重新核对后整批新增；失败不保留部分结果。跨院人员仍须超管已有有效支援，既有重复或重叠成员拒绝，接口不授予资格与角色。当前尚未部署。
+
+
+组引用补充：`references.types`仅为可选择的查课目标类型；`references.conflict_types`提供本院冲突规则目录，`teaching_classes`提供本院教学班基本标签用于具体课程例外。它们不包含名单、学籍或课表；冲突目录可见不构成对这些课程的查课/考勤权限。

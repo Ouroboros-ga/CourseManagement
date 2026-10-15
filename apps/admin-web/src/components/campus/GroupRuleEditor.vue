@@ -13,6 +13,7 @@ form.class_mode ||= 'ALL_AUTHORIZED'
 form.class_ids ||= []
 form.teaching_class_overrides ||= {}
 const availableTypes = shallowRef<CourseType[]>(props.types)
+const conflictTypes = shallowRef<CourseType[]>(props.types)
 const classes = shallowRef<ScopedAcademicRow[]>([]), teaching = shallowRef<ScopedAcademicRow[]>([])
 const loading = shallowRef(false), loadError = shallowRef(''), exceptionId = shallowRef('')
 let disposed = false
@@ -25,6 +26,7 @@ onMounted(async () => {
     classes.value = references.classes.filter(row => row.status === 'ACTIVE')
     teaching.value = references.teaching_classes.filter(row => row.status === 'ACTIVE')
     availableTypes.value = references.types
+    conflictTypes.value = references.conflict_types
 
   } catch (error) { if (!disposed) loadError.value = error instanceof Error ? error.message : '读取范围失败' }
   finally { if (!disposed) loading.value = false }
@@ -64,7 +66,7 @@ function updateOverride(id: string, value: Effect | '') {
     </el-form-item>
     <h3>志愿者本人有课时怎么处理</h3>
     <el-form-item label="默认课程冲突处理"><el-select v-model="form.default_effect"><el-option v-for="effect in effects" :key="effect.value" :value="effect.value" :label="effect.label" /></el-select></el-form-item>
-    <el-form-item v-for="row in availableTypes" :key="row.id" :label="`本人正在上：${row.name}`">
+    <el-form-item v-for="row in conflictTypes" :key="row.id" :label="`本人正在上：${row.name}`">
       <el-select :model-value="form.type_overrides[row.id] || ''" placeholder="使用默认规则" @update:model-value="updateOverride(row.id, $event)">
         <el-option value="" label="使用默认规则" />
         <el-option v-for="effect in effects" :key="effect.value" :value="effect.value" :label="effect.label" />

@@ -457,12 +457,15 @@ class CampusService:
                       if clause["kind"] == "GROUPS" and str(gid) in clause["ids"]]
             type_ids = {int(v) for bound in bounds for v in bound.get("course_type_ids", [])}
             types = types.where(CourseType.id.in_(type_ids))
-            teaching = teaching.where(TeachingClass.course_type_id.in_(type_ids))
             if not any(bound.get("class_mode") == "ALL_AUTHORIZED" for bound in bounds):
                 class_ids = {int(v) for bound in bounds for v in bound.get("class_ids", [])}
                 classes = classes.where(AdministrativeClass.id.in_(class_ids))
                 # Selectors expose metadata only, never rosters or enrollment facts.
-        return {"types": [self._dto(row) for row in self.db.scalars(types.order_by(CourseType.id))],
+        # The check-target selector obeys frozen ceilings. Conflict exceptions need
+        # same-college catalog metadata even for courses the group does not inspect.
+        # No enrollment, student, schedule or roster facts are exposed here.
+        conflicts = list(self.db.scalars(select(CourseType).where(CourseType.college_id == cid).order_by(CourseType.id)))
+        return {"conflict_types": [self._dto(row) for row in conflicts], "types": [self._dto(row) for row in self.db.scalars(types.order_by(CourseType.id))],
                 "classes": [{"id": str(row.id), "class_name": row.class_name, "status": row.status}
                             for row in self.db.scalars(classes.order_by(AdministrativeClass.id))],
                 "teaching_classes": [{"id": str(row.id), "class_name": row.class_name,
