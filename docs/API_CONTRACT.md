@@ -1,6 +1,8 @@
+> **2026-10-16 个人课表兼容发布：** 新增 GET `/api/v1/me/class-timetable`、GET/PUT `/api/v1/me/timetable-backup`，以小程序本地编辑＋完整快照备份为准；不新增必填学院或current_version。原逐条接口保留，迁移头f26a1016b001，应用源码37e4440。具体字段、空备份及多设备覆盖边界见[现行课表交接](integration/WECHAT_PERSONAL_TIMETABLE_API_20261015.md)。
+
 > **2026-10-16学生端兼容收口：** `GET /me/attendance`及学生的`GET /attendance/{id}`恢复升级前考勤结构，不含负责学院/semester_status。管理端学院接口保留这些字段。个人课表新增接口为可选能力；本次学院/Web升级不要求小程序修改路径、增加学院参数或页面。后文旧版小程序学院展示建议由本条替代。
 
-> **2026-10-16 实际发布：** 后端/Web已部署，结构头 `f26a1016a003`；配置、院级教务、教务发布已开，正式业务隔离及组织排班未开。下文旧批次“未部署”是历史描述，当前边界以[实施状态](development/IMPLEMENTATION_STATUS.md)为准。
+> **2026-10-16 实际发布：** 后端/Web已部署，结构头 `f26a1016b001`；配置、院级教务、教务发布已开，正式业务隔离及组织排班未开。下文旧批次“未部署”是历史描述，当前边界以[实施状态](development/IMPLEMENTATION_STATUS.md)为准。
 
 > 文档定位：已有 API 与按日期保留的兼容契约。当前进度见[实施状态](development/IMPLEMENTATION_STATUS.md)，新增重构设计中的拟议能力不代表已开放接口。正文历史段落的“尚未部署”、旧迁移号及测试数字仅描述其当时批次；实际请求核对挂载路由、schema 和运行配置。
 

@@ -11854,6 +11854,162 @@
         }
       }
     },
+    "/api/v1/me/class-timetable": {
+      "get": {
+        "tags": [
+          "personal-timetable"
+        ],
+        "summary": "Class Timetable",
+        "operationId": "class_timetable_api_v1_me_class_timetable_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Semester Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassTimetableEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/timetable-backup": {
+      "get": {
+        "tags": [
+          "personal-timetable"
+        ],
+        "summary": "Get Backup",
+        "operationId": "get_backup_api_v1_me_timetable_backup_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Semester Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "personal-timetable"
+        ],
+        "summary": "Save Backup",
+        "operationId": "save_backup_api_v1_me_timetable_backup_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/timetable/initialize": {
       "post": {
         "tags": [
@@ -25546,6 +25702,219 @@
         "title": "AutoAssignRequest",
         "description": "自动排班：按学期 + 可选日期/日期范围/显式任务集选范围，可限定候选志愿者。\n\n范围维度三选一（互斥优先级：task_ids > inspection_date > date_from/date_to）：\n- task_ids：仅对这些未取消任务排班；\n- inspection_date：该查课日的全部未分配任务；\n- date_from/date_to：该区间内全部未分配任务（闭区间）。\ncandidate_user_ids 为空表示全体有效志愿者资格池；给出则作为候选子集（仍逐个校验硬约束）。"
       },
+      "BackupEnvelope": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/BackupResult"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "requestId"
+        ],
+        "title": "BackupEnvelope"
+      },
+      "BackupItem": {
+        "properties": {
+          "course_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Course Id"
+          },
+          "scheme_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Scheme Id"
+          },
+          "course_name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Course Name"
+          },
+          "course_code": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Course Code",
+            "default": ""
+          },
+          "color_index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 255.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color Index"
+          },
+          "is_custom": {
+            "type": "boolean",
+            "title": "Is Custom",
+            "default": false
+          },
+          "teacher_name": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Teacher Name",
+            "default": ""
+          },
+          "classroom": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Classroom",
+            "default": ""
+          },
+          "weekday": {
+            "type": "integer",
+            "maximum": 7.0,
+            "minimum": 1.0,
+            "title": "Weekday"
+          },
+          "start_period": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Start Period"
+          },
+          "end_period": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "End Period"
+          },
+          "weeks": {
+            "items": {
+              "type": "integer",
+              "maximum": 60.0,
+              "minimum": 1.0
+            },
+            "type": "array",
+            "maxItems": 60,
+            "minItems": 1,
+            "title": "Weeks"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "course_id",
+          "scheme_id",
+          "course_name",
+          "weekday",
+          "start_period",
+          "end_period",
+          "weeks"
+        ],
+        "title": "BackupItem"
+      },
+      "BackupResult": {
+        "properties": {
+          "semester_id": {
+            "type": "string",
+            "title": "Semester Id"
+          },
+          "has_backup": {
+            "type": "boolean",
+            "title": "Has Backup"
+          },
+          "backup_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backup Version"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "semester": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Semester"
+          },
+          "schedule_data": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Schedule Data"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "semester_id",
+          "has_backup",
+          "backup_version",
+          "updated_at",
+          "semester",
+          "schedule_data"
+        ],
+        "title": "BackupResult"
+      },
+      "BackupWrite": {
+        "properties": {
+          "semester_id": {
+            "type": "integer",
+            "maximum": 9.223372036854776e+18,
+            "exclusiveMinimum": 0.0,
+            "title": "Semester Id"
+          },
+          "schedule_data": {
+            "items": {
+              "$ref": "#/components/schemas/BackupItem"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Schedule Data"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "semester_id",
+          "schedule_data"
+        ],
+        "title": "BackupWrite"
+      },
       "BatchBindingTokenRequest": {
         "properties": {
           "class_id": {
@@ -26023,6 +26392,65 @@
         ],
         "title": "ClassQuotaConfig",
         "description": "单个行政班级的自定义抽查配额配置。"
+      },
+      "ClassTimetableEnvelope": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ClassTimetableResult"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "requestId"
+        ],
+        "title": "ClassTimetableEnvelope"
+      },
+      "ClassTimetableResult": {
+        "properties": {
+          "semester": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Semester"
+          },
+          "class_name": {
+            "type": "string",
+            "title": "Class Name"
+          },
+          "source_revision": {
+            "type": "string",
+            "title": "Source Revision"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "semester",
+          "class_name",
+          "source_revision",
+          "items"
+        ],
+        "title": "ClassTimetableResult"
       },
       "CollegeCreate": {
         "properties": {

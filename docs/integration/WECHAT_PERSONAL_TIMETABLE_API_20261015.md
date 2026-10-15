@@ -1,185 +1,159 @@
-> 当前增量及部署边界请优先阅读[2026-10-16小程序交接](WECHAT_API_CHANGES_20261016.md)。
+# 微信小程序：本地个人课表、云端备份与教务通知
 
-# 微信小程序：云端个人课表与教务通知接口
+更新：2026-10-16。**最新决定：以小程序开发者现有的“本地课表＋完整快照云备份/恢复”为准，后端补兼容接口，不要求小程序改成逐条云端编辑。** 本文替代旧版同名说明，历史版本通过 Git 查看。
 
-2026-10-15。后端与 Web 已实现，小程序本轮不开发页面。生产地址为 `https://course.zsitai.xyz`，以下路径均以 `/api/v1` 开头。最终部署版本见 `docs/archive/2026-10-15/operations/P5_RELEASE_20261015.md`。
+## 当前状态
 
-## 可直接交接的范围与版本
+对照小程序 `Mo-Qiong/wxsign@6d93c8de65dff02036b0994e5d5f7346eb87be4e` 的 `api/timetable.js` 和 `utils/timetable-service.js`。
 
-本文件是小程序开发者的正式接入说明，当前核心接口已上线；应用源码版本 `4b41344`，接口交接资料已随 `dev-main` 的 `8b2a6ec` 及其祖先提交提供。
-
-本轮可以开发：学期选择、今日/周课表、课程详情、新增/编辑/删除课程、简单教务通知列表。管理端的学院配置、作息、成员管理和排班不属于本次小程序开发任务，也不要求小程序新增学院工作区选择。
-
-**2026-10-16 已更新：** 恢复删除条目、单次修改/撤销、自定义节次/颜色及最新正式来源接口均已补齐部署，详见[最新小程序接口增量](WECHAT_API_CHANGES_20261016.md)。下文保留核心课表接入契约；原“恢复/单次修改未实现”说明不再适用。离线编辑与自动采用教务更新仍不在当前交付范围。
-
-以下为服务端能力交付；微信开发者工具编译、真机与多设备联调仍由小程序开发者验收，不能以已有后端用例通过替代。
-
-## 业务约定
-
-- 教务导入、管理端总课表查看均不等于发布。教师在 Web「学院与组织配置 → 教务课表发布」选择学期，预览后明确发布。
-- 小程序在有效学生绑定后获取可用学期，逐学期调用初始化接口。绑定接口本身不返回课表，也不自动创建副本；小程序负责在绑定成功/进入课表页时发起初始化。
-- 每名学生、每学期只有一份云端个人课表。重复初始化返回现有副本，空课表也不会重新灌入。尚未发布时稍后重试初始化。
-- 初始来源是正式教学班名单关联的已发布课表，包含正式选修名单；不会按课程名称或行政班名称猜测选课。学生可以自行补充选修课。
-- 本人修改优先保留。再次发布只产生相关学生的简单通知，**不覆盖、合并或自动采用教务更新**。没有通知已读、未读、忽略或采用接口。
-- 个人课表不参与查课、排班、课程冲突、考勤、免到或统计。个人修改不会改动正式教务数据。
-
-## 身份与通用响应
-
-沿用现有微信登录、绑定和刷新机制；请求携带 `Authorization: Bearer <access_token>`。服务端从当前账号取学生身份，所有接口都不接受 `student_id`、`user_id` 或学院切换来代查他人。
-
-成功统一为 `{"data": ..., "requestId": "..."}`。数据库 ID 均按字符串处理；个人课程 `id` 是 UUID，不能转成 Number。
-
-| 方法 | 路径 | 参数/用途 |
+| 能力 | 当前事实 | 后续处理 |
 | --- | --- | --- |
-| GET | `/me/timetable/semesters` | 本人相关的已发布或已初始化学期，返回数组；元素包含 `id/name/status/initialized/current_version` |
-| POST | `/me/timetable/initialize` | JSON `{"semester_id":"1"}`；幂等初始化，返回完整个人课表 |
-| GET | `/me/timetable?semester_id=1` | 读取本人指定学期的完整云端副本 |
-| POST | `/me/timetable/entries?semester_id=1` | 新增个人课程；JSON 必须带当前课表 `current_version` |
-| PATCH | `/me/timetable/entries/{eid}?semester_id=1` | 修改个人课程；JSON 包含 `current_version` 与要变更的字段 |
-| DELETE | `/me/timetable/entries/{eid}?semester_id=1` | **JSON 请求体** `{"current_version":3}`；不能把版本遗漏或只放在查询串 |
-| GET | `/me/academic-notices?page=1&page_size=20` | 仅本人相关更新；返回 `items/total/page/page_size`，没有已读状态 |
+| GET `/me/class-timetable` | 后端已部署 | 复用已发布的本人正式来源 |
+| GET `/me/timetable-backup` | 后端已部署 | 按本人＋学期恢复完整快照 |
+| PUT `/me/timetable-backup` | 后端已部署 | 保持现有上传结构，原子完整保存 |
+| 原 `/me/timetable` 逐条接口 | 已有实现，本轮审查修复已部署 | 保留兼容，不作为新版小程序必接接口 |
+| GET `/me/academic-notices` | 后端已有，小程序未接入 | 小程序接入简单通知展示 |
 
-## 个人课表返回结构
+**三个兼容接口已上线。** 应用源码 `37e4440df4`，迁移 `f26a1016b001`；本轮新增独立备份表，未修改旧个人副本。生产地址 `https://course.zsitai.xyz`，以下路径均加 `/api/v1` 前缀。
 
-初始化、读取和所有写操作返回相同聚合结构：
+## 产品行为
+
+1. 学生绑定后使用本人身份；不选择学院，不提交 `college_id/student_id/user_id`。后端核对账号绑定及正式选课关系。
+2. 本地课表用于显示与编辑。增删改先保存本地，再将完整 `schedule_data` 上传备份；服务器成功返回才表示已备份。
+3. 没有当前身份、当前学期的有效本地缓存时，先恢复云备份；确实没有备份，再获取已发布正式课表初始化本地内容并备份。
+4. **空课表有效。** 本地已保存但课程为空，或云端 `has_backup=true` 且 `schedule_data=[]`，都不得自动重新灌入教务课表。
+5. 导入不等于发布。正式发布提供基准来源；再次发布仅产生简单通知，不覆盖本地课表和备份。
+6. 用户主动“重新获取教务课表”才可替换原教务课程。需提示个人对这些课程的修改可能丢失；当前小程序保留自建课程的做法不等于无损合并。普通通知不触发替换。
+7. 私人课表及备份不参与正式查课、排班冲突、考勤或统计。
+
+## 原后端可以复用什么
+
+| 已有能力 | 复用方式 | 边界 |
+| --- | --- | --- |
+| Bearer 认证、学生绑定、有效身份校验 | 直接复用，身份从会话取得 | 不接受客户端指定其他学生 |
+| 已发布课表、本人选课过滤 | 复用 `MyAcademicSourceService` 及发布仓储，映射字段 | 不改为未发布管理总课表，不返回同班其他人的私人选修 |
+| 学期、校历、作息来源 | 复用正式发布上下文和学期查询 | 不硬编码学期 ID、开学日期或当前周 |
+| 原个人课表事务与隔离方式 | 复用按学生＋学期隔离、账号/学生锁、事务回滚模式 | 完整备份使用独立快照存储，不能直接塞入旧 `entries` |
+| 简单通知 | 继续用 `/me/academic-notices` | 不增加已读/未读/忽略/采用或主动推送 |
+
+**原逐条接口不能直接当作整表备份接口。** 原数据使用 UUID、真实起止时刻、`week_nos` 和整份课表版本；小程序使用本地字符串 ID、节次、`weeks` 和完整 `schedule_data`。需新增三个适配入口；一次事务完整保存快照，不能循环调用逐条接口模拟原子保存。
+
+旧个人副本保留，不删除、不自动重初始化。旧逐条模型与新备份不自动双向同步；同一客户端采用一种保存流程。若存在需要迁移的旧云端用户，另做受控转换：保留原数据、转换预览、不覆盖已有备份、不丢弃无法表达的单次例外或真实时刻；该迁移尚未实现。
+
+## 通用规则
+
+- 沿用成功信封 `{"data": ..., "requestId": "..."}`；现有 `request.js` 已解包，页面不能强制再解包一次。
+- `semester_id` 响应按字符串返回；请求兼容安全范围内整数，客户端应保留字符串。
+- `course_id/scheme_id` 是私人显示标识，允许小程序生成的 `c_.../s_...` 字符串，不强制 UUID，不代表正式数据库身份。
+- 省略学期时由后端统一解析当前有效学期，三个兼容接口规则一致；无法唯一确定返回 409，不猜测 ID=2。显式学期不存在返回 404。
+- 未绑定/无效学生身份拒绝访问；401 沿用刷新机制；403 核对身份；422 提示校验问题；失败不能提示备份成功。
+
+## 1. 获取本人班级基准课表（已上线）
+
+`GET /me/class-timetable?semester_id=2`，学期参数可省略。名称沿用小程序；数据仍来自**本人正式选课关联的已发布课表**，不按班级名称猜测选课，不暴露全班学生名单。
 
 ```json
 {
   "data": {
-    "semester_id": "1",
-    "status": "INITIALIZED",
-    "current_version": 1,
-    "source_revision": "来源指纹",
-    "sources": [{"publication_id":"10","college_id":"2","version":1,"published_at":"2026-10-15T01:00:00Z","calendar":{"timezone":"Asia/Shanghai","first_monday":"2026-08-31","total_weeks":18}}],
-    "entries": [{"id":"c27cebf8-43e8-47aa-9a5e-64741f162671","course_name":"示例课程","teacher":"示例教师","classroom":"教学楼101","weekday":1,"week_nos":[1,2],"start_time":"08:00:00","end_time":"09:40:00","note":"","occurrence_dates":["2026-08-31","2026-09-07"],"source_schedule_id":"20","teaching_class_id":"30","college_id":"2","class_name":"示例教学班","start_period":1,"end_period":2}]
+    "semester": {
+      "id": "2", "name": "2026秋季学期", "total_weeks": 17,
+      "first_monday": "2026-09-14", "current_week": 5
+    },
+    "class_name": "示例行政班",
+    "source_revision": "不透明发布修订",
+    "items": [{
+      "course_id": "official-course-20", "scheme_id": "official-schedule-30",
+      "course_name": "示例课程", "course_code": "MATH-A1", "is_custom": false,
+      "teacher_name": "示例教师", "classroom": "A101",
+      "weekday": 1, "start_period": 1, "end_period": 2, "weeks": [1, 2, 3], "note": ""
+    }]
   },
   "requestId": "example"
 }
 ```
 
-`sources[].calendar` 是发布时的校历快照，字段以 OpenAPI/实际响应为准。`status` 为 `INITIALIZED/NOT_INITIALIZED/NOT_PUBLISHED`。未初始化时版本、来源修订为 null，数组为空。GET 不自动初始化；POST 初始化尚无发布时返回 `NOT_PUBLISHED`，不要当作可编辑的空副本。
+字段适配：`teacher→teacher_name`、`week_nos→weeks`。显示 ID 必须稳定；同一正式排课存在多个时间片时，方案 ID 必须区分片段。`color_index` 可选，缺省沿用客户端课程名配色。
 
-时间解释：`published_at` 是 UTC 时间戳，显示时转北京时间；`start_time/end_time` 是 **Asia/Shanghai 当地课程时刻**，不要再次加八小时。`weekday` 周一为 1、周日为 7。正式来源的 `occurrence_dates` 已反映校历调整，非 null 时优先用这些具体日期展示，不再用周次重复推导；为 null 的自建课按学期校历、周次和星期展示。
+已有相关发布但本人无排课，返回 `items=[]`；尚未正式发布返回 409 `STATE_CONFLICT`，避免将未发布误当作已发布空课表并上传备份。
 
-## 新增、修改、删除
+灵活作息不能在转换中悄悄丢失：正式来源的 `occurrence_dates/start_time/end_time` 应作为扩展保留，可表达为星期＋周次的调休按实际日期拆分方案。当前小程序分组/展平仅保留节次和 `weeks`，尚不能无损透传具体日期、真实时刻与旧模型单次例外。兼容实现需验证这些样本；不能映射的部分仍需小程序补字段透传与展示，不能宣称仅加后端接口就完整支持全部灵活作息。
 
-新增示例：
+## 2. 上传完整备份（已上线）
+
+`PUT /me/timetable-backup`，保持现有小程序请求格式：
 
 ```json
-{"current_version":1,"course_name":"个人选修","teacher":"教师姓名","classroom":"自定义地点","weekday":3,"week_nos":[1,2,3],"start_time":"18:00:00","end_time":"19:30:00","note":"个人备注"}
+{
+  "semester_id": "2",
+  "schedule_data": [{
+    "course_id": "c_example", "scheme_id": "s_example", "course_name": "个人选修",
+    "course_code": "", "color_index": 3, "is_custom": true, "teacher_name": "",
+    "classroom": "A202", "weekday": 3, "start_period": 7, "end_period": 8,
+    "weeks": [1, 2, 3], "note": "个人备注"
+  }]
+}
 ```
 
-必填课程名、星期、周次、起止时刻；周次为 1–60，每份课表最多 500 条，同一天结束时刻须晚于开始时刻。可选教师、地点、备注、具体日期；自建课程正式来源标识均为 null。来源 ID、学院 ID、教学班 ID 等不能通过写入伪造。
+成功返回完整备份结构，包含 `semester_id/semester/has_backup/backup_version/updated_at/schedule_data`。时间为带 Z 的 UTC。首次上传创建备份，以后完整替换本人该学期备份；`schedule_data=[]` 合法。客户端来源标识及 `is_custom=false` 都不会获得任何正式业务权限。
 
-PATCH 示例 `{"current_version":2,"classroom":"本人修改地点","note":"提醒"}`。每次成功写操作返回完整副本和递增的**整份课表版本**。修改星期/周次而未显式提供 `occurrence_dates` 时，后端清除旧的具体日期，避免继续沿用原正式课次；若产品允许自定义日期，可以显式提供 `occurrence_dates`。
+**兼容版不新增必填 `current_version`。** 写入由服务器串行受理，以最后成功提交的快照为准；不等于按用户最后编辑时间取胜。旧设备延迟上传可能覆盖另一设备的新内容，这是现有无条件整表上传的边界。客户端同账号/学期应串行上传，在途时只保留下一份最新快照；服务器返回 `backup_version` 供识别结果。以后可扩展可选条件版本，但不能宣称当前小程序已获得跨设备防覆盖保护。
 
-多设备：写入使用最近成功读取/保存的 `current_version`；409 时重新读取并提示冲突，让用户确认后再次保存，不要拿新版本号静默覆盖。离线缓存只作显示/草稿，服务端成功结果才是云端事实。401 按现有机制串行刷新一次；403 重新核对有效绑定/学生状态；404 课程或学期不存在；422 校验失败；503 表示发布功能未开启。
+实现要求：学生＋学期唯一键，一次事务完整替换；有效身份实时复核；最多 500 条平铺方案；名称最多 128 字、备注最多 1000 字；星期 1–7，节次 1–30 且起止有序，周次 1–60；同一快照 `(course_id,scheme_id)` 不重复。允许支持的私人扩展，JSON 总体上限 1 MiB，超限明确拒绝。校验失败不得保存部分内容，不执行客户端表达式。
 
-## 简单通知
+## 3. 读取/恢复备份（已上线）
 
-`items` 的字段为 `id/college_id/semester_id/version/published_at/title/message`。仅展示与本人正式名单相关且内容发生变化的发布历史；同内容重复发布不重复通知。通知表示教务更新，不能据此重初始化或覆盖个人副本。无需展示未读数、小红点或已读按钮。
+`GET /me/timetable-backup?semester_id=2`，学期参数可省略。
 
-## 管理端配套与接入验收
-
-管理端由本项目负责：`POST /colleges/{cid}/academic/semesters/{sid}/publication-preview` 返回 `source_revision`；随后 POST 同前缀 `/publish`，JSON `{"source_revision":"预览返回的64位指纹"}`。需要本院 `academic.manage`；源或权限变化返回409，重新预览。小程序不调用管理接口。
-
-开发者至少验证：绑定后初始化；重复登录不覆盖；增删改并刷新/换设备仍保留；过期版本409；教务再发布有通知但副本不变；另一学生不能读取/修改本人课程；未发布、空课表、解绑和会话过期；UTC发布时间和当地课程时刻分别显示正确。本轮后端验收使用独立 MySQL 数据库，不代表微信开发者工具或真机已验收。
-
-## 小程序页面与调用顺序
-
-| 页面/时机 | 调用与保存规则 | 用户可见状态 |
-| --- | --- | --- |
-| 绑定成功/首次进入课表 | 获取`/me/timetable/semesters`，让用户选择学期；无学期时不猜测ID | 暂无已发布课表；允许刷新，不表示账号绑定失败 |
-| 进入所选学期 | GET本人课表；`NOT_INITIALIZED`时POST initialize；此后用服务端完整响应替换该学期缓存 | `NOT_PUBLISHED`显示等待教务发布；已初始化但entries为空显示个人课表为空 |
-| 今日/周视图 | 展示当前云端副本，按具体日期或周次筛选；周次基准来自sources校历 | 本周无课与未初始化分开；旧学期可选择查看 |
-| 课程编辑 | 保存时带整份课表current_version；成功后使用完整响应更新页面和缓存 | 409展示“其他设备已更新，请刷新后确认修改”，保留当前表单草稿 |
-| 课程删除 | 确认后DELETE并携带JSON版本；成功后使用完整响应 | 不展示恢复按钮；删空后再次登录不会重新灌入正式课表 |
-| 通知列表 | 分页GET academic-notices；只读展示标题、说明、学期、发布时间 | 无已读、红点、忽略或采用按钮，不因查看通知自动初始化/覆盖课表 |
-| 退出/解绑/换账号 | 清理当前身份的课表和通知缓存，取消/忽略旧身份在途请求 | 新账号页面不得短暂显示旧学生内容 |
-
-建议缓存键至少包括当前账号身份＋学期；缓存中保留current_version、sources和最后成功获取时间。访问新学期时重新读取，不把上一学期的版本带入新学期。教师发布后才有正式来源，学生端不提供“发布”操作。
-
-## 交付检查单
-
-- [ ] 小程序接入上述7个接口，GET/POST/PATCH/DELETE方法和参数位置与本文一致。
-- [ ] 正式来源课程和个人新增课程都能显示、编辑；不改正式教学班/选课关系。
-- [ ] 多设备、重复登录、删空、教务再发布保持个人最后成功保存结果。
-- [ ] 401串行刷新一次，409由用户确认后重试；不静默重试写操作覆盖云端。
-- [ ] 日期、当地课程时刻、UTC发布时间显示正确；没有把当地时刻再次加八小时。
-- [ ] 退出/换绑/换账号清缓存并丢弃旧响应；所有ID保持字符串。
-- [ ] 通知只展示；不实现尚无接口的删除恢复/单次修改。
-- [ ] 回传改动提交、微信开发者工具编译结果、必要真机截图及仍未验证项；不回传真实token或完整学生名单。
-
-
-## 后续待部署增量（2026-10-15）
-
-当前工作区新增私人删除恢复、日期例外（单次修改），个人条目读取增加exceptions；通知列表增加kind=ENROLLMENT_SOURCE_CHANGED，其semester_id为null，id是enrollment:事件ID。不要将新接口视为线上可用，也不要把通知id强转数字。具体请求、展示合并规则和限制见 [增量契约第5、6节](../development/CONFIRMED_MODULES_API_20261015.md)。此前“尚未提供恢复/单次修改”只描述先前发布基线。
-
-
-## 2026-10-16 可选扩展：与学院升级解耦
-
-仅在主动开发个人课表便捷功能时接入以下接口。原有小程序任务、考勤、照片、异议功能不依赖这些扩展。
-
-### 最新正式来源：读取最新正式教务来源
-
-`GET /me/timetable/official-source?semester_id=2`
-
-该接口只读，返回当前绑定学生可见的最新已发布教务资料。与 `GET /me/timetable` 的本人云端副本分开：前者用于对比，后者用于日常显示，个人最后保存结果继续优先。
-
-| 返回字段 | 说明 |
-| --- | --- |
-| `status` | AVAILABLE / NO_ENROLLMENT / NOT_PUBLISHED |
-| `semester_id` | 字符串学期ID |
-| `source_revision` | 不透明来源修订字符串，可用于检测变化 |
-| `sources` | 发布版本、学院、发布时间及校历上下文 |
-| `entries` | 本人可见的正式课程、节次、起止时刻、周次和具体日期 |
-
-返回仍套 `{"data": ..., "requestId": ...}` 信封。NO_ENROLLMENT表示已有相关发布但没有本人课程；NOT_PUBLISHED表示尚无可用发布。空结果不是清空个人副本的指令。调用该接口不覆盖副本、不自动采用更新、不写通知已读状态。
-
-### 恢复与单次修改：本人课表恢复与单次修改
-
-以下接口本次部署已具备，旧交接资料中的“暂不能交付”说明作废。所有操作只影响本人云端副本，不参与正式查课、排班或考勤。
-
-| 方法 | 路径（均需query `semester_id`） | 请求/返回 |
-| --- | --- | --- |
-| GET | `/me/timetable/deleted-entries` | 返回`data.current_version`和`items:[{entry,deleted_at}]` |
-| POST | `/me/timetable/entries/{eid}/restore` | JSON `{"current_version":7}`；恢复原条目ID，返回完整副本和新版本 |
-| PUT | `/me/timetable/entries/{eid}/exceptions/{day}` | 保存该原始日期的一次停课/调课/教室等修改；见下例 |
-| DELETE | `/me/timetable/entries/{eid}/exceptions/{day}` | JSON `{"current_version":8}`；撤销单次修改，恢复基础课程在该日的安排 |
-
-`eid`为个人条目UUID字符串，`day`为原本上课的日期`YYYY-MM-DD`。即使调到别的日期，后续编辑/撤销仍使用原始day。day必须属于原个人课程，目标日期必须在本学期内。
-
-仅修改一次教室及日期：
-
-```http
-PUT /api/v1/me/timetable/entries/{eid}/exceptions/2026-10-19?semester_id=2
-Content-Type: application/json
-
-{"current_version":7,"target_date":"2026-10-20","classroom":"A202","cancelled":false}
+```json
+{
+  "data": {
+    "semester_id": "2", "has_backup": true, "backup_version": 3,
+    "updated_at": "2026-10-16T02:00:00Z",
+    "semester": {
+      "id": "2", "name": "2026秋季学期", "total_weeks": 17,
+      "first_monday": "2026-09-14", "current_week": 5
+    },
+    "schedule_data": []
+  },
+  "requestId": "example"
+}
 ```
 
-仅停课一次：`{"current_version":7,"cancelled":true}`。可同时设置`course_name/teacher/classroom/start_time/end_time/note`。返回条目`exceptions`为`[{date,target_date,cancelled,values}]`；显示时先展开基础日期，再按原始date应用例外，取消项不展示，调课展示到target_date，不能在原日和新日重复展示。
+从未保存时：`has_backup=false`、`schedule_data=[]`、`backup_version/updated_at=null`。已保存空快照时：`has_backup=true`，恢复为空，不再灌入教务数据。
 
-已有单次修改时，直接修改该课程的weekday/week_nos/occurrence_dates会返回409，需先撤销单次修改后再调整重复日期规则。删除课程为可恢复删除；可恢复条目上限500条、活动课程上限500条，容量不足按409提示，不自动清空旧记录。
+读取只返回已保存的私人快照，不创建备份、不更新上传时间、不按最新教务重建。响应附真实学期校历；当前客户端恢复分支使用 `DEFAULT_SEMESTER`，需改为响应值，避免跨学期错位。
 
-### 个人课程字段与版本
+## 4. 简单教务通知（已有）
 
-既有新增/修改接口继续使用：
+`GET /me/academic-notices?page=1&page_size=20`；data 为 `items/total/page/page_size`。元素包括 `id/kind/college_id/semester_id/version/published_at/title/message`。学院仅为来源元数据，客户端不必显示或用于请求授权。
 
-- `POST /me/timetable/entries?semester_id=...`
-- `PATCH /me/timetable/entries/{eid}?semester_id=...`
-- `DELETE /me/timetable/entries/{eid}?semester_id=...`
+kind 包括 `ACADEMIC_PUBLICATION`、`ENROLLMENT_SOURCE_CHANGED`；后者学期可空，ID 可能为 `enrollment:...`。未知类型通用展示标题与说明。仅展示，无已读/未读/忽略/采用，不自动重新初始化或覆盖备份。
 
-新增或明确支持 `start_period/end_period`（可空，1..30）及`color`（可空，最长64字符）；用于个人显示，不更改学校作息。真实起止时间仍由`start_time/end_time`表达；新增课程依旧需课程名、星期、周次、起止时刻等原有必填字段。客户端保留不认识的返回扩展字段，不能依靠未在契约列出的自定义字段参与正式业务。
+## 小程序仍需配合的最小修正
 
-`current_version`是整份“本人+学期”课表的版本，不是单条课程版本。所有增删改、恢复和单次修改都提交最新版本；成功后以完整响应替换本地缓存。409先重新读取云端再让用户选择如何处理，不能盲目用旧内容重试。GET正式来源的`source_revision`不能代替个人副本的`current_version`。
+保持现有页面、本地编辑结构和三个接口地址，不改成逐条编辑。但后端不能代替以下客户端修正：
 
-初始化仍是 `POST /me/timetable/initialize`，body `{"semester_id":"2"}`；绑定后按学期调用。重复初始化返回已有副本，即使副本被本人清空也不重新灌入；后台再次发布不覆盖个人修改。
+- 缓存按**账号身份＋学期**区分；退出/解绑/换账号清缓存、取消防抖任务并忽略旧身份在途响应。当前仅按学期缓存存在串账号风险。
+- 不以 `courses.length>0` 判断缓存是否存在，允许有效空课表。
+- 使用后端实际学期与校历，数据库 ID 不转 Number，不硬编码当前周。
+- 同身份/学期串行备份，晚到响应不覆盖最新本地编辑；失败提示未同步。`last_synced_at` 只在服务器成功后更新，不能在本地写入时更新。
+- 主动更新基准前确认修改影响；教务通知不触发替换。灵活日期/真实时刻映射未完成前明确展示边界。
 
-### 简单通知与通用兼容
+## 后端实施与验收
 
-`GET /me/academic-notices?page=1&page_size=20`只展示通知，`data`为items/total/page/page_size。`kind`包括ACADEMIC_PUBLICATION与ENROLLMENT_SOURCE_CHANGED；后者提示学籍来源变化，semester_id可空，id可能是`enrollment:...`，不能转数字。未知kind可显示通用title/message。
+- [x] 新增三个兼容路由及请求/响应 Schema，复用认证、正式发布来源、学期解析；更新 OpenAPI。
+- [x] 新增独立完整备份存储和迁移，学生＋学期唯一；原云端个人副本保留。
+- [x] 映射字段及稳定显示 ID，按实际日期拆分星期/周次，保留真实时刻扩展；不按课程名合并正式教学班。具体手机展示边界仍见上文。
+- [x] 服务器隔离 MySQL：首次备份/覆盖/删空恢复、不同学生隔离、未发布、来源字段拒绝、现有查课/考勤/照片链路；新增迁移升级→回退→升级，原76张表数据摘要不变。并发受理使用同学生行锁，未另做压力测试；未启动本地 MySQL。
+- [x] 生产路径、应用账号新表读取、迁移、健康检查及业务数量核对通过；发布 `20261016-campus-r6-37e4440df4`，回退前版 `20261016-campus-r6-a3bd838620`。
+- [ ] 小程序开发者验收本地缓存/云恢复/基准兜底、换账号、多设备覆盖提示与通知，提供开发者工具及必要真机结果。
 
-不增加已读、未读、忽略、采用、批量覆盖或微信推送接口。不要收到通知后自动重新初始化或覆盖本人课表。
+原 `/me/timetable/semesters`、`initialize`、读取、逐条增删改、正式来源、删除恢复及单次例外接口均继续保留兼容，不因本文决定立即删除；新版小程序不必将它们作为备份流程的必接接口。
 
-沿用Bearer认证、刷新及上传规则；所有ID按字符串保留。服务器事件时刻如带Z按UTC解析；旧事件时刻无时区标记时按UTC解释，再按Asia/Shanghai显示。课程日期和本地上课起止时刻按日历/墙上时间处理，不能再加八小时。
+## 本次发布证据
+
+服务器隔离数据库3项通过（46.74秒），迁移回退演练通过，测试库已删除。本地10项契约回归、3项Node定向回归通过。最终Git发布包488个源码文件与已验收候选逐文件一致（仅Windows换行差异），未重复无关测试或Web构建。
+
+备份：`/var/backups/course-management/20261015T182005Z.Dcv6AP`。验收：`/opt/course-management/rehearsals/timetable-backup-final-20261016/R6_ACCEPTANCE.json`。生产发布记录：`/opt/course-management/current/CAMPUS_RELEASE.json`。
+
+生产正式业务隔离/组织排班开关仍关闭，教务发布已开启。若学院尚未正式发布本人相关课表，基准接口按约返回409，需教师先发布；不是新增学院参数校验失败。尚未完成真实微信登录、开发者工具或真机课表验收。

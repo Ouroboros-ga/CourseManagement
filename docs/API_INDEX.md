@@ -361,3 +361,7 @@
 | PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
 
 | GET | `/api/v1/me/timetable/official-source` | personal-timetable |
+
+| GET | `/api/v1/me/class-timetable` | personal-timetable |
+| GET | `/api/v1/me/timetable-backup` | personal-timetable |
+| PUT | `/api/v1/me/timetable-backup` | personal-timetable |
