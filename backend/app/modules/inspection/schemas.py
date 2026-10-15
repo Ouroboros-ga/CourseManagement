@@ -656,6 +656,7 @@ class ClassQuotaConfig(BaseModel):
 
 
 class SmartSampleRequest(BaseModel):
+    execution_group_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,18}$")
     """POST /inspection-course-occurrences/smart-sample 请求体：智能推荐下发课次。"""
 
     semester_id: int = Field(ge=1)

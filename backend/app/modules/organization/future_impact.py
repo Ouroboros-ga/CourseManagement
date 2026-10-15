@@ -10,7 +10,7 @@ from app.modules.identity.role_scope import business_today
 from app.modules.inspection.models import InspectionTask, TaskScheduleSource
 
 
-def future_impact(db, college_id, kind, resource_id, version):
+def future_impact(db, college_id, kind, resource_id, version, *, resource_scope=None):
     column = {
         "course_type": InspectionTask.course_type_id_snapshot,
         "group": InspectionTask.group_id,
@@ -34,6 +34,7 @@ def future_impact(db, college_id, kind, resource_id, version):
                 matches,
                 InspectionTask.inspection_date >= business_today(),
                 InspectionTask.canceled_at.is_(None),
+                resource_scope.task_condition() if resource_scope is not None else True,
             )
             .order_by(InspectionTask.id)
             .with_for_update(read=True)
@@ -48,9 +49,9 @@ def future_impact(db, college_id, kind, resource_id, version):
     }
 
 
-def confirm_impact(db, college_id, kind, row, revision):
+def confirm_impact(db, college_id, kind, row, revision, *, resource_scope=None):
     version = row.classification_revision if kind == "teaching_class" else row.lock_version
-    impact = future_impact(db, college_id, kind, row.id, version)
+    impact = future_impact(db, college_id, kind, row.id, version, resource_scope=resource_scope)
     if impact["retained_future_task_ids"] and revision != impact["revision"]:
         raise ConflictError(
             ErrorCode.VERSION_CONFLICT,

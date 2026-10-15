@@ -7,11 +7,23 @@ from app.modules.academic.enrollment_models import College, TeacherCollegeBindin
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.role_scope import (
     DefaultRoleScope,
+)
+from app.modules.identity.role_scope import (
     active_manager_appointment as active_manager_appointment,
+)
+from app.modules.identity.role_scope import (
     business_today as business_today,
+)
+from app.modules.identity.role_scope import (
     current_student_college as current_student_college,
+)
+from app.modules.identity.role_scope import (
     require_resource_scope as require_resource_scope,
+)
+from app.modules.identity.role_scope import (
     require_student_scope as require_student_scope,
+)
+from app.modules.identity.role_scope import (
     resolve_scope as resolve_scope,
 )
 
@@ -102,7 +114,7 @@ def fixed_college_actions(session: Session, actor_id: int, college_id: int) -> f
     return frozenset()
 
 
-def effective_actions(grants, college_id: int, now) -> frozenset[str]:
+def effective_actions(grants, college_id: int, now, *, include_restricted=False) -> frozenset[str]:
     return frozenset(
         action
         for grant in grants
@@ -110,6 +122,8 @@ def effective_actions(grants, college_id: int, now) -> frozenset[str]:
         and grant.status == "ACTIVE"
         and (grant.starts_at is None or grant.starts_at <= now)
         and (grant.expires_at is None or grant.expires_at > now)
+        and (include_restricted or not getattr(grant, "resource_scope", None)
+             or grant.resource_scope.get("kind") == "COLLEGE")
         for action in grant.actions
         if action in CAMPUS_ACTIONS
     )

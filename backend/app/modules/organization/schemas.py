@@ -89,9 +89,25 @@ class TypeUpdate(Versioned):
     status: Literal["ACTIVE", "INACTIVE"] | None = None
 
 
+class GrantResourceScope(StrictModel):
+    kind: Literal["COLLEGE", "GROUPS", "COURSE_TYPES", "TEACHING_CLASSES"] = "COLLEGE"
+    ids: list[str] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def valid(self):
+        if (self.kind == "COLLEGE") == bool(self.ids) or len(set(self.ids)) != len(self.ids):
+            raise ValueError("全院范围不携带资源ID，受限范围必须明确非空集合")
+        if any(not value.isascii() or not value.isdecimal() or str(int(value)) != value
+               or not 0 < int(value) < 2**63 for value in self.ids):
+            raise ValueError("资源标识无效")
+        return self
+
+
 class GrantCreate(StrictModel):
+    preview_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     user_id: str = Field(pattern=r"^[1-9][0-9]{0,18}$")
     actions: list[str] = Field(min_length=1, max_length=len(CAMPUS_ACTIONS))
+    resource_scope: GrantResourceScope = Field(default_factory=GrantResourceScope)
     starts_at: datetime | None = None
     expires_at: datetime | None = None
 
@@ -114,6 +130,12 @@ class GrantCreate(StrictModel):
     def valid_range(self):
         if self.starts_at and self.expires_at and self.starts_at >= self.expires_at:
             raise ValueError("授权结束必须晚于开始")
+        from app.modules.identity.grant_scope import GROUP_ACTIONS, LIMITED_ACTIONS
+        if self.resource_scope.kind != "COLLEGE":
+            if not set(self.actions) <= LIMITED_ACTIONS:
+                raise ValueError("此动作暂不支持资源受限授权，请使用明确院级授权")
+            if self.resource_scope.kind != "GROUPS" and set(self.actions) & GROUP_ACTIONS:
+                raise ValueError("组织管理动作必须选择指定组范围")
         return self
 
 

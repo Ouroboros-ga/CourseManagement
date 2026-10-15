@@ -234,6 +234,9 @@ def smart_sample_course_occurrences(
     from app.modules.inspection.course_occurrences import smart_sample_occurrences
 
     service._require(actor.id, PermissionCode.INSPECTION_GENERATE.value)
+    from types import SimpleNamespace
+    from app.modules.inspection.execution_group import prepare
+    prepare(service, actor, SimpleNamespace(inspection_type="COURSE", execution_group_id=body.execution_group_id))
     semester = service._get_active_semester_read(body.semester_id)
     result = smart_sample_occurrences(service, semester, body)
     return success(result, _rid(request))

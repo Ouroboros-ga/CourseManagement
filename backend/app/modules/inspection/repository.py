@@ -52,9 +52,12 @@ class InspectionRepository:
         self._session = session
         self.college_ids = college_ids
         self.deadline_scope_id = 0
+        self.resource_scope = None
 
     def scoped_tasks(self):
         stmt = select(InspectionTask)
+        if self.resource_scope is not None:
+            stmt = stmt.where(self.resource_scope.task_condition())
         return stmt.where(InspectionTask.college_id.in_(self.college_ids)) if self.college_ids is not None else stmt
 
     def scoped_task_ids(self):

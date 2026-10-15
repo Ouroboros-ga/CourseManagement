@@ -2351,6 +2351,63 @@
         }
       }
     },
+    "/api/v1/colleges/{cid}/grants/preview": {
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Preview Grant",
+        "operationId": "preview_grant_api_v1_colleges__cid__grants_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/colleges/{cid}/grants/{rid}/revoke": {
       "post": {
         "tags": [
@@ -3053,6 +3110,64 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/groups/{rid}/references": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Group References",
+        "operationId": "group_references_api_v1_colleges__cid__groups__rid__references_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -22248,6 +22363,18 @@
       },
       "GrantCreate": {
         "properties": {
+          "preview_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Revision"
+          },
           "user_id": {
             "type": "string",
             "pattern": "^[1-9][0-9]{0,18}$",
@@ -22261,6 +22388,9 @@
             "maxItems": 38,
             "minItems": 1,
             "title": "Actions"
+          },
+          "resource_scope": {
+            "$ref": "#/components/schemas/GrantResourceScope"
           },
           "starts_at": {
             "anyOf": [
@@ -22294,6 +22424,32 @@
           "actions"
         ],
         "title": "GrantCreate"
+      },
+      "GrantResourceScope": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "COLLEGE",
+              "GROUPS",
+              "COURSE_TYPES",
+              "TEACHING_CLASSES"
+            ],
+            "title": "Kind",
+            "default": "COLLEGE"
+          },
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GrantResourceScope"
       },
       "GroupAssignRequest": {
         "properties": {
@@ -24893,6 +25049,18 @@
       },
       "SmartSampleRequest": {
         "properties": {
+          "execution_group_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Group Id"
+          },
           "semester_id": {
             "type": "integer",
             "minimum": 1.0,
@@ -24981,8 +25149,7 @@
           "semester_id",
           "week_no"
         ],
-        "title": "SmartSampleRequest",
-        "description": "POST /inspection-course-occurrences/smart-sample 请求体：智能推荐下发课次。"
+        "title": "SmartSampleRequest"
       },
       "StudentBatchDeleteRequest": {
         "properties": {

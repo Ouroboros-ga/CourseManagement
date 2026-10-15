@@ -137,7 +137,7 @@ class GroupSamplingService:
     @atomic_write
     def assign(self, data, request_id=None):
         body = validated(GroupAssignRequest, data)
-        resolve_scope(self.db, self.actor, self.cid, "assignment.manage", write=True)
+        scope = resolve_scope(self.db, self.actor, self.cid, "assignment.manage", write=True)
         semester = self.db.scalar(
             select(Semester)
             .where(Semester.id == int(body.semester_id))
@@ -153,6 +153,7 @@ class GroupSamplingService:
                     InspectionTask.college_id == self.cid,
                     InspectionTask.group_id == self.gid,
                     InspectionTask.semester_id == semester.id,
+                    scope.task_condition(),
                 )
             )
         )
@@ -230,6 +231,8 @@ class GroupSamplingService:
         )
         inspection = InspectionService(self.db)
         inspection._repo.college_ids = frozenset({self.cid})
+        inspection._generation_group = group, version
+        inspection._generation_scope = scope
         occurrence_scope = CourseOccurrenceScope(
             date_from=body.date_from,
             date_to=body.date_to,

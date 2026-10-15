@@ -115,6 +115,11 @@ def grants(cid: ResourceId, actor: CurrentUserDep, service: ServiceDep):
     return success(service.list_grants(actor, cid), service.request_id)
 
 
+@router.post("/colleges/{cid}/grants/preview")
+def preview_grant(cid: ResourceId, body: GrantCreate, actor: CurrentUserDep, service: ServiceDep):
+    return success(service.preview_grant(actor, cid, body.model_dump()), service.request_id)
+
+
 @router.post("/colleges/{cid}/grants")
 def create_grant(cid: ResourceId, body: GrantCreate, actor: CurrentUserDep, service: ServiceDep):
     return success(service.create_grant(actor, cid, body.model_dump()), service.request_id)
@@ -198,3 +203,8 @@ def publish_group(
     cid: ResourceId, rid: ResourceId, body: GroupPublish, actor: CurrentUserDep, service: ServiceDep
 ):
     return success(service.publish_group(actor, cid, rid, body.model_dump()), service.request_id)
+
+
+@router.get("/colleges/{cid}/groups/{rid}/references")
+def group_references(cid: ResourceId, rid: ResourceId, actor: CurrentUserDep, service: ServiceDep):
+    return success(service.group_references(actor, cid, rid), service.request_id)

@@ -513,3 +513,14 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 - 正式教务发布使用学院校历/作息，必要时同一来源课表拆成多个时间段，occurrence_dates 为实际执行日期。本人课表初始化保留这些日期；正式更新不修改已有个人副本。
 
 学院校历未覆盖的日期继承学校校历，发布学院作息不隐式取消全校停课日。
+
+
+### 2026-10-15 待发布：资源范围授权
+
+- `POST /api/v1/colleges/{cid}/grants/preview`：超管预览授权，返回`revision`与服务端冻结的`resource_scope`。
+- `POST /api/v1/colleges/{cid}/grants`：新增可选`resource_scope={kind,ids}`，kind为`COLLEGE|GROUPS|COURSE_TYPES|TEACHING_CLASSES`；受限范围必须非空。受限授权必传预览返回的`preview_revision`，过期返回409。旧院级请求兼容。
+- `GET /api/v1/colleges/{cid}/groups/{gid}/references`：仅按当前有效的组读取权限提供类型、行政班、教学班基础元数据，未授权组404。
+- 受限授权暂不支持教学数据、导入、导出、审计、统计和报表等全院动作；非法组合422，绝不降级成全院权限。
+- 智能抽查建议请求在组织模式需`execution_group_id`；建议与正式生成使用相同执行组范围。
+
+本节是当前开发分支契约，尚未生产启用；不会要求微信小程序增加学院配置页面。

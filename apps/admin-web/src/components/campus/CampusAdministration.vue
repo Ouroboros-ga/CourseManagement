@@ -4,6 +4,7 @@ import { ElMessageBox } from 'element-plus'
 import { listTeacherAccounts, type TeacherAccountItem } from '../../api/accounts'
 import { createCollege, createSchool, listSchools, updateCollege, type College, type School } from '../../api/campus'
 import { useCampusMutation } from '../../composables/useCampusMutation'
+import CollegeGrantEditor from './CollegeGrantEditor.vue'
 import TeacherCollegeEditor from './TeacherCollegeEditor.vue'
 import { ContextEpoch } from '../../utils/contextEpoch'
 
@@ -57,6 +58,7 @@ onUnmounted(() => epoch.invalidate())
       <el-button :disabled="saving || !basic.renamed.trim()" @click="run(cid => updateCollege(cid, { name: basic.renamed, lock_version: college!.lock_version }))">保存名称</el-button>
       <el-button :disabled="saving" @click="toggleCollege">{{ college.status === 'ACTIVE' ? '停用学院' : '恢复学院' }}</el-button>
     </div>
+    <CollegeGrantEditor :key="college.id" :college-id="college.id" @changed="emit('changed')" />
     <TeacherCollegeEditor :teachers="teachers" :college-id="college.id" @changed="emit('changed')" />
   </template>
 </template>

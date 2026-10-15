@@ -295,3 +295,6 @@
 | GET | `/api/v1/colleges/{cid}/statistics/attendance/export-detail-doc` | college-reports |
 | GET | `/api/v1/colleges/{cid}/statistics/attendance/export-study-excel` | college-reports |
 | GET | `/api/v1/colleges/{cid}/statistics/incomplete-tasks` | college-reports |
+
+
+2026-10-15待发布补充：`POST /colleges/{cid}/grants/preview` 授权预览；`GET /colleges/{cid}/groups/{gid}/references` 组配置引用元数据。详细范围及版本规则见API_CONTRACT末节。

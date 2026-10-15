@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, NotFoundError
 from app.modules.academic.campus_models import CourseType
-from app.modules.academic.models import TeachingClass
+from app.modules.academic.models import CourseSchedule, TeachingClass
 from app.modules.identity.resource_scope import resolve_scope
 from app.modules.volunteer.models import GroupConfigVersion, VolunteerGroup
 from app.modules.volunteer.policy import InspectionScope
@@ -13,6 +13,7 @@ from app.modules.volunteer.policy import InspectionScope
 
 def prepare(service, actor, body):
     service._generation_group = None
+    service._generation_scope = None
     if not get_settings().campus_scheduling_enabled:
         return
     if body.inspection_type != "COURSE" or not body.execution_group_id:
@@ -25,7 +26,7 @@ def prepare(service, actor, body):
     allowed = service._repo.college_ids
     if group is None or (allowed is not None and group.college_id not in allowed):
         raise NotFoundError("执行组不在当前工作区")
-    resolve_scope(service._session, actor, group.college_id, "inspection.generate", write=True)
+    service._generation_scope = resolve_scope(service._session, actor, group.college_id, "inspection.generate", write=True)
     group = service._session.scalar(
         select(VolunteerGroup)
         .where(VolunteerGroup.id == group.id)
@@ -77,6 +78,9 @@ def validate(service, plans, *, strict=True):
             )
         )
     }
+    schedule_teaching = dict(service._session.execute(select(CourseSchedule.id, CourseSchedule.teaching_class_id).where(
+        CourseSchedule.id.in_({sid for plan in plans for sid in plan.constituent_schedule_ids})
+    )).all())
     allowed = []
     for plan in plans:
         teaching = parents.get(plan.teaching_class_id)
@@ -94,6 +98,8 @@ def validate(service, plans, *, strict=True):
             or any(row.college_id_snapshot != group.college_id for row in plan.roster)
             or (group.starts_on and plan.inspection_date < group.starts_on)
             or (group.ends_on and plan.inspection_date > group.ends_on)
+            or (getattr(service, "_generation_scope", None) is not None and not service._generation_scope.permits_plan(
+                group.id, kind.id, {teaching.id} | {schedule_teaching.get(sid) for sid in plan.constituent_schedule_ids}, {row.administrative_class_id_snapshot for row in plan.roster}))
         ):
             if strict:
                 raise ConflictError(

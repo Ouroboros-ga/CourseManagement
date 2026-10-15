@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, shallowRef } from 'vue'
-import type { CourseType, Effect, GroupConfiguration } from '../../api/campus'
-import { listScopedAcademic, type ScopedAcademicRow } from '../../api/scopedAcademic'
+import { groupReferences, type CourseType, type Effect, type GroupConfiguration } from '../../api/campus'
+import { type ScopedAcademicRow } from '../../api/scopedAcademic'
 
-const props = defineProps<{ collegeId: string; initial: GroupConfiguration | null; types: CourseType[]; saving: boolean }>()
+const props = defineProps<{ collegeId: string; groupId: string; initial: GroupConfiguration | null; types: CourseType[]; saving: boolean }>()
 const emit = defineEmits<{ publish: [configuration: GroupConfiguration] }>()
 const form = reactive<GroupConfiguration>(props.initial ? JSON.parse(JSON.stringify(props.initial)) : {
   course_type_ids: [], default_effect: 'BLOCK', type_overrides: {}, own_class_effect: 'BLOCK',
@@ -12,6 +12,7 @@ const form = reactive<GroupConfiguration>(props.initial ? JSON.parse(JSON.string
 form.class_mode ||= 'ALL_AUTHORIZED'
 form.class_ids ||= []
 form.teaching_class_overrides ||= {}
+const availableTypes = shallowRef<CourseType[]>(props.types)
 const classes = shallowRef<ScopedAcademicRow[]>([]), teaching = shallowRef<ScopedAcademicRow[]>([])
 const loading = shallowRef(false), loadError = shallowRef(''), exceptionId = shallowRef('')
 let disposed = false
@@ -19,17 +20,12 @@ onUnmounted(() => { disposed = true })
 onMounted(async () => {
   loading.value = true
   try {
-    for (const [kind, target] of [['administrative-classes', classes], ['teaching-classes', teaching]] as const) {
-      const result: ScopedAcademicRow[] = []
-      for (let page = 1; ; page++) {
-        const response = await listScopedAcademic(props.collegeId, kind, page, '')
-        if (disposed) return
-        result.push(...response.items)
-        if (result.length >= response.total) break
-        if (!response.items.length) throw new Error('可选范围已变化，请重新打开配置')
-      }
-      target.value = result.filter(row => row.status === 'ACTIVE')
-    }
+    const references = await groupReferences(props.collegeId, props.groupId)
+    if (disposed) return
+    classes.value = references.classes.filter(row => row.status === 'ACTIVE')
+    teaching.value = references.teaching_classes.filter(row => row.status === 'ACTIVE')
+    availableTypes.value = references.types
+
   } catch (error) { if (!disposed) loadError.value = error instanceof Error ? error.message : '读取范围失败' }
   finally { if (!disposed) loading.value = false }
 })
@@ -39,7 +35,7 @@ function addException() {
   exceptionId.value = ''
 }
 const effects: { value: Effect; label: string }[] = [{ value: 'BLOCK', label: '禁止' }, { value: 'WARN', label: '人工确认后允许' }, { value: 'ALLOW', label: '允许' }]
-const missingTypeIds = computed(() => form.course_type_ids.filter(id => !props.types.some(row => row.id === id)))
+const missingTypeIds = computed(() => form.course_type_ids.filter(id => !availableTypes.value.some(row => row.id === id)))
 function publish() {
   const payload: GroupConfiguration = JSON.parse(JSON.stringify(form))
   if (payload.class_mode === 'ALL_AUTHORIZED') payload.class_ids = []
@@ -55,7 +51,7 @@ function updateOverride(id: string, value: Effect | '') {
     <h3>本组检查哪些课</h3>
     <el-form-item label="负责的课程类型（至少一项）">
       <el-select v-model="form.course_type_ids" multiple placeholder="明确选择类型；留空不表示全部" style="width:100%">
-        <el-option v-for="row in types" :key="row.id" :value="row.id" :label="row.name + (row.status === 'INACTIVE' ? '（停用）' : '')" :disabled="row.status !== 'ACTIVE'" />
+        <el-option v-for="row in availableTypes" :key="row.id" :value="row.id" :label="row.name + (row.status === 'INACTIVE' ? '（停用）' : '')" :disabled="row.status !== 'ACTIVE'" />
         <el-option v-for="id in missingTypeIds" :key="id" :value="id" label="已不可见的历史类型（请移除）" disabled />
       </el-select>
     </el-form-item>
@@ -68,7 +64,7 @@ function updateOverride(id: string, value: Effect | '') {
     </el-form-item>
     <h3>志愿者本人有课时怎么处理</h3>
     <el-form-item label="默认课程冲突处理"><el-select v-model="form.default_effect"><el-option v-for="effect in effects" :key="effect.value" :value="effect.value" :label="effect.label" /></el-select></el-form-item>
-    <el-form-item v-for="row in types" :key="row.id" :label="`本人正在上：${row.name}`">
+    <el-form-item v-for="row in availableTypes" :key="row.id" :label="`本人正在上：${row.name}`">
       <el-select :model-value="form.type_overrides[row.id] || ''" placeholder="使用默认规则" @update:model-value="updateOverride(row.id, $event)">
         <el-option value="" label="使用默认规则" />
         <el-option v-for="effect in effects" :key="effect.value" :value="effect.value" :label="effect.label" />

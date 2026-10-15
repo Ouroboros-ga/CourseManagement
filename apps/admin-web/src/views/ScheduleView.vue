@@ -594,6 +594,7 @@ function handleTargetQuotaChange(quota: number) {
 }
 
 async function runSmartSample() {
+  if (organizationMode.value && !executionGroupId.value) { ElMessage.warning('请先选择执行组'); return }
   if (!sessionStore.currentSemesterId) return
 
   if (smartSampleScopeMode.value === 'targeted') {
@@ -606,6 +607,7 @@ async function runSmartSample() {
   smartSampling.value = true
   try {
     const payload: Parameters<typeof smartSampleOccurrences>[0] = {
+      execution_group_id: executionGroupId.value || undefined,
       semester_id: Number(sessionStore.currentSemesterId),
       week_no: sessionStore.currentWeekNo,
       morning_only: smartSampleForm.value.morning_only,

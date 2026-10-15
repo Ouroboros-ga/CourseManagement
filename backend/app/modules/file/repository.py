@@ -118,6 +118,7 @@ class FileRepository:
     def is_linked_to_submittable_for(
         self, *, file_id: int, actor_user_id: int, may_review: bool, may_read_own: bool,
         review_college_ids: frozenset[int] | None = None,
+        review_task_condition=None,
     ) -> bool:
         """文件是否挂在"该操作者可读/可审"的提交上（技术方案 16.2 业务资源归属）。
 
@@ -138,6 +139,8 @@ class FileRepository:
 
         managed = (InspectionTask.college_id.in_(review_college_ids)
                    if review_college_ids is not None else true()) if may_review else false()
+        if may_review and review_task_condition is not None:
+            managed = review_task_condition
         own = InspectionSubmission.volunteer_user_id == actor_user_id if may_read_own else false()
         conds.append(or_(managed, own))
 
@@ -175,16 +178,18 @@ class FileRepository:
     def is_linked_to_readable_objection_for(
         self, *, file_id: int, actor_user_id: int, may_manage: bool, may_read_own: bool,
         management_college_ids: frozenset[int] | None = None,
+        management_task_condition=None,
     ) -> bool:
         """仅异议已关联材料可按管理权限或有效学生绑定签发访问链接。"""
         if not (may_manage or may_read_own):
             return False
 
-        from app.modules.identity.models import UserAccount
-        from app.modules.objection.models import Objection, ObjectionFile
-        from app.modules.attendance.models import AttendanceRecord
-        from app.modules.inspection.models import InspectionTask
         from sqlalchemy import false, or_
+
+        from app.modules.attendance.models import AttendanceRecord
+        from app.modules.identity.models import UserAccount
+        from app.modules.inspection.models import InspectionTask
+        from app.modules.objection.models import Objection, ObjectionFile
 
         linked = (
             select(1)
@@ -196,6 +201,8 @@ class FileRepository:
         )
         managed = (InspectionTask.college_id.in_(management_college_ids)
                    if management_college_ids is not None else true()) if may_manage else false()
+        if may_manage and management_task_condition is not None:
+            managed = management_task_condition
         own = exists(select(UserAccount.id).where(
             UserAccount.id == actor_user_id, UserAccount.status == "ACTIVE",
             UserAccount.student_id == Objection.student_id,

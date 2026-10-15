@@ -18,7 +18,8 @@ class ScopedInspectionService(InspectionService):
     def _require(self, actor_user_id, code):
         if actor_user_id != self.actor.id or code not in CAMPUS_ACTIONS:
             raise PermissionDeniedError()
-        resolve_scope(self._session, self.actor, self.cid, code, write=not code.endswith(".read"))
+        scope = resolve_scope(self._session, self.actor, self.cid, code, write=not code.endswith(".read"))
+        self._repo.resource_scope = scope
         self._repo.college_ids = frozenset({self.cid})
         self._repo.deadline_scope_id = self.cid
         return set(CampusService(self._session).capabilities(self.actor, self.cid)["capabilities"])
@@ -26,5 +27,5 @@ class ScopedInspectionService(InspectionService):
     def _scope_filter(self, actor, action="inspection.read"):
         if actor.id != self.actor.id:
             raise PermissionDeniedError()
-        resolve_scope(self._session, actor, self.cid, action)
-        return select(InspectionTask).where(InspectionTask.college_id == self.cid)
+        scope = resolve_scope(self._session, actor, self.cid, action)
+        return select(InspectionTask).where(scope.task_condition())

@@ -23,8 +23,15 @@ class GroupMemberService:
         self.db, self.actor, self.cid, self.gid = db, actor, cid, gid
         self.campus = CampusService(db)
 
+    def _scope(self, action, *, write=False):
+        from app.modules.identity.resource_scope import resolve_scope
+        scope = resolve_scope(self.db, self.actor, self.cid, action, write=write)
+        if not scope.permits_group(self.gid):
+            raise NotFoundError("组不在授权范围")
+        return self.campus.repo.college(self.cid, lock=write)
+
     def _group(self, action, *, write=False, semester_id=None):
-        college = self.campus._authorize(self.actor, self.cid, action, write=write)
+        college = self._scope(action, write=write)
         if write and semester_id is not None:
             self.db.scalar(select(Semester).where(Semester.id == semester_id).with_for_update())
         stmt = select(VolunteerGroup).where(
@@ -182,7 +189,7 @@ class GroupMemberService:
         body = validated(MemberUpdate, data)
         if support:
             self.campus._super(self.actor)
-        self.campus._authorize(self.actor, self.cid, "volunteer.member.manage", write=True)
+        self._scope("volunteer.member.manage", write=True)
         original = self._existing(rid, support)
         college, group = self._group(
             "volunteer.member.manage", write=True, semester_id=original.semester_id
@@ -439,7 +446,7 @@ class GroupMemberService:
         if support:
             self.campus._super(self.actor)
         model = VolunteerGroupSupport if support else VolunteerGroupMember
-        self.campus._authorize(self.actor, self.cid, "volunteer.member.manage", write=True)
+        self._scope("volunteer.member.manage", write=True)
         original = cast(
             VolunteerGroupSupport | VolunteerGroupMember | None,
             self.db.scalar(

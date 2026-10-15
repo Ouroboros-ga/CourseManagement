@@ -48,7 +48,7 @@ class ObjectionRepository:
             stmt = stmt.where(
                 AttendanceRecord.task_id.in_(
                     select(InspectionTask.id).where(
-                        InspectionTask.college_id == self.scope.college_id
+                        self.scope.task_condition()
                     )
                 )
             )

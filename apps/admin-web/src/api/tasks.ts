@@ -257,6 +257,7 @@ export interface SmartSampleResult {
 }
 
 export async function smartSampleOccurrences(body: {
+  execution_group_id?: string
   semester_id: number
   week_no: number
   morning_only?: boolean

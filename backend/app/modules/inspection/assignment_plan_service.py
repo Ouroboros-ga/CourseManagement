@@ -40,6 +40,7 @@ class AssignmentPlanService:
 
     def _context(self, semester_id):
         scope = resolve_scope(self.db, self.actor, self.cid, "assignment.manage", write=True)
+        self.scope = scope
         self.inspection._repo.college_ids = frozenset({self.cid})
         semester = self.db.scalar(
             select(Semester)
@@ -73,6 +74,7 @@ class AssignmentPlanService:
                 InspectionTask.college_id == self.cid,
                 InspectionTask.group_id == self.gid,
                 InspectionTask.semester_id == semester_id,
+                self.scope.task_condition(),
             )
             .order_by(InspectionTask.id)
         )

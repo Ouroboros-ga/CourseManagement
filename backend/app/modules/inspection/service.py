@@ -18,8 +18,8 @@ import re
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date as date_
 from datetime import UTC, datetime, time, timedelta
+from datetime import date as date_
 
 from sqlalchemy import ColumnElement, create_engine, delete, func, or_, select
 from sqlalchemy.engine import Engine
@@ -40,7 +40,6 @@ from app.core.exceptions import (
     UnauthenticatedError,
 )
 from app.core.permissions import RoleCode
-from app.modules.volunteer.models import GroupConfigVersion, VolunteerGroup
 from app.modules.academic.calendar import resolve_teaching_day
 from app.modules.academic.models import (
     AdministrativeClass,
@@ -141,6 +140,7 @@ from app.modules.inspection.schemas import (
     UnassignedTaskBrief,
 )
 from app.modules.report.source_revision import SourceRevisionService
+from app.modules.volunteer.models import GroupConfigVersion, VolunteerGroup
 
 
 # --------------------------------------------------------------------------- #
@@ -276,6 +276,7 @@ class InspectionService:
             return stmt.where(InspectionTask.id.in_(subq))
         if get_settings().campus_business_scoped_enabled:
             from sqlalchemy import or_
+
             from app.modules.identity.management_scope import management_college_ids
 
             colleges = management_college_ids(self._session, actor, action)
@@ -1962,8 +1963,8 @@ class InspectionService:
     def _group_candidate_volunteers(self, task):
         from app.modules.academic.enrollment_service import EnrollmentService
         from app.modules.identity.models import WechatIdentity
-        from app.modules.volunteer.member_models import VolunteerGroupMember
         from app.modules.volunteer.eligibility_index import EligibilityIndex
+        from app.modules.volunteer.member_models import VolunteerGroupMember
 
         members = select(VolunteerGroupMember.student_id).where(
             VolunteerGroupMember.college_id == task.college_id,
@@ -2098,6 +2099,7 @@ class InspectionService:
                 # A second connection must not try to reacquire its account FOR UPDATE:
                 # that would wait on our own transaction on real MySQL.
                 reader_service._repo.college_ids = self._repo.college_ids
+                reader_service._repo.resource_scope = self._repo.resource_scope
                 targets = reader_service._load_assign_targets(sem.id, body)
                 if targets:
                     cand_ids = (

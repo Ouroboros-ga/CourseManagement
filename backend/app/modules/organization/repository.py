@@ -12,8 +12,7 @@ class CampusRepository:
 
     def college(self, college_id: int, *, lock: bool = False) -> College | None:
         stmt = select(College).where(College.id == college_id).execution_options(populate_existing=True)
-        if lock:
-            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        stmt = stmt.with_for_update(read=not lock).execution_options(populate_existing=True)
         return self.session.scalar(stmt)
 
     def grants(
@@ -22,8 +21,7 @@ class CampusRepository:
         stmt = select(ScopedGrant).where(ScopedGrant.user_id == user_id)
         if college_id is not None:
             stmt = stmt.where(ScopedGrant.college_id == college_id)
-        if lock:
-            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        stmt = stmt.with_for_update(read=not lock).execution_options(populate_existing=True)
         return list(self.session.scalars(stmt.execution_options(populate_existing=True)))
 
     def rows(self, model, college_id: int):
@@ -37,5 +35,6 @@ class CampusRepository:
         return self.session.scalar(
             select(model)
             .where(model.college_id == college_id, model.id == resource_id)
+            .with_for_update(read=True)
             .execution_options(populate_existing=True),
         )

@@ -29,6 +29,7 @@ export interface VolunteerGroup {
   starts_on: string | null; ends_on: string | null; configuration: GroupConfiguration | null
 }
 export interface ScopedGrant {
+  resource_scope: GrantBody['resource_scope'] | null
   id: string; college_id: string; user_id: string; actions: string[]
   starts_at: string | null; expires_at: string | null; status: 'ACTIVE' | 'REVOKED'; lock_version: number
 }
@@ -94,3 +95,15 @@ export interface OwnershipPreview {
 export const listUnresolvedOwnership = (kind: OwnershipKind, after = '0') => request<{ items: OwnershipItem[]; next_after_id: string | null }>(`/api/v1/campus/ownership/unresolved/${kind}?after_id=${encodeURIComponent(after)}`)
 export const previewOwnership = (mappings: OwnershipMappings) => request<OwnershipPreview>('/api/v1/campus/ownership/preview', json('POST', { mappings }))
 export const applyOwnership = (mappings: OwnershipMappings, revision: string) => request<{ updated: number; unresolved: Record<string, number>; business_ready: false }>('/api/v1/campus/ownership/apply', json('POST', { mappings, revision }))
+
+export interface GrantBody {
+  user_id: string; actions: string[]; starts_at: string | null; expires_at: string | null
+  resource_scope: { kind: 'COLLEGE' | 'GROUPS' | 'COURSE_TYPES' | 'TEACHING_CLASSES'; ids: string[] }
+  preview_revision?: string
+}
+export interface GrantPreview { revision: string; resource_scope: GrantBody['resource_scope']; actions: string[]; user_id: string }
+export const previewGrant = (cid: string, body: GrantBody) => request<GrantPreview>(path(cid, '/grants/preview'), json('POST', body))
+export const submitGrant = (cid: string, body: GrantBody) => request<ScopedGrant>(path(cid, '/grants'), json('POST', body))
+export const groupReferences = (cid: string, gid: string) => request<{
+  types: CourseType[]; classes: import('./scopedAcademic').ScopedAcademicRow[]; teaching_classes: import('./scopedAcademic').ScopedAcademicRow[]
+}>(path(cid, `/groups/${encodeURIComponent(gid)}/references`))

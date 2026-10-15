@@ -21,13 +21,17 @@ from app.core.exceptions import (
 from app.modules.academic.campus_models import CourseType
 from app.modules.audit.models import AuditLog
 from app.modules.audit.provenance import scoped_snapshot
-from app.modules.identity.authorization import CAMPUS_ACTIONS, effective_actions, fixed_college_actions
+from app.modules.identity.authorization import (
+    CAMPUS_ACTIONS,
+    effective_actions,
+    fixed_college_actions,
+)
 from app.modules.identity.models import Role, UserAccount, UserRole
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
+from app.modules.organization.future_impact import confirm_impact, future_impact
 from app.modules.organization.models import College, School, ScopedGrant
 from app.modules.organization.repository import CampusRepository
-from app.modules.organization.future_impact import confirm_impact, future_impact
 from app.modules.organization.schemas import (
     CollegeCreate,
     CollegeUpdate,
@@ -81,7 +85,8 @@ class CampusService:
         user = (
             self.identity.get_user_by_id_for_update(actor.id)
             if lock
-            else self.identity.get_user_by_id(actor.id)
+            else self.db.scalar(select(UserAccount).where(UserAccount.id == actor.id)
+                .with_for_update(read=True).execution_options(populate_existing=True))
         )
         if user is None or user.status != "ACTIVE" or actor.pre_binding:
             raise PermissionDeniedError("账号无效或尚未绑定")
@@ -108,7 +113,7 @@ class CampusService:
         binding = self.db.scalar(query.execution_options(populate_existing=True))
         return binding.college_id if binding else None
 
-    def _authorize(self, actor, cid, action, *, write=False):
+    def _authorize(self, actor, cid, action, *, write=False, allow_restricted=False):
         is_super = self._actor(actor, lock=write)
         primary_cid = self._teacher_college_id(actor, lock=write) if not is_super else None
         college = self.repo.college(cid, lock=write)
@@ -116,7 +121,7 @@ class CampusService:
             CAMPUS_ACTIONS
             if is_super or (primary_cid == cid and college and college.status == "ACTIVE")
             else fixed_college_actions(self.db, actor.id, cid) | effective_actions(
-                self.repo.grants(actor.id, college_id=cid, lock=write), cid, utcnow()
+                self.repo.grants(actor.id, college_id=cid, lock=write), cid, utcnow(), include_restricted=allow_restricted
             )
         )
         if college is None or not actions:
@@ -184,7 +189,7 @@ class CampusService:
                 select(GroupConfigVersion).where(
                     GroupConfigVersion.group_id == row.id,
                     GroupConfigVersion.version == row.config_version,
-                )
+                ).with_for_update(read=True)
             )
             data["configuration"] = config.configuration if config else None
         return data
@@ -238,7 +243,7 @@ class CampusService:
             actions = (
                 CAMPUS_ACTIONS
                 if is_super or (primary_cid == college.id and college.status == "ACTIVE")
-                else fixed_college_actions(self.db, actor.id, college.id) | effective_actions(grants, college.id, utcnow())
+                else fixed_college_actions(self.db, actor.id, college.id) | effective_actions(grants, college.id, utcnow(), include_restricted=True)
             )
             if actions:
                 data = self._dto(college)
@@ -263,6 +268,41 @@ class CampusService:
             raise NotFoundError()
         return [self._dto(row) for row in self.repo.rows(ScopedGrant, cid)]
 
+    def _grant_definition(self, cid, body):
+        definition = body.resource_scope.model_dump()
+        from app.modules.academic.models import TeachingClass
+        resource_model = {"GROUPS": VolunteerGroup, "COURSE_TYPES": CourseType,
+                          "TEACHING_CLASSES": TeachingClass}.get(definition["kind"])
+        if resource_model:
+            for value in definition["ids"]:
+                resource = self._resource(resource_model, cid, int(value))
+                if resource.status != "ACTIVE":
+                    raise ConflictError(message="不能授权已停用资源")
+        if definition["kind"] == "GROUPS":
+            definition["bounds"] = {}
+            for gid in definition["ids"]:
+                group = self._resource(VolunteerGroup, cid, int(gid))
+                version = self.db.scalar(select(GroupConfigVersion).where(
+                    GroupConfigVersion.group_id == group.id, GroupConfigVersion.college_id == cid,
+                    GroupConfigVersion.version == group.config_version).with_for_update(read=True))
+                config = version.configuration if version else {}
+                definition["bounds"][gid] = {key: config.get(key, default) for key, default in (
+                    ("course_type_ids", []), ("class_mode", "SPECIFIC"), ("class_ids", []))}
+        return definition
+
+    def preview_grant(self, actor, cid, data):
+        body = validated(GrantCreate, data)
+        self._super(actor)
+        college = self.repo.college(cid)
+        if college is None:
+            raise NotFoundError()
+        definition = self._grant_definition(cid, body)
+        from app.modules.inspection.assignment_fingerprint import fingerprint
+        revision = fingerprint({"college_id": cid, "authorization_revision": college.authorization_revision,
+            "definition": definition, "body": body.model_dump(mode="json", exclude={"preview_revision"})})
+        return {"revision": revision, "resource_scope": definition, "actions": body.actions,
+                "user_id": body.user_id}
+
     @atomic_write
     def create_grant(self, actor, cid, data):
         body = validated(GrantCreate, data)
@@ -275,10 +315,15 @@ class CampusService:
         target = self.db.get(UserAccount, int(body.user_id))
         if target is None or target.status != "ACTIVE":
             raise NotFoundError("目标账号无效")
+        definition = self._grant_definition(cid, body)
+        preview = self.preview_grant(actor, cid, body.model_dump())
+        if (definition["kind"] != "COLLEGE" or body.preview_revision is not None) and body.preview_revision != preview["revision"]:
+            raise ConflictError(message="授权范围或配置已变化，请重新预览后确认")
         row = ScopedGrant(
             college_id=cid,
             granted_by=actor.id,
-            **body.model_dump(exclude={"user_id"}),
+            **body.model_dump(exclude={"user_id", "resource_scope", "preview_revision"}),
+            resource_scope=definition,
             user_id=int(body.user_id),
         )
         self.db.add(row)
@@ -304,9 +349,16 @@ class CampusService:
             "course_type": (CourseType, "academic.course_type.read"),
             "group": (VolunteerGroup, "volunteer.group.read"),
         }[kind]
-        self._authorize(actor, cid, action)
+        scope = None
+        if kind == "group":
+            from app.modules.identity.resource_scope import resolve_scope
+            scope = resolve_scope(self.db, actor, cid, action)
+            if not scope.permits_group(rid):
+                raise NotFoundError()
+        else:
+            self._authorize(actor, cid, action)
         row = self._resource(model, cid, rid)
-        return future_impact(self.db, cid, kind, row.id, row.lock_version)
+        return future_impact(self.db, cid, kind, row.id, row.lock_version, resource_scope=scope)
 
     def list_types(self, actor, cid):
         self._authorize(actor, cid, "academic.course_type.read")
@@ -368,8 +420,58 @@ class CampusService:
         self._commit(actor, "campus.type.delete", None, before, resource_id=str(rid))
 
     def list_groups(self, actor, cid):
-        self._authorize(actor, cid, "volunteer.group.read")
-        return [self._dto(row) for row in self.repo.rows(VolunteerGroup, cid)]
+        from app.modules.identity.resource_scope import resolve_scope
+        scope = resolve_scope(self.db, actor, cid, "volunteer.group.read")
+        query = select(VolunteerGroup).where(VolunteerGroup.college_id == cid).order_by(VolunteerGroup.id)
+        if not scope.unrestricted:
+            ids = {int(value) for clause in scope.constraints if clause["kind"] == "GROUPS" for value in clause["ids"]}
+            query = query.where(VolunteerGroup.id.in_(ids))
+        return [self._dto(row) for row in self.db.scalars(query)]
+
+    def group_references(self, actor, cid, gid):
+        from app.modules.academic.models import AdministrativeClass, TeachingClass
+        from app.modules.identity.resource_scope import resolve_scope
+        scope = resolve_scope(self.db, actor, cid, "volunteer.group.read")
+        if not scope.permits_group(gid):
+            raise NotFoundError()
+        self._resource(VolunteerGroup, cid, gid)
+        classes = select(AdministrativeClass).where(AdministrativeClass.college_id == cid)
+        teaching = select(TeachingClass).where(TeachingClass.college_id == cid)
+        types = select(CourseType).where(CourseType.college_id == cid)
+        if not scope.unrestricted:
+            bounds = [clause.get("bounds", {}).get(str(gid), {}) for clause in scope.constraints
+                      if clause["kind"] == "GROUPS" and str(gid) in clause["ids"]]
+            type_ids = {int(v) for bound in bounds for v in bound.get("course_type_ids", [])}
+            types = types.where(CourseType.id.in_(type_ids))
+            teaching = teaching.where(TeachingClass.course_type_id.in_(type_ids))
+            if not any(bound.get("class_mode") == "ALL_AUTHORIZED" for bound in bounds):
+                class_ids = {int(v) for bound in bounds for v in bound.get("class_ids", [])}
+                classes = classes.where(AdministrativeClass.id.in_(class_ids))
+                # Selectors expose metadata only, never rosters or enrollment facts.
+        return {"types": [self._dto(row) for row in self.db.scalars(types.order_by(CourseType.id))],
+                "classes": [{"id": str(row.id), "class_name": row.class_name, "status": row.status}
+                            for row in self.db.scalars(classes.order_by(AdministrativeClass.id))],
+                "teaching_classes": [{"id": str(row.id), "class_name": row.class_name,
+                    "semester_id": str(row.semester_id), "status": row.status}
+                    for row in self.db.scalars(teaching.order_by(TeachingClass.id))]}
+
+    def _authorize_group(self, actor, cid, action, gid, *, write=False, proposed=None):
+        from app.modules.identity.resource_scope import resolve_scope
+        scope = resolve_scope(self.db, actor, cid, action, write=write)
+        if not scope.permits_group(gid):
+            raise NotFoundError("组不在授权范围")
+        group = self._resource(VolunteerGroup, cid, gid)
+        if write and not scope.unrestricted:
+            config = proposed or self._dto(group)["configuration"] or {}
+            if not any(
+                clause["kind"] == "GROUPS" and str(gid) in clause["ids"]
+                and set(config.get("course_type_ids", [])) <= set(clause.get("bounds", {}).get(str(gid), {}).get("course_type_ids", []))
+                and (clause.get("bounds", {}).get(str(gid), {}).get("class_mode") == "ALL_AUTHORIZED"
+                     or (config.get("class_mode") == "SPECIFIC" and set(config.get("class_ids", [])) <= set(clause.get("bounds", {}).get(str(gid), {}).get("class_ids", []))))
+                for clause in scope.constraints
+            ):
+                raise PermissionDeniedError("组查课范围超出授权时上限，请超管重新授权")
+        return self.repo.college(cid, lock=write)
 
     def _owner(self, user_id):
         user = self.db.get(UserAccount, int(user_id))
@@ -400,10 +502,12 @@ class CampusService:
     @atomic_write
     def update_group(self, actor, cid, rid, data):
         body = validated(GroupUpdate, data)
-        college = self._authorize(actor, cid, "volunteer.group.manage", write=True)
+        college = self._authorize_group(actor, cid, "volunteer.group.manage", rid, write=True)
         row = self._resource(VolunteerGroup, cid, rid)
         self._version(row, body.lock_version)
-        confirm_impact(self.db, cid, "group", row, body.future_impact_revision)
+        from app.modules.identity.resource_scope import resolve_scope
+        impact_scope = resolve_scope(self.db, actor, cid, "volunteer.group.manage" if isinstance(body, GroupUpdate) else "volunteer.config.publish", write=True)
+        confirm_impact(self.db, cid, "group", row, body.future_impact_revision, resource_scope=impact_scope)
         before = self._dto(row)
         for key, value in body.model_dump(exclude_unset=True).items():
             if key not in {"lock_version", "future_impact_revision"}:
@@ -426,10 +530,13 @@ class CampusService:
     @atomic_write
     def publish_group(self, actor, cid, rid, data):
         body = validated(GroupPublish, data)
-        college = self._authorize(actor, cid, "volunteer.config.publish", write=True)
+        college = self._authorize_group(actor, cid, "volunteer.config.publish", rid, write=True,
+                                        proposed=body.model_dump())
         row = self._resource(VolunteerGroup, cid, rid)
         self._version(row, body.lock_version)
-        confirm_impact(self.db, cid, "group", row, body.future_impact_revision)
+        from app.modules.identity.resource_scope import resolve_scope
+        impact_scope = resolve_scope(self.db, actor, cid, "volunteer.group.manage" if isinstance(body, GroupUpdate) else "volunteer.config.publish", write=True)
+        confirm_impact(self.db, cid, "group", row, body.future_impact_revision, resource_scope=impact_scope)
         if not body.course_type_ids:
             raise ConflictError(message="必须明确选择查课类型，留空不表示全部")
         from app.modules.academic.models import AdministrativeClass, TeachingClass

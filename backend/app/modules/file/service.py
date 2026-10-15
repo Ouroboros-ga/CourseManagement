@@ -228,8 +228,9 @@ class FileService:
 
     def _can_access_scoped(self, actor: CurrentUser, file: FileObject) -> bool:
         from sqlalchemy import select
-        from app.modules.identity.models import UserAccount
+
         from app.modules.identity.management_scope import management_college_ids
+        from app.modules.identity.models import UserAccount
 
         user = self._session.scalar(select(UserAccount).where(
             UserAccount.id == actor.id
@@ -244,17 +245,21 @@ class FileService:
                 file_id=file.id, actor_user_id=user.id
             ):
                 return True
+            from app.modules.identity.management_scope import management_task_access
+            may_review, predicate = management_task_access(self._session, actor, "submission.review")
             colleges = management_college_ids(self._session, actor, "submission.review")
             return self._repo.is_linked_to_submittable_for(
                 file_id=file.id, actor_user_id=user.id,
-                may_review=colleges is None or bool(colleges),
+                may_review=may_review, review_task_condition=predicate,
                 review_college_ids=colleges, may_read_own="submission.read" in permissions,
             )
         if file.category == FileCategory.OBJECTION_PROOF.value:
+            from app.modules.identity.management_scope import management_task_access
+            may_manage, predicate = management_task_access(self._session, actor, "objection.read")
             colleges = management_college_ids(self._session, actor, "objection.read")
             return self._repo.is_linked_to_readable_objection_for(
                 file_id=file.id, actor_user_id=user.id,
-                may_manage=colleges is None or bool(colleges),
+                may_manage=may_manage, management_task_condition=predicate,
                 management_college_ids=colleges, may_read_own="objection.read" in permissions,
             )
         if file.category == FileCategory.REPORT_FILE.value:

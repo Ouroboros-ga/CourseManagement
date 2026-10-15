@@ -260,6 +260,8 @@ def smart_sample_occurrences(
         teaching_class_ids=[t.id for t in tcs],
     )
     all_plan_items = service._build_course_plan_core(semester, gen_req)
+    from app.modules.inspection.execution_group import validate
+    all_plan_items = validate(service, all_plan_items, strict=False)
 
     # 若指定了目标班级，确保候选只包含属于目标班级的课次
     if target_class_ids_set:

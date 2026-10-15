@@ -43,7 +43,7 @@ class College(TimestampMixin, Base):
 
 
 class ScopedGrant(TimestampMixin, Base):
-    """当前配置底座仅支持院级完整动作；资源受限授权不允许静默扩大。"""
+    """学院动作授权，可附指定资源上限；旧空范围明确表示院级授权。"""
 
     __tablename__ = "scoped_grant"
     __table_args__ = (
@@ -61,6 +61,7 @@ class ScopedGrant(TimestampMixin, Base):
         index=True,
     )
     actions: Mapped[list[str]] = mapped_column(JSON)
+    resource_scope: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     starts_at: Mapped[datetime | None] = mapped_column(DATETIME_3)
     expires_at: Mapped[datetime | None] = mapped_column(DATETIME_3)
     status: Mapped[str] = mapped_column(String(16), default="ACTIVE")
