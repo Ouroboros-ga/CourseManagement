@@ -12,8 +12,8 @@ from app.core.database import get_db
 from app.core.exceptions import AppError, ErrorCode
 from app.modules.attendance.schemas import (
     AttendanceCorrectionRequest,
-    AttendanceDetailEnvelope,
-    AttendanceListEnvelope,
+    ManagementAttendanceDetailEnvelope,
+    ManagementAttendanceListEnvelope,
 )
 from app.modules.attendance.scoped_service import ScopedAttendanceService
 from app.modules.identity.deps import CurrentUserDep
@@ -40,7 +40,7 @@ def get_service(cid: ResourceId, actor: CurrentUserDep, db: Annotated[Session, D
 Service = Annotated[ScopedAttendanceService, Depends(get_service)]
 
 
-@router.get("/colleges/{cid}/attendance", response_model=AttendanceListEnvelope)
+@router.get("/colleges/{cid}/attendance", response_model=ManagementAttendanceListEnvelope)
 def list_attendance(
     cid: ResourceId,
     actor: CurrentUserDep,
@@ -54,13 +54,18 @@ def list_attendance(
 ):
     return success(
         service.list_attendance(
-            actor, params, task_id=task_id, semester_id=semester_id, dimensions=dimensions, effective_type=effective_type
+            actor,
+            params,
+            task_id=task_id,
+            semester_id=semester_id,
+            dimensions=dimensions,
+            effective_type=effective_type,
         ),
         getattr(request.state, "request_id", None),
     )
 
 
-@router.get("/colleges/{cid}/attendance/{rid}", response_model=AttendanceDetailEnvelope)
+@router.get("/colleges/{cid}/attendance/{rid}", response_model=ManagementAttendanceDetailEnvelope)
 def get_attendance(
     cid: ResourceId, rid: ResourceId, actor: CurrentUserDep, service: Service, request: Request
 ):
@@ -80,7 +85,8 @@ def versions(
 
 
 @router.post(
-    "/colleges/{cid}/attendance/{rid}/corrections", response_model=AttendanceDetailEnvelope
+    "/colleges/{cid}/attendance/{rid}/corrections",
+    response_model=ManagementAttendanceDetailEnvelope,
 )
 def correct(
     cid: ResourceId,
@@ -94,8 +100,17 @@ def correct(
     return success(service.correct(actor, rid, body, request_id).model_dump(), request_id)
 
 
-@router.post("/colleges/{cid}/attendance/{rid}/archived-corrections", response_model=AttendanceDetailEnvelope)
-def correct_archived(cid: ResourceId, rid: ResourceId, body: AttendanceCorrectionRequest,
-                     actor: CurrentUserDep, service: Service, request: Request):
+@router.post(
+    "/colleges/{cid}/attendance/{rid}/archived-corrections",
+    response_model=ManagementAttendanceDetailEnvelope,
+)
+def correct_archived(
+    cid: ResourceId,
+    rid: ResourceId,
+    body: AttendanceCorrectionRequest,
+    actor: CurrentUserDep,
+    service: Service,
+    request: Request,
+):
     request_id = getattr(request.state, "request_id", None)
     return success(service.correct_archived(actor, rid, body, request_id).model_dump(), request_id)

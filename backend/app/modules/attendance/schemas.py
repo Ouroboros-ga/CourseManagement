@@ -26,9 +26,6 @@ class AttendanceTaskBrief(BaseModel):
     """考勤所属查课任务的展示信息（列表按任务上下文回看，技术方案 14）。"""
 
     task_id: IdStr
-    responsible_college_id: OptIdStr = None
-    responsible_college_name: str | None = None
-    semester_status: str | None = None
     inspection_date: date
     inspection_type: str
     course_name_snapshot: str | None = None
@@ -38,6 +35,14 @@ class AttendanceTaskBrief(BaseModel):
     end_period: int | None = None
     period_text: str | None = None
     week_no: int | None = None
+
+
+class ManagementAttendanceTaskBrief(AttendanceTaskBrief):
+    """College ownership and archival context are for management clients only."""
+
+    responsible_college_id: OptIdStr = None
+    responsible_college_name: str | None = None
+    semester_status: str | None = None
 
 
 class AttendanceObjectionBrief(BaseModel):
@@ -79,6 +84,9 @@ class AttendanceResponse(BaseModel):
     classroom: str | None = None
 
 
+class ManagementAttendanceResponse(AttendanceResponse):
+    task: ManagementAttendanceTaskBrief | None
+
 
 class AttendancePageResponse(BaseModel):
     items: list[AttendanceResponse]
@@ -94,6 +102,20 @@ class AttendanceListEnvelope(BaseModel):
 
 class AttendanceDetailEnvelope(BaseModel):
     data: AttendanceResponse
+    requestId: str | None = None
+
+
+class ManagementAttendancePageResponse(AttendancePageResponse):
+    items: list[ManagementAttendanceResponse]
+
+
+class ManagementAttendanceListEnvelope(BaseModel):
+    data: ManagementAttendancePageResponse
+    requestId: str | None = None
+
+
+class ManagementAttendanceDetailEnvelope(BaseModel):
+    data: ManagementAttendanceResponse
     requestId: str | None = None
 
 

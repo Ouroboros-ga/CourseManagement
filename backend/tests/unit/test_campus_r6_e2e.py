@@ -439,7 +439,19 @@ def test_two_college_real_http_lifecycle(campus, tmp_path):
                     },
                 )
                 attendance = call("GET", "/me/attendance", view["student_token"])["items"][0]
-                assert attendance["task"]["responsible_college_id"] == prefix.rsplit("/", 1)[1]
+                management_fields = {
+                    "responsible_college_id",
+                    "responsible_college_name",
+                    "semester_status",
+                }
+                assert not management_fields.intersection(attendance["task"])
+                personal_detail = call(
+                    "GET", f"/attendance/{attendance['id']}", view["student_token"]
+                )
+                assert not management_fields.intersection(personal_detail["task"])
+                managed = call("GET", prefix + f"/attendance/{attendance['id']}", token)
+                assert managed["task"]["responsible_college_id"] == prefix.rsplit("/", 1)[1]
+                assert managed["task"]["semester_status"] == "ACTIVE"
                 assert str(photo["id"]) in attendance["photo_file_ids"]
                 call("GET", f"/files/{photo['id']}/access", view["student_token"])
                 call(

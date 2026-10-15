@@ -1,3 +1,5 @@
+> 学生端考勤维持学院升级前契约；管理端扩展信息在独立管理响应中返回。个人课表增量为可选接口。
+
 # API 路由索引
 
 2026-10-16，依据 R6 候选 FastAPI OpenAPI 生成。实际部署及启用状态见 [当前实施状态](development/IMPLEMENTATION_STATUS.md)。业务边界见 [API 契约](API_CONTRACT.md)。

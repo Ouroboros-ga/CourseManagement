@@ -12657,7 +12657,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AttendanceListEnvelope"
+                  "$ref": "#/components/schemas/ManagementAttendanceListEnvelope"
                 }
               }
             }
@@ -12717,7 +12717,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AttendanceDetailEnvelope"
+                  "$ref": "#/components/schemas/ManagementAttendanceDetailEnvelope"
                 }
               }
             }
@@ -12845,7 +12845,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AttendanceDetailEnvelope"
+                  "$ref": "#/components/schemas/ManagementAttendanceDetailEnvelope"
                 }
               }
             }
@@ -12915,7 +12915,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AttendanceDetailEnvelope"
+                  "$ref": "#/components/schemas/ManagementAttendanceDetailEnvelope"
                 }
               }
             }
@@ -21187,7 +21187,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AttendanceListEnvelope"
+                  "$ref": "#/components/schemas/ManagementAttendanceListEnvelope"
                 }
               }
             }
@@ -25321,39 +25321,6 @@
             "type": "string",
             "title": "Task Id"
           },
-          "responsible_college_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Responsible College Id"
-          },
-          "responsible_college_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Responsible College Name"
-          },
-          "semester_status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Semester Status"
-          },
           "inspection_date": {
             "type": "string",
             "format": "date",
@@ -28445,6 +28412,376 @@
         "type": "object",
         "title": "InspectionTaskUpdateRequest",
         "description": "PATCH /inspection-tasks/{task_id} 请求体：修改未执行/未审核任务的教室或节次。"
+      },
+      "ManagementAttendanceDetailEnvelope": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ManagementAttendanceResponse"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "ManagementAttendanceDetailEnvelope"
+      },
+      "ManagementAttendanceListEnvelope": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ManagementAttendancePageResponse"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "ManagementAttendanceListEnvelope"
+      },
+      "ManagementAttendancePageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManagementAttendanceResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "title": "ManagementAttendancePageResponse"
+      },
+      "ManagementAttendanceResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "student_id": {
+            "type": "string",
+            "title": "Student Id"
+          },
+          "student_no": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student No"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "effective_type": {
+            "type": "string",
+            "enum": [
+              "NORMAL",
+              "LEAVE",
+              "LATE",
+              "ABSENT"
+            ],
+            "title": "Effective Type"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version"
+          },
+          "source_submission_item_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Submission Item Id"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManagementAttendanceTaskBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "photo_file_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Photo File Ids"
+          },
+          "has_objection": {
+            "type": "boolean",
+            "title": "Has Objection",
+            "default": false
+          },
+          "objection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objection Id"
+          },
+          "objection_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objection Status"
+          },
+          "objection_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttendanceObjectionBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          },
+          "classroom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classroom"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "task_id",
+          "student_id",
+          "student_no",
+          "name",
+          "effective_type",
+          "current_version",
+          "source_submission_item_id",
+          "task",
+          "created_at"
+        ],
+        "title": "ManagementAttendanceResponse"
+      },
+      "ManagementAttendanceTaskBrief": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "inspection_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Inspection Date"
+          },
+          "inspection_type": {
+            "type": "string",
+            "title": "Inspection Type"
+          },
+          "course_name_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Name Snapshot"
+          },
+          "class_name_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Name Snapshot"
+          },
+          "classroom_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classroom Snapshot"
+          },
+          "start_period": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Period"
+          },
+          "end_period": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Period"
+          },
+          "period_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Text"
+          },
+          "week_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Week No"
+          },
+          "responsible_college_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsible College Id"
+          },
+          "responsible_college_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsible College Name"
+          },
+          "semester_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semester Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "inspection_date",
+          "inspection_type"
+        ],
+        "title": "ManagementAttendanceTaskBrief",
+        "description": "College ownership and archival context are for management clients only."
       },
       "ManagerFunctionsRequest": {
         "properties": {

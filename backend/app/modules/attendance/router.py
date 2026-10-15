@@ -12,6 +12,8 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams, page_params
@@ -22,6 +24,7 @@ from app.modules.attendance.schemas import (
     AttendanceCorrectionRequest,
     AttendanceDetailEnvelope,
     AttendanceListEnvelope,
+    ManagementAttendanceListEnvelope,
 )
 from app.modules.attendance.service import AttendanceService
 from app.modules.identity.deps import CurrentUserDep, require_permission
@@ -60,14 +63,12 @@ def list_my_attendance(
     task_id: Annotated[int | None, Query(ge=1)] = None,
     effective_type: Annotated[str | None, Query(max_length=16)] = None,
 ) -> dict[str, object]:
-    data = service.list_my_attendance(
-        actor, params, task_id=task_id, effective_type=effective_type
-    )
+    data = service.list_my_attendance(actor, params, task_id=task_id, effective_type=effective_type)
     return success(data, _rid(request))
 
 
 # ---- 管理范围考勤列表 ----
-@router.get("/attendance", response_model=AttendanceListEnvelope)
+@router.get("/attendance", response_model=ManagementAttendanceListEnvelope)
 def list_attendance(
     actor: AttendanceReadDep,
     service: ServiceDep,
@@ -83,7 +84,8 @@ def list_attendance(
         params,
         task_id=task_id,
         semester_id=semester_id,
-        dimensions=dimensions, effective_type=effective_type,
+        dimensions=dimensions,
+        effective_type=effective_type,
     )
     return success(data, _rid(request))
 
@@ -95,9 +97,14 @@ def get_attendance(
     actor: AttendanceReadDep,
     service: ServiceDep,
     request: Request,
-) -> dict[str, object]:
+) -> dict[str, object] | JSONResponse:
     result = service.get_attendance(actor, record_id)
-    return success(result.model_dump(), _rid(request))
+    payload = success(result.model_dump(), _rid(request))
+    # The shared legacy detail URL also serves Web while college mode is off.
+    # Preserve its management metadata without exposing it in student responses.
+    if service._can_manage(actor):
+        return JSONResponse(content=jsonable_encoder(payload))
+    return payload
 
 
 # ---- 考勤历史版本（按范围鉴权）----

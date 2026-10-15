@@ -38,9 +38,9 @@ from app.modules.attendance.repository import AttendanceRepository
 from app.modules.attendance.schemas import (
     AttendanceCorrectionRequest,
     AttendanceObjectionBrief,
-    AttendanceResponse,
-    AttendanceTaskBrief,
     AttendanceVersionResponse,
+    ManagementAttendanceResponse,
+    ManagementAttendanceTaskBrief,
 )
 from app.modules.audit.models import AuditLog
 from app.modules.audit.provenance import scoped_snapshot
@@ -172,7 +172,7 @@ class AttendanceService:
             "total": total,
         }
 
-    def get_attendance(self, actor: CurrentUser, record_id: int) -> AttendanceResponse:
+    def get_attendance(self, actor: CurrentUser, record_id: int) -> ManagementAttendanceResponse:
         self._require(actor.id, perms.ATTENDANCE_READ_PERMISSION)
         record = self._repo.get_record(record_id)
         if record is None or not self._can_read(actor, record):
@@ -216,7 +216,7 @@ class AttendanceService:
         record_id: int,
         body: AttendanceCorrectionRequest,
         request_id: str | None,
-    ) -> AttendanceResponse:
+    ) -> ManagementAttendanceResponse:
         """更正最终考勤：改当前认定并追加版本，不重写原提交与既往版本（技术方案 14）。
 
         锁记录行 FOR UPDATE 后以客户端所见 current_version 条件校验；不符即 409，绝不覆盖
@@ -229,6 +229,7 @@ class AttendanceService:
             raise NotFoundError("考勤记录不存在")
         if not getattr(self, "_archive_correction", False):
             from app.modules.academic.archive import require_open_task
+
             require_open_task(self._session, record.task_id)
         if record.current_version != body.current_version:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "考勤已被他人更正，请刷新后重看再操作")
@@ -251,7 +252,9 @@ class AttendanceService:
         self._repo.flush()
         self._audit(
             actor_user_id=actor.id,
-            action="attendance.archived.correct" if getattr(self, "_archive_correction", False) else "attendance.correct",
+            action="attendance.archived.correct"
+            if getattr(self, "_archive_correction", False)
+            else "attendance.correct",
             resource_type="attendance_record",
             resource_id=f"{record.id}",
             before={
@@ -273,17 +276,29 @@ class AttendanceService:
     # ================================================================== #
     # 装配（批量取任务上下文 + 名单快照，禁 N+1）
     # ================================================================== #
-    def _assemble(self, records: Sequence[AttendanceRecord]) -> list[AttendanceResponse]:
+    def _assemble(self, records: Sequence[AttendanceRecord]) -> list[ManagementAttendanceResponse]:
         if not records:
             return []
         task_ids = list({r.task_id for r in records})
         tasks = self._repo.map_tasks_by_ids(task_ids)
         from app.modules.organization.models import College
-        colleges = {c.id: c.name for c in self._session.scalars(select(College).where(
-            College.id.in_({t.college_id for t in tasks.values() if t.college_id}))) }
+
+        colleges = {
+            c.id: c.name
+            for c in self._session.scalars(
+                select(College).where(
+                    College.id.in_({t.college_id for t in tasks.values() if t.college_id})
+                )
+            )
+        }
         from app.modules.academic.models import Semester
-        semester_states = {s.id: s.status for s in self._session.scalars(select(Semester).where(
-            Semester.id.in_({t.semester_id for t in tasks.values()})))}
+
+        semester_states = {
+            s.id: s.status
+            for s in self._session.scalars(
+                select(Semester).where(Semester.id.in_({t.semester_id for t in tasks.values()}))
+            )
+        }
         version_by_task = {tid: t.roster_version for tid, t in tasks.items()}
         pairs = [(r.task_id, r.student_id) for r in records]
         display = self._repo.map_roster_display(pairs, version_by_task)
@@ -302,7 +317,7 @@ class AttendanceService:
                 if obj.attendance_record_id not in objections_by_record:
                     objections_by_record[obj.attendance_record_id] = obj
 
-        out: list[AttendanceResponse] = []
+        out: list[ManagementAttendanceResponse] = []
         for r in records:
             task: InspectionTask | None = tasks.get(r.task_id)
             sno, name = display.get((r.task_id, r.student_id), (None, None))
@@ -319,7 +334,7 @@ class AttendanceService:
                 else None
             )
             task_brief = (
-                AttendanceTaskBrief(
+                ManagementAttendanceTaskBrief(
                     task_id=task.id,
                     responsible_college_id=task.college_id,
                     responsible_college_name=colleges.get(task.college_id),
@@ -358,7 +373,7 @@ class AttendanceService:
             )
 
             out.append(
-                AttendanceResponse(
+                ManagementAttendanceResponse(
                     id=r.id,
                     task_id=r.task_id,
                     student_id=r.student_id,

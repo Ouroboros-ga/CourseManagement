@@ -20,7 +20,7 @@
 | [API 契约](API_CONTRACT.md)、[API 索引](API_INDEX.md)、[OpenAPI](openapi.json) | 已有接口及兼容行为；实际以已挂载路由/schema为准，运行能力可能尚未开启 |
 | [权限策略](PERMISSIONS.md) | 授权、资源范围和身份规则；分日期历史章节不能覆盖后续确认 |
 | [排班规则参考](SCHEDULING_RULES.md) | 原有调度约束与实现基础；新组织模式结合最新总体设计及 scheduling 模块阅读 |
-| [2026-10-16小程序接口增量](integration/WECHAT_API_CHANGES_20261016.md) | 最新负责学院、归档、正式来源、恢复与单次修改；小程序开发者优先阅读 |
+| [2026-10-16小程序接口增量](integration/WECHAT_API_CHANGES_20261016.md) | 学生旧契约保持不变；正式来源、恢复与单次修改为独立可选能力 |
 | [小程序功能及接口变化](integration/WECHAT_DEVELOPER_CHANGES_20261014.md) | 既有照片、一次异议审核、换班和通用客户端适配；保留当时版本边界 |
 | [个人课表与简单通知接口](integration/WECHAT_PERSONAL_TIMETABLE_API_20261015.md) | 当前个人课表核心交接契约；不包含尚未实施的管理端重构接口 |
 
