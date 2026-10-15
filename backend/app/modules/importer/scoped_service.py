@@ -85,6 +85,7 @@ class ScopedImporterService(ImporterService):
             .where(
                 CollegeTimeVersion.college_id == self.cid,
                 CollegeTimeVersion.semester_id == semester_id,
+                CollegeTimeVersion.profile_id.is_(None),
             )
             .order_by(CollegeTimeVersion.version.desc())
             .limit(1)

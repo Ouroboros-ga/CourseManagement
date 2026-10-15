@@ -1,0 +1,9 @@
+{
+  "name": "TEST_学校常规作息",
+  "periods": [
+    {"period_no": 1, "slot_id": "morning-study", "name": "早自习", "start_time": "07:00", "end_time": "07:30"},
+    {"period_no": 2, "slot_id": "lesson-1", "name": "第一节", "start_time": "08:00", "end_time": "08:45"},
+    {"period_no": 3, "slot_id": "lesson-2", "name": "第二节", "start_time": "08:55", "end_time": "09:40"},
+    {"period_no": 4, "slot_id": "evening-study", "name": "晚自习", "start_time": "19:00", "end_time": "20:00"}
+  ]
+}

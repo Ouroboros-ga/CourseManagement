@@ -6,6 +6,7 @@ import { createCollege, createSchool, listSchools, updateCollege, type College, 
 import { useCampusMutation } from '../../composables/useCampusMutation'
 import CollegeGrantEditor from './CollegeGrantEditor.vue'
 import TeacherCollegeEditor from './TeacherCollegeEditor.vue'
+import SchoolTimeTemplates from './SchoolTimeTemplates.vue'
 import { ContextEpoch } from '../../utils/contextEpoch'
 
 const props = defineProps<{ college: College | null }>()
@@ -51,6 +52,7 @@ onUnmounted(() => epoch.invalidate())
     <el-input v-model="basic.collegeCode" placeholder="学院编码" />
     <el-button type="primary" :loading="saving" :disabled="!basic.collegeName || !basic.collegeCode" @click="run(() => createCollege(schools[0]!.id, basic.collegeName, basic.collegeCode))">创建学院</el-button>
   </div>
+  <SchoolTimeTemplates v-if="schools[0]" :key="schools[0].id" :school-id="schools[0].id" />
   <template v-if="college">
     <div class="admin-form">
       <h3>当前学院：{{ college.name }}</h3>

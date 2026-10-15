@@ -20,12 +20,15 @@ class PersonalTimetableService:
         self.repo = PersonalTimetableRepository(db)
 
     def _dto(self, semester_id: int, row, *, status="NOT_INITIALIZED"):
+        entries = [{**entry, "exceptions": list(
+            (row.occurrence_exceptions or {}).get(entry["id"], {}).values())}
+            for entry in row.entries] if row else []
         return {
             "semester_id": str(semester_id),
             "status": "INITIALIZED" if row else status,
             "source_revision": row.source_revision if row else None,
             "sources": row.sources if row else [],
-            "entries": row.entries if row else [],
+            "entries": entries,
             "current_version": row.current_version if row else None,
         }
 
@@ -115,6 +118,10 @@ class PersonalTimetableService:
         found = next((entry for entry in row.entries if entry["id"] == entry_id), None)
         if found is None:
             raise NotFoundError("个人课程不存在")
+        if {"week_nos", "weekday", "occurrence_dates"} & body.model_fields_set and (
+            (row.occurrence_exceptions or {}).get(entry_id)
+        ):
+            raise ConflictError(message="该课程存在单次修改，请先撤销单次修改再调整重复日期规则")
         values = {key: found.get(key) for key in EDIT_FIELDS}
         if {
             "week_nos",
@@ -134,4 +141,48 @@ class PersonalTimetableService:
         entries = [entry for entry in row.entries if entry["id"] != entry_id]
         if len(entries) == len(row.entries):
             raise NotFoundError("个人课程不存在")
+        if len(row.deleted_entries or []) >= 500:
+            raise ConflictError(message="可恢复删除记录已达500条，请先恢复所需条目")
+        found = next(entry for entry in row.entries if entry["id"] == entry_id)
+        from app.core.database import utcnow
+        row.deleted_entries = [*(row.deleted_entries or []),
+            {"entry": found, "deleted_at": utcnow().isoformat() + "Z"}]
         return self._save(row, entries)
+
+    def deleted(self, semester_id):
+        student = self.repo.student(self.user_id)
+        row = self.repo.get(student.id, semester_id)
+        return {"current_version": row.current_version if row else None,
+                "items": row.deleted_entries or [] if row else []}
+
+    @atomic_write
+    def restore(self, semester_id, entry_id, version):
+        row = self._editable(semester_id, version)
+        deleted = next((item for item in row.deleted_entries or []
+                        if item["entry"]["id"] == entry_id), None)
+        if deleted is None:
+            raise NotFoundError("可恢复课程不存在")
+        if len(row.entries) >= 500 or any(entry["id"] == entry_id for entry in row.entries):
+            raise ConflictError(message="课程容量已满或条目已存在")
+        row.deleted_entries = [item for item in row.deleted_entries if item != deleted]
+        return self._save(row, [*row.entries, deleted["entry"]])
+
+    @atomic_write
+    def set_exception(self, semester_id, entry_id, day, data):
+        from app.modules.timetable.occurrences import save_exception
+        row = self._editable(semester_id, data["current_version"])
+        save_exception(self.db, row, entry_id, day, data)
+        return self._save(row, row.entries)
+
+    @atomic_write
+    def remove_exception(self, semester_id, entry_id, day, version):
+        row = self._editable(semester_id, version)
+        if not any(entry["id"] == entry_id for entry in row.entries):
+            raise NotFoundError("个人课程不存在")
+        exceptions = {key: dict(values) for key, values in (row.occurrence_exceptions or {}).items()}
+        values = exceptions.get(entry_id, {})
+        if day.isoformat() not in values:
+            raise NotFoundError("单次修改不存在")
+        del values[day.isoformat()]
+        row.occurrence_exceptions = exceptions
+        return self._save(row, row.entries)

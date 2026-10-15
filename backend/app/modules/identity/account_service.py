@@ -32,6 +32,7 @@ from app.modules.identity.models import (
 from app.modules.identity.policy import can_manage_administrator
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser, IdentityService
+from app.modules.organization.service import atomic_write
 
 
 def lock_admin_registry(session: Session) -> None:
@@ -86,8 +87,22 @@ def require_another_administrator_manager(session: Session, target_id: int) -> N
 class AccountService:
     def __init__(self, session: Session):
         self.session = session
+        self.db = session  # Shared atomic_write rollback protocol.
         self.repo = IdentityRepository(session)
         self.identity = IdentityService(session)
+
+    def _school_summary_permission(self, actor, user, enabled):
+        permission = self.repo.get_permission_by_code("statistics.school.read")
+        if permission is None:
+            raise ConflictError(message="请先同步全校汇总权限注册表")
+        if enabled:
+            self.repo.set_user_permission(user.id, permission.id, actor.id)
+        else:
+            self.repo.revoke_user_permission(user.id, permission.id)
+
+    def _teacher_view(self, user):
+        return {**self.view(user), "can_view_school_summary":
+                "statistics.school.read" in self.repo.list_effective_permissions(user.id)}
 
     def _require_administrator_account_manage(self, actor_id: int) -> None:
         user = self.repo.get_user_by_id_for_update(actor_id)
@@ -259,7 +274,8 @@ class AccountService:
                 resource_type="user_account",
                 resource_id=str(user.id),
                 before_json=before,
-                after_json=self.view(user),
+                after_json=self._teacher_view(user)
+                if action.startswith("account.teacher.") else self.view(user),
                 reason=reason,
                 request_id=request_id,
             )
@@ -297,16 +313,23 @@ class AccountService:
         if status:
             stmt = stmt.where(UserAccount.status == status)
         total = self.session.scalar(select(func.count()).select_from(stmt.subquery()))
-        rows = self.session.execute(
+        rows = list(self.session.execute(
             stmt.order_by(UserAccount.id).limit(params.limit).offset(params.offset)
-        ).scalars()
+        ).scalars())
+        granted = set(self.session.scalars(select(UserPermission.user_id).join(
+            Permission, Permission.id == UserPermission.permission_id).where(
+            UserPermission.user_id.in_([r.id for r in rows]),
+            Permission.code == "statistics.school.read")))
         return {
-            "items": [self.view(r) for r in rows],
+            "items": [{**self.view(r), "can_view_school_summary": r.id in granted
+                       or any(role.code == "SUPER_ADMIN" for role in r.roles)}
+                      for r in rows],
             "total": total,
             "page": params.page,
             "page_size": params.page_size,
         }
 
+    @atomic_write
     def create(
         self, actor: CurrentUser, body: TeacherAccountCreate, request_id: str | None
     ) -> dict:
@@ -335,21 +358,29 @@ class AccountService:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "用户名已存在") from exc
         self.session.add(TeacherCollegeBinding(user_id=user.id, college_id=college.id))
         college.authorization_revision += 1
+        if body.can_view_school_summary:
+            self._school_summary_permission(actor, user, True)
         self._audit(actor, "account.teacher.create", user, request_id)
         self.session.commit()
-        return self.view(user)
+        return self._teacher_view(user)
 
     @staticmethod
     def _version(user: UserAccount, version: int) -> None:
         if user.lock_version != version:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "账号已变化，请刷新后重试")
 
+    @atomic_write
     def update(
         self, actor: CurrentUser, uid: int, body: TeacherAccountUpdate, request_id: str | None
     ) -> dict:
         user = self._manage(actor, uid)
         self._version(user, body.lock_version)
         before = self.view(user)
+        before["can_view_school_summary"] = self._teacher_view(user)["can_view_school_summary"]
+        if body.can_view_school_summary is not None:
+            self._school_summary_permission(actor, user, body.can_view_school_summary)
+            if not body.can_view_school_summary:
+                self.repo.revoke_active_sessions(uid, utcnow())
         if body.status is not None and body.status != UserStatus.ACTIVE.value:
             if RoleCode.SUPER_ADMIN.value in self.repo.list_role_codes(uid):
                 require_another_admin(self.session, uid)
@@ -363,7 +394,7 @@ class AccountService:
             actor, "account.teacher.update", user, request_id, before=before, reason=body.reason
         )
         self.session.commit()
-        return self.view(user)
+        return self._teacher_view(user)
 
     def reset_password(
         self, actor: CurrentUser, uid: int, body: PasswordReset, request_id: str | None

@@ -24,6 +24,7 @@ from app.modules.identity.deps import (
     require_any_permission,
     require_permission,
 )
+from app.modules.inspection.dimensions import DimensionsDep
 from app.modules.objection.schemas import (
     ObjectionCreateRequest,
     ObjectionFinalReviewRequest,
@@ -89,6 +90,7 @@ def list_objections(
     service: ServiceDep,
     request: Request,
     params: Annotated[PageParams, Depends(page_params)],
+    dimensions: DimensionsDep,
     attendance_record_id: Annotated[int | None, Query(ge=1)] = None,
     final_status: Annotated[str | None, Query(max_length=16)] = None,
     initial_status: Annotated[str | None, Query(max_length=16)] = None,
@@ -98,7 +100,7 @@ def list_objections(
         params,
         attendance_record_id=attendance_record_id,
         final_status=final_status,
-        initial_status=initial_status,
+        dimensions=dimensions, initial_status=initial_status,
     )
     return success(data, _rid(request))
 

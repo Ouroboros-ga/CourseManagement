@@ -25,6 +25,7 @@ from app.common.pagination import PageParams
 from app.core.exceptions import PermissionDeniedError, UnauthenticatedError
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
+from app.modules.inspection.dimensions import TaskDimensions
 from app.modules.report import aggregation as agg
 from app.modules.report import permissions as perms
 from app.modules.report.repository import ReportRepository
@@ -39,10 +40,11 @@ from app.modules.report.schemas import (
 
 
 class StatisticsService:
-    def __init__(self, session: Session, *, college_id: int | None = None) -> None:
+    def __init__(self, session: Session, *, college_id: int | None = None, dimensions: TaskDimensions | None = None) -> None:
         self._session = session
         self._college_id = college_id
-        self._repo = ReportRepository(session)
+        self.dimensions = dimensions
+        self._repo = ReportRepository(session, dimensions=dimensions)
         self._identity = IdentityRepository(session)
 
     # ---- 守卫：功能权限纵深复核 + 管理范围准入 ----
@@ -61,7 +63,7 @@ class StatisticsService:
                 colleges = management_college_ids(self._session, actor, code)
             if colleges is not None and not colleges:
                 raise PermissionDeniedError("没有此操作的学院管理范围")
-            self._repo = ReportRepository(self._session, college_ids=colleges)
+            self._repo = ReportRepository(self._session, college_ids=colleges, dimensions=self.dimensions)
             return
         actor_row = self._identity.get_user_by_id(actor.id)
         if actor_row is None:

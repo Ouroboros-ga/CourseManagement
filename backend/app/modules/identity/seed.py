@@ -62,6 +62,7 @@ ROLE_NAMES: dict[str, str] = {
 
 # 已知可选权限的中文名；其余权限以 code 作为展示名，不臆造翻译。
 OPTIONAL_PERMISSION_NAMES: dict[str, str] = {
+    "statistics.school.read": "全校汇总查看",
     PermissionCode.STATISTICS_READ.value: "统计查看",
     PermissionCode.OBJECTION_INITIAL_REVIEW.value: "异议初核",
     PermissionCode.REPORT_READ.value: "周报查看与下载",

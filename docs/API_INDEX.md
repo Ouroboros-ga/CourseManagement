@@ -307,3 +307,22 @@
 
 
 待发布：`/colleges/{cid}/groups/{gid}/unavailability`（GET/POST）、`/{id}/impact`（GET）、`/{id}/decision`（POST）；本人路径为同组前缀下`/me/unavailability`（GET/POST）及`/{id}/withdraw`（POST）。获批所有组统一不可新增排班，详见API契约末节。
+
+## 2026-10-15 学校作息模板增量
+
+超管学校模板维护（新增版本与停用，不提供删除）、学院同校目录、指定版本引用为独立草稿、模板升级/停用提示，见 [接口与边界](development/SCHOOL_TIME_TEMPLATE_API.md)。既有学院作息、排班及小程序接口保持兼容；测试流程见 [共用逻辑测试包](testing/school-time-templates/README.md)。
+
+| 方法 | 新增路径（前缀 `/api/v1`） |
+| --- | --- |
+| GET / POST | `/schools/{sid}/time-templates` |
+| PATCH | `/schools/{sid}/time-templates/{tid}` |
+| GET | `/schools/{sid}/time-templates/{tid}/versions` |
+| POST | `/schools/{sid}/time-templates/{tid}/status` |
+| GET | `/colleges/{cid}/time-templates` |
+| POST | `/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles/from-template` |
+| GET | `/colleges/{cid}/academic/semesters/{sid}/time-template-updates` |
+
+
+## 2026-10-15 已确认模块增量（当前工作区，未部署）
+
+详见 [模块接口](development/CONFIRMED_MODULES_API_20261015.md)。新增全校汇总、组履职、任务换组、个人删除恢复及日期例外；现有教师账号契约增加独立全校汇总授权，考勤/异议/即时统计导出增加查询维度，通知列表增加学籍变化类型。实际路由和Schema见同步OpenAPI；不要把待部署接口当线上已可调用。

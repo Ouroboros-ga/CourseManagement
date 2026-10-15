@@ -17,6 +17,7 @@ from app.modules.attendance.schemas import (
 )
 from app.modules.attendance.scoped_service import ScopedAttendanceService
 from app.modules.identity.deps import CurrentUserDep
+from app.modules.inspection.dimensions import DimensionsDep
 from app.modules.organization.router import require_campus_enabled
 
 
@@ -46,13 +47,14 @@ def list_attendance(
     service: Service,
     request: Request,
     params: Annotated[PageParams, Depends(page_params)],
+    dimensions: DimensionsDep,
     task_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     semester_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     effective_type: Annotated[str | None, Query(max_length=16)] = None,
 ):
     return success(
         service.list_attendance(
-            actor, params, task_id=task_id, semester_id=semester_id, effective_type=effective_type
+            actor, params, task_id=task_id, semester_id=semester_id, dimensions=dimensions, effective_type=effective_type
         ),
         getattr(request.state, "request_id", None),
     )

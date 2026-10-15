@@ -1254,3 +1254,7 @@ PRE_BINDING
 read 与 manage 分别配置，Web 维护还需相应 read 能力。当前授权不接受任意课程/组限制字段，不将未支持的限制忽略后扩大成全院授权。授权写和配置写共享学院锚点；写事务中重查有效账号、角色和授权，撤销后新操作不能成功；真实 MySQL 并发仍需实施计划 P6 验证。
 
 新接口由 `CAMPUS_CONFIGURATION_ENABLED` 控制，默认关闭。这里的隔离仅覆盖新配置表，旧课表、名单、考勤、排班等仍按原权限执行，不因添加学院配置而自动完成业务隔离。不得开放第二学院真实业务直到 P2 入口隔离通过。详见 [配置底座说明](archive/2026-10-15/design/CAMPUS_CONFIGURATION_GUIDE.md)。
+
+## 2026-10-15 全校汇总独立权限（待部署）
+
+`statistics.school.read`：超管校级默认能力；教师默认无，由管理员创建教师账号时通过can_view_school_summary明确授予，也可按账号版本显式修改/撤销。仅开放statistics/school-summary汇总，不替代statistics.read、report.read、学生明细或跨院写授权，不进入教师本院默认能力集合。普通学生/志愿者不能调用全校汇总；组履职接口按volunteer.group.read的组与冻结资源上限控制。

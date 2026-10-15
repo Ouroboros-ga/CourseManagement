@@ -18,6 +18,7 @@ from app.common.pagination import PageParams
 from app.core.exceptions import PermissionDeniedError
 from app.modules.attendance.models import AttendanceRecord
 from app.modules.identity.resource_scope import ResourceScope
+from app.modules.inspection.dimensions import TaskDimensions
 from app.modules.inspection.models import InspectionTask
 from app.modules.objection.models import Objection, ObjectionFile, ObjectionFinalStatus
 
@@ -110,6 +111,7 @@ class ObjectionRepository:
         attendance_record_id: int | None = None,
         final_status: str | None = None,
         initial_status: str | None = None,
+        dimensions: TaskDimensions | None = None,
     ) -> tuple[list[Objection], int]:
         """按数据范围取异议。
 
@@ -117,6 +119,8 @@ class ObjectionRepository:
         （PERMISSIONS.md 7.6 / 8）。
         """
         stmt = self._objections()
+        if dimensions is not None:
+            stmt = stmt.where(Objection.attendance_record_id.in_(select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(select(InspectionTask.id).where(*dimensions.conditions())))))
         if student_id is not None:
             stmt = stmt.where(Objection.student_id == student_id)
         if attendance_record_id is not None:

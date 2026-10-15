@@ -66,9 +66,10 @@ class InitializeResult(StrictModel):
 
 
 class AcademicNotice(StrictModel):
+    kind: Literal["ACADEMIC_PUBLICATION", "ENROLLMENT_SOURCE_CHANGED"] = "ACADEMIC_PUBLICATION"
     id: str
     college_id: str
-    semester_id: str
+    semester_id: str | None
     version: int
     published_at: str
     title: str

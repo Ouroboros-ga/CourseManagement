@@ -180,22 +180,6 @@ class MyAcademicSourceService:
         }
 
     def notices(self, params: PageParams):
+        from app.modules.academic.notice_feed import personal_notices
         student = self.repo.bound_student(self.user_id)
-        rows, total = self.repo.notices(student.id, params)
-        return {
-            "items": [
-                {
-                    "id": str(row.id),
-                    "college_id": str(row.college_id),
-                    "semester_id": str(row.semester_id),
-                    "version": row.version,
-                    "published_at": row.created_at.isoformat() + "Z",
-                    "title": f"{row.context['semester_name']}教务课表更新",
-                    "message": "本人相关教务课表已发布更新；已保存的个人课表不会自动修改。",
-                }
-                for row in rows
-            ],
-            "total": total,
-            "page": params.page,
-            "page_size": params.page_size,
-        }
+        return personal_notices(self.db, student.id, params)

@@ -25,6 +25,7 @@ from app.modules.attendance.schemas import (
 )
 from app.modules.attendance.service import AttendanceService
 from app.modules.identity.deps import CurrentUserDep, require_permission
+from app.modules.inspection.dimensions import DimensionsDep
 
 router = APIRouter(tags=["attendance"])
 
@@ -72,6 +73,7 @@ def list_attendance(
     service: ServiceDep,
     request: Request,
     params: Annotated[PageParams, Depends(page_params)],
+    dimensions: DimensionsDep,
     task_id: Annotated[int | None, Query(ge=1)] = None,
     semester_id: Annotated[int | None, Query(ge=1)] = None,
     effective_type: Annotated[str | None, Query(max_length=16)] = None,
@@ -81,7 +83,7 @@ def list_attendance(
         params,
         task_id=task_id,
         semester_id=semester_id,
-        effective_type=effective_type,
+        dimensions=dimensions, effective_type=effective_type,
     )
     return success(data, _rid(request))
 

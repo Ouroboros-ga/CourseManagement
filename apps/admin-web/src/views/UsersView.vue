@@ -201,6 +201,7 @@ const stats = computed(() => {
 const createDialogVisible = ref(false)
 const createSubmitting = ref(false)
 const createForm = ref({
+  can_view_school_summary: false,
   college_id: '',
   username: '',
   display_name: '',
@@ -209,6 +210,7 @@ const createForm = ref({
 
 function openCreateDialog() {
   createForm.value = {
+    can_view_school_summary: false,
     college_id: '',
     username: '',
     display_name: '',
@@ -239,6 +241,7 @@ async function handleCreateTeacher() {
   try {
     if (!createForm.value.college_id) { ElMessage.warning('请选择所属学院'); return }
     await createTeacherAccount({
+      can_view_school_summary: createForm.value.can_view_school_summary,
       college_id: createForm.value.college_id,
       username: uname,
       display_name: dname,
@@ -690,6 +693,7 @@ onMounted(async () => {
     <el-dialog v-model="createDialogVisible" title="新增教师管理员账号" width="480px">
       <div class="space-y-4">
         <el-select v-model="createForm.college_id" placeholder="所属学院（本院全部教学与查课权限）"><el-option v-for="c in creationColleges" :key="c.id" :value="c.id" :label="c.name" :disabled="c.status !== 'ACTIVE'" /></el-select>
+        <el-checkbox v-model="createForm.can_view_school_summary">允许查看全校汇总（不开放外院学生明细或修改权限）</el-checkbox>
         <div>
           <label class="block text-xs font-bold text-[var(--ink)] mb-1">教工工号 (作为登录账号) *</label>
           <input

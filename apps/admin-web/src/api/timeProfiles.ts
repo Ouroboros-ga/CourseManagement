@@ -1,6 +1,6 @@
 import { request } from './http'
 import type { CollegeTimeConfiguration, CollegeTimePreview } from './collegeTime'
-export interface TimeProfile { id: string; name: string; status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'; lock_version: number; draft_configuration: CollegeTimeConfiguration }
+export interface TimeProfile { id: string; name: string; status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'; lock_version: number; draft_configuration: CollegeTimeConfiguration; source_template_version_id?: string | null }
 const root = (cid: string, sid: string) => `/api/v1/colleges/${encodeURIComponent(cid)}/academic/semesters/${encodeURIComponent(sid)}/time-versions/profiles`
 const json = (method: string, body: unknown) => ({ method, body: JSON.stringify(body) })
 export const listTimeProfiles = (cid: string, sid: string) => request<TimeProfile[]>(root(cid, sid))

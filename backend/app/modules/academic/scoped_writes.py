@@ -185,6 +185,9 @@ class ScopedAcademicWriteService(ScopedAcademicService):
         elif kind == "teaching_classes":
             semester = self._semester(body.semester_id)
             repo.get("courses", body.course_id)
+            if body.course_type_id is None:
+                from app.modules.academic.default_types import regular_type
+                values["course_type_id"] = regular_type(self.db, self.college_id).id
             if body.course_type_id is not None:
                 type_row = self.db.scalar(
                     select(CourseType)

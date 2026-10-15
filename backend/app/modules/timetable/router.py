@@ -1,5 +1,6 @@
 """云端本人课表读取/增删改；没有管理者代改或正式业务写入口。"""
 
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from app.modules.timetable.schemas import (
     EntryCreate,
     EntryDelete,
     EntryUpdate,
+    OccurrenceEdit,
     PersonalSemestersEnvelope,
     TimetableEnvelope,
 )
@@ -50,6 +52,32 @@ def get_timetable(semester_id: SemesterId, actor: BindingCompleteDep, db: Db, re
         PersonalTimetableService(db, actor.id).get(semester_id),
         getattr(request.state, "request_id", None),
     )
+
+
+@router.get("/me/timetable/deleted-entries")
+def deleted_entries(semester_id: SemesterId, actor: BindingCompleteDep, db: Db):
+    return success(PersonalTimetableService(db, actor.id).deleted(semester_id))
+
+
+@router.post("/me/timetable/entries/{eid}/restore", response_model=TimetableEnvelope)
+def restore_entry(eid: UUID, semester_id: SemesterId, body: EntryDelete,
+                  actor: BindingCompleteDep, db: Db):
+    return success(PersonalTimetableService(db, actor.id).restore(
+        semester_id, str(eid), body.current_version))
+
+
+@router.put("/me/timetable/entries/{eid}/exceptions/{day}", response_model=TimetableEnvelope)
+def put_exception(eid: UUID, day: date, semester_id: SemesterId, body: OccurrenceEdit,
+                  actor: BindingCompleteDep, db: Db):
+    return success(PersonalTimetableService(db, actor.id).set_exception(
+        semester_id, str(eid), day, body.model_dump(exclude_unset=True)))
+
+
+@router.delete("/me/timetable/entries/{eid}/exceptions/{day}", response_model=TimetableEnvelope)
+def delete_exception(eid: UUID, day: date, semester_id: SemesterId, body: EntryDelete,
+                     actor: BindingCompleteDep, db: Db):
+    return success(PersonalTimetableService(db, actor.id).remove_exception(
+        semester_id, str(eid), day, body.current_version))
 
 
 @router.post("/me/timetable/entries", response_model=TimetableEnvelope)

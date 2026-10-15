@@ -46,6 +46,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.audit.provenance import scoped_snapshot
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
+from app.modules.inspection.dimensions import TaskDimensions
 from app.modules.inspection.models import InspectionTask
 from app.modules.objection.models import Objection
 from app.modules.report.source_revision import SourceRevisionService
@@ -124,6 +125,7 @@ class AttendanceService:
         task_id: int | None,
         semester_id: int | None,
         effective_type: str | None,
+        dimensions: TaskDimensions | None = None,
     ) -> dict:
         """管理范围考勤列表（GET /attendance）：仅管理类角色，越权 403。"""
         self._require(actor.id, perms.ATTENDANCE_READ_PERMISSION)
@@ -136,6 +138,7 @@ class AttendanceService:
             task_id=task_id,
             semester_id=semester_id,
             effective_type=effective_type,
+            dimensions=dimensions,
         )
         dto = self._assemble(rows)
         return {

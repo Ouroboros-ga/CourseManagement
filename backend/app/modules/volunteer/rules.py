@@ -29,6 +29,27 @@ class GroupRules:
         )
         if self.group is None or self.group.status != "ACTIVE" or version is None:
             raise ConflictError(message="任务组已停用或规则快照不属于该组")
+        current = db.scalar(select(GroupConfigVersion).where(
+            GroupConfigVersion.group_id == self.group.id,
+            GroupConfigVersion.version == self.group.config_version).with_for_update(read=True))
+        if current is None or current.id != version.id:
+            raise ConflictError(message="组配置已更新，请先预览并确认任务执行组/规则后重新排班")
+        from app.modules.academic.models import TeachingClass
+        from app.modules.inspection.models import TaskScheduleSource
+        teaching_ids = set(db.scalars(select(TaskScheduleSource.teaching_class_id).where(
+            TaskScheduleSource.task_id == task.id)))
+        if task.teaching_class_id:
+            teaching_ids.add(task.teaching_class_id)
+        teaching = list(db.scalars(select(TeachingClass).where(
+            TeachingClass.id.in_(teaching_ids)).with_for_update(read=True)))
+        if not teaching or len(teaching) != len(teaching_ids) or any(
+            row.status != "ACTIVE" or row.college_id != task.college_id
+            or row.course_type_id != task.course_type_id_snapshot
+            or (row.id == task.teaching_class_id
+                and row.classification_revision != task.classification_revision_snapshot)
+            for row in teaching
+        ):
+            raise ConflictError(message="教学班分类或状态已变化，请先确认任务执行组/分类后重新排班")
         if (self.group.starts_on and task.inspection_date < self.group.starts_on) or (
             self.group.ends_on and task.inspection_date > self.group.ends_on
         ):

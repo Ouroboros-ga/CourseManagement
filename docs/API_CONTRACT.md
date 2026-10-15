@@ -576,3 +576,12 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 创建体`{student_id,semester_id,starts_at,ends_at,reason?}`；成员有效期必须覆盖完整区间。审批体`{lock_version,status,impact_revision?,note?}`，批准APPROVED必须带影响预览的`revision`作为`impact_revision`；请求、任务、受派变化后409，需重看影响。PENDING可以转APPROVED/REJECTED/CANCELED；APPROVED只可转CANCELED，终态不可重复操作。
 
 返回ID均为字符串，状态/版本与`scope=ALL_GROUPS`明确给出。现有受派保留，未来有效任务进入变更影响清单；不更改考勤与截止事实。拒绝、撤销不再阻止新排班。批准时段不原地修改，需要撤销后新建并重新审批。小程序前端本轮不开发，现有登录/本人任务/考勤接口不要求随此增量修改。当前尚未部署。
+
+## 2026-10-15 学校作息模板增量契约
+
+新增 API 见 [学校作息模板契约](development/SCHOOL_TIME_TEMPLATE_API.md) 和 OpenAPI 的 `school-time-templates` 标签。学校更新产生不可变模板版本；学院引用生成独立草稿；更新只提示，不覆盖或自动发布。学院方案 DTO 新增可空 `source_template_version_id`，旧请求不变；个人课表及小程序接口不受影响。
+
+
+## 2026-10-15 已确认模块增量（待部署）
+
+独立全校汇总权限默认false、默认普通课及三种初始类型、换组预览/确认、SQL维度筛选、组履职、本人删除恢复和日期例外，以及统一通知列表的来源变化类型，见 [完整增量契约](development/CONFIRMED_MODULES_API_20261015.md)。通知新增kind；学籍变化项semester_id为null，客户端按kind处理。原初始化和基础条目增删改不改正式业务。

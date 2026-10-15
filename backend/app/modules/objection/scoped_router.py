@@ -10,6 +10,7 @@ from app.common.responses import success
 from app.core.database import get_db
 from app.modules.attendance.scoped_router import require_business_scoped_enabled
 from app.modules.identity.deps import CurrentUserDep
+from app.modules.inspection.dimensions import DimensionsDep
 from app.modules.objection.schemas import ObjectionFinalReviewRequest
 from app.modules.objection.scoped_service import ScopedObjectionService
 from app.modules.organization.router import require_campus_enabled
@@ -35,6 +36,7 @@ def list_objections(
     service: Service,
     request: Request,
     params: Annotated[PageParams, Depends(page_params)],
+    dimensions: DimensionsDep,
     attendance_record_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     final_status: Annotated[str | None, Query(max_length=16)] = None,
 ):
@@ -44,7 +46,7 @@ def list_objections(
             params,
             attendance_record_id=attendance_record_id,
             final_status=final_status,
-            initial_status=None,
+            dimensions=dimensions, initial_status=None,
         ),
         getattr(request.state, "request_id", None),
     )

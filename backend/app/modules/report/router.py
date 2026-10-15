@@ -27,6 +27,7 @@ from app.common.responses import success
 from app.core.database import get_db
 from app.core.exceptions import AppError, ErrorCode
 from app.modules.identity.deps import CurrentUserDep, require_permission
+from app.modules.inspection.dimensions import DimensionsDep
 from app.modules.report.permissions import (
     REPORT_GENERATE_PERMISSION,
     REPORT_READ_PERMISSION,
@@ -39,14 +40,14 @@ from app.modules.report.version_service import ReportService
 router = APIRouter(tags=["statistics"])
 
 
-def get_service(request: Request, db: Annotated[Session, Depends(get_db)]) -> StatisticsService:
+def get_service(request: Request, db: Annotated[Session, Depends(get_db)], dimensions: DimensionsDep) -> StatisticsService:
     raw = request.path_params.get("cid")
     if raw is not None:
         value = str(raw)
         if not value.isascii() or not value.isdecimal() or not 0 < int(value) < 2**63:
             raise AppError(ErrorCode.VALIDATION_ERROR, "学院范围无效", 422)
-        return StatisticsService(db, college_id=int(value))
-    return StatisticsService(db)
+        return StatisticsService(db, college_id=int(value), dimensions=dimensions)
+    return StatisticsService(db, dimensions=dimensions)
 
 
 ServiceDep = Annotated[StatisticsService, Depends(get_service)]
@@ -112,8 +113,9 @@ def export_attendance_statistics(
     date_from: Annotated[date_ | None, Query()] = None,
     date_to: Annotated[date_ | None, Query()] = None,
 ) -> Response:
-    from app.modules.report.artifacts import XLSX_CONTENT_TYPE
     from urllib.parse import quote
+
+    from app.modules.report.artifacts import XLSX_CONTENT_TYPE
 
     query = _build_window_query(semester_id, week_no, date_from, date_to)
     excel_bytes, filename = service.export_attendance_analytics(actor, query)
@@ -137,8 +139,9 @@ def export_attendance_detail_doc(
     date_from: Annotated[date_ | None, Query()] = None,
     date_to: Annotated[date_ | None, Query()] = None,
 ) -> Response:
-    from app.modules.report.artifacts import DOCX_CONTENT_TYPE
     from urllib.parse import quote
+
+    from app.modules.report.artifacts import DOCX_CONTENT_TYPE
 
     query = _build_window_query(semester_id, week_no, date_from, date_to)
     doc_bytes, filename = service.export_detail_word(actor, query)
@@ -162,8 +165,9 @@ def export_study_attendance_excel(
     date_from: Annotated[date_ | None, Query()] = None,
     date_to: Annotated[date_ | None, Query()] = None,
 ) -> Response:
-    from app.modules.report.artifacts import XLSX_CONTENT_TYPE
     from urllib.parse import quote
+
+    from app.modules.report.artifacts import XLSX_CONTENT_TYPE
 
     query = _build_window_query(semester_id, week_no, date_from, date_to)
     excel_bytes, filename = service.export_study_attendance_excel(actor, query)

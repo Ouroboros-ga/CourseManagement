@@ -15,13 +15,14 @@ from datetime import date as date_
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import ColumnElement, Select, and_, case, func, select, update, true
+from sqlalchemy import ColumnElement, Select, and_, case, func, select, true, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.modules.academic.models import AdministrativeClass
 from app.modules.attendance.models import AttendanceRecord, AttendanceType
+from app.modules.inspection.dimensions import TaskDimensions
 from app.modules.inspection.models import (
     InspectionSubmission,
     InspectionTask,
@@ -38,9 +39,10 @@ from app.modules.report.models import (
 
 
 class ReportRepository:
-    def __init__(self, session: Session, *, college_ids: frozenset[int] | None = None) -> None:
+    def __init__(self, session: Session, *, college_ids: frozenset[int] | None = None, dimensions: TaskDimensions | None = None) -> None:
         self._session = session
         self._college_ids = college_ids
+        self.dimensions = dimensions or TaskDimensions()
 
     # ---- 时间窗内"未取消"任务 id 子查询（命中集合的唯一真相源）----
     def _task_ids_subq(
@@ -55,6 +57,7 @@ class ReportRepository:
             InspectionTask.semester_id == semester_id,
             InspectionTask.canceled_at.is_(None),
         ]
+        clauses.extend(self.dimensions.conditions())
         if self._college_ids is not None:
             clauses.append(InspectionTask.college_id.in_(self._college_ids))
         if week_no is not None:

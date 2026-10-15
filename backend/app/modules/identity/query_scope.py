@@ -96,8 +96,8 @@ def recheck_query_scope(db: Session, actor_id: int) -> None:
     if explicit is not None:
         if explicit.actor_user_id != actor_id:
             raise PermissionDeniedError("操作账号与学院范围不一致")
-        from app.modules.organization.service import CampusService
         from app.modules.identity.service import CurrentUser
+        from app.modules.organization.service import CampusService
         actor = CurrentUser(actor_id, None, "", "ACTIVE", [], [])
         CampusService(db)._authorize(actor, explicit.college_id, explicit.action, write=True)
         return
@@ -457,6 +457,16 @@ def protect_writes(db: ScopedSession, _context, _instances) -> None:
                 row.college_id = cid
             if row.college_id != cid:
                 raise PermissionDeniedError("不能写入其他学院")
+        if model.__tablename__ == "teaching_class" and row in db.new and row.course_type_id is None:
+            # Import adapters create ordinary courses; explicit frontend creation
+            # can instead select any active college type. No name recognition.
+            kind = connection.execute(select(tables["course_type"].c.id).where(
+                tables["course_type"].c.college_id == cid,
+                tables["course_type"].c.builtin_key == "regular",
+                tables["course_type"].c.status == "ACTIVE")).scalar_one_or_none()
+            if kind is None:
+                raise ConflictError(message="默认普通课类型不存在或已停用，整批未导入")
+            row.course_type_id = kind
         from sqlalchemy import inspect
 
         if (

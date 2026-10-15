@@ -20,6 +20,7 @@ from app.modules.attendance.models import (
     AttendanceRecordVersion,
 )
 from app.modules.identity.resource_scope import ResourceScope
+from app.modules.inspection.dimensions import TaskDimensions
 from app.modules.inspection.models import InspectionTask, SubmissionFile, TaskRosterMember
 
 
@@ -78,6 +79,7 @@ class AttendanceRepository:
         task_id: int | None = None,
         semester_id: int | None = None,
         effective_type: str | None = None,
+        dimensions: TaskDimensions | None = None,
     ) -> tuple[list[AttendanceRecord], int]:
         """按数据范围取当前考勤。
 
@@ -85,6 +87,8 @@ class AttendanceRepository:
         任务/学期过滤经关联 inspection_task（考勤本身不存学期，随任务归属，技术方案 9.2）。
         """
         stmt = self._records()
+        if dimensions is not None:
+            stmt = stmt.where(AttendanceRecord.task_id.in_(select(InspectionTask.id).where(*dimensions.conditions())))
         if student_id is not None:
             stmt = stmt.where(AttendanceRecord.student_id == student_id)
         if effective_type is not None:

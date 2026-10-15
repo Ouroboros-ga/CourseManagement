@@ -222,6 +222,12 @@ class CampusService:
             raise NotFoundError()
         row = College(school_id=school_id, **body.model_dump())
         self.db.add(row)
+        try:
+            self.db.flush()
+        except IntegrityError as exc:
+            raise ConflictError(message="学院编码重复，无法创建") from exc
+        from app.modules.academic.default_types import ensure_initial_types
+        ensure_initial_types(self.db, row.id)
         return self._commit(actor, "campus.college.create", row)
 
     @atomic_write
@@ -419,6 +425,8 @@ class CampusService:
         college = self._authorize(actor, cid, "academic.course_type.manage", write=True)
         row = self._resource(CourseType, cid, rid)
         self._version(row, version)
+        if row.builtin_key is not None:
+            raise ConflictError(message="初始课程类型保留稳定标识，只能停用或更名")
         if self.db.scalar(
             select(func.count())
             .select_from(GroupScopeType)

@@ -53,6 +53,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "audit.read",
         "system.config.read",
         "system.config.manage",
+        "statistics.school.read",
     },
     RoleCode.STUDENT_AFFAIRS_MANAGER.value: frozenset(
         {

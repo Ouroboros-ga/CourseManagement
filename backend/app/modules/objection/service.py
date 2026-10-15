@@ -58,6 +58,7 @@ from app.modules.file.repository import FileRepository
 from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
+from app.modules.inspection.dimensions import TaskDimensions
 from app.modules.inspection.models import InspectionTask
 from app.modules.objection import permissions as perms
 from app.modules.objection.models import (
@@ -268,6 +269,7 @@ class ObjectionService:
         attendance_record_id: int | None,
         final_status: str | None,
         initial_status: str | None,
+        dimensions: TaskDimensions | None = None,
     ) -> dict:
         permissions = self._lock_actor(actor.id)
         scope, sid = self._read_scope(actor.id, permissions)
@@ -279,6 +281,7 @@ class ObjectionService:
             attendance_record_id=attendance_record_id,
             final_status=final_status,
             initial_status=initial_status,
+            dimensions=dimensions,
         )
         return {
             "items": [d.model_dump() for d in self._assemble(rows)],

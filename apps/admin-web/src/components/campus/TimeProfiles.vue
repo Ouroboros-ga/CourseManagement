@@ -6,6 +6,7 @@ import { listScopedAcademic, type ScopedAcademicRow } from '../../api/scopedAcad
 import type { CollegeTimeConfiguration } from '../../api/collegeTime'
 import { ContextEpoch, identityContext } from '../../utils/contextEpoch'
 import { useSessionStore } from '../../stores/session'
+import TimeTemplateImport from './TimeTemplateImport.vue'
 const props = defineProps<{ collegeId: string; semesterId: string; defaultConfiguration: CollegeTimeConfiguration }>()
 const session = useSessionStore()
 const rows = ref<TimeProfile[]>([]), classes = ref<ScopedAcademicRow[]>([])
@@ -83,6 +84,10 @@ function addPeriod() {
   const no = Math.max(0, ...draft.configuration.periods.map(row => row.period_no)) + 1
   if (no <= 60) draft.configuration.periods.push({ period_no: no, slot_id: `period-${no}`, name: '', start_time: '19:00', end_time: '19:40' })
 }
+function imported(profileId: string) {
+  selected.value = profileId
+  void load()
+}
 watch(selected, selectDraft)
 watch(() => `${props.collegeId}:${props.semesterId}:${identityContext(session.currentUser)}`, () => { selected.value = ''; bindingClassId.value = ''; bindingProfileId.value = ''; error.value = ''; void load() }, { immediate: true })
 onUnmounted(() => epoch.invalidate())
@@ -92,7 +97,9 @@ onUnmounted(() => epoch.invalidate())
     <h3>教学班可选作息方案</h3>
     <p>默认跟随学院作息；同学院不同校区、年级可以选择独立时段。方案只管理上课时间，校历与教务小节映射保持学院统一。首版生效前使用学院默认时间。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <TimeTemplateImport :college-id="collegeId" :semester-id="semesterId" :effective-from="defaultConfiguration.effective_from" :disabled="busy" @imported="imported" />
     <el-select v-model="selected" :disabled="busy"><el-option value="" label="新建草稿（复制当前默认时段）" /><el-option v-for="row in rows" :key="row.id" :value="row.id" :label="`${row.name} · ${row.status}`" /></el-select>
+    <p v-if="current?.source_template_version_id">来源学校模板版本 ID：{{ current.source_template_version_id }}；学院可独立调整，不随学校更新覆盖。</p>
     <el-form label-position="top" :disabled="busy || current?.status === 'ARCHIVED'">
       <el-form-item label="方案名称"><el-input v-model="draft.name" /></el-form-item>
       <el-form-item label="新版本生效日期"><el-date-picker v-model="draft.configuration.effective_from" type="date" value-format="YYYY-MM-DD" /></el-form-item>

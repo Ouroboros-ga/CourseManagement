@@ -15,9 +15,11 @@ class AccountCreate(BaseModel):
 
 class TeacherAccountCreate(AccountCreate):
     college_id: int = Field(ge=1)
+    can_view_school_summary: bool = Field(default=False, strict=True)
 
 
 class TeacherAccountUpdate(BaseModel):
+    can_view_school_summary: bool | None = Field(default=None, strict=True)
     display_name: str | None = Field(default=None, min_length=1, max_length=128)
     status: Literal["ACTIVE", "DISABLED"] | None = None
     lock_version: int = Field(ge=0)

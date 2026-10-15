@@ -1,6 +1,7 @@
 import { request } from './http'
 
 export interface TeacherAccountItem {
+  can_view_school_summary?: boolean
   id: string
   username: string
   display_name: string
@@ -17,6 +18,7 @@ export interface ListTeacherAccountsResult {
 }
 
 export interface TeacherAccountCreatePayload {
+  can_view_school_summary?: boolean
   college_id: string
   username: string
   display_name: string
@@ -24,6 +26,7 @@ export interface TeacherAccountCreatePayload {
 }
 
 export interface TeacherAccountUpdatePayload {
+  can_view_school_summary?: boolean
   display_name?: string
   status?: 'ACTIVE' | 'DISABLED'
   lock_version: number

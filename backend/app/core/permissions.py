@@ -63,6 +63,7 @@ class PermissionCode(StrEnum):
 
     # 4.5 统计、周报、异议、审计与配置
     STATISTICS_READ = "statistics.read"
+    STATISTICS_SCHOOL_READ = "statistics.school.read"
     REPORT_READ = "report.read"
     REPORT_GENERATE = "report.generate"
     OBJECTION_CREATE = "objection.create"

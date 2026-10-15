@@ -53,7 +53,26 @@ class EntryDelete(StrictModel):
     current_version: int = Field(ge=1, strict=True)
 
 
+class OccurrenceEdit(EntryDelete):
+    cancelled: bool = False
+    target_date: date | None = None
+    course_name: str | None = Field(default=None, min_length=1, max_length=128)
+    teacher: str | None = Field(default=None, max_length=128)
+    classroom: str | None = Field(default=None, max_length=128)
+    start_time: time | None = None
+    end_time: time | None = None
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class OccurrenceException(StrictModel):
+    date: date
+    target_date: date
+    cancelled: bool
+    values: EntryValues
+
+
 class PersonalEntry(EntryValues):
+    exceptions: list[OccurrenceException] = Field(default_factory=list)
     id: str
     source_schedule_id: str | None
     teaching_class_id: str | None

@@ -43,4 +43,8 @@ class CollegeTimeProfile(TimestampMixin, Base):
     normalized_name: Mapped[str] = mapped_column(String(128, collation="utf8mb4_bin").with_variant(String(128), "sqlite"))
     status: Mapped[str] = mapped_column(String(16), default="DRAFT")
     draft_configuration: Mapped[dict] = mapped_column(JSON)
+    source_template_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("school_time_template_version.id", ondelete="RESTRICT",
+                   name="fk_college_time_profile_source_template"), nullable=True, index=True
+    )
     lock_version: Mapped[int] = mapped_column(Integer, default=1)
