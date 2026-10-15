@@ -106,8 +106,9 @@ class PersonalTimetableService:
             "teaching_class_id": None,
             "college_id": None,
             "class_name": None,
-            "start_period": None,
-            "end_period": None,
+            "start_period": getattr(body, "start_period", None),
+            "end_period": getattr(body, "end_period", None),
+            "color": getattr(body, "color", None),
         }
         return self._save(row, [*row.entries, entry])
 

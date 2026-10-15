@@ -3,7 +3,7 @@
 from datetime import date, time
 from typing import Annotated, Literal
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from app.modules.academic.publication_schemas import PublishedSource
 from app.modules.organization.schemas import StrictModel
@@ -12,6 +12,8 @@ Week = Annotated[int, Field(ge=1, le=60, strict=True)]
 
 
 class EntryValues(StrictModel):
+    model_config = ConfigDict(extra="allow", strict=False)
+
     course_name: str = Field(min_length=1, max_length=128)
     teacher: str | None = Field(default=None, max_length=128)
     classroom: str | None = Field(default=None, max_length=128)
@@ -21,6 +23,9 @@ class EntryValues(StrictModel):
     end_time: time
     note: str = Field(default="", max_length=1000)
     occurrence_dates: list[date] | None = Field(default=None, max_length=420)
+    start_period: int | None = Field(default=None, ge=1, le=30)
+    end_period: int | None = Field(default=None, ge=1, le=30)
+    color: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def valid_occurrences(self):
@@ -37,6 +42,8 @@ class EntryCreate(EntryValues):
 
 
 class EntryUpdate(StrictModel):
+    model_config = ConfigDict(extra="allow", strict=False)
+
     current_version: int = Field(ge=1, strict=True)
     course_name: str | None = Field(default=None, min_length=1, max_length=128)
     teacher: str | None = Field(default=None, max_length=128)
@@ -47,6 +54,9 @@ class EntryUpdate(StrictModel):
     end_time: time | None = None
     note: str | None = Field(default=None, max_length=1000)
     occurrence_dates: list[date] | None = Field(default=None, max_length=420)
+    start_period: int | None = Field(default=None, ge=1, le=30)
+    end_period: int | None = Field(default=None, ge=1, le=30)
+    color: str | None = Field(default=None, max_length=64)
 
 
 class EntryDelete(StrictModel):
@@ -72,14 +82,17 @@ class OccurrenceException(StrictModel):
 
 
 class PersonalEntry(EntryValues):
+    model_config = ConfigDict(extra="allow", strict=False)
+
     exceptions: list[OccurrenceException] = Field(default_factory=list)
     id: str
     source_schedule_id: str | None
     teaching_class_id: str | None
     college_id: str | None
     class_name: str | None
-    start_period: int | None
-    end_period: int | None
+    start_period: int | None = None
+    end_period: int | None = None
+    color: str | None = None
 
 
 class PersonalTimetableResult(StrictModel):
