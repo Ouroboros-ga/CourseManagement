@@ -6,7 +6,7 @@ SQL 数量不随任务×候选组合增长；写入前仍由服务在日期锚�
 
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -31,6 +31,7 @@ from .models import Task, Volunteer
 
 REASONS = {
     "COURSE_NOT_INSPECTABLE": "体育课不作为被查目标",
+    "VOLUNTEER_UNAVAILABLE": "本人在此时段已获批不可用，所有组均不可新增排班",
     "NOT_VOLUNTEER": "账号非启用志愿者",
     "NO_QUALIFICATION": "本学期无有效志愿者资格或学生身份已停用",
     "OWN_CLASS_CONFLICT": "与本人课表时段冲突",
@@ -112,6 +113,28 @@ def load_snapshot(
         ).scalars()
     )
     student_ids = [p.student_id for p in profiles.values() if p.student_id is not None]
+    unavailable = []
+    if settings.campus_scheduling_enabled:
+        from app.modules.volunteer.unavailability_models import VolunteerUnavailability
+        offset = timedelta(hours=settings.app_utc_offset_hours)
+        first = datetime.combine(min(dates), time.min) - offset
+        last = datetime.combine(max(dates) + timedelta(days=1), time.min) - offset
+        unavailable = list(read(select(VolunteerUnavailability).where(
+            VolunteerUnavailability.student_id.in_(student_ids), VolunteerUnavailability.status == "APPROVED",
+            VolunteerUnavailability.starts_at < last, VolunteerUnavailability.ends_at > first
+        ).order_by(VolunteerUnavailability.id)).scalars())
+
+    unavailable_by_student = defaultdict(list)
+    for row in unavailable:
+        unavailable_by_student[row.student_id].append(row)
+
+    def unavailable_at(student_id, task):
+        return any(
+            task.activity_start_at is not None and task.activity_end_at is not None
+            and row.starts_at < task.activity_end_at and task.activity_start_at < row.ends_at
+            for row in unavailable_by_student[student_id]
+        )
+
     qualified = {
         row.student_id: row
         for row in read(
@@ -271,6 +294,8 @@ def load_snapshot(
             reason = None
             if prof is None or prof.status != "ACTIVE" or vid not in roles:
                 reason = "NOT_VOLUNTEER"
+            elif unavailable_at(prof.student_id, task):
+                reason = "VOLUNTEER_UNAVAILABLE"
             elif group_rules and eligibility and not eligibility.member_allowed(task, prof.student_id):
                 reason = "NO_QUALIFICATION"
             elif not enrolled or not (eligibility.qualified(qualified.get(prof.student_id), task.inspection_date, None if group_rules else task.college_id)
@@ -303,7 +328,9 @@ def load_snapshot(
         tasks.append(convert(task, frozenset(candidates)))
     from app.modules.inspection.assignment_fingerprint import fingerprint
 
-    inputs = {"courses": actual_slots if settings.campus_scheduling_enabled else courses}
+    inputs = {"courses": actual_slots if settings.campus_scheduling_enabled else courses,
+              "unavailability": [{column.name: getattr(row, column.name) for column in row.__table__.columns}
+                                 for row in unavailable]}
     if eligibility:
         # Include dated membership/support/academic changes even when eligibility
         # still yields the same warning, so an old confirmation cannot be reused.

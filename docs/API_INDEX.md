@@ -304,3 +304,6 @@
 待发布：`.../time-versions/profiles`命名作息草稿/发布/归档，以及其`teaching-classes/{tid}/binding`预览/确认接口，详见API契约末节。
 
 待发布：`POST /colleges/{cid}/groups/{gid}/members/batch/preview`及`.../commit`，按明确学号集合整批纳入组成员。
+
+
+待发布：`/colleges/{cid}/groups/{gid}/unavailability`（GET/POST）、`/{id}/impact`（GET）、`/{id}/decision`（POST）；本人路径为同组前缀下`/me/unavailability`（GET/POST）及`/{id}/withdraw`（POST）。获批所有组统一不可新增排班，详见API契约末节。

@@ -9,7 +9,7 @@ const session = useSessionStore()
 const rows = ref<ConfigurationImpactItem[]>([]), total = ref(0), page = ref(1), status = ref('OPEN')
 const busy = ref(false), error = ref('')
 const epoch = new ContextEpoch(() => `${identityContext(session.currentUser)}:${props.collegeId}`)
-const labels: Record<string, string> = { OPEN: '待处置', KEEP: '保留原快照', CANCEL: '已取消', REASSIGNED: '已完成改派', member: '成员有效期', support: '跨院支援', group: '组规则', course_type: '课程类型', teaching_class: '教学班分类', time_version: '作息', time_binding: '教学班作息绑定', college: '学院' }
+const labels: Record<string, string> = { OPEN: '待处置', KEEP: '保留原快照', CANCEL: '已取消', REASSIGNED: '已完成改派', unavailability: '获批不可用', member: '成员有效期', support: '跨院支援', group: '组规则', course_type: '课程类型', teaching_class: '教学班分类', time_version: '作息', time_binding: '教学班作息绑定', college: '学院' }
 async function load() {
   const ticket = epoch.begin()
   try {

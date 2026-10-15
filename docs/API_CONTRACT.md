@@ -555,3 +555,22 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 
 组引用补充：`references.types`仅为可选择的查课目标类型；`references.conflict_types`提供本院冲突规则目录，`teaching_classes`提供本院教学班基本标签用于具体课程例外。它们不包含名单、学籍或课表；冲突目录可见不构成对这些课程的查课/考勤权限。
+
+
+### 2026-10-15 待发布：请假／不可用（所有组生效）
+
+以下接口前缀为`/api/v1/colleges/{cid}/groups/{gid}`，需组织业务开关及e001迁移。受理组只决定申请/审批归属，获批限制本人所有组、所有学院的新排班。时间采用分钟精度的带时区ISO8601，服务端保存UTC，区间左闭右开，按任务冻结的真实活动时间判断。
+
+| 方法与路径 | 用途 |
+| --- | --- |
+| GET `/unavailability?semester_id=...&page=1` | 有组读取权限者查看本组申请，每页50条 |
+| POST `/unavailability` | 有组成员管理权限者登记待审批申请 |
+| GET `/unavailability/{id}/impact` | 本组申请的审批前影响摘要，不返回外院任务ID/请假原因 |
+| POST `/unavailability/{id}/decision` | 成员管理者批准、拒绝或撤销 |
+| GET `/me/unavailability?semester_id=...&page=1` | 本人在指定组提交的本人申请 |
+| POST `/me/unavailability` | 本人申请，服务端核对当前绑定，不得代人 |
+| POST `/me/unavailability/{id}/withdraw` | 本人撤回，只接受CANCELED，不可自行批准 |
+
+创建体`{student_id,semester_id,starts_at,ends_at,reason?}`；成员有效期必须覆盖完整区间。审批体`{lock_version,status,impact_revision?,note?}`，批准APPROVED必须带影响预览的`revision`作为`impact_revision`；请求、任务、受派变化后409，需重看影响。PENDING可以转APPROVED/REJECTED/CANCELED；APPROVED只可转CANCELED，终态不可重复操作。
+
+返回ID均为字符串，状态/版本与`scope=ALL_GROUPS`明确给出。现有受派保留，未来有效任务进入变更影响清单；不更改考勤与截止事实。拒绝、撤销不再阻止新排班。批准时段不原地修改，需要撤销后新建并重新审批。小程序前端本轮不开发，现有登录/本人任务/考勤接口不要求随此增量修改。当前尚未部署。

@@ -16,6 +16,12 @@ from app.modules.volunteer.member_batch import (
 )
 from app.modules.volunteer.member_schemas import MemberCreate, MemberRevoke, MemberUpdate
 from app.modules.volunteer.member_service import GroupMemberService
+from app.modules.volunteer.unavailability_service import (
+    UnavailabilityCreate,
+    UnavailabilityDecision,
+    UnavailabilityService,
+    UnavailabilityWithdrawal,
+)
 
 router = APIRouter(
     prefix="/colleges/{cid}/groups/{gid}",
@@ -217,3 +223,38 @@ def member_batch_preview(cid: ResourceId, gid: ResourceId, body: MemberBatch, ac
 @router.post("/members/batch/commit")
 def member_batch_commit(cid: ResourceId, gid: ResourceId, body: MemberBatchCommit, actor: CurrentUserDep, db: Db, request: Request):
     return success(GroupMemberBatchService(db, actor, cid, gid).commit(body.model_dump(exclude={"revision"}), body.revision), getattr(request.state, "request_id", None))
+
+
+@router.get("/unavailability")
+def unavailability_list(cid: ResourceId, gid: ResourceId, semester_id: SemesterId, actor: CurrentUserDep, db: Db, request: Request, page: Annotated[int, Query(ge=1)] = 1):
+    return success(UnavailabilityService(db, actor, cid, gid).list(semester_id, page=page), getattr(request.state, "request_id", None))
+
+
+@router.post("/unavailability")
+def unavailability_create(cid: ResourceId, gid: ResourceId, body: UnavailabilityCreate, actor: CurrentUserDep, db: Db, request: Request):
+    return success(UnavailabilityService(db, actor, cid, gid).create(body.model_dump()), getattr(request.state, "request_id", None))
+
+
+@router.get("/unavailability/{rid}/impact")
+def unavailability_impact(cid: ResourceId, gid: ResourceId, rid: ResourceId, actor: CurrentUserDep, db: Db, request: Request):
+    return success(UnavailabilityService(db, actor, cid, gid).impact(rid), getattr(request.state, "request_id", None))
+
+
+@router.post("/unavailability/{rid}/decision")
+def unavailability_decide(cid: ResourceId, gid: ResourceId, rid: ResourceId, body: UnavailabilityDecision, actor: CurrentUserDep, db: Db, request: Request):
+    return success(UnavailabilityService(db, actor, cid, gid).decide(rid, body.model_dump()), getattr(request.state, "request_id", None))
+
+
+@router.get("/me/unavailability")
+def own_unavailability_list(cid: ResourceId, gid: ResourceId, semester_id: SemesterId, actor: CurrentUserDep, db: Db, request: Request, page: Annotated[int, Query(ge=1)] = 1):
+    return success(UnavailabilityService(db, actor, cid, gid).list(semester_id, page=page, own=True), getattr(request.state, "request_id", None))
+
+
+@router.post("/me/unavailability")
+def own_unavailability_create(cid: ResourceId, gid: ResourceId, body: UnavailabilityCreate, actor: CurrentUserDep, db: Db, request: Request):
+    return success(UnavailabilityService(db, actor, cid, gid).create(body.model_dump(), own=True), getattr(request.state, "request_id", None))
+
+
+@router.post("/me/unavailability/{rid}/withdraw")
+def own_unavailability_withdraw(cid: ResourceId, gid: ResourceId, rid: ResourceId, body: UnavailabilityWithdrawal, actor: CurrentUserDep, db: Db, request: Request):
+    return success(UnavailabilityService(db, actor, cid, gid).decide(rid, body.model_dump(), own=True), getattr(request.state, "request_id", None))

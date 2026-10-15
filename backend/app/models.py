@@ -35,5 +35,6 @@ from app.modules.report import models as report_models  # noqa: F401
 from app.modules.timetable import models as timetable_models  # noqa: F401
 from app.modules.volunteer import member_models as volunteer_member_models  # noqa: F401
 from app.modules.volunteer import models as volunteer_models  # noqa: F401
+from app.modules.volunteer import unavailability_models  # noqa: F401
 
 __all__ = ["Base"]
