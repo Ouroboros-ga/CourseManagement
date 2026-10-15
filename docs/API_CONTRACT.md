@@ -545,3 +545,10 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 - `POST /teaching-classes/{tid}/binding`：`{profile_id,revision}`确认；课表必须能按目标方案解析，旧任务快照不改。
 
 时段增量字段`slot_id`（稳定标识，省略时由节次生成）及`name`（显示名称）兼容旧请求。显式方案只覆盖上课时刻，学院统一校历仍适用；首版生效前跟随默认。当前为开发分支，未部署。
+
+
+### 2026-10-15 待发布：组成员批量新增
+
+`POST /api/v1/colleges/{cid}/groups/{gid}/members/batch/preview`请求`{semester_id,student_nos,effective_from,effective_to}`，明确最多200个不重复学号，日期沿用左闭右开成员有效期。返回`revision,count,items`；仅返回已经通过纳入校验的人员。
+
+`POST .../members/batch/commit`在同一结构附`revision`，重新核对后整批新增；失败不保留部分结果。跨院人员仍须超管已有有效支援，既有重复或重叠成员拒绝，接口不授予资格与角色。当前尚未部署。

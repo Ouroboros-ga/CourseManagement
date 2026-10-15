@@ -302,3 +302,5 @@
 待发布：`GET /colleges/{cid}/configuration-impacts`、`POST /colleges/{cid}/configuration-impacts/{id}/resolve`；变更影响清单与处置。
 
 待发布：`.../time-versions/profiles`命名作息草稿/发布/归档，以及其`teaching-classes/{tid}/binding`预览/确认接口，详见API契约末节。
+
+待发布：`POST /colleges/{cid}/groups/{gid}/members/batch/preview`及`.../commit`，按明确学号集合整批纳入组成员。

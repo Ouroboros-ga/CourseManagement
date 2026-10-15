@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import GroupMemberBatch from './GroupMemberBatch.vue'
 import { useGroupMembers } from '../../composables/useGroupMembers'
 
 const props = defineProps<{
@@ -33,6 +34,7 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
 
 <template>
   <section class="group-members">
+    <GroupMemberBatch v-if="canManage" :key="`${collegeId}:${groupId}:${semesterId}`" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" @changed="state.load" />
     <header class="toolbar">
       <nav class="tabs" aria-label="成员类别">
         <button :class="{ active: state.activeKind.value === 'members' }" type="button" @click="state.setKind('members')">组成员</button>

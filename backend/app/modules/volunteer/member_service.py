@@ -257,6 +257,9 @@ class GroupMemberService:
             body.status,
         )
         row.lock_version += 1
+        from app.modules.organization.impact_service import capture_impacts
+        capture_impacts(self.db, self.cid, "support" if support else "member", row.id, row.lock_version,
+                        task_ids=[int(value) for value in affected], after=self.campus._dto(row))
         result = self._save(
             row,
             college,
@@ -316,7 +319,7 @@ class GroupMemberService:
             raise ConflictError(message="成员学院归属未确认")
         return body, student, cid
 
-    def _save(self, row, college, group, action):
+    def _save(self, row, college, group, action, *, commit=True):
         group.lock_version += 1
         college.configuration_revision += 1
         self.db.add(row)
@@ -331,11 +334,11 @@ class GroupMemberService:
                 after_json=scoped_snapshot(result, self.cid),
             )
         )
-        self.db.commit()
+        if commit:
+            self.db.commit()
         return result
 
-    @atomic_write
-    def create(self, data):
+    def _prepare_create(self, data):
         requested = validated(MemberCreate, data)
         college, group = self._group(
             "volunteer.member.manage", write=True, semester_id=int(requested.semester_id)
@@ -386,6 +389,11 @@ class GroupMemberService:
             effective_from=body.effective_from,
             effective_to=body.effective_to,
         )
+        return row, college, group
+
+    @atomic_write
+    def create(self, data):
+        row, college, group = self._prepare_create(data)
         return self._save(row, college, group, "volunteer.member.create")
 
     @atomic_write
@@ -500,6 +508,9 @@ class GroupMemberService:
             )
         row.status = "INACTIVE"
         row.lock_version += 1
+        from app.modules.organization.impact_service import capture_impacts
+        capture_impacts(self.db, self.cid, "support" if support else "member", row.id, row.lock_version,
+                        task_ids=affected, after=self.campus._dto(row))
         result = self._save(
             row,
             college,

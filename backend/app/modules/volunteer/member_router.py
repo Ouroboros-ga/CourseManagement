@@ -9,6 +9,11 @@ from app.core.database import get_db
 from app.modules.academic.time_router import require_scheduling_enabled
 from app.modules.identity.deps import CurrentUserDep
 from app.modules.organization.router import require_campus_enabled
+from app.modules.volunteer.member_batch import (
+    GroupMemberBatchService,
+    MemberBatch,
+    MemberBatchCommit,
+)
 from app.modules.volunteer.member_schemas import MemberCreate, MemberRevoke, MemberUpdate
 from app.modules.volunteer.member_service import GroupMemberService
 
@@ -202,3 +207,13 @@ def revoke_support(
         ),
         getattr(request.state, "request_id", None),
     )
+
+
+@router.post("/members/batch/preview")
+def member_batch_preview(cid: ResourceId, gid: ResourceId, body: MemberBatch, actor: CurrentUserDep, db: Db, request: Request):
+    return success(GroupMemberBatchService(db, actor, cid, gid).preview(body.model_dump()), getattr(request.state, "request_id", None))
+
+
+@router.post("/members/batch/commit")
+def member_batch_commit(cid: ResourceId, gid: ResourceId, body: MemberBatchCommit, actor: CurrentUserDep, db: Db, request: Request):
+    return success(GroupMemberBatchService(db, actor, cid, gid).commit(body.model_dump(exclude={"revision"}), body.revision), getattr(request.state, "request_id", None))
