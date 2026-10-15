@@ -3345,6 +3345,64 @@
         }
       }
     },
+    "/api/v1/colleges/{cid}/overview": {
+      "get": {
+        "tags": [
+          "workspace-overview"
+        ],
+        "summary": "Overview",
+        "operationId": "overview_api_v1_colleges__cid__overview_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Semester Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/schools/{sid}/time-templates": {
       "get": {
         "tags": [
@@ -7245,6 +7303,25 @@
             }
           },
           {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "学生学籍在指定日期的归属；无历史事实不推断",
+              "title": "As Of"
+            },
+            "description": "学生学籍在指定日期的归属；无历史事实不推断"
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -8593,6 +8670,715 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/school/academic/semesters/{sid}/time-templates": {
+      "get": {
+        "tags": [
+          "school-time"
+        ],
+        "summary": "School Templates",
+        "operationId": "school_templates_api_v1_school_academic_semesters__sid__time_templates_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "school-time"
+        ],
+        "summary": "Publish Template",
+        "operationId": "publish_template_api_v1_school_academic_semesters__sid__time_templates_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplatePublish"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/semesters/{sid}/school-time-templates": {
+      "get": {
+        "tags": [
+          "school-time"
+        ],
+        "summary": "Available Templates",
+        "operationId": "available_templates_api_v1_colleges__cid__academic_semesters__sid__school_time_templates_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/semesters/{sid}/school-time-templates/preview": {
+      "post": {
+        "tags": [
+          "school-time"
+        ],
+        "summary": "Adoption Preview",
+        "operationId": "adoption_preview_api_v1_colleges__cid__academic_semesters__sid__school_time_templates_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateAdoption"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/semesters/{sid}/school-time-templates/adopt": {
+      "post": {
+        "tags": [
+          "school-time"
+        ],
+        "summary": "Adopt Template",
+        "operationId": "adopt_template_api_v1_colleges__cid__academic_semesters__sid__school_time_templates_adopt_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateAdopt"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/teaching-classes/{tid}/shared-identity/candidates": {
+      "get": {
+        "tags": [
+          "shared-academic-identity"
+        ],
+        "summary": "Candidates",
+        "operationId": "candidates_api_v1_colleges__cid__academic_teaching_classes__tid__shared_identity_candidates_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Tid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/teaching-classes/{tid}/shared-identity/preview": {
+      "post": {
+        "tags": [
+          "shared-academic-identity"
+        ],
+        "summary": "Preview",
+        "operationId": "preview_api_v1_colleges__cid__academic_teaching_classes__tid__shared_identity_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Tid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfferingLink"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/academic/teaching-classes/{tid}/shared-identity/confirm": {
+      "post": {
+        "tags": [
+          "shared-academic-identity"
+        ],
+        "summary": "Confirm",
+        "operationId": "confirm_api_v1_colleges__cid__academic_teaching_classes__tid__shared_identity_confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Tid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfferingLinkConfirm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/school/academic/semesters/{sid}/archive/preview": {
+      "post": {
+        "tags": [
+          "campus-management"
+        ],
+        "summary": "Archive Preview",
+        "operationId": "archive_preview_api_v1_school_academic_semesters__sid__archive_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/school/academic/semesters/{sid}/archive/confirm": {
+      "post": {
+        "tags": [
+          "campus-management"
+        ],
+        "summary": "Archive Confirm",
+        "operationId": "archive_confirm_api_v1_school_academic_semesters__sid__archive_confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveConfirm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/statistics/semesters/{sid}/campus-dimensions": {
+      "get": {
+        "tags": [
+          "campus-management"
+        ],
+        "summary": "College Dimensions",
+        "operationId": "college_dimensions_api_v1_colleges__cid__statistics_semesters__sid__campus_dimensions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/school/statistics/semesters/{sid}/campus-dimensions": {
+      "get": {
+        "tags": [
+          "campus-management"
+        ],
+        "summary": "School Dimensions",
+        "operationId": "school_dimensions_api_v1_school_statistics_semesters__sid__campus_dimensions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -10104,6 +10890,496 @@
         }
       }
     },
+    "/api/v1/colleges/{cid}/volunteer-groups/{gid}/handover/preview": {
+      "post": {
+        "tags": [
+          "organization-management"
+        ],
+        "summary": "Preview Handover",
+        "operationId": "preview_handover_api_v1_colleges__cid__volunteer_groups__gid__handover_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Gid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Handover"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/volunteer-groups/{gid}/handover/candidates": {
+      "get": {
+        "tags": [
+          "organization-management"
+        ],
+        "summary": "Handover Candidates",
+        "operationId": "handover_candidates_api_v1_colleges__cid__volunteer_groups__gid__handover_candidates_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "default": "",
+              "title": "Keyword"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/volunteer-groups/{gid}/handover/confirm": {
+      "post": {
+        "tags": [
+          "organization-management"
+        ],
+        "summary": "Confirm Handover",
+        "operationId": "confirm_handover_api_v1_colleges__cid__volunteer_groups__gid__handover_confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Gid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandoverConfirm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/permission-sources/me": {
+      "get": {
+        "tags": [
+          "organization-management"
+        ],
+        "summary": "My Sources",
+        "operationId": "my_sources_api_v1_colleges__cid__permission_sources_me_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/volunteer-groups/{gid}/semesters/{sid}/preparation/preview": {
+      "post": {
+        "tags": [
+          "organization-management"
+        ],
+        "summary": "Preview Preparation",
+        "operationId": "preview_preparation_api_v1_colleges__cid__volunteer_groups__gid__semesters__sid__preparation_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SemesterPreparation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/volunteer-groups/{gid}/semesters/{sid}/preparation/source/{source_sid}": {
+      "get": {
+        "tags": [
+          "organization-management"
+        ],
+        "summary": "Preparation Source",
+        "operationId": "preparation_source_api_v1_colleges__cid__volunteer_groups__gid__semesters__sid__preparation_source__source_sid__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "source_sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Source Sid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/volunteer-groups/{gid}/semesters/{sid}/preparation/confirm": {
+      "post": {
+        "tags": [
+          "organization-management"
+        ],
+        "summary": "Confirm Preparation",
+        "operationId": "confirm_preparation_api_v1_colleges__cid__volunteer_groups__gid__semesters__sid__preparation_confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreparationConfirm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/colleges/{cid}/groups/{gid}/inspection/assignment-plans/preview": {
       "post": {
         "tags": [
@@ -11412,6 +12688,76 @@
         }
       }
     },
+    "/api/v1/colleges/{cid}/attendance/{rid}/archived-corrections": {
+      "post": {
+        "tags": [
+          "college-attendance"
+        ],
+        "summary": "Correct Archived",
+        "operationId": "correct_archived_api_v1_colleges__cid__attendance__rid__archived_corrections_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttendanceCorrectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendanceDetailEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/colleges/{cid}/objections": {
       "get": {
         "tags": [
@@ -11469,6 +12815,24 @@
                 }
               ],
               "title": "Final Status"
+            }
+          },
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Semester Id"
             }
           },
           {
@@ -13468,7 +14832,7 @@
           "import"
         ],
         "summary": "Bulk Import",
-        "description": "批量上传多个名单/课表文件或一个 ZIP 压缩包，自动化流水线解析并原子入库。",
+        "description": "旧兼容入口逐文件预览并确认；前面的成功文件不会随后续文件失败回滚。",
         "operationId": "bulk_import_api_v1_imports_bulk_post",
         "requestBody": {
           "content": {
@@ -13834,7 +15198,7 @@
           "college-import"
         ],
         "summary": "College Bulk Import",
-        "description": "批量上传多个名单/课表文件或一个 ZIP 压缩包，自动化流水线解析并原子入库。",
+        "description": "旧兼容入口逐文件预览并确认；前面的成功文件不会随后续文件失败回滚。",
         "operationId": "college_bulk_import_imports_bulk_post",
         "security": [
           {
@@ -13874,6 +15238,120 @@
                   "additionalProperties": true,
                   "title": "Response College Bulk Import Imports Bulk Post"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/imports/confirmation-set/preview": {
+      "post": {
+        "tags": [
+          "import-confirmation"
+        ],
+        "summary": "Preview",
+        "operationId": "preview_api_v1_colleges__cid__imports_confirmation_set_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmationSelection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/imports/confirmation-set/confirm": {
+      "post": {
+        "tags": [
+          "import-confirmation"
+        ],
+        "summary": "Confirm",
+        "operationId": "confirm_api_v1_colleges__cid__imports_confirmation_set_confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -14452,6 +15930,23 @@
               "type": "boolean",
               "default": true,
               "title": "Include Canceled"
+            }
+          },
+          {
+            "name": "needs_attention",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(unassigned|roster)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Needs Attention"
             }
           },
           {
@@ -16999,6 +18494,23 @@
               "type": "boolean",
               "default": true,
               "title": "Include Canceled"
+            }
+          },
+          {
+            "name": "needs_attention",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(unassigned|roster)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Needs Attention"
             }
           },
           {
@@ -19794,6 +21306,24 @@
                 }
               ],
               "title": "Initial Status"
+            }
+          },
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Semester Id"
             }
           },
           {
@@ -23240,6 +24770,44 @@
         ],
         "title": "AdministratorAccountUpdate"
       },
+      "ArchiveConfirm": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "revision"
+        ],
+        "title": "ArchiveConfirm"
+      },
+      "ArchiveRequest": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "ArchiveRequest"
+      },
       "AssignmentPlanCommit": {
         "properties": {
           "revision": {
@@ -23702,6 +25270,39 @@
           "task_id": {
             "type": "string",
             "title": "Task Id"
+          },
+          "responsible_college_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsible College Id"
+          },
+          "responsible_college_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsible College Name"
+          },
+          "semester_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semester Status"
           },
           "inspection_date": {
             "type": "string",
@@ -24495,6 +26096,52 @@
           "lock_version"
         ],
         "title": "CollegeUpdate"
+      },
+      "ConfirmationRequest": {
+        "properties": {
+          "batch_ids": {
+            "items": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,18}$"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Batch Ids"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "batch_ids",
+          "revision"
+        ],
+        "title": "ConfirmationRequest"
+      },
+      "ConfirmationSelection": {
+        "properties": {
+          "batch_ids": {
+            "items": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,18}$"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Batch Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "batch_ids"
+        ],
+        "title": "ConfirmationSelection"
       },
       "CourseCreate": {
         "properties": {
@@ -26190,6 +27837,56 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "Handover": {
+        "properties": {
+          "owner_user_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Owner User Id"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "owner_user_id",
+          "reason"
+        ],
+        "title": "Handover"
+      },
+      "HandoverConfirm": {
+        "properties": {
+          "owner_user_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Owner User Id"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "owner_user_id",
+          "reason",
+          "revision"
+        ],
+        "title": "HandoverConfirm"
+      },
       "ImpactDecision": {
         "properties": {
           "decision": {
@@ -27034,6 +28731,56 @@
         ],
         "title": "OccurrenceException"
       },
+      "OfferingLink": {
+        "properties": {
+          "target_teaching_class_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Target Teaching Class Id"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target_teaching_class_id",
+          "reason"
+        ],
+        "title": "OfferingLink"
+      },
+      "OfferingLinkConfirm": {
+        "properties": {
+          "target_teaching_class_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Target Teaching Class Id"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target_teaching_class_id",
+          "reason",
+          "revision"
+        ],
+        "title": "OfferingLinkConfirm"
+      },
       "OptionalPermissionUpdate": {
         "properties": {
           "enabled": {
@@ -27607,6 +29354,55 @@
           "current_version"
         ],
         "title": "PersonalTimetableResult"
+      },
+      "PreparationConfirm": {
+        "properties": {
+          "source_semester_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Source Semester Id"
+          },
+          "member_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Member Ids"
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective From"
+          },
+          "effective_to": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective To"
+          },
+          "teaching_class_mapping": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "maxProperties": 500,
+            "title": "Teaching Class Mapping"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_semester_id",
+          "effective_from",
+          "effective_to",
+          "revision"
+        ],
+        "title": "PreparationConfirm"
       },
       "PreviewEnvelope": {
         "properties": {
@@ -28613,6 +30409,49 @@
           "first_monday"
         ],
         "title": "SemesterCreateRequest"
+      },
+      "SemesterPreparation": {
+        "properties": {
+          "source_semester_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Source Semester Id"
+          },
+          "member_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Member Ids"
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective From"
+          },
+          "effective_to": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective To"
+          },
+          "teaching_class_mapping": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "maxProperties": 500,
+            "title": "Teaching Class Mapping"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_semester_id",
+          "effective_from",
+          "effective_to"
+        ],
+        "title": "SemesterPreparation"
       },
       "SemesterReset": {
         "properties": {
@@ -29964,6 +31803,64 @@
         ],
         "title": "TeachingUpdate"
       },
+      "TemplateAdopt": {
+        "properties": {
+          "template_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Template Id"
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective From"
+          },
+          "confirm_existing_tasks": {
+            "type": "boolean",
+            "title": "Confirm Existing Tasks",
+            "default": false
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "template_id",
+          "effective_from",
+          "revision"
+        ],
+        "title": "TemplateAdopt"
+      },
+      "TemplateAdoption": {
+        "properties": {
+          "template_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Template Id"
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective From"
+          },
+          "confirm_existing_tasks": {
+            "type": "boolean",
+            "title": "Confirm Existing Tasks",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "template_id",
+          "effective_from"
+        ],
+        "title": "TemplateAdoption"
+      },
       "TemplateContent": {
         "properties": {
           "name": {
@@ -30017,6 +31914,71 @@
           "effective_from"
         ],
         "title": "TemplateImport"
+      },
+      "TemplatePublish": {
+        "properties": {
+          "effective_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective From"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/PeriodTime"
+            },
+            "type": "array",
+            "maxItems": 60,
+            "minItems": 1,
+            "title": "Periods"
+          },
+          "calendar": {
+            "items": {
+              "$ref": "#/components/schemas/TimeCalendarOverride"
+            },
+            "type": "array",
+            "maxItems": 420,
+            "title": "Calendar"
+          },
+          "grid_slot_mapping": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "maxProperties": 60,
+            "title": "Grid Slot Mapping"
+          },
+          "confirm_existing_tasks": {
+            "type": "boolean",
+            "title": "Confirm Existing Tasks",
+            "default": false
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "period_template_version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Template Version Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "effective_from",
+          "periods",
+          "name"
+        ],
+        "title": "TemplatePublish"
       },
       "TemplateRevision": {
         "properties": {

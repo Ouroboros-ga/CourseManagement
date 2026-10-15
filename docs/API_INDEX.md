@@ -1,6 +1,6 @@
 # API 路由索引
 
-2026-10-15，依据当前 FastAPI OpenAPI 生成。路由存在不等于相应生产开关已开启。P5 接入说明见 [小程序个人课表接口](integration/WECHAT_PERSONAL_TIMETABLE_API_20261015.md)。
+2026-10-16，依据当前候选 FastAPI OpenAPI 生成。R4/R5 本轮尚未部署；路由存在不代表生产能力已开启。业务边界见 [API 契约](API_CONTRACT.md)，小程序增量见 [开发者交接](integration/WECHAT_DEVELOPER_CHANGES_20261014.md)。
 
 | 方法 | 路径 | 标签 |
 | --- | --- | --- |
@@ -51,6 +51,7 @@
 | PATCH | `/api/v1/colleges/{cid}` | campus-configuration |
 | GET | `/api/v1/colleges/{cid}/grants` | campus-configuration |
 | POST | `/api/v1/colleges/{cid}/grants` | campus-configuration |
+| POST | `/api/v1/colleges/{cid}/grants/preview` | campus-configuration |
 | POST | `/api/v1/colleges/{cid}/grants/{rid}/revoke` | campus-configuration |
 | GET | `/api/v1/colleges/{cid}/course-types` | campus-configuration |
 | POST | `/api/v1/colleges/{cid}/course-types` | campus-configuration |
@@ -63,6 +64,22 @@
 | DELETE | `/api/v1/colleges/{cid}/groups/{rid}` | campus-configuration |
 | GET | `/api/v1/colleges/{cid}/groups/{rid}/impact` | campus-configuration |
 | POST | `/api/v1/colleges/{cid}/groups/{rid}/configuration/publish` | campus-configuration |
+| GET | `/api/v1/colleges/{cid}/groups/{rid}/references` | campus-configuration |
+| GET | `/api/v1/colleges/{cid}/configuration-impacts` | campus-configuration |
+| POST | `/api/v1/colleges/{cid}/configuration-impacts/{rid}/resolve` | campus-configuration |
+| GET | `/api/v1/colleges/{cid}/overview` | workspace-overview |
+| GET | `/api/v1/schools/{sid}/time-templates` | school-time-templates |
+| POST | `/api/v1/schools/{sid}/time-templates` | school-time-templates |
+| GET | `/api/v1/schools/{sid}/time-templates/{tid}/versions` | school-time-templates |
+| PATCH | `/api/v1/schools/{sid}/time-templates/{tid}` | school-time-templates |
+| POST | `/api/v1/schools/{sid}/time-templates/{tid}/status` | school-time-templates |
+| GET | `/api/v1/colleges/{cid}/time-templates` | school-time-templates |
+| POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles/from-template` | school-time-templates |
+| GET | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-template-updates` | school-time-templates |
+| GET | `/api/v1/statistics/school-summary` | summary-statistics |
+| GET | `/api/v1/colleges/{cid}/groups/{gid}/statistics/performance` | summary-statistics |
+| POST | `/api/v1/colleges/{cid}/inspection-tasks/{tid}/execution-group/preview` | task-group-transfer |
+| POST | `/api/v1/colleges/{cid}/inspection-tasks/{tid}/execution-group/confirm` | task-group-transfer |
 | POST | `/api/v1/academic/semesters` | academic |
 | GET | `/api/v1/academic/semesters` | academic |
 | PATCH | `/api/v1/academic/semesters/{semester_id}` | academic |
@@ -104,22 +121,15 @@
 | GET | `/api/v1/academic/volunteer-qualifications` | academic |
 | GET | `/api/v1/academic/master-timetable` | academic |
 | POST | `/api/v1/academic/teaching-classes/batch-elective` | academic |
-| PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/course-type` | college-academic |
-| GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/classification-impact` | college-academic |
-| GET | `/api/v1/colleges/{cid}/academic/master-timetable` | college-academic |
-| GET | `/api/v1/colleges/{cid}/academic/{kind}` | college-academic |
-| POST | `/api/v1/colleges/{cid}/academic/{kind}` | college-academic-writes |
-| GET | `/api/v1/colleges/{cid}/academic/{kind}/{rid}` | college-academic |
-| PATCH | `/api/v1/colleges/{cid}/academic/{kind}/{rid}` | college-academic-writes |
-| DELETE | `/api/v1/colleges/{cid}/academic/{kind}/{rid}` | college-academic-writes |
-| POST | `/api/v1/colleges/{cid}/academic/administrative-classes` | college-academic |
-| PATCH | `/api/v1/colleges/{cid}/academic/administrative-classes/{rid}` | college-academic |
-| GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
-| PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
 | POST | `/api/v1/colleges/{cid}/academic/teaching-classes/batch-elective` | college-academic-writes |
 | POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/reset-data` | college-academic-writes |
 | GET | `/api/v1/colleges/{cid}/academic/semesters/{sid}/reset-preview` | college-academic-writes |
 | PUT | `/api/v1/colleges/{cid}/academic/qualifications` | college-academic-writes |
+| POST | `/api/v1/colleges/{cid}/academic/{kind}` | college-academic-writes |
+| GET | `/api/v1/colleges/{cid}/academic/{kind}` | college-academic |
+| PATCH | `/api/v1/colleges/{cid}/academic/{kind}/{rid}` | college-academic-writes |
+| DELETE | `/api/v1/colleges/{cid}/academic/{kind}/{rid}` | college-academic-writes |
+| GET | `/api/v1/colleges/{cid}/academic/{kind}/{rid}` | college-academic |
 | POST | `/api/v1/colleges/{cid}/academic/{kind}/batch-delete` | college-academic-writes |
 | POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/publication-preview` | academic-publication |
 | POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/publish` | academic-publication |
@@ -127,6 +137,26 @@
 | GET | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions` | college-time |
 | POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/preview` | college-time |
 | POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/publish` | college-time |
+| GET | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles` | college-time |
+| POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles` | college-time |
+| PATCH | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles/{pid}` | college-time |
+| GET | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles/{pid}/preview` | college-time |
+| POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles/{pid}/publish` | college-time |
+| POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles/{pid}/archive` | college-time |
+| POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles/teaching-classes/{tid}/binding/preview` | college-time |
+| POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles/teaching-classes/{tid}/binding` | college-time |
+| GET | `/api/v1/school/academic/semesters/{sid}/time-templates` | school-time |
+| POST | `/api/v1/school/academic/semesters/{sid}/time-templates` | school-time |
+| GET | `/api/v1/colleges/{cid}/academic/semesters/{sid}/school-time-templates` | school-time |
+| POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/school-time-templates/preview` | school-time |
+| POST | `/api/v1/colleges/{cid}/academic/semesters/{sid}/school-time-templates/adopt` | school-time |
+| GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{tid}/shared-identity/candidates` | shared-academic-identity |
+| POST | `/api/v1/colleges/{cid}/academic/teaching-classes/{tid}/shared-identity/preview` | shared-academic-identity |
+| POST | `/api/v1/colleges/{cid}/academic/teaching-classes/{tid}/shared-identity/confirm` | shared-academic-identity |
+| POST | `/api/v1/school/academic/semesters/{sid}/archive/preview` | campus-management |
+| POST | `/api/v1/school/academic/semesters/{sid}/archive/confirm` | campus-management |
+| GET | `/api/v1/colleges/{cid}/statistics/semesters/{sid}/campus-dimensions` | campus-management |
+| GET | `/api/v1/school/statistics/semesters/{sid}/campus-dimensions` | campus-management |
 | GET | `/api/v1/colleges/{cid}/groups/{gid}/member-candidates` | group-members |
 | GET | `/api/v1/colleges/{cid}/groups/{gid}/members` | group-members |
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/members` | group-members |
@@ -138,12 +168,34 @@
 | PATCH | `/api/v1/colleges/{cid}/groups/{gid}/members/{mid}` | group-members |
 | PATCH | `/api/v1/colleges/{cid}/groups/{gid}/support-authorizations/{rid}` | group-members |
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/support-authorizations/{rid}/revoke` | group-members |
+| POST | `/api/v1/colleges/{cid}/groups/{gid}/members/batch/preview` | group-members |
+| POST | `/api/v1/colleges/{cid}/groups/{gid}/members/batch/commit` | group-members |
+| GET | `/api/v1/colleges/{cid}/groups/{gid}/unavailability` | group-members |
+| POST | `/api/v1/colleges/{cid}/groups/{gid}/unavailability` | group-members |
+| GET | `/api/v1/colleges/{cid}/groups/{gid}/unavailability/{rid}/impact` | group-members |
+| POST | `/api/v1/colleges/{cid}/groups/{gid}/unavailability/{rid}/decision` | group-members |
+| GET | `/api/v1/colleges/{cid}/groups/{gid}/me/unavailability` | group-members |
+| POST | `/api/v1/colleges/{cid}/groups/{gid}/me/unavailability` | group-members |
+| POST | `/api/v1/colleges/{cid}/groups/{gid}/me/unavailability/{rid}/withdraw` | group-members |
+| POST | `/api/v1/colleges/{cid}/volunteer-groups/{gid}/handover/preview` | organization-management |
+| GET | `/api/v1/colleges/{cid}/volunteer-groups/{gid}/handover/candidates` | organization-management |
+| POST | `/api/v1/colleges/{cid}/volunteer-groups/{gid}/handover/confirm` | organization-management |
+| GET | `/api/v1/colleges/{cid}/permission-sources/me` | organization-management |
+| POST | `/api/v1/colleges/{cid}/volunteer-groups/{gid}/semesters/{sid}/preparation/preview` | organization-management |
+| GET | `/api/v1/colleges/{cid}/volunteer-groups/{gid}/semesters/{sid}/preparation/source/{source_sid}` | organization-management |
+| POST | `/api/v1/colleges/{cid}/volunteer-groups/{gid}/semesters/{sid}/preparation/confirm` | organization-management |
+| POST | `/api/v1/colleges/{cid}/groups/{gid}/inspection/assignment-plans/preview` | group-inspection |
+| POST | `/api/v1/colleges/{cid}/groups/{gid}/inspection/assignment-plans/{plan_id}/commit` | group-inspection |
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/inspection/assign` | group-inspection |
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/inspection/sample-preview` | group-inspection |
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/inspection/generate` | group-inspection |
 | POST | `/api/v1/me/timetable/initialize` | personal-timetable |
 | GET | `/api/v1/me/timetable/semesters` | personal-timetable |
 | GET | `/api/v1/me/timetable` | personal-timetable |
+| GET | `/api/v1/me/timetable/deleted-entries` | personal-timetable |
+| POST | `/api/v1/me/timetable/entries/{eid}/restore` | personal-timetable |
+| PUT | `/api/v1/me/timetable/entries/{eid}/exceptions/{day}` | personal-timetable |
+| DELETE | `/api/v1/me/timetable/entries/{eid}/exceptions/{day}` | personal-timetable |
 | POST | `/api/v1/me/timetable/entries` | personal-timetable |
 | PATCH | `/api/v1/me/timetable/entries/{eid}` | personal-timetable |
 | DELETE | `/api/v1/me/timetable/entries/{eid}` | personal-timetable |
@@ -151,6 +203,7 @@
 | GET | `/api/v1/colleges/{cid}/attendance/{rid}` | college-attendance |
 | GET | `/api/v1/colleges/{cid}/attendance/{rid}/versions` | college-attendance |
 | POST | `/api/v1/colleges/{cid}/attendance/{rid}/corrections` | college-attendance |
+| POST | `/api/v1/colleges/{cid}/attendance/{rid}/archived-corrections` | college-attendance |
 | GET | `/api/v1/colleges/{cid}/objections` | college-objection |
 | GET | `/api/v1/colleges/{cid}/objections/{rid}` | college-objection |
 | POST | `/api/v1/colleges/{cid}/objections/{rid}/review` | college-objection |
@@ -191,6 +244,8 @@
 | POST | `/api/v1/colleges/{cid}/imports/{batch_id}/confirm` | college-import |
 | GET | `/api/v1/colleges/{cid}/imports/{batch_id}/errors` | college-import |
 | POST | `/api/v1/colleges/{cid}/imports/bulk` | college-import |
+| POST | `/api/v1/colleges/{cid}/imports/confirmation-set/preview` | import-confirmation |
+| POST | `/api/v1/colleges/{cid}/imports/confirmation-set/confirm` | import-confirmation |
 | GET | `/api/v1/inspection-course-occurrences` | inspection |
 | POST | `/api/v1/inspection-course-occurrences/smart-sample` | inspection |
 | POST | `/api/v1/inspection-tasks/preview` | inspection |
@@ -295,34 +350,10 @@
 | GET | `/api/v1/colleges/{cid}/statistics/attendance/export-detail-doc` | college-reports |
 | GET | `/api/v1/colleges/{cid}/statistics/attendance/export-study-excel` | college-reports |
 | GET | `/api/v1/colleges/{cid}/statistics/incomplete-tasks` | college-reports |
-
-
-2026-10-15待发布补充：`POST /colleges/{cid}/grants/preview` 授权预览；`GET /colleges/{cid}/groups/{gid}/references` 组配置引用元数据。详细范围及版本规则见API_CONTRACT末节。
-
-待发布：`GET /colleges/{cid}/configuration-impacts`、`POST /colleges/{cid}/configuration-impacts/{id}/resolve`；变更影响清单与处置。
-
-待发布：`.../time-versions/profiles`命名作息草稿/发布/归档，以及其`teaching-classes/{tid}/binding`预览/确认接口，详见API契约末节。
-
-待发布：`POST /colleges/{cid}/groups/{gid}/members/batch/preview`及`.../commit`，按明确学号集合整批纳入组成员。
-
-
-待发布：`/colleges/{cid}/groups/{gid}/unavailability`（GET/POST）、`/{id}/impact`（GET）、`/{id}/decision`（POST）；本人路径为同组前缀下`/me/unavailability`（GET/POST）及`/{id}/withdraw`（POST）。获批所有组统一不可新增排班，详见API契约末节。
-
-## 2026-10-15 学校作息模板增量
-
-超管学校模板维护（新增版本与停用，不提供删除）、学院同校目录、指定版本引用为独立草稿、模板升级/停用提示，见 [接口与边界](development/SCHOOL_TIME_TEMPLATE_API.md)。既有学院作息、排班及小程序接口保持兼容；测试流程见 [共用逻辑测试包](testing/school-time-templates/README.md)。
-
-| 方法 | 新增路径（前缀 `/api/v1`） |
-| --- | --- |
-| GET / POST | `/schools/{sid}/time-templates` |
-| PATCH | `/schools/{sid}/time-templates/{tid}` |
-| GET | `/schools/{sid}/time-templates/{tid}/versions` |
-| POST | `/schools/{sid}/time-templates/{tid}/status` |
-| GET | `/colleges/{cid}/time-templates` |
-| POST | `/colleges/{cid}/academic/semesters/{sid}/time-versions/profiles/from-template` |
-| GET | `/colleges/{cid}/academic/semesters/{sid}/time-template-updates` |
-
-
-## 2026-10-15 已确认模块增量（当前工作区，未部署）
-
-详见 [模块接口](development/CONFIRMED_MODULES_API_20261015.md)。新增全校汇总、组履职、任务换组、个人删除恢复及日期例外；现有教师账号契约增加独立全校汇总授权，考勤/异议/即时统计导出增加查询维度，通知列表增加学籍变化类型。实际路由和Schema见同步OpenAPI；不要把待部署接口当线上已可调用。
+| PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/course-type` | college-academic |
+| GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/classification-impact` | college-academic |
+| GET | `/api/v1/colleges/{cid}/academic/master-timetable` | college-academic |
+| POST | `/api/v1/colleges/{cid}/academic/administrative-classes` | college-academic |
+| PATCH | `/api/v1/colleges/{cid}/academic/administrative-classes/{rid}` | college-academic |
+| GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
+| PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |

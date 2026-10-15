@@ -1,5 +1,29 @@
 > 文档定位：已有 API 与按日期保留的兼容契约。当前进度见[实施状态](development/IMPLEMENTATION_STATUS.md)，新增重构设计中的拟议能力不代表已开放接口。正文历史段落的“尚未部署”、旧迁移号及测试数字仅描述其当时批次；实际请求核对挂载路由、schema 和运行配置。
 
+# 2026-10-15 R2/R3 本地开发增量
+
+本节描述当前代码，尚未提交或部署，不代表生产已开放。没有新增数据库表或迁移。原接口及旧 bulk 保持兼容。
+
+## 工作台与日期学籍
+
+- GET `/api/v1/colleges/{cid}/overview?semester_id=...`：要求学院配置启用，按每项真实动作与资源上限返回 `college_id/semester_id/semester_status/as_of/items/runtime/scheduling_note`。`items` 的每项包括 `id/label/count/status/scope_label/destination`；状态为 `ACTION_REQUIRED/COMPLETE/AVAILABLE/EMPTY`。没有权限的项省略，不能把省略解释为零。受限组只统计可见组；成员是当日有效成员去重，资格是本学期当日学籍与资格核对，不代表具体任务可排班人数。
+- GET `/api/v1/colleges/{cid}/academic/students` 增加可选 `as_of=YYYY-MM-DD`：使用该日半开区间学籍归属，继续执行本院 student.read。返回学生附加 `as_of/enrollment_source/enrollment_snapshot`，班级、学院与学籍状态按当日事实；姓名、学号仍为当前标识。显式日期不以当前班级补造缺失历史。不传日期继续查当前档案并兼容无时间线的旧当前记录。其他资源不接受日期学籍筛选。
+- GET `/api/v1/objections` 与 `/api/v1/colleges/{cid}/objections` 增加可选 `semester_id`；通过所属任务筛选，列表和 total 共用范围，不改变一次审核与详情授权。旧调用不传参数仍可跨学期查询。
+- GET `/api/v1/inspection-tasks` 及学院别名增加可选 `needs_attention=unassigned|roster`，仅筛选未取消任务，分别为无当前受派、需要核对名单。可与 semester_id 和分页组合；已有任务可见性不变。
+
+## 明确导入确认集合
+
+前提：学院配置及正式业务开关已启用。每个目标均在事务内重新核对 `import.execute + 对应目标管理动作`。现有 multipart POST `/api/v1/colleges/{cid}/imports` 继续仅创建预览草稿；单文件限制 10 MiB。标准表、行政班名单、网格课表记录可定位的实际来源行，网格同时记录原工作表与列。学号保持字符串，源文件 SHA-256 仅作来源识别，不替代正式数据差异核对。
+
+1. POST `/api/v1/colleges/{cid}/imports/confirmation-set/preview`，JSON `{ "batch_ids": ["123", "124"] }`。一次 1—20 个不同预览，同一学期（行政班基础名单独立于学期），变更项总量不超过 `IMPORT_MAX_ROWS`（默认 5000）。只读正式资料、返回核对结果，不执行正式写入。
+2. 响应包括 `revision/batch_ids/files/can_confirm/limits/impact_note`。每个文件有 `id/filename/target/summary/issues/changes`；差异有 `action=CREATE|UPDATE|UNCHANGED`、`entity/key/before/after/source`。来源包括文件、可用的工作表/行/列；合并名单按学号定位。问题按 `severity/message/filename/row/field` 展示。阻断问题会使整个集合不可确认；移除文件后必须重新核对。
+3. POST `/api/v1/colleges/{cid}/imports/confirmation-set/confirm`，JSON `{ "batch_ids": ["123", "124"], "revision": "预览返回的64位哈希" }`。锁定授权学院、学期及具体批次，核对正式来源和选择集合，复用不自行提交的底层写入，所有正式写入、批次状态与审计一次提交。响应为 `status=CONFIRMED/batch_ids/files`，文件结果带 summary。
+4. 正式来源、集合变化或预览过期/失效返回 409；存在内容阻断项返回 422。预览过期或已失效需重新上传。任意后续文件写入失败时，整个集合回滚，草稿保持可核对状态。完全相同集合与 revision 的成功请求重试返回已有结果；子集或混合已确认文件不作为新集合放行。
+5. 新向导中的教学班名单、选修名单为补充语义，未出现的人不删除，学籍驱动名单仍要求走学籍流程。同集合重复文件跳过；重新上传对照当前事实，已有相同课表不再追加。多个文件修改同一资料、集合内课表重叠、与旧课表冲突或缺少周次均阻断。不能确定替换对象的时间/地点变化先通过课程维护或停补课处理，不自动删旧课表。归属变化走交接，不通过导入转班。
+6. 导入不等于正式发布，也不覆盖学生个人副本。依赖资料按“先行政班与学生、再课表与选课、再资格”分批确认，不承诺解析时跨未确认草稿自动建立外部引用。
+
+旧 `/imports/bulk` 是逐文件预览并确认：前面的成功文件不会因后续失败回滚。Web 将它标记为旧兼容入口，不能用它冒充新集合事务。标准长表旧算法漏保存周次及漏递增数量的问题已修复，仅影响后续执行，不自动修复历史数据。
+
 # 2026-10-15 P5 交付增量
 
 云端个人课表实际接口与业务语义见 [微信小程序接口](integration/WECHAT_PERSONAL_TIMETABLE_API_20261015.md)，发布验收见 [P5 发布记录](archive/2026-10-15/operations/P5_RELEASE_20261015.md)。以下保留历史契约；与该增量冲突时以本轮已验收接口为准。通知仅展示，没有已读/采用；绑定完成后由客户端调用初始化。
@@ -585,3 +609,34 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 ## 2026-10-15 已确认模块增量（待部署）
 
 独立全校汇总权限默认false、默认普通课及三种初始类型、换组预览/确认、SQL维度筛选、组履职、本人删除恢复和日期例外，以及统一通知列表的来源变化类型，见 [完整增量契约](development/CONFIRMED_MODULES_API_20261015.md)。通知新增kind；学籍变化项semester_id为null，客户端按kind处理。原初始化和基础条目增删改不改正式业务。
+
+
+## R4/R5 增量契约（2026-10-16，候选代码尚未部署）
+
+本节对应 `f26a1016a001→a003`，承接已发布 `f26a1015h001`。保留已发布的学校节次模板、个人课表、查课与照片 API；现有学校节次模板是跨学期资产，以下“学期默认资料包”是显式冻结的作息＋校历＋教务映射。新入口沿用运行开关，不因页面存在自动启用。
+
+| 功能 | 路径与方法 | 主要约束 |
+| --- | --- | --- |
+| 学期学校默认版本 | `GET/POST /api/v1/school/academic/semesters/{sid}/time-templates` | 超管发布；完整 TimeConfiguration＋name，可选 `period_template_version_id` 引用已有学校节次模板版本。节次被修改后不能伪称原版本来源。只新增不可变版本，不广播覆盖学院。 |
+| 学院采用学校默认 | `GET /api/v1/colleges/{cid}/academic/semesters/{sid}/school-time-templates`，同前缀 `POST /preview`、`POST /adopt` | 请求 `template_id`、`effective_from`、`confirm_existing_tasks`；采用再加预览 revision。返回保留的学院例外和已有未来任务；事务内重验，变化 409。个人/命名作息方案仍复用原接口。 |
+| 教学班身份候选 | `GET /api/v1/colleges/{cid}/academic/teaching-classes/{tid}/shared-identity/candidates` | 需本院 academic.manage。只推荐同校同学期上课资料一致的元数据，不返回外院学生名单。未确认仍独立；候选非自动合并结论。 |
+| 教学班身份关联 | 同前缀 `POST /preview`、`POST /confirm` | 请求 `target_teaching_class_id`、必填 reason，确认携带 revision。课程、完整周次、节次/实际作息、时间地点及教师均核对；保留来源断言与学院视图。本视图今日及未来已有有效任务须先处置；历史任务不改写。确认后来源冲突阻断该班新任务，不覆盖其他来源。 |
+| 负责人交接 | `GET /api/v1/colleges/{cid}/volunteer-groups/{gid}/handover/candidates?keyword=...`，同前缀 `POST /preview`、`POST /confirm` | 拥有所授全部动作且范围不受限的真实教师/超管；教师只能任命本院当前在籍学生账号或本院教师账号，其他/外院账号由超管确认，已有局部授权不作为扩大授权的依据；body `owner_user_id`、必填 reason、确认 revision。只撤销 owner_group_id 对应专属授权，保留独立授权与已有任务/排班。响应提示目标账号是否有 Web 登录方式，不创建密码。普通组编辑不再直接换负责人。 |
+| 本人权限来源 | `GET /api/v1/colleges/{cid}/permission-sources/me` | 返回 FIXED_IDENTITY、EXPLICIT_GRANT、GROUP_OWNER 的实际有效动作及范围；不在前端猜测角色权限。 |
+| 组织学期准备 | `GET /api/v1/colleges/{cid}/volunteer-groups/{gid}/semesters/{sid}/preparation/source/{source_sid}`，同 preparation 前缀 `POST /preview`、`POST /confirm` | 请求 source_semester_id、明确 member_ids、半开有效期 `[effective_from,effective_to)`、teaching_class_mapping；确认带 revision。先复核目标学期资格、学籍、支援和授权上限；任一选定成员未就绪不确认。只准备本学期规则与成员，不复制账号/绑定/组织/支援授权。目标组学期已有今日或未来有效任务时拒绝重新准备，先处置任务；追加成员使用现有成员维护入口。 |
+| 归档 | `POST /api/v1/school/academic/semesters/{sid}/archive/preview`、`/confirm` | 超管按全校学期明确归档；body 必填 reason，确认 revision。先列未完成任务、未结异议、未处置影响、生成中报表；有阻断不可归档。不随学期切换自动归档。 |
+| 归档考勤更正 | `POST /api/v1/colleges/{cid}/attendance/{rid}/archived-corrections` | 真实教师/超管＋该记录 attendance.correct；须已归档、非空依据、current_version。追加认定和 `attendance.archived.correct` 审计，不解冻其他业务或覆写旧报表。普通更正及新异议对已归档学期返回 409。 |
+| 统计双维度 | `GET /api/v1/colleges/{cid}/statistics/semesters/{sid}/campus-dimensions`；校级 `/api/v1/school/statistics/semesters/{sid}/campus-dimensions` | 学院需 statistics.read；校级超管或明确 statistics.school.read。任务数与已形成正式结果的任务数分开；返回检查人次、去重学生数、去重学生课次数、按任务负责学院/学生当时学院分组的认定分布，不输出全校唯一考勤结论。 |
+
+### 检查责任与兼容字段
+
+- 所有既有 ID 保留；客户端把 task_key/occurrence 标识当不透明值，不按课程名、教室、组名自行拼键。任务负责学院从授权工作区固定，不因学生转院或操作者切换学院改变。
+- 服务端按 `(负责学院,稳定课次,学生)` 占用。相同集合重试复用原任务；同院不同组/部分重叠名单整批 409，`fieldErrors.conflicting_student_count` 给出冲突学生数，不泄漏不可见任务名单。不同负责学院在原授权边界内独立保存结果；互不重叠名单可分别检查。预览筛除已被其他有效责任占用的候选；抽查不足不跨范围补足。
+- 名单更正、学籍刷新、任务取消/恢复复用占用检查。无正式考勤或截止时事实的取消才释放占用；有事实不可用强制删除绕过保护。原任务已取消或名单已改版时，旧请求不覆盖它，返回 409 引导核对。
+- 课程目录的课程编码改为本学院内唯一；旧全局编码存在歧义时要求使用明确学院入口。共享教务身份通过单独确认，不依赖课程编码唯一性推导。
+- 本人及管理考勤响应 `task` 增加可空 `responsible_college_id`、`responsible_college_name`、`semester_status`。现场照片、考勤 ID、异议 ID/一次审核及文件访问接口保持兼容。小程序不需实现 Web 的学院配置或组织管理。
+- `time_snapshot` 保留真实时刻，并可返回 `source_template_id`（学期默认资料包版本）、`source`、`calendar_source`、`adjustment_source`，用于解释学校作息/学院调整/单次调整。已生成任务不借当前作息回填历史。
+
+### 迁移回退边界
+
+三个新增迁移是本轮唯一新增链。迁移前先核对既有重叠责任；有冲突在 MySQL DDL 前阻断，不静默删历史。迁移演练在服务器临时库执行。产生跨院同编码目录后不能盲目降回全局唯一约束；降级先拒绝并要求核对备份，不自动删课程。应用回退不得把新增业务事实当作可丢弃草稿。
