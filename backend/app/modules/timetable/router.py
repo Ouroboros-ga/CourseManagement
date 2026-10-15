@@ -11,7 +11,8 @@ from app.common.responses import success
 from app.core.database import get_db
 from app.core.exceptions import AppError, ErrorCode
 from app.modules.academic.publication_router import require_publication_enabled
-from app.modules.academic.publication_schemas import InitializeRequest
+from app.modules.academic.publication_schemas import InitializeEnvelope, InitializeRequest
+from app.modules.academic.publication_service import MyAcademicSourceService
 from app.modules.identity.deps import BindingCompleteDep
 from app.modules.timetable.schemas import (
     EntryCreate,
@@ -50,6 +51,15 @@ def semesters(actor: BindingCompleteDep, db: Db, request: Request):
 def get_timetable(semester_id: SemesterId, actor: BindingCompleteDep, db: Db, request: Request):
     return success(
         PersonalTimetableService(db, actor.id).get(semester_id),
+        getattr(request.state, "request_id", None),
+    )
+
+
+@router.get("/me/timetable/official-source", response_model=InitializeEnvelope)
+def get_official_source(semester_id: SemesterId, actor: BindingCompleteDep, db: Db, request: Request):
+    """获取当前学期教务处最新已发布排课（只读，供前端比对 Diff）"""
+    return success(
+        MyAcademicSourceService(db, actor.id).initialize(semester_id),
         getattr(request.state, "request_id", None),
     )
 

@@ -167,3 +167,32 @@ def test_personal_custom_fields_and_periods(campus):
     assert saved_entry["color"] == "#4F46E5"
     assert saved_entry.get("custom_tag") == "重点复习"
 
+
+def test_personal_get_official_source_http(campus, monkeypatch):
+    from app.core.config import get_settings
+    from app.core.database import get_db
+    from app.main import create_app
+    from app.modules.identity.deps import get_current_user
+    from app.modules.identity.service import CurrentUser
+    from fastapi.testclient import TestClient
+
+    db, teacher, a, _, teaching, _, _, user, _ = prepare(campus)
+    publish(db, teacher, a["id"], teaching.semester_id)
+    monkeypatch.setattr(get_settings(), "academic_publication_enabled", True)
+    app = create_app()
+    app.dependency_overrides[get_db] = lambda: db
+    actor = CurrentUser(
+        user.id, None, user.display_name, "ACTIVE", ["STUDENT"], [], pre_binding=False
+    )
+    app.dependency_overrides[get_current_user] = lambda: actor
+    with TestClient(app) as client:
+        resp = client.get(f"/api/v1/me/timetable/official-source?semester_id={teaching.semester_id}")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["semester_id"] == str(teaching.semester_id)
+        assert data["status"] == "AVAILABLE"
+        assert len(data["entries"]) > 0
+        assert data["entries"][0]["course_name"] == "旧课程"
+
+
+
