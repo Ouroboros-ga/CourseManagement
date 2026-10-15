@@ -25,7 +25,7 @@ from deploy_confirmed_modules_20261015 import (
 )
 from dotenv import dotenv_values
 
-HEAD = "f26a1016a003"
+HEAD = "f26a1016b001"
 
 
 def verify_files(base, files):
@@ -49,7 +49,7 @@ def main():
     old = (ROOT / "current").resolve()
     old_web = (ROOT / "admin-web/current").resolve()
     initial_head = sql("SELECT version_num FROM course_management.alembic_version")
-    assert initial_head in {"f26a1015h001", HEAD}, (
+    assert initial_head in {"f26a1015h001", "f26a1016a003", HEAD}, (
         "Unexpected live schema; refresh rehearsal first"
     )
     release = "20261016-campus-r6-" + manifest["source_commit"][:10]
@@ -168,8 +168,9 @@ from app.modules.academic.time_models import SchoolSemesterDefault
 from app.modules.volunteer.preparation_models import GroupSemesterPreparation
 from app.modules.inspection.responsibility import InspectionResponsibility
 from app.modules.organization.models import ScopedGrant
+from app.modules.timetable.models import TimetableBackup
 with Session(create_engine(get_settings().database_url)) as db:
-    for model in (TeachingClass,AcademicOffering,SchoolSemesterDefault,GroupSemesterPreparation,InspectionResponsibility,ScopedGrant):
+    for model in (TeachingClass,AcademicOffering,SchoolSemesterDefault,GroupSemesterPreparation,InspectionResponsibility,ScopedGrant,TimetableBackup):
         db.scalars(select(model).limit(1)).first()
 print('Runtime app role schema reads passed')
 """
@@ -229,6 +230,8 @@ print('Runtime app role schema reads passed')
             in paths
         )
         assert "/api/v1/me/timetable/entries/{eid}/restore" in paths
+        assert "get" in paths["/api/v1/me/class-timetable"]
+        assert {"get", "put"}.issubset(paths["/api/v1/me/timetable-backup"])
         assert counts() == before
         verify_files(candidate, manifest["source_files"])
         verify_files(web, manifest["web_files"])

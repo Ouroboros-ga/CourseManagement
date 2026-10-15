@@ -365,6 +365,55 @@ def test_two_college_real_http_lifecycle(campus, tmp_path):
                 )
                 assert official["status"] == "AVAILABLE" and len(official["entries"]) == 1
                 assert official["entries"][0]["course_name"] == "R6 shared course"
+                baseline = call("GET", f"/me/class-timetable?semester_id={sid}",
+                                view["student_token"])
+                assert baseline["items"] and baseline["semester"]["id"] == sid
+                missing = call("GET", f"/me/timetable-backup?semester_id={sid}",
+                               view["student_token"])
+                assert not missing["has_backup"]
+                snapshot = [{k: v for k, v in baseline["items"][0].items()}]
+                saved = call("PUT", "/me/timetable-backup", view["student_token"],
+                             json={"semester_id": sid, "schedule_data": snapshot})
+                assert saved["has_backup"] and saved["backup_version"] == 1
+                restored = call("GET", f"/me/timetable-backup?semester_id={sid}",
+                                view["student_token"])
+                assert restored["schedule_data"] == snapshot
+                call("PUT", "/me/timetable-backup", view["student_token"],
+                     json={"semester_id": sid, "schedule_data": []})
+                empty = call("GET", f"/me/timetable-backup?semester_id={sid}",
+                             view["student_token"])
+                assert empty["has_backup"] and not empty["schedule_data"]
+                call("PUT", "/me/timetable-backup", view["student_token"],
+                     json={"semester_id": sid, "student_id": "999", "schedule_data": []},
+                     expected=422)
+                # Mini-program self APIs never require a client college context.
+                student_token = view["student_token"]
+                base = "/me/timetable"
+                query = f"?semester_id={sid}"
+                initial = call("POST", base + "/initialize", student_token,
+                               json={"semester_id": sid})
+                entry = initial["entries"][0]
+                target = base + f"/entries/{entry['id']}" + query
+                call("PATCH", target, student_token,
+                     json={"current_version": 1, "college_id": "999"}, expected=422)
+                edited = call("PATCH", target, student_token,
+                              json={"current_version": 1, "custom_tag": "personal"})
+                assert edited["entries"][0]["id"] == entry["id"]
+                edited = call("PATCH", target, student_token,
+                              json={"current_version": 2, "note": "second save"})
+                assert edited["entries"][0]["custom_tag"] == "personal"
+                created = call("POST", base + "/entries" + query, student_token, json={
+                    "current_version": 3, "course_name": "Private elective", "weekday": 1,
+                    "week_nos": [1], "start_time": "07:00", "end_time": "07:30",
+                })
+                private = created["entries"][-1]
+                assert private["college_id"] is None
+                call("DELETE", base + f"/entries/{private['id']}" + query, student_token,
+                     json={"current_version": 4})
+                assert len(call("GET", base + query, student_token)["entries"]) == 1
+                assert call("GET", base + "/semesters", student_token)
+                notices = call("GET", "/me/academic-notices", student_token)
+                assert notices["total"] >= 1
             identity = own["prefix"] + f"/academic/teaching-classes/{own['tid']}/shared-identity"
             candidates = call("GET", identity + "/candidates", own["token"])
             assert candidates
@@ -415,6 +464,14 @@ def test_two_college_real_http_lifecycle(campus, tmp_path):
                     token,
                     json=commit_body,
                 )
+                volunteer_token = view["volunteer_token"]
+                assert call("GET", "/me/inspection-tasks", volunteer_token)["total"] == 1
+                detail = call("GET", f"/inspection-tasks/{task['id']}", volunteer_token)
+                call("GET", f"/inspection-tasks/{task['id']}/students", volunteer_token)
+                change = call("POST", "/assignment-change-requests", volunteer_token,
+                              json={"assignment_id": detail["assignment"]["id"], "reason": "test"})
+                changes = call("GET", "/me/assignment-change-requests", volunteer_token)
+                assert changes["items"][0]["id"] == change["id"]
                 # Genuine multipart photo, official submission, attendance, objection and report.
                 png = base64.b64decode(
                     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
@@ -439,6 +496,7 @@ def test_two_college_real_http_lifecycle(campus, tmp_path):
                     },
                 )
                 attendance = call("GET", "/me/attendance", view["student_token"])["items"][0]
+                assert call("GET", "/me/submissions", volunteer_token)["total"] == 1
                 management_fields = {
                     "responsible_college_id",
                     "responsible_college_name",
@@ -466,6 +524,8 @@ def test_two_college_real_http_lifecycle(campus, tmp_path):
                     view["student_token"],
                     json={"desired_type": "NORMAL", "reason": "R6 attendance proof"},
                 )
+                objections = call("GET", "/objections", view["student_token"])
+                assert objections["items"][0]["id"] == objection["id"]
                 call(
                     "POST",
                     prefix + f"/objections/{objection['id']}/review",

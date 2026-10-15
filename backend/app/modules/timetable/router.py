@@ -14,6 +14,12 @@ from app.modules.academic.publication_router import require_publication_enabled
 from app.modules.academic.publication_schemas import InitializeEnvelope, InitializeRequest
 from app.modules.academic.publication_service import MyAcademicSourceService
 from app.modules.identity.deps import BindingCompleteDep
+from app.modules.timetable.backup_schemas import (
+    BackupEnvelope,
+    BackupWrite,
+    ClassTimetableEnvelope,
+)
+from app.modules.timetable.backup_service import TimetableBackupService
 from app.modules.timetable.schemas import (
     EntryCreate,
     EntryDelete,
@@ -27,6 +33,38 @@ from app.modules.timetable.service import PersonalTimetableService
 router = APIRouter(tags=["personal-timetable"], dependencies=[Depends(require_publication_enabled)])
 Db = Annotated[Session, Depends(get_db)]
 SemesterId = Annotated[int, Query(gt=0, le=2**63 - 1)]
+OptionalSemesterId = Annotated[int | None, Query(gt=0, le=2**63 - 1)]
+
+
+@router.get("/me/class-timetable", response_model=ClassTimetableEnvelope)
+def class_timetable(
+    actor: BindingCompleteDep, db: Db, request: Request, semester_id: OptionalSemesterId = None
+):
+    return success(
+        TimetableBackupService(db, actor.id).class_timetable(semester_id),
+        getattr(request.state, "request_id", None),
+    )
+
+
+@router.get("/me/timetable-backup", response_model=BackupEnvelope)
+def get_backup(
+    actor: BindingCompleteDep, db: Db, request: Request, semester_id: OptionalSemesterId = None
+):
+    return success(
+        TimetableBackupService(db, actor.id).get(semester_id),
+        getattr(request.state, "request_id", None),
+    )
+
+
+@router.put("/me/timetable-backup", response_model=BackupEnvelope)
+def save_backup(body: BackupWrite, actor: BindingCompleteDep, db: Db, request: Request):
+    return success(
+        TimetableBackupService(db, actor.id).save(
+            body.semester_id,
+            [item.model_dump(mode="json", exclude_unset=True) for item in body.schedule_data],
+        ),
+        getattr(request.state, "request_id", None),
+    )
 
 
 @router.post("/me/timetable/initialize", response_model=TimetableEnvelope)
@@ -56,7 +94,9 @@ def get_timetable(semester_id: SemesterId, actor: BindingCompleteDep, db: Db, re
 
 
 @router.get("/me/timetable/official-source", response_model=InitializeEnvelope)
-def get_official_source(semester_id: SemesterId, actor: BindingCompleteDep, db: Db, request: Request):
+def get_official_source(
+    semester_id: SemesterId, actor: BindingCompleteDep, db: Db, request: Request
+):
     """获取当前学期教务处最新已发布排课（只读，供前端比对 Diff）"""
     return success(
         MyAcademicSourceService(db, actor.id).initialize(semester_id),
@@ -70,24 +110,44 @@ def deleted_entries(semester_id: SemesterId, actor: BindingCompleteDep, db: Db):
 
 
 @router.post("/me/timetable/entries/{eid}/restore", response_model=TimetableEnvelope)
-def restore_entry(eid: UUID, semester_id: SemesterId, body: EntryDelete,
-                  actor: BindingCompleteDep, db: Db):
-    return success(PersonalTimetableService(db, actor.id).restore(
-        semester_id, str(eid), body.current_version))
+def restore_entry(
+    eid: UUID, semester_id: SemesterId, body: EntryDelete, actor: BindingCompleteDep, db: Db
+):
+    return success(
+        PersonalTimetableService(db, actor.id).restore(semester_id, str(eid), body.current_version)
+    )
 
 
 @router.put("/me/timetable/entries/{eid}/exceptions/{day}", response_model=TimetableEnvelope)
-def put_exception(eid: UUID, day: date, semester_id: SemesterId, body: OccurrenceEdit,
-                  actor: BindingCompleteDep, db: Db):
-    return success(PersonalTimetableService(db, actor.id).set_exception(
-        semester_id, str(eid), day, body.model_dump(exclude_unset=True)))
+def put_exception(
+    eid: UUID,
+    day: date,
+    semester_id: SemesterId,
+    body: OccurrenceEdit,
+    actor: BindingCompleteDep,
+    db: Db,
+):
+    return success(
+        PersonalTimetableService(db, actor.id).set_exception(
+            semester_id, str(eid), day, body.model_dump(exclude_unset=True)
+        )
+    )
 
 
 @router.delete("/me/timetable/entries/{eid}/exceptions/{day}", response_model=TimetableEnvelope)
-def delete_exception(eid: UUID, day: date, semester_id: SemesterId, body: EntryDelete,
-                     actor: BindingCompleteDep, db: Db):
-    return success(PersonalTimetableService(db, actor.id).remove_exception(
-        semester_id, str(eid), day, body.current_version))
+def delete_exception(
+    eid: UUID,
+    day: date,
+    semester_id: SemesterId,
+    body: EntryDelete,
+    actor: BindingCompleteDep,
+    db: Db,
+):
+    return success(
+        PersonalTimetableService(db, actor.id).remove_exception(
+            semester_id, str(eid), day, body.current_version
+        )
+    )
 
 
 @router.post("/me/timetable/entries", response_model=TimetableEnvelope)
