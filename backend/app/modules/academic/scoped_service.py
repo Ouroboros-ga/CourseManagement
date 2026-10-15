@@ -137,7 +137,7 @@ class ScopedAcademicService:
         if teaching.classification_revision != version:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "教学班分类已变化")
         from app.modules.organization.future_impact import confirm_impact
-        confirm_impact(self.db, self.college_id, "teaching_class", teaching, future_impact_revision)
+        impact = confirm_impact(self.db, self.college_id, "teaching_class", teaching, future_impact_revision)
         before = self._dto(teaching)
         teaching.course_type_id = course_type.id
         teaching.classification_revision += 1
@@ -145,6 +145,10 @@ class ScopedAcademicService:
         if college is None:
             raise NotFoundError("学院不存在")
         college.configuration_revision += 1
+        from app.modules.organization.impact_service import capture_impacts
+        capture_impacts(self.db, self.college_id, "teaching_class", teaching.id, teaching.classification_revision,
+                        task_ids=[int(value) for value in impact["retained_future_task_ids"]],
+                        before=before, after=self._dto(teaching))
         return self._audit("academic.teaching_class.classify", teaching, before)
 
     def list_roster(self, teaching_class_id: int):

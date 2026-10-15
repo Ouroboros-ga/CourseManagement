@@ -3190,6 +3190,161 @@
         }
       }
     },
+    "/api/v1/colleges/{cid}/configuration-impacts": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Configuration Impacts",
+        "operationId": "configuration_impacts_api_v1_colleges__cid__configuration_impacts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(OPEN|KEEP|CANCEL|REASSIGNED)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/configuration-impacts/{rid}/resolve": {
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Resolve Configuration Impact",
+        "operationId": "resolve_configuration_impact_api_v1_colleges__cid__configuration_impacts__rid__resolve_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImpactDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/academic/semesters": {
       "post": {
         "tags": [
@@ -22868,6 +23023,49 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "ImpactDecision": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "KEEP",
+              "CANCEL",
+              "REASSIGNED"
+            ],
+            "title": "Decision"
+          },
+          "lock_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Lock Version"
+          },
+          "task_lock_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Task Lock Version"
+          },
+          "assignment_revision": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Assignment Revision"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision",
+          "lock_version",
+          "task_lock_version",
+          "assignment_revision"
+        ],
+        "title": "ImpactDecision"
       },
       "InitializeRequest": {
         "properties": {

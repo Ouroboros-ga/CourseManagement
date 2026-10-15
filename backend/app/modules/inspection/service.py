@@ -2508,6 +2508,7 @@ class InspectionService:
         task_id: int,
         body: TaskCancelRequest,
         request_id: str | None,
+        *, commit: bool = True,
     ) -> InspectionTaskResponse:
         self._require(actor.id, perms.CANCEL_PERMISSION)
         task = self._repo.get_task_for_update(task_id)
@@ -2541,7 +2542,8 @@ class InspectionService:
             reason=body.reason,
             request_id=request_id,
         )
-        self._session.commit()
+        if commit:
+            self._session.commit()
         return self._assemble_tasks([task])[0]
 
     def update_task_schedule_info(

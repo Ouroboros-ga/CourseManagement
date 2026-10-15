@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.exceptions import AppError, ErrorCode
 from app.modules.identity.deps import CurrentUserDep
+from app.modules.organization.impact_service import ConfigurationImpactService, ImpactDecision
 from app.modules.organization.ownership import OwnershipService
 from app.modules.organization.schemas import (
     CollegeCreate,
@@ -208,3 +209,15 @@ def publish_group(
 @router.get("/colleges/{cid}/groups/{rid}/references")
 def group_references(cid: ResourceId, rid: ResourceId, actor: CurrentUserDep, service: ServiceDep):
     return success(service.group_references(actor, cid, rid), service.request_id)
+
+
+@router.get("/colleges/{cid}/configuration-impacts")
+def configuration_impacts(cid: ResourceId, actor: CurrentUserDep, service: ServiceDep,
+    page: Annotated[int, Query(ge=1)] = 1, page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    status: Annotated[str | None, Query(pattern="^(OPEN|KEEP|CANCEL|REASSIGNED)$")] = None):
+    return success(ConfigurationImpactService(service.db, actor, cid).list(page=page, page_size=page_size, status=status), service.request_id)
+
+
+@router.post("/colleges/{cid}/configuration-impacts/{rid}/resolve")
+def resolve_configuration_impact(cid: ResourceId, rid: ResourceId, body: ImpactDecision, actor: CurrentUserDep, service: ServiceDep):
+    return success(ConfigurationImpactService(service.db, actor, cid).resolve(rid, body.model_dump()), service.request_id)

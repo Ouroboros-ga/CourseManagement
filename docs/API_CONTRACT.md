@@ -524,3 +524,10 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 - 智能抽查建议请求在组织模式需`execution_group_id`；建议与正式生成使用相同执行组范围。
 
 本节是当前开发分支契约，尚未生产启用；不会要求微信小程序增加学院配置页面。
+
+
+### 2026-10-15 待发布：配置影响处置
+
+`GET /api/v1/colleges/{cid}/configuration-impacts?page=1&page_size=50&status=OPEN`返回范围内持久影响项及当前任务/受派修订；`status`可省略，或OPEN/KEEP/CANCEL/REASSIGNED。
+
+`POST /api/v1/colleges/{cid}/configuration-impacts/{id}/resolve`接收`{decision,lock_version,task_lock_version,assignment_revision,note?}`。KEEP需`inspection.generate`，CANCEL需`inspection.cancel`，REASSIGNED需`assignment.manage`；范围、状态及任何修订不符均拒绝。CANCEL复用正式取消校验；REASSIGNED仅登记已经通过正常流程完成的新受派。原影响快照保持不变，处置独立审计。现阶段尚未部署。

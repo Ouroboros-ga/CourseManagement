@@ -26,13 +26,14 @@ from app.modules.audit import models as audit_models  # noqa: F401
 from app.modules.file import models as file_models  # noqa: F401
 from app.modules.identity import models as identity_models  # noqa: F401
 from app.modules.importer import models as importer_models  # noqa: F401
-from app.modules.inspection import models as inspection_models  # noqa: F401
 from app.modules.inspection import assignment_plan_models  # noqa: F401
+from app.modules.inspection import models as inspection_models  # noqa: F401
 from app.modules.objection import models as objection_models  # noqa: F401
+from app.modules.organization import impact_models  # noqa: F401
 from app.modules.organization import models as organization_models  # noqa: F401
 from app.modules.report import models as report_models  # noqa: F401
 from app.modules.timetable import models as timetable_models  # noqa: F401
-from app.modules.volunteer import models as volunteer_models  # noqa: F401
 from app.modules.volunteer import member_models as volunteer_member_models  # noqa: F401
+from app.modules.volunteer import models as volunteer_models  # noqa: F401
 
 __all__ = ["Base"]

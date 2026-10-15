@@ -149,6 +149,12 @@ class CampusService:
         try:
             self.db.flush()
             after = self._dto(row) if row is not None else None
+            if before and action in {"campus.type.update", "campus.group.update", "campus.group.publish", "campus.college.update"}:
+                from app.modules.organization.impact_service import capture_impacts
+                kind = {"campus.type.update": "course_type", "campus.group.update": "group",
+                        "campus.group.publish": "group", "campus.college.update": "college"}[action]
+                capture_impacts(self.db, row.id if kind == "college" else row.college_id, kind,
+                                row.id, row.lock_version, before=before, after=after)
             self.db.add(
                 AuditLog(
                     actor_user_id=actor.id,
@@ -226,6 +232,14 @@ class CampusService:
         if row is None:
             raise NotFoundError()
         self._version(row, body.lock_version)
+        if body.status == "INACTIVE" and row.status == "ACTIVE":
+            from app.modules.identity.role_scope import business_today
+            from app.modules.inspection.models import InspectionTask
+            remaining = self.db.scalar(select(InspectionTask.id).where(
+                InspectionTask.college_id == cid, InspectionTask.canceled_at.is_(None),
+                InspectionTask.inspection_date >= business_today()).limit(1))
+            if remaining is not None:
+                raise ConflictError(message="学院仍有未来有效任务，请先完成或取消后再停用；历史数据继续保留")
         before = self._dto(row)
         for key, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
             if key != "lock_version":

@@ -155,6 +155,9 @@ class CollegeTimeService:
                 after_json=scoped_snapshot(snapshot, self.cid),
             )
         )
+        from app.modules.organization.impact_service import capture_impacts
+        capture_impacts(self.db, self.cid, "time_version", row.id, row.version,
+                        task_ids=[int(value) for value in preview["retained_future_task_ids"]], after=snapshot)
         self.db.commit()
         return {"id": str(row.id), "version": row.version, **preview}
 

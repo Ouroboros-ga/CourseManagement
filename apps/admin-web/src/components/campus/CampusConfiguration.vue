@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConfigurationImpacts from './ConfigurationImpacts.vue'
 import { computed } from 'vue'
 import { useSessionStore } from '../../stores/session'
 import { useCampusConfiguration } from '../../composables/useCampusConfiguration'
@@ -61,6 +62,9 @@ const schedulingReady = computed(() => businessReady.value && !!session.campusRu
       <el-tab-pane v-if="college && can('volunteer.group.read')" label="组织成员、抽查与排班" :disabled="!schedulingReady" lazy>
         <GroupOperations v-if="schedulingReady" :key="`operations:${userId}:${collegeId}:${college.authorization_revision}`"
           :college-id="collegeId" :groups="groups" :capabilities="college.capabilities" :is-super="isSuper" />
+      </el-tab-pane>
+      <el-tab-pane v-if="college && can('inspection.read')" label="变更影响处置" :disabled="!businessReady" lazy>
+        <ConfigurationImpacts v-if="businessReady" :key="`impact:${userId}:${collegeId}`" :college-id="collegeId" :capabilities="college.capabilities" />
       </el-tab-pane>
     </el-tabs>
   </section>
