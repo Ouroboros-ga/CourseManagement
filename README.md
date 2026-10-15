@@ -1,132 +1,56 @@
-# 查课管理系统 V1.0
+# CourseManagement 查课管理系统
 
-统一产品依据见 [建设说明 V1.01 合并版](./查课管理系统V1.0建设说明.md)：志愿者继承学生本人权限；新增“已逾期”，允许补交但保留截止时未执行考核结果。当前实现与验收边界见 [功能说明](./docs/FUNCTIONAL_GUIDE.md) 和 [发布验收记录](./docs/RELEASE_ACCEPTANCE.md)。
+面向学校多学院的查课管理平台，包含教务资料导入、学生与班级、志愿者组织、课次抽查、任务排班、考勤异议和报表，以及独立的学生云端个人课表。
 
-> 当前选型：FastAPI + SQLAlchemy + Alembic + MySQL + openpyxl；原生微信小程序与 Vue 管理后台。
+主仓库：[Ouroboros-ga/CourseManagement](https://github.com/Ouroboros-ga/CourseManagement)，主协作分支 `dev-main`。小程序上游：[Mo-Qiong/wxsign](https://github.com/Mo-Qiong/wxsign)；本地 `apps/wechat-miniapp/` 是适配副本，来源和同步边界见 [UPSTREAM_PROVENANCE](apps/wechat-miniapp/UPSTREAM_PROVENANCE.md)。
 
-## 当前开发基线
+## 优先阅读
 
-[技术开发方案 V1.5：Python 原生微信小程序版](查课管理系统V1.0开发技术方案.md) 是设计依据；权限专项以 [业务资源与权限策略 V1.1](./docs/PERMISSIONS.md) 为准。阶段历史与未完成事项见 [开发路线](./docs/DEVELOPMENT_PLAN.md)。
+1. [产品、架构与 Web 重构总体设计](docs/development/CAMPUS_PRODUCT_ARCHITECTURE_WEB_REDESIGN_20261015.md)：最新讨论形成的七入口、学院自导、跨学期数据、权限、跨院结果归属和 R0—R6 计划；智能体本轮暂缓。
+2. [全校产品需求](docs/product/CAMPUS_MANAGEMENT_PRD.md)：需求编号、已确认规则和验收场景。
+3. [当前实施状态与下一步](docs/development/IMPLEMENTATION_STATUS.md)：区分已有代码、后续改造和未启用/未验收事项。
 
-产品用于学院线下查课：基础数据 → 任务生成与排班 → 志愿者提交 → 管理审核 → 学生查询与异议 → 考勤更正 → 统计与版本化周报。
+全部有效资料见 [文档导航](docs/README.md)。旧方案、阶段记录与发布验收见 [历史归档](docs/archive/README.md)，不作为当前执行计划。
 
-当前仓库已实现 P1–P7 主要业务后端及管理补全接口：管理审核列表/详情、负责人排班权限、精确课次选择与任务 ID、教师账号管理、学生停用联动、课程导出、学院周报发现和审计读取。`CLASS` 周报请求返回 422；周报只含考勤汇总，固定格式 Word 尚待实现。后端综合 MySQL 回归、数据库权限同步、管理端联调仍在验收阶段。原生[微信小程序](./apps/wechat-miniapp/README.md)已接入登录、绑定和查课任务等页面，仍待真实微信身份与真机验收；Vue 管理后台尚未实现。真实规模压测、恢复演练和双端验收尚未完成，整套产品尚未交付。功能路径见 [功能说明](./docs/FUNCTIONAL_GUIDE.md)、[API 索引](./docs/API_INDEX.md) 与 [排班规则](./docs/SCHEDULING_RULES.md)；实际回归结果和发布边界以 [发布验收记录](./docs/RELEASE_ACCEPTANCE.md) 为准。
+## 当前边界
 
-## 技术栈
+仓库已有 FastAPI 后端、Vue 管理端及小程序适配代码；多学院配置、资源授权、多作息、组织成员与排班、影响处置和个人课表已有相应实现。代码存在不代表生产全部启用或完整产品验收完成。
 
-| 部分 | 选型 |
-|---|---|
-| 后端 | Python 3.12 基线、FastAPI、Pydantic 2.x、Uvicorn |
-| 数据库访问 | 同步 SQLAlchemy 2.x + PyMySQL |
-| 数据库与迁移 | MySQL 8.4 / InnoDB、Alembic |
-| Excel | openpyxl |
-| Web 管理后台 | Vue 3、TypeScript、Vite、Element Plus |
-| 微信小程序 | 原生 WXML、JavaScript、WXSS、JSON |
-| 执行方式 | 导入、排班和周报有界同步执行；材料清理由部署定时脚本处理 |
-| 部署规划 | Nginx、Docker Compose、私有 COS/OSS；当前代码文件存储仅 `local` 可用，COS/OSS 适配器仍为占位 |
-| 工程与测试 | pyproject.toml、uv.lock、Ruff、mypy、pytest、真实 MySQL 集成测试 |
+最新七入口及生命周期页面重构、共享教务身份和跨院独立检查仍属于后续设计。此前生产正式业务隔离及组织排班保持关闭；本 README 不代替实时服务器核验。剩余工作以当前状态页和最新设计为入口，不以历史测试数字判定完成。
 
-## 已确定的业务规则
+## 开发入口
 
-- 五类角色：超级管理员、教师管理员、学生工作负责人、志愿者、普通学生。
-- 学生工作负责人覆盖所有年级；统计查看、异议初核等可选权限默认关闭，由教师管理员逐人开关。
-- 教师的 role.assign 仅可手工管理学院内负责人角色，不可授予/撤销 SUPER_ADMIN 或 TEACHER_ADMIN（含本人）；教师角色和全局账号维护由超管负责。
-- 超管、教师、学生工作负责人均可管理学生绑定；STUDENT 由有效学生绑定自动维护，VOLUNTEER 由学期资格驱动。
-- 未绑定微信用户使用 PRE_BINDING 受限会话，不新增角色；志愿者改派或资格停用后保留本人历史只读。
-- 管理端配置每日提交截止时间，任务状态和逾期统计分别处理。
-- 照片与证明材料分别定义保留期限；短时签名链接申请时鉴权。
-- 考勤当前认定与历史版本分离，关键写入与审计同事务。
-- 周报保留不可变历史版本，展示最新版本及更新时间。
+| 部分 | 技术栈 | 说明 |
+| --- | --- | --- |
+| 后端 | Python 3.12、FastAPI、Pydantic 2、同步 SQLAlchemy 2、PyMySQL、MySQL 8.4、Alembic、uv | [后端开发](backend/README.md) |
+| Web | Vue 3、TypeScript、Vite、Pinia、Element Plus | [管理端开发](apps/admin-web/README.md) |
+| 小程序 | 原生 WXML/JavaScript/WXSS/JSON、TDesign | [小程序开发](apps/wechat-miniapp/README.md) |
 
-保留天数、默认截止时间、逾期补交等推荐参数尚待业务确认，详见技术方案第 1.2 节与第 29 节。
+后端：
 
-## 规划目录（含尚未创建的前端）
-
-```text
-CourseManagement/
-├── apps/
-│   ├── admin-web/
-│   │   └── src/
-│   │       ├── api/
-│   │       ├── views/
-│   │       ├── components/
-│   │       ├── stores/
-│   │       ├── router/
-│   │       └── utils/
-│   └── wechat-miniapp/
-│       ├── app.js
-│       ├── app.json
-│       ├── app.wxss
-│       ├── pages/
-│       ├── components/
-│       ├── services/
-│       ├── utils/
-│       └── project.config.json
-├── backend/
-│   ├── pyproject.toml
-│   ├── uv.lock
-│   ├── alembic.ini
-│   ├── Dockerfile
-│   ├── app/
-│   │   ├── main.py
-│   │   ├── core/
-│   │   │   ├── config.py
-│   │   │   ├── database.py
-│   │   │   ├── security.py
-│   │   │   ├── permissions.py
-│   │   │   ├── exceptions.py
-│   │   │   ├── middleware.py
-│   │   │   └── logging.py
-│   │   ├── common/
-│   │   │   ├── pagination.py
-│   │   │   ├── responses.py
-│   │   │   └── validators.py
-│   │   └── modules/
-│   │       ├── identity/
-│   │       ├── academic/
-│   │       ├── inspection/
-│   │       ├── attendance/
-│   │       ├── objection/
-│   │       ├── report/
-│   │       ├── file/
-│   │       └── audit/
-│   ├── migrations/
-│   │   ├── env.py
-│   │   └── versions/
-│   └── tests/
-│       ├── unit/
-│       └── integration/
-├── deploy/
-│   ├── docker-compose.yml
-│   ├── nginx/
-│   └── scripts/
-├── docs/
-│   ├── PRD.md
-│   ├── TECHNICAL_DESIGN.md
-│   ├── DATABASE.md
-│   ├── API.md
-│   ├── PERMISSIONS.md
-│   └── templates/
-└── README.md
+```powershell
+cd backend
+uv sync --locked
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-不设独立 worker.py、job/ 或通用后台任务表。并发测试放在 tests/integration/；到期材料清理入口放在 deploy/scripts/。上图是规划结构，不能据此推断 `apps/` 或所列 docs 文件均已存在；实际端点和操作说明以文档状态表中的当前文档为准。
+Web：
 
-## 文档状态
+```powershell
+cd apps/admin-web
+npm.cmd ci
+npm.cmd run dev
+```
 
-| 文档 | 状态 |
-|---|---|
-| [技术方案 V1.5](查课管理系统V1.0开发技术方案.md) | 当前开发基线，已同步教师角色管理边界 |
-| [业务资源与权限策略 V1.1](./docs/PERMISSIONS.md) | 40 个 Permission、默认矩阵、身份生命周期及 API/范围规则 |
-| [开发路线](./docs/DEVELOPMENT_PLAN.md) | 分阶段交付范围、依赖与验收门槛，以及首批开发任务 |
-| [权限实施对照](./docs/PERMISSIONS_IMPLEMENTATION.md) | 设计接入细节、当前代码差距和新增验收项 |
-| [功能说明](./docs/FUNCTIONAL_GUIDE.md) | 已实现的后端功能、角色与操作路径 |
-| [API 索引](./docs/API_INDEX.md) | 已挂载 API 的入口索引 |
-| [排班规则](./docs/SCHEDULING_RULES.md) | 自动排班约束与校验口径 |
-| [P7 统计与周报计划](./docs/P7_REPORT_PLAN.md) | P7 落地状态及 W7d 待办 |
-| [发布验收记录](./docs/RELEASE_ACCEPTANCE.md) | 最终回归结果、环境与未完成的交付验收 |
-| [建设说明](./查课管理系统V1.0建设说明.md) | 原始产品输入；已调整条款以当前技术方案及用户决定为准 |
+Vite 固定监听 `127.0.0.1:3000`，默认将 `/api` 和 `/health` 代理到 `http://127.0.0.1:8000`；`BACKEND_URL` 可以覆盖目标。启动和数据库写入前核对实际环境；本地数据库 Compose 示例在 `deploy/docker-compose.yml`，不能用其端口推断生产连接。
 
-早期 Java/课程查询方案的历史文档（初始化报告、初始化指南、旧 database.sql 与 database_design.md）已清理；当前数据库设计以 SQLAlchemy 模型、Alembic 迁移及技术方案第 8–9 节为准。
+## 接口、规则与运行资料
 
-GitHub：[Ouroboros-ga/CourseManagement](https://github.com/Ouroboros-ga/CourseManagement)
+- [API 契约](docs/API_CONTRACT.md)、[接口索引](docs/API_INDEX.md)、[OpenAPI](docs/openapi.json)。
+- [权限策略](docs/PERMISSIONS.md)、[排班规则参考](docs/SCHEDULING_RULES.md)。
+- [小程序现有业务交接](docs/integration/WECHAT_DEVELOPER_CHANGES_20261014.md)、[个人课表与通知接口](docs/integration/WECHAT_PERSONAL_TIMETABLE_API_20261015.md)。
+- [微信配置](docs/WECHAT_RUNTIME_CONFIG.md)、[备份恢复手册](docs/RUNBOOK_BACKUP_RESTORE.md)、[按需负载验收手册](docs/RUNBOOK_LOADTEST_ACCEPTANCE.md)。
+
+核心约束：服务端范围授权、字符串 ID、关键写入与审计同事务、版本冲突 409、生成与排班两阶段、异议一次审核、个人课表不参与正式业务。历史文档中的旧状态、旧目录或初终审设计不能覆盖后续确认规则。
+
+本地 `tmp/`、凭证、真实学生资料、依赖与编译产物不纳入公开文档。归档保留原始设计和证据的 Git 历史，不通过删除旧记录伪造当前完成状态。

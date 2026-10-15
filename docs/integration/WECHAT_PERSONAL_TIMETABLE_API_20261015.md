@@ -1,6 +1,6 @@
 # 微信小程序：云端个人课表与教务通知接口
 
-2026-10-15。后端与 Web 已实现，小程序本轮不开发页面。生产地址为 `https://course.zsitai.xyz`，以下路径均以 `/api/v1` 开头。最终部署版本见 `docs/P5_RELEASE_20261015.md`。
+2026-10-15。后端与 Web 已实现，小程序本轮不开发页面。生产地址为 `https://course.zsitai.xyz`，以下路径均以 `/api/v1` 开头。最终部署版本见 `docs/archive/2026-10-15/operations/P5_RELEASE_20261015.md`。
 
 ## 可直接交接的范围与版本
 

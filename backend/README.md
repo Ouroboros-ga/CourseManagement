@@ -1,6 +1,6 @@
 # 查课管理系统 — 后端 (FastAPI)
 
-V1.0 后端工程，技术基线来自 `../查课管理系统V1.0开发技术方案.md`：
+后端工程。当前设计见[产品与架构总体设计](../docs/development/CAMPUS_PRODUCT_ARCHITECTURE_WEB_REDESIGN_20261015.md)，进度见[实施状态](../docs/development/IMPLEMENTATION_STATUS.md)；原 V1.0 技术方案已归档，仅用于追溯。
 Python 3.12 · FastAPI · SQLAlchemy 2.x · Alembic · MySQL 8.4 · openpyxl（模块化单体，同步 PyMySQL 驱动）。
 
 ## 环境要求
@@ -80,7 +80,7 @@ Router 处理 HTTP，Schema 定义输入输出，Service 负责授权/规则/事
 
 ## 实现状态
 
-运行时权限与接口契约以 [权限策略 V1.1](../docs/PERMISSIONS.md)、[实施对照](../docs/PERMISSIONS_IMPLEMENTATION.md)
+运行时权限与接口契约结合 [权限策略](../docs/PERMISSIONS.md)、[当前实施状态](../docs/development/IMPLEMENTATION_STATUS.md)
 和 [后端 API 契约](../docs/API_CONTRACT.md) 为准。
 
 - **第一步（最小后端骨架）已完成**：应用可启动，`/health/live`、`/health/ready`
@@ -177,8 +177,8 @@ Router 处理 HTTP，Schema 定义输入输出，Service 负责授权/规则/事
 运行库迁移需要核对目标并取得该环境授权，本轮没有执行运行库迁移。
 
 定向离线测试：`pytest tests/unit/test_campus_configuration.py tests/unit/test_campus_migration.py -q`。
-实际范围与后续步骤见 [配置底座说明](../docs/development/CAMPUS_CONFIGURATION_GUIDE.md)
-和 [升级实施计划](../docs/development/CAMPUS_IMPLEMENTATION_PLAN.md)。
+实际范围与后续步骤见 [配置底座说明](../docs/archive/2026-10-15/design/CAMPUS_CONFIGURATION_GUIDE.md)
+和 [升级实施计划](../docs/archive/2026-10-15/plans/CAMPUS_IMPLEMENTATION_PLAN.md)。
 
 
 ## 学籍交接与固定学院范围（2026-10-14）
@@ -187,4 +187,4 @@ Router 处理 HTTP，Schema 定义输入输出，Service 负责授权/规则/事
 
 日期投影维护命令：`python -m app.modules.academic.apply_enrollment_changes`。服务端鉴权请求也会补齐到期投影；权限和正式名单按日期区间解析。生产可配置专用定时器执行该幂等命令，不能用物理删除代替归档。
 
-本轮新增表/权限及 API、导入限制、迁移回滚边界见 [交付记录](../docs/development/ENROLLMENT_IMPLEMENTATION_ACCEPTANCE_20261014.md)。学院独立作息和类型/组排班规则仍属后续开发。
+本轮新增表/权限及 API、导入限制、迁移回滚边界见 [交付记录](../docs/archive/2026-10-15/execution/ENROLLMENT_IMPLEMENTATION_ACCEPTANCE_20261014.md)。学院独立作息和类型/组排班规则仍属后续开发。

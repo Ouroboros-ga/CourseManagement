@@ -1,0 +1,88 @@
+# 历史文档归档
+
+整理日期：2026-10-15。本目录保存旧设计、阶段计划和历史证据，继续纳入 Git 追踪。当前执行入口为[文档导航](../README.md)、[最新总体设计](../development/CAMPUS_PRODUCT_ARCHITECTURE_WEB_REDESIGN_20261015.md)和[实施状态](../development/IMPLEMENTATION_STATUS.md)。
+
+历史文件的已完成/未完成、版本、端口、服务目录和测试数字均保留当时语义，不代表当前状态。本文只调整文档分类与引用，不重写历史 Git 提交，也不删除源代码、学生资料或服务器备份。
+
+## 分类与原路径
+
+本次归档 38 份文档，按原用途分为以下四类。`2026-10-15` 表示整理批次，不代表每份文件的原始发布日期。
+
+<a id="design"></a>
+
+## 旧产品与技术设计
+
+| 原路径 | 归档位置 |
+| --- | --- |
+| `查课管理系统V1.0开发技术方案.md` | [查课管理系统V1.0开发技术方案.md](2026-10-15/design/查课管理系统V1.0开发技术方案.md) |
+| `查课管理系统V1.0建设说明.md` | [查课管理系统V1.0建设说明.md](2026-10-15/design/查课管理系统V1.0建设说明.md) |
+| `docs/ADMIN_WEB_ROLE_UI_DESIGN.md` | [ADMIN_WEB_ROLE_UI_DESIGN.md](2026-10-15/design/ADMIN_WEB_ROLE_UI_DESIGN.md) |
+| `docs/FUNCTIONAL_GUIDE.md` | [FUNCTIONAL_GUIDE.md](2026-10-15/design/FUNCTIONAL_GUIDE.md) |
+| `docs/development/CAMPUS_BACKEND_WEB_DESIGN.md` | [CAMPUS_BACKEND_WEB_DESIGN.md](2026-10-15/design/CAMPUS_BACKEND_WEB_DESIGN.md) |
+| `docs/development/CAMPUS_CONFIGURATION_GUIDE.md` | [CAMPUS_CONFIGURATION_GUIDE.md](2026-10-15/design/CAMPUS_CONFIGURATION_GUIDE.md) |
+| `docs/product/ACADEMIC_LIFECYCLE_ANALYSIS.md` | [ACADEMIC_LIFECYCLE_ANALYSIS.md](2026-10-15/design/ACADEMIC_LIFECYCLE_ANALYSIS.md) |
+
+<a id="plans"></a>
+
+## 已替代的阶段计划
+
+| 原路径 | 归档位置 |
+| --- | --- |
+| `docs/ADMIN_WEB_ROADMAP.md` | [ADMIN_WEB_ROADMAP.md](2026-10-15/plans/ADMIN_WEB_ROADMAP.md) |
+| `docs/ADMIN_WEB_W0_IMPLEMENTATION_PLAN.md` | [ADMIN_WEB_W0_IMPLEMENTATION_PLAN.md](2026-10-15/plans/ADMIN_WEB_W0_IMPLEMENTATION_PLAN.md) |
+| `docs/BACKEND_COMPLETION_PLAN.md` | [BACKEND_COMPLETION_PLAN.md](2026-10-15/plans/BACKEND_COMPLETION_PLAN.md) |
+| `docs/WECHAT_INTEGRATION_PLAN.md` | [WECHAT_INTEGRATION_PLAN.md](2026-10-15/plans/WECHAT_INTEGRATION_PLAN.md) |
+| `docs/development/CAMPUS_FULL_PRODUCT_COMPLETION_PLAN_20261015.md` | [CAMPUS_FULL_PRODUCT_COMPLETION_PLAN_20261015.md](2026-10-15/plans/CAMPUS_FULL_PRODUCT_COMPLETION_PLAN_20261015.md) |
+| `docs/development/CAMPUS_IMPLEMENTATION_PLAN.md` | [CAMPUS_IMPLEMENTATION_PLAN.md](2026-10-15/plans/CAMPUS_IMPLEMENTATION_PLAN.md) |
+| `docs/development/CAMPUS_PERMISSION_IMPLEMENTATION_PLAN.md` | [CAMPUS_PERMISSION_IMPLEMENTATION_PLAN.md](2026-10-15/plans/CAMPUS_PERMISSION_IMPLEMENTATION_PLAN.md) |
+| `docs/development/OSS_IMPLEMENTATION_PLAN.md` | [OSS_IMPLEMENTATION_PLAN.md](2026-10-15/plans/OSS_IMPLEMENTATION_PLAN.md) |
+
+<a id="execution"></a>
+
+## 历史执行、核对与事件
+
+| 原路径 | 归档位置 |
+| --- | --- |
+| `docs/COMMIT_ACCEPTANCE_20261014.md` | [COMMIT_ACCEPTANCE_20261014.md](2026-10-15/execution/COMMIT_ACCEPTANCE_20261014.md) |
+| `docs/SCHEDULING_VALIDATION.md` | [SCHEDULING_VALIDATION.md](2026-10-15/execution/SCHEDULING_VALIDATION.md) |
+| `docs/development/ATTENDANCE_PHOTOS_TIMEZONE_20261014.md` | [ATTENDANCE_PHOTOS_TIMEZONE_20261014.md](2026-10-15/execution/ATTENDANCE_PHOTOS_TIMEZONE_20261014.md) |
+| `docs/development/CAMPUS_COMPLETION_EXECUTION_20261015.md` | [CAMPUS_COMPLETION_EXECUTION_20261015.md](2026-10-15/execution/CAMPUS_COMPLETION_EXECUTION_20261015.md) |
+| `docs/development/CAMPUS_P1_P6_DESIGN_AUDIT_20261015.md` | [CAMPUS_P1_P6_DESIGN_AUDIT_20261015.md](2026-10-15/execution/CAMPUS_P1_P6_DESIGN_AUDIT_20261015.md) |
+| `docs/development/CAMPUS_P2_P4_EXECUTION.md` | [CAMPUS_P2_P4_EXECUTION.md](2026-10-15/execution/CAMPUS_P2_P4_EXECUTION.md) |
+| `docs/development/CAMPUS_P2_P4_SERVER_COMPLETION.md` | [CAMPUS_P2_P4_SERVER_COMPLETION.md](2026-10-15/execution/CAMPUS_P2_P4_SERVER_COMPLETION.md) |
+| `docs/development/CAMPUS_SERVER_REHEARSAL_20261013.md` | [CAMPUS_SERVER_REHEARSAL_20261013.md](2026-10-15/execution/CAMPUS_SERVER_REHEARSAL_20261013.md) |
+| `docs/development/ENROLLMENT_IMPLEMENTATION_ACCEPTANCE_20261014.md` | [ENROLLMENT_IMPLEMENTATION_ACCEPTANCE_20261014.md](2026-10-15/execution/ENROLLMENT_IMPLEMENTATION_ACCEPTANCE_20261014.md) |
+| `docs/development/SYNC_IMPLEMENTATION_20261014.md` | [SYNC_IMPLEMENTATION_20261014.md](2026-10-15/execution/SYNC_IMPLEMENTATION_20261014.md) |
+| `docs/development/TIMETABLE_DATA_INCIDENT_20261015.md` | [TIMETABLE_DATA_INCIDENT_20261015.md](2026-10-15/execution/TIMETABLE_DATA_INCIDENT_20261015.md) |
+| `docs/development/WORKSPACE_RECONCILIATION_20261015.md` | [WORKSPACE_RECONCILIATION_20261015.md](2026-10-15/execution/WORKSPACE_RECONCILIATION_20261015.md) |
+
+<a id="operations"></a>
+
+## 历史发布、部署及运维记录
+
+| 原路径 | 归档位置 |
+| --- | --- |
+| `docs/ADMIN_WEB_DEPLOYMENT_20260930.md` | [ADMIN_WEB_DEPLOYMENT_20260930.md](2026-10-15/operations/ADMIN_WEB_DEPLOYMENT_20260930.md) |
+| `docs/DEPLOYMENT_20260930.md` | [DEPLOYMENT_20260930.md](2026-10-15/operations/DEPLOYMENT_20260930.md) |
+| `docs/CAMPUS_RETIREMENT_20260930.md` | [CAMPUS_RETIREMENT_20260930.md](2026-10-15/operations/CAMPUS_RETIREMENT_20260930.md) |
+| `docs/LEGACY_SCHEDULER_RETIREMENT_20261013.md` | [LEGACY_SCHEDULER_RETIREMENT_20261013.md](2026-10-15/operations/LEGACY_SCHEDULER_RETIREMENT_20261013.md) |
+| `docs/ENROLLMENT_RELEASE_20261014.md` | [ENROLLMENT_RELEASE_20261014.md](2026-10-15/operations/ENROLLMENT_RELEASE_20261014.md) |
+| `docs/P5_RELEASE_20261015.md` | [P5_RELEASE_20261015.md](2026-10-15/operations/P5_RELEASE_20261015.md) |
+| `docs/RELEASE_ACCEPTANCE.md` | [RELEASE_ACCEPTANCE.md](2026-10-15/operations/RELEASE_ACCEPTANCE.md) |
+| `docs/development/PHOTO_TIME_DEPLOYMENT_20261014.md` | [PHOTO_TIME_DEPLOYMENT_20261014.md](2026-10-15/operations/PHOTO_TIME_DEPLOYMENT_20261014.md) |
+| `docs/development/UNIFIED_RELEASE_20261014.md` | [UNIFIED_RELEASE_20261014.md](2026-10-15/operations/UNIFIED_RELEASE_20261014.md) |
+| `docs/development/OSS_DEPLOYMENT.md` | [OSS_DEPLOYMENT.md](2026-10-15/operations/OSS_DEPLOYMENT.md) |
+| `docs/development/OSS_MINIAPP_GUIDE.md` | [OSS_MINIAPP_GUIDE.md](2026-10-15/operations/OSS_MINIAPP_GUIDE.md) |
+
+<a id="missing-local-references"></a>
+
+## 原文引用但仓库未提供的本地资料
+
+旧技术方案曾引用 `docs/PERMISSIONS_IMPLEMENTATION.md` 和 `docs/DEVELOPMENT_PLAN.md`。这两份资料目前不在仓库，原有链接早已失效；历史原文中的引用现指向本说明，避免制造不存在的文件。当前权限接入和开发顺序请看[实施状态](../development/IMPLEMENTATION_STATUS.md)及[最新总体设计](../development/CAMPUS_PRODUCT_ARCHITECTURE_WEB_REDESIGN_20261015.md)，不假定它们与缺失原文逐字等同。
+
+## 追溯与恢复
+
+- 查看某份文档的迁移前历史：`git log --follow -- <当前归档路径>`。
+- 查某版本原文：`git show <commit>:<当时路径>`；不要用旧方案整体覆盖当前文档。
+- 工作区整理前的文档原始字节快照在本地忽略目录 `tmp/document-cleanup-20261015/documents-before.zip`，不上传。
+- 归档不是当前任务清单；尚有价值的未完成项已在当前实施状态和总体设计中保留。

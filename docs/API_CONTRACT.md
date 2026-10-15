@@ -1,6 +1,8 @@
+> 文档定位：已有 API 与按日期保留的兼容契约。当前进度见[实施状态](development/IMPLEMENTATION_STATUS.md)，新增重构设计中的拟议能力不代表已开放接口。正文历史段落的“尚未部署”、旧迁移号及测试数字仅描述其当时批次；实际请求核对挂载路由、schema 和运行配置。
+
 # 2026-10-15 P5 交付增量
 
-云端个人课表实际接口与业务语义见 [微信小程序接口](integration/WECHAT_PERSONAL_TIMETABLE_API_20261015.md)，发布验收见 [P5 发布记录](P5_RELEASE_20261015.md)。以下保留历史契约；与该增量冲突时以本轮已验收接口为准。通知仅展示，没有已读/采用；绑定完成后由客户端调用初始化。
+云端个人课表实际接口与业务语义见 [微信小程序接口](integration/WECHAT_PERSONAL_TIMETABLE_API_20261015.md)，发布验收见 [P5 发布记录](archive/2026-10-15/operations/P5_RELEASE_20261015.md)。以下保留历史契约；与该增量冲突时以本轮已验收接口为准。通知仅展示，没有已读/采用；绑定完成后由客户端调用初始化。
 
 # 后端 API 契约（身份、基础数据、导入、查课、提交、考勤、异议、统计与版本化周报）
 
@@ -58,7 +60,7 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 |---|---|
 | 日期 | 2026-09-27（按当前代码修订） |
 | 权限基线 | [PERMISSIONS.md V1.1](./PERMISSIONS.md)（第 12 节 API 映射为权威来源） |
-| 实施对照 | [PERMISSIONS_IMPLEMENTATION.md](./PERMISSIONS_IMPLEMENTATION.md) |
+| 当前实施对照 | [实施状态](development/IMPLEMENTATION_STATUS.md)；旧本地权限实施文档不再作为仓库入口 |
 | 范围 | 描述当前 `main.py` 已注册的 P1–P7 及管理补全 API；P7 统计与版本化周报见附录 F。实际完整路径及 152 个操作见 [API_INDEX.md](./API_INDEX.md)，机器可读 schema 见 [openapi.json](./openapi.json)。管理补全综合回归进行中；正式学校模板与真实微信前端联调仍待验收。 |
 | 代码 | `backend/app/modules/identity/{router,service,schemas,repository,wechat,deps}.py`、`backend/app/modules/audit/models.py`、`backend/app/modules/academic/{router,service,schemas,repository,models}.py`、`backend/app/modules/importer/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/inspection/*`、`backend/app/modules/attendance/*`、`backend/app/modules/file/*`、`backend/app/modules/objection/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/report/`、`backend/app/common/parsing/{time_slots,xlsx_tabular}.py` |
 
@@ -344,7 +346,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 ### D.1 文件域（Wave 5b，技术方案 16）
 
-文件无独立功能权限，访问按"业务资源归属"放行。`FILE_STORAGE_BACKEND=local` 使用本地目录，`object` 使用已实现的阿里云 OSS 适配器（ECS RAM 临时凭据，需配置 OSS_BUCKET/OSS_REGION/HTTPS OSS_ENDPOINT）。两个后端共用应用 HMAC 短期下载链接，客户端上传/下载仍走后端，不接收 OSS 凭据或对象键。默认 local，旧文件须迁移核验后才切换；真实云端权限和连通性尚未验收。配置、切换与恢复见 [OSS_DEPLOYMENT.md](development/OSS_DEPLOYMENT.md)，小程序说明见 [OSS_MINIAPP_GUIDE.md](development/OSS_MINIAPP_GUIDE.md)。
+文件无独立功能权限，访问按"业务资源归属"放行。`FILE_STORAGE_BACKEND=local` 使用本地目录，`object` 使用已实现的阿里云 OSS 适配器（ECS RAM 临时凭据，需配置 OSS_BUCKET/OSS_REGION/HTTPS OSS_ENDPOINT）。两个后端共用应用 HMAC 短期下载链接，客户端上传/下载仍走后端，不接收 OSS 凭据或对象键。默认 local，旧文件须迁移核验后才切换；真实云端权限和连通性尚未验收。配置、切换与恢复见 [OSS_DEPLOYMENT.md](archive/2026-10-15/operations/OSS_DEPLOYMENT.md)，小程序说明见 [OSS_MINIAPP_GUIDE.md](archive/2026-10-15/operations/OSS_MINIAPP_GUIDE.md)。
 
 | 端点 | 守卫 | 说明 |
 |---|---|---|
@@ -478,7 +480,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 ## 学院配置底座契约（2026-10-13）
 
-默认关闭，迁移 `f26a1013c001` 后可在开发环境启用 `CAMPUS_CONFIGURATION_ENABLED=true`。学院配置说明见 [配置底座](development/CAMPUS_CONFIGURATION_GUIDE.md)，阶段边界见 [实施计划](development/CAMPUS_IMPLEMENTATION_PLAN.md)。
+默认关闭，迁移 `f26a1013c001` 后可在开发环境启用 `CAMPUS_CONFIGURATION_ENABLED=true`。学院配置说明见 [配置底座](archive/2026-10-15/design/CAMPUS_CONFIGURATION_GUIDE.md)，阶段边界见 [实施计划](archive/2026-10-15/plans/CAMPUS_IMPLEMENTATION_PLAN.md)。
 
 - 新工作区返回学院 ID、有效配置能力、授权/配置修订与 `business_ready=false`；该字段明确旧业务尚未接入。
 - 学校、学院和院级授权仅有效超管可维护；其他账号只按同学院、同动作、有效期完整子句访问，负责人不自动得权。看不到学院/资源返回 404；已有可见范围但缺动作返回 403。

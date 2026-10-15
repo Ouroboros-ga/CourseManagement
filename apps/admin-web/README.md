@@ -1,14 +1,14 @@
 # 管理端开发
 
-当前线上入口：`https://course.zsitai.xyz/`。生产构建由 Nginx 提供，页面和 API 同源；部分工作台业务页面仍为原型，不能将演示操作当作真实提交。发布记录见 `docs/ADMIN_WEB_DEPLOYMENT_20260930.md`。
+服务入口：`https://course.zsitai.xyz/`。生产构建由 Nginx 提供，页面和 API 同源。当前重构方向见[总体设计](../../docs/development/CAMPUS_PRODUCT_ARCHITECTURE_WEB_REDESIGN_20261015.md)，进度见[实施状态](../../docs/development/IMPLEMENTATION_STATUS.md)；[首次发布记录](../../docs/archive/2026-10-15/operations/ADMIN_WEB_DEPLOYMENT_20260930.md)已归档，不能代表当前页面或部署完成情况。
 
 ```powershell
 cd "D:/My project/CourseManagement/apps/admin-web"
 npm.cmd run dev
 ```
 
-打开 `http://127.0.0.1:3000`。Vite 将 `/api` 请求代理到正式云后端 `https://course.zsitai.xyz`，包括上传和下载请求。使用云端账号登录；页面上的新增、修改、删除会实际作用于正式数据库。
+打开 `http://127.0.0.1:3000`。当前 `vite.config.ts` 默认将 `/api` 和 `/health` 代理到 `http://127.0.0.1:8000`；`BACKEND_URL` 可覆盖目标。页面写操作作用于实际代理后端，启动前确认目标环境。
 
-开发代理验证云端 TLS 证书，并将 localhost 的合法 Origin 转为云端同源；非法 Origin 与 Sec-Fetch-Site 继续交由后端拒绝。本地 HTTP Cookie 仅移除 Secure，保留 HttpOnly、SameSite 和 auth 路径。上述配置仅存在于开发服务器，不改变正式后端配置或静态构建中的 Cookie 安全策略。
+当前开发代理将本地合法 Origin 改写为本地后端 Origin，并移除响应 Cookie 的 Secure 以支持本地 HTTP；正式环境仍使用同源 HTTPS。若需要代理云端，须核对后端来源校验，不能只设置地址就推断登录已联通。以配置源码为准。
 
 3000 端口被占用时启动直接报错，避免端口变化导致来源校验不一致。开发服务器仅监听 IPv4 回环地址，不开放局域网访问。正式部署应由 Nginx 同源代理 `/api`，`vite preview` 不使用此开发代理。
