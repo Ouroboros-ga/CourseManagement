@@ -71,6 +71,6 @@ async function remove(row: VolunteerGroup) {
     <template #footer><el-button :disabled="saving" @click="editing = false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!form.name.trim()" @click="save">保存</el-button></template>
   </el-dialog>
   <el-dialog v-model="configuring" :title="`${selected?.name || ''} · 查课范围与冲突规则`" width="680px" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" destroy-on-close>
-    <GroupRuleEditor v-if="selected && configuring" :key="selected.id" :initial="selected.configuration" :types="types" :saving="saving" @publish="publish" />
+    <GroupRuleEditor v-if="selected && configuring" :key="selected.id" :college-id="collegeId" :initial="selected.configuration" :types="types" :saving="saving" @publish="publish" />
   </el-dialog>
 </template>

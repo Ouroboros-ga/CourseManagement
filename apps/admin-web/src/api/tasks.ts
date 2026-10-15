@@ -1,6 +1,8 @@
 import { request } from './workspaceHttp'
 
 export interface InspectionTaskItem {
+  college_id?: string | null
+  group_id?: string | null
   activity_start_at?: string | null
   activity_end_at?: string | null
   time_snapshot?: Record<string, unknown> | null
@@ -130,6 +132,7 @@ export async function getTask(id: string): Promise<InspectionTaskItem> {
 }
 
 export async function queryCourseOccurrences(params: {
+  execution_group_id?: string
   semester_id: string
   date_from: string
   date_to: string
@@ -148,6 +151,7 @@ export async function queryCourseOccurrences(params: {
   if (params.administrative_class_id) {
     searchParams.set('administrative_class_id', String(params.administrative_class_id))
   }
+    if (params.execution_group_id) searchParams.set('execution_group_id', params.execution_group_id)
   if (params.teaching_class_ids?.length) {
     params.teaching_class_ids.forEach(id => searchParams.append('teaching_class_ids', String(id)))
   }
@@ -155,6 +159,7 @@ export async function queryCourseOccurrences(params: {
 }
 
 export async function generateExactTasks(body: {
+  execution_group_id?: string
   semester_id: string
   inspection_type: string
   selection_revision: string

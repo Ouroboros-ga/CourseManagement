@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useSessionStore } from '../../stores/session'
 import { useCampusConfiguration } from '../../composables/useCampusConfiguration'
 import CourseTypeManager from './CourseTypeManager.vue'
 import GroupManager from './GroupManager.vue'
@@ -12,12 +14,16 @@ import StudentHandoff from './StudentHandoff.vue'
 import GroupOperations from './GroupOperations.vue'
 
 const { colleges, collegeId, college, types, groups, error, busy, userId, isSuper, can, reload, loadWorkspaces } = useCampusConfiguration()
+const session = useSessionStore()
+const businessReady = computed(() => !!session.campusRuntime?.business_scoped)
+const schedulingReady = computed(() => businessReady.value && !!session.campusRuntime?.scheduling)
 </script>
 <template>
   <section class="campus-page">
     <h1>学院与组织配置</h1>
     <p>维护学院配置、课程分类与志愿者组织。</p>
     <el-alert title="启用多学院业务前，请完成存量数据归属核对。作息调整会保留已生成任务的时间快照。" type="info" :closable="false" />
+    <el-alert v-if="!schedulingReady" title="作息计算、组成员与组织排班尚未启用。相关入口暂不可操作，类型/组配置和教务发布仍可按授权使用。" type="info" :closable="false" />
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <div class="toolbar">
       <el-select v-model="collegeId" placeholder="选择学院" :disabled="busy" aria-label="当前学院">
@@ -43,17 +49,17 @@ const { colleges, collegeId, college, types, groups, error, busy, userId, isSupe
       <el-tab-pane v-if="college && can('academic.manage')" label="教务课表发布">
         <AcademicPublication :key="`publication:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" />
       </el-tab-pane>
-      <el-tab-pane v-if="college && can('academic.manage')" label="学院作息与校历">
-        <CollegeTimeConfiguration :key="`time:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" />
+      <el-tab-pane v-if="college && can('academic.manage')" label="学院作息与校历" :disabled="!schedulingReady">
+        <CollegeTimeConfiguration v-if="schedulingReady" :key="`time:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" />
       </el-tab-pane>
       <el-tab-pane v-if="college && can('volunteer.group.read')" label="志愿者组">
         <GroupManager :key="`groups:${userId}:${collegeId}`" :college-id="collegeId" :rows="groups" :types="types" :user-id="userId" :can-manage="can('volunteer.group.manage')" :can-publish="can('volunteer.config.publish')" @changed="reload" />
       </el-tab-pane>
-      <el-tab-pane v-if="college && can('submission_deadline.read')" label="本院提交截止" lazy>
-        <CollegeDeadlines :key="`deadline:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" :can-manage="can('submission_deadline.manage')" />
+      <el-tab-pane v-if="college && can('submission_deadline.read')" label="本院提交截止" :disabled="!businessReady" lazy>
+        <CollegeDeadlines v-if="businessReady" :key="`deadline:${userId}:${collegeId}:${college.authorization_revision}`" :college-id="collegeId" :can-manage="can('submission_deadline.manage')" />
       </el-tab-pane>
-      <el-tab-pane v-if="college && can('volunteer.group.read')" label="组织成员、抽查与排班" lazy>
-        <GroupOperations :key="`operations:${userId}:${collegeId}:${college.authorization_revision}`"
+      <el-tab-pane v-if="college && can('volunteer.group.read')" label="组织成员、抽查与排班" :disabled="!schedulingReady" lazy>
+        <GroupOperations v-if="schedulingReady" :key="`operations:${userId}:${collegeId}:${college.authorization_revision}`"
           :college-id="collegeId" :groups="groups" :capabilities="college.capabilities" :is-super="isSuper" />
       </el-tab-pane>
     </el-tabs>

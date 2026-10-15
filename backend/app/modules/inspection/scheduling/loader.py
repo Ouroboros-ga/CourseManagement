@@ -47,6 +47,7 @@ class Snapshot:
     volunteers: list[Volunteer]
     static_failures: dict[int, str]
     warnings: dict[tuple[int, int], tuple[str, ...]] = field(default_factory=dict)
+    input_revision: str = ""
 
 
 def load_snapshot(
@@ -300,6 +301,20 @@ def load_snapshot(
         if not candidates:
             failures[task.id] = rejected[0] if rejected else "NO_QUALIFICATION"
         tasks.append(convert(task, frozenset(candidates)))
+    from app.modules.inspection.assignment_fingerprint import fingerprint
+
+    inputs = {"courses": actual_slots if settings.campus_scheduling_enabled else courses}
+    if eligibility:
+        # Include dated membership/support/academic changes even when eligibility
+        # still yields the same warning, so an old confirmation cannot be reused.
+        for name in ("timelines", "members", "supports"):
+            inputs[name] = {
+                sid: [
+                    {column.name: getattr(row, column.name) for column in row.__table__.columns}
+                    for row in sorted(rows, key=lambda row: row.id)
+                ] for sid, rows in getattr(eligibility, name).items()
+            }
     return Snapshot(
-        tasks, [Volunteer(v, loads.get(v, 0), tuple(existing[v])) for v in ids], failures, warnings
+        tasks, [Volunteer(v, loads.get(v, 0), tuple(existing[v])) for v in ids], failures, warnings,
+        fingerprint(inputs),
     )

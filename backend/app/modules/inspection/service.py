@@ -453,6 +453,8 @@ class InspectionService:
         max_tasks = 0
         # 只读预览用短事务：读取即隐式开事务，结尾统一 rollback 释放（不写库）。
         try:
+            from app.modules.inspection.execution_group import prepare
+            prepare(self, actor, body)
             sem = self._get_active_semester_read(body.semester_id)
             items = self._build_plan_no_semlock(sem, body)
             planned = len(items)
@@ -512,6 +514,8 @@ class InspectionService:
             self._session.rollback()
             self._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
         self._require(actor.id, perms.GENERATE_PERMISSION)
+        from app.modules.inspection.execution_group import prepare
+        prepare(self, actor, body)
         sem = self._require_active_semester(body.semester_id)  # FOR UPDATE 串行化同学期生成
         items = self._build_plan_no_semlock(sem, body)
         planned = len(items)
@@ -537,10 +541,13 @@ class InspectionService:
         if body.occurrences is not None:
             from app.modules.inspection.course_occurrences import select_occurrences
 
-            return select_occurrences(self, sem, body)
-        if body.inspection_type == InspectionType.COURSE.value:
-            return self._build_course_plan_core(sem, body)
-        return self._build_study_plan_core(sem, body)
+            items = select_occurrences(self, sem, body)
+        elif body.inspection_type == InspectionType.COURSE.value:
+            items = self._build_course_plan_core(sem, body)
+        else:
+            items = self._build_study_plan_core(sem, body)
+        from app.modules.inspection.execution_group import validate
+        return validate(self, items)
 
     def _materialize(
         self,
@@ -551,6 +558,12 @@ class InspectionService:
         request_id: str | None,
     ) -> GenerateResultResponse:
         existing = self._repo.find_task_ids_by_keys([it.task_key for it in items])
+        if self._generation_group and existing:
+            if self._session.scalar(select(InspectionTask.id).where(
+                InspectionTask.task_key.in_(existing),
+                (InspectionTask.group_id.is_(None) | (InspectionTask.group_id != self._generation_group[0].id)),
+            ).limit(1)):
+                raise ConflictError(message="所选课次已有其他执行组或旧任务，请先明确换组处置")
         new_items = [it for it in items if it.task_key not in existing]
         new_tasks = []
         if get_settings().campus_scheduling_enabled:
@@ -1762,6 +1775,8 @@ class InspectionService:
         if sem.status != SemesterStatus.ACTIVE.value:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "已归档学期不可排班")
         target_uid = body.volunteer_user_id
+        if get_settings().campus_scheduling_enabled and task.group_id is None:
+            raise ConflictError(message="旧任务尚未明确执行组，不能在新组织模式直接派发")
         if target_uid is None and body.student_id is not None:
             from app.modules.academic.service import AcademicService
 
@@ -1810,6 +1825,8 @@ class InspectionService:
         if get_settings().campus_scheduling_enabled and task.group_id:
             warning_snapshot = load_snapshot(self._session, sem, [task], [target_uid], lock_inputs=True)
             warning_codes = list(warning_snapshot.warnings.get((task.id, target_uid), ()))
+            if warning_codes:
+                raise ConflictError(message="该指派存在人工确认规则，请使用排班计划预览并确认具体警告")
         existing = self._repo.get_assignment_by_task_for_update(task.id)
         before = self._assignment_snapshot(existing)
         if existing is None:
@@ -2106,6 +2123,8 @@ class InspectionService:
                 assigned=[],
                 unassigned=[],
             )
+        if get_settings().campus_scheduling_enabled and any(task.group_id is None for task in targets):
+            raise ConflictError(message="待派任务包含未明确执行组的旧任务，请先完成组织归属处置")
         result = plan_assignments(
             snapshot.tasks,
             snapshot.volunteers,
@@ -2174,6 +2193,8 @@ class InspectionService:
                     ErrorCode.ASSIGNMENT_CONFLICT, f"排班输入已变化：{REASONS[failure[1]]}，请重试"
                 )
         assigned: list[PlannedAssignment] = []
+        if any(current.warnings.get((task.id, result.assignments[task.id])) for task in locked_tasks):
+            raise ConflictError(message="自动计划包含人工确认规则，请先预览并确认具体任务及志愿者")
         for locked in locked_tasks:
             vid = result.assignments[locked.id]
             self._repo.add(

@@ -51,6 +51,7 @@ class InspectionGenerateRequest(BaseModel):
     MORNING_STUDY / EVENING_STUDY 用 administrative_class_ids + 显式 start/end 节次。
     """
 
+    execution_group_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,18}$")
     semester_id: int = Field(ge=1)
     inspection_type: InspectionTypeLiteral
     week_nos: list[int] | None = Field(default=None, max_length=70)

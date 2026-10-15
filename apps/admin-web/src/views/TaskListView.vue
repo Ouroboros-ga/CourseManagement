@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmGroupAssignment, confirmGroupPlan } from '../composables/confirmGroupAssignment'
 import { formatBeijingTime } from '@/utils/datetime'
 import { assignmentWarnings } from '../utils/assignmentWarnings'
 import { ref, computed, watch, onMounted } from 'vue'
@@ -306,6 +307,30 @@ const autoAssigning = ref(false)
 
 async function handleAutoAssign() {
   if (!sessionStore.currentSemesterId) return
+  if (sessionStore.campusRuntime?.scheduling) {
+    if (!selectedTaskIds.value.length) { ElMessage.warning('请先勾选具体任务，再预览人员与规则警告'); return }
+    const selected = tasks.value.filter(task => selectedTaskIds.value.includes(task.id))
+    if (selected.length !== selectedTaskIds.value.length || selected.some(task => !task.group_id || !task.college_id)) {
+      ElMessage.warning('所选任务包含不可见或尚未明确执行组的旧任务，请刷新并处理组织归属'); return
+    }
+    autoAssigning.value = true
+    let count = 0
+    try {
+      const groups = new Map<string, InspectionTaskItem[]>()
+      for (const task of selected) groups.set(task.group_id!, [...(groups.get(task.group_id!) || []), task])
+      for (const [groupId, rows] of groups) {
+        const result = await confirmGroupPlan(rows[0]!.college_id!, groupId, {
+          semester_id: sessionStore.currentSemesterId, task_ids: rows.map(task => task.id)
+        })
+        if (!result) break
+        count += result.assigned_count
+      }
+      ElMessage.info(`已确认派发 ${count} 项；取消确认的组和未分配任务继续保留。`)
+      await fetchTasks()
+    } catch (error) { ElMessage.error(error instanceof Error ? error.message : '计划派发失败，请重新预览') }
+    finally { autoAssigning.value = false }
+    return
+  }
   const isSelectedScope = selectedTaskIds.value.length > 0
   const confirmText = isSelectedScope
     ? `确定对表格中选中的 ${selectedTaskIds.value.length} 个任务执行智能自动排班？\n系统将自动运行防冲突算法，为其中尚未分配的任务匹配在册志愿者。`
@@ -478,11 +503,12 @@ async function handleConfirmAssign() {
   const isChangeReq = (assigningTask.value as any).assignment?.change_request_status === 'PENDING'
   assignSubmitting.value = true
   try {
-    const assigned = await assignTask(assigningTask.value.id, {
+    const assigned = assigningTask.value.group_id ? await confirmGroupAssignment(assigningTask.value, selectedVolunteerUserId.value, assignReason.value) : await assignTask(assigningTask.value.id, {
       volunteer_user_id: selectedVolunteerUserId.value,
       lock_version: assigningTask.value.lock_version || 0,
       reason: assignReason.value || (isChangeReq ? '管理员同意调班并完成改派' : '管理端人工指派志愿者')
     })
+    if (!assigned) return
     const vol = selectedVolunteer.value
     if (assigned.operation_warning_codes?.length) ElMessage.warning(assignmentWarnings(assigned.operation_warning_codes))
     if (isChangeReq) {

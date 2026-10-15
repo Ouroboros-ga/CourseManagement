@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmGroupAssignment } from '../composables/confirmGroupAssignment'
 import { formatBeijingTime } from '@/utils/datetime'
 import { assignmentWarnings } from '../utils/assignmentWarnings'
 import { ref, watch, onMounted, computed } from 'vue'
@@ -633,13 +634,14 @@ async function assignTaskToStudent(task: InspectionTaskItem) {
   if (!assignTargetStudent.value || !assignTargetUser.value) return
   assigning.value = true
   try {
-    const assigned = await request<InspectionTaskItem>(`/api/v1/inspection-tasks/${task.id}/assignment`, {
+    const assigned = task.group_id ? await confirmGroupAssignment(task, assignTargetUser.value.id) : await request<InspectionTaskItem>(`/api/v1/inspection-tasks/${task.id}/assignment`, {
       method: 'PUT',
       body: JSON.stringify({
         volunteer_user_id: assignTargetUser.value.id,
         lock_version: task.lock_version || 0
       })
     })
+    if (!assigned) return
     if (assigned.operation_warning_codes?.length) ElMessage.warning(assignmentWarnings(assigned.operation_warning_codes))
     ElMessage.success(`已成功将任务 #${task.id} (${task.course_name_snapshot || '查课'}) 指派给 ${assignTargetStudent.value.name} (UID: ${assignTargetUser.value.id})！`)
     assignDialogVisible.value = false

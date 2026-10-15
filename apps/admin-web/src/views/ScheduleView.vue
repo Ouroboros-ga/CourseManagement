@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { listGroups, type VolunteerGroup } from '../api/campus'
+import { confirmGroupPlan } from '../composables/confirmGroupAssignment'
 import { ref, watch, onMounted, computed, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
@@ -42,6 +44,15 @@ const selectedAdminClassId = ref<string>('')
 const occurrences = ref<CourseOccurrence[]>([])
 const weekTasks = ref<InspectionTaskItem[]>([])
 const selectedKeys = ref<string[]>([])
+const executionGroupId = ref('')
+const executionGroups = ref<VolunteerGroup[]>([])
+const organizationMode = computed(() => !!sessionStore.campusRuntime?.scheduling)
+watch(() => sessionStore.workspaceCollegeId, async cid => {
+  executionGroupId.value = ''; executionGroups.value = []
+  if (!cid || !organizationMode.value) return
+  const rows = await listGroups(cid)
+  if (cid === sessionStore.workspaceCollegeId) executionGroups.value = rows.filter(row => row.status === 'ACTIVE')
+}, { immediate: true })
 const selectionRevision = ref<string>('')
 const selectionScope = ref<Record<string, unknown>>({})
 const hasData = computed(() => occurrences.value.length > 0 || weekTasks.value.length > 0)
@@ -144,13 +155,14 @@ async function loadData() {
     weekTasks.value = taskRes.items || []
 
     // 3. 查询当周排课课次（支持按行政班精准过滤，或查当周全量课次）
-    if (sessionStore.weekDateRange.start && sessionStore.weekDateRange.end) {
+    if (sessionStore.weekDateRange.start && sessionStore.weekDateRange.end && (!organizationMode.value || executionGroupId.value)) {
       try {
         const occRes = await queryCourseOccurrences({
+          execution_group_id: executionGroupId.value || undefined,
           semester_id: sessionStore.currentSemesterId,
           date_from: sessionStore.weekDateRange.start,
           date_to: sessionStore.weekDateRange.end,
-          administrative_class_id: selectedAdminClassId.value ? Number(selectedAdminClassId.value) : undefined,
+          administrative_class_id: selectedAdminClassId.value || undefined,
           page_size: 500
         })
         occurrences.value = occRes.items || []
@@ -217,7 +229,7 @@ async function handleExportMasterTimetable() {
 }
 
 watch(
-  () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo, selectedAdminClassId.value],
+  () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo, selectedAdminClassId.value, executionGroupId.value],
   () => {
     if (activeTab.value === 'dispatch') {
       loadData()
@@ -329,6 +341,7 @@ async function triggerDispatch() {
     )
 
     const genRes = await generateExactTasks({
+      execution_group_id: executionGroupId.value || undefined,
       semester_id: sessionStore.currentSemesterId,
       inspection_type: 'COURSE',
       selection_revision: selectionRevision.value || 'rev_1',
@@ -342,11 +355,13 @@ async function triggerDispatch() {
     let assignMsg = ''
     if (genRes.assignable_task_ids && genRes.assignable_task_ids.length > 0) {
       try {
-        const assignRes = await triggerAutoAssign({
+        const assignRes = organizationMode.value ? await confirmGroupPlan(sessionStore.workspaceCollegeId, executionGroupId.value, {
+          semester_id: sessionStore.currentSemesterId, task_ids: genRes.assignable_task_ids
+        }) : await triggerAutoAssign({
           semester_id: sessionStore.currentSemesterId,
           task_ids: genRes.assignable_task_ids
         })
-        assignMsg = `<br/>3. <b>智能自动排班</b>：已自动匹配分配 <b>${assignRes.assigned_count}</b> 个任务，待人工处理 <b>${assignRes.unassigned_count}</b> 个。`
+        assignMsg = assignRes ? `<br/>3. <b>已确认排班</b>：分配 ${assignRes.assigned_count} 个，未排 ${assignRes.unassigned_count} 个。` : '<br/>3. 任务已保留，您尚未确认派发。'
       } catch (assignErr: unknown) {
         const errMsg = assignErr && typeof assignErr === 'object' && 'message' in assignErr ? String(assignErr.message) : '自动排班求解未触发'
         assignMsg = `<br/>3. <b>自动排班提示</b>：${errMsg}（可前往任务中心查看或手动指派）。`
@@ -661,6 +676,7 @@ function applySmartSample() {
         </div>
 
         <div class="head-actions flex items-center gap-2">
+          <el-select v-if="organizationMode" v-model="executionGroupId" placeholder="先选择执行组" aria-label="手选课次执行组"><el-option v-for="group in executionGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select>
           <button class="btn btn-outline" @click="openImportDialog">
             <AppIcon name="upload" :size="14" />
             <span>批量导入教务数据</span>

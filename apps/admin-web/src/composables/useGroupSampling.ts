@@ -50,6 +50,11 @@ export function useGroupSampling(context: GroupSamplingContext, api: GroupSampli
   const generatedBody = shallowRef<GroupSampleBody | null>(null)
   const generateResult = shallowRef<GroupSampleGenerateResult | null>(null)
   const assignmentResult = shallowRef<GroupSampleAssignmentResult | null>(null)
+  const assignmentPlan = shallowRef<import('../api/groupSampling').AssignmentPlan | null>(null)
+  const confirmedWarnings = shallowRef<string[]>([])
+  const canConfirmAssignment = computed(() => !!assignmentPlan.value && assignmentPlan.value.assigned.every(
+    item => !item.warning_codes.length || confirmedWarnings.value.includes(item.task_id)
+  ))
   const error = shallowRef('')
   const message = shallowRef('')
   const classLoading = shallowRef(false)
@@ -76,6 +81,7 @@ export function useGroupSampling(context: GroupSamplingContext, api: GroupSampli
     form.value = initialForm()
     previewResult.value = null; previewBody.value = null
     generatedBody.value = null; generateResult.value = null; assignmentResult.value = null
+    assignmentPlan.value = null; confirmedWarnings.value = []
     error.value = ''; message.value = ''; classLoading.value = false; previewing.value = false; writing.value = false
   }
 
@@ -206,19 +212,40 @@ export function useGroupSampling(context: GroupSamplingContext, api: GroupSampli
     const taskIds = [...generated.assignable_task_ids]
     writing.value = true; error.value = ''; message.value = ''
     try {
-      const response = await api.assign(cid, gid, { semester_id: sid, task_ids: taskIds })
+      const response = await api.previewAssignment(cid, gid, { semester_id: sid, task_ids: taskIds })
       if (ticket !== contextEpoch || key !== contextKey() || disposed) return
-      assignmentResult.value = clone(response)
-      message.value = `排班处理完成：已排 ${response.assigned_count} 项，未排 ${response.unassigned_count} 项。`
+      assignmentPlan.value = clone(response)
+      confirmedWarnings.value = []
+      message.value = '请核对具体人员与警告后确认派发；当前尚未写入排班。'
     } catch (caught) {
       if (ticket === contextEpoch && key === contextKey() && !disposed) error.value = errorMessage(caught)
+    } finally { if (ticket === contextEpoch && key === contextKey() && !disposed) writing.value = false }
+  }
+
+  async function confirmAssignment() {
+    const plan = assignmentPlan.value
+    const cid = context.collegeId(), gid = context.groupId(), key = contextKey(), ticket = contextEpoch
+    if (!plan || !canConfirmAssignment.value || !context.canAssign() || writing.value) return
+    writing.value = true; error.value = ''
+    try {
+      const result = await api.commitAssignment(cid, gid, plan.id, { revision: plan.revision,
+        confirmations: plan.assigned.filter(item => item.warning_codes.length) })
+      if (ticket !== contextEpoch || key !== contextKey() || disposed) return
+      assignmentResult.value = clone(result); assignmentPlan.value = null
+      message.value = `排班处理完成：已排 ${result.assigned_count} 项，未排 ${result.unassigned_count} 项。`
+    } catch (caught) {
+      if (ticket === contextEpoch && key === contextKey() && !disposed) {
+        error.value = errorMessage(caught)
+        if (isConflict(caught)) { assignmentPlan.value = null; confirmedWarnings.value = [] }
+      }
     } finally { if (ticket === contextEpoch && key === contextKey() && !disposed) writing.value = false }
   }
 
   const activeClasses = computed(() => classes.value.filter(item => item.status === 'ACTIVE'))
   return {
     classes, activeClasses, form, previewResult, previewBody, generatedBody, generateResult,
-    assignmentResult, error, message, classLoading, previewing, writing, busy, totalRequested,
+    assignmentResult, assignmentPlan, confirmedWarnings, canConfirmAssignment, confirmAssignment,
+    error, message, classLoading, previewing, writing, busy, totalRequested,
     canPreview, loadClasses, toggleClass, setCount, setDateRange, setRequirePhoto, preview, generate, assign
   }
 }

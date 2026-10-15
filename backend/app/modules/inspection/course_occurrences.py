@@ -38,10 +38,14 @@ def build_scope(
         require_photo=scope.require_photo,
     )
     items = service._build_course_plan_core(semester, body)
+    from app.modules.inspection.execution_group import validate
+    items = validate(service, items, strict=False)
     service._check_scale(len(items))
     items.sort(key=lambda i: (i.inspection_date, i.start_period, i.course_schedule_id or 0))
     periods = service._academic.list_period_definitions(semester.id)
     payload = {
+        "execution_group": ([service._generation_group[0].id, service._generation_group[0].lock_version,
+                             service._generation_group[1].id] if service._generation_group else None),
         "semester": [
             semester.id,
             semester.start_date,

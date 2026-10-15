@@ -133,6 +133,7 @@ def get_course_occurrences(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=1000)] = 200,
     require_photo: bool = False,
+    execution_group_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
 ) -> dict[str, object]:
     from sqlalchemy import select
 
@@ -145,6 +146,9 @@ def get_course_occurrences(
             http_status=422,
         )
     service._require(actor.id, PermissionCode.INSPECTION_GENERATE.value)
+    from app.modules.inspection.execution_group import prepare
+    from types import SimpleNamespace
+    prepare(service, actor, SimpleNamespace(inspection_type="COURSE", execution_group_id=execution_group_id))
     semester = service._get_active_semester_read(semester_id)
 
     if administrative_class_id is not None:

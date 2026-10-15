@@ -91,7 +91,7 @@ function countChanged(id: string, event: Event) {
         2. 确认生成任务
       </button>
       <button v-if="state.generateResult.value && props.canAssign" type="button" class="primary" :disabled="state.busy.value || !state.generateResult.value.assignable_task_ids.length" @click="state.assign">
-        {{ state.writing.value ? '正在排班…' : state.assignmentResult.value ? '3. 重试排班' : '3. 为生成任务排班' }}
+        {{ state.writing.value ? '正在准备…' : '3. 预览排班计划' }}
       </button>
       <span v-if="state.generateResult.value && !state.generateResult.value.assignable_task_ids.length" class="muted">没有可排班任务，未发送排班请求。</span>
       <span v-else-if="state.generateResult.value && !props.canAssign" class="muted">当前账号没有排班权限。</span>
@@ -133,6 +133,19 @@ function countChanged(id: string, event: Event) {
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section v-if="state.assignmentPlan.value" class="result-panel assignments">
+      <h3>待确认排班计划</h3>
+      <p>尚未派发。请核对每项任务、志愿者和警告，计划有效期十分钟。</p>
+      <table><thead><tr><th>任务</th><th>志愿者</th><th>规则警告与确认</th></tr></thead><tbody>
+        <tr v-for="item in state.assignmentPlan.value.assigned" :key="item.task_id">
+          <td>{{ item.task_id }}</td><td>{{ item.volunteer_user_id }}</td>
+          <td><label v-if="item.warning_codes.length"><input v-model="state.confirmedWarnings.value" type="checkbox" :value="item.task_id" :disabled="state.writing.value">我确认：{{ assignmentWarnings(item.warning_codes) }}</label><span v-else>无警告</span></td>
+        </tr>
+      </tbody></table>
+      <p v-for="item in state.assignmentPlan.value.unassigned" :key="item.task_id">任务 {{ item.task_id }} 未排：{{ item.message }}</p>
+      <button type="button" class="primary" :disabled="state.writing.value || !state.canConfirmAssignment.value" @click="state.confirmAssignment">确认计划并派发</button>
     </section>
 
     <section v-if="state.assignmentResult.value" class="result-panel assignments">

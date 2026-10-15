@@ -18,7 +18,7 @@ def fixture():
 
 
 @pytest.mark.parametrize("operation", ["candidates", "manual", "auto"])
-def test_warn_allows_assignment_but_reaches_api_consumer(campus, monkeypatch, operation):
+def test_warn_is_explained_but_requires_plan_confirmation(campus, monkeypatch, operation):
     db, admin, a, sem, group, own, *_ = arrange(campus, monkeypatch)
     if operation != "candidates" and db.get_bind().dialect.name != "mysql":
         pytest.skip("write path requires dedicated MySQL anchors and second reader connection")
@@ -72,15 +72,11 @@ def test_warn_allows_assignment_but_reaches_api_consumer(campus, monkeypatch, op
         result = service.list_task_volunteer_candidates(task.id, actor=admin)
         assert result[0].eligible
         assert set(result[0].warning_codes) == expected
-    elif operation == "manual":
-        result = service.assign_manual(
-            admin,
-            task.id,
-            AssignmentSetRequest(volunteer_user_id=volunteer.id, lock_version=task.lock_version),
-            None,
-        )
-        assert set(result.operation_warning_codes) == expected
     else:
-        result = sampling.assign({"semester_id": str(sem.id), "task_ids": [str(task.id)]})
-        assert result.assigned_count == 1
-        assert set(result.assigned[0].warning_codes) == expected
+        from app.core.exceptions import ConflictError
+        with pytest.raises(ConflictError):
+            if operation == "manual":
+                service.assign_manual(admin, task.id,
+                    AssignmentSetRequest(volunteer_user_id=volunteer.id, lock_version=task.lock_version), None)
+            else:
+                sampling.assign({"semester_id": str(sem.id), "task_ids": [str(task.id)]})

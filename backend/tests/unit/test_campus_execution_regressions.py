@@ -60,3 +60,17 @@ def test_same_occurrence_cannot_be_generated_for_two_groups(campus, monkeypatch)
     assert db.scalar(select(func.count()).select_from(InspectionTask).where(
         InspectionTask.group_id.is_not(None)
     )) == 1
+
+
+def test_generic_generation_requires_and_obeys_execution_group(campus, monkeypatch):
+    from app.modules.inspection.schemas import InspectionGenerateRequest
+    from app.modules.inspection.scoped_service import ScopedInspectionService
+
+    db, actor, a, sem, group, own, teaching, *_ = arrange(campus, monkeypatch)
+    service = ScopedInspectionService(db, actor, int(a["id"]))
+    body = InspectionGenerateRequest(semester_id=sem.id, inspection_type="COURSE",
+        date_from="2026-09-07", date_to="2026-09-07", teaching_class_ids=[teaching.id])
+    with pytest.raises(ConflictError):
+        service.preview(actor, body)
+    preview = service.preview(actor, body.model_copy(update={"execution_group_id": group["id"]}))
+    assert preview.task_count == 1

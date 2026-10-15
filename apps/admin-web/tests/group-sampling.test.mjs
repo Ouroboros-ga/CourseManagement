@@ -47,6 +47,10 @@ function fixture(initial = { college: 'C1', group: 'G1', semester: 'S1', canGene
     },
     preview: (...args) => new Promise((resolve, reject) => { calls.push(['preview', ...args]); previews.push({ args, resolve, reject }) }),
     generate: async (...args) => { calls.push(['generate', ...args]); generates.push(args); return generateResponse() },
+    previewAssignment: async (...args) => {
+      calls.push(['plan-preview', ...args]); assignments.push(args); if (assignFailures-- > 0) throw new Error('排班服务暂不可用'); return { id: 'plan-1', revision: 'revision-1', expires_at: '2026-10-15T00:00:00Z', assigned: [{task_id: bigTaskId, volunteer_user_id: '9007199254740993999', warning_codes: ['OWN_COURSE_WARNING']}], unassigned: [] }
+    },
+    commitAssignment: async (...args) => { calls.push(['plan-commit', ...args]); return assignmentResponse() },
     assign: async (...args) => {
       calls.push(['assign', ...args]); assignments.push(args)
       if (assignFailures-- > 0) throw new Error('排班服务暂不可用')
@@ -188,6 +192,12 @@ test('assign failure retains generated facts and retry sends the exact BIGINT ta
       assert.equal(JSON.stringify(call[2].task_ids), JSON.stringify([bigTaskId]))
       assert.equal(typeof call[2].task_ids[0], 'string')
     }
+    assert.equal(f.state.canConfirmAssignment.value, false)
+    await f.state.confirmAssignment()
+    assert.equal(f.calls.filter(call => call[0] === 'plan-commit').length, 0)
+    f.state.confirmedWarnings.value = [bigTaskId]
+    await f.state.confirmAssignment()
+    assert.equal(f.calls.filter(call => call[0] === 'plan-commit').length, 1)
     assert.equal(f.state.assignmentResult.value.unassigned[0].task_id, bigTaskId)
   } finally { f.stop() }
 })

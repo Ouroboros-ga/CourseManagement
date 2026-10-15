@@ -13,6 +13,8 @@ from app.modules.inspection.group_sampling import (
     GroupSampleRequest,
     GroupSamplingService,
 )
+from app.modules.inspection.assignment_plan_service import AssignmentPlanService
+from app.modules.inspection.assignment_plan_schemas import AssignmentPlanCommit, AssignmentPlanPreview
 from app.modules.organization.router import require_campus_enabled
 
 router = APIRouter(
@@ -22,6 +24,21 @@ router = APIRouter(
 )
 Db = Annotated[Session, Depends(get_db)]
 ResourceId = Annotated[int, Path(gt=0, le=2**63 - 1)]
+
+
+@router.post("/assignment-plans/preview")
+def preview_assignment_plan(cid: ResourceId, gid: ResourceId, body: AssignmentPlanPreview,
+                            actor: CurrentUserDep, db: Db, request: Request):
+    return success(AssignmentPlanService(db, actor, cid, gid).preview(body.model_dump()),
+                   getattr(request.state, "request_id", None))
+
+
+@router.post("/assignment-plans/{plan_id}/commit")
+def commit_assignment_plan(cid: ResourceId, gid: ResourceId, plan_id: str,
+                           body: AssignmentPlanCommit, actor: CurrentUserDep, db: Db, request: Request):
+    return success(AssignmentPlanService(db, actor, cid, gid).commit(
+        plan_id, body.model_dump(), getattr(request.state, "request_id", None)),
+        getattr(request.state, "request_id", None))
 
 
 @router.post("/assign")
