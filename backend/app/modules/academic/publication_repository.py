@@ -93,6 +93,7 @@ class AcademicPublicationRepository:
             "first_monday": str(semester.first_monday),
             "total_weeks": semester.total_weeks,
             "timezone": "Asia/Shanghai",
+            "historical_display_policy": "MIGRATION_BASELINE_CLASS_PROJECTION",
             "calendar_overrides": overrides,
         }
         schedules = list(
@@ -161,7 +162,7 @@ class AcademicPublicationRepository:
                 and teaching_day[1] == s.weekday
             ]
             if matched:
-                roster = index.at(day)
+                roster = index.for_personal_timetable(day)
                 for schedule in matched:
                     timing = None
                     if resolver:

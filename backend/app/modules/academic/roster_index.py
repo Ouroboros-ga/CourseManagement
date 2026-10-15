@@ -86,6 +86,37 @@ class RosterIndex:
         ).scalars():
             self.enrollments[enrollment.student_id].append(enrollment)
 
+    def for_personal_timetable(self, on_date: date) -> dict[int, list[Student]]:
+        """个人显示可投影迁移基线之前的整班课表，不作为历史学籍证据。
+
+        仅适用尚未核实历史、没有任何变更的单一迁移基线。正式名单调用 at()，
+        选修课的带日期参与记录不放宽，已核实或转班等真实历史不投影。
+        """
+        result = self.at(on_date)
+        for student in self.students:
+            timeline = self.enrollments[student.id]
+            if student.status != "ACTIVE" or len(timeline) != 1:
+                continue
+            baseline = timeline[0]
+            if (
+                baseline.superseded
+                or baseline.historical_confirmed
+                or baseline.revision != 0
+                or baseline.status != "ENROLLED"
+                or baseline.effective_to is not None
+                or baseline.effective_from <= on_date
+                or (baseline.snapshot or {}).get("origin") != "MIGRATION_CURRENT_ONLY"
+                or baseline.administrative_class_id != student.administrative_class_id
+            ):
+                continue
+            for tid in self.ids:
+                if (
+                    baseline.administrative_class_id in self.audiences[tid]
+                    and student.id not in self.dated_ids[tid]
+                ):
+                    result[tid].append(student)
+        return result
+
     def at(self, on_date: date) -> dict[int, list[Student]]:
         result: dict[int, list[Student]] = {tid: [] for tid in self.ids}
         explicit = {
