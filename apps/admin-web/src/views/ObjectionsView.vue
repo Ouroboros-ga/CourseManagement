@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatBeijingTime } from '@/utils/datetime'
+import { useRoute } from 'vue-router'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
@@ -18,12 +19,13 @@ import {
 } from '../api/attendance'
 
 const sessionStore = useSessionStore()
+const route = useRoute()
 
 const loading = ref(false)
 const submitLoading = ref(false)
 const objections = ref<ObjectionItem[]>([])
 const activeIndex = ref<number>(0)
-const statusFilter = ref<string>('ALL')
+const statusFilter = ref<string>(route.query.status === 'PENDING_FINAL' ? 'PENDING_FINAL' : 'ALL')
 const page = ref(1)
 const total = ref(0)
 let listRequest = 0
@@ -42,6 +44,7 @@ const typeMap: Record<string, string> = {
 
 async function fetchObjections() {
   const requestId = ++listRequest
+  if (!sessionStore.currentSemesterId) return
   loading.value = true
   try {
     let final_status: ObjectionFinalStatus | undefined = undefined
@@ -55,6 +58,7 @@ async function fetchObjections() {
     }
 
     const res = await listObjections({
+      semester_id: sessionStore.currentSemesterId,
       final_status,
       page: page.value,
       page_size: 50
@@ -69,23 +73,23 @@ async function fetchObjections() {
 
     // 预加载考勤记录快照
     const recordIds = Array.from(new Set(objections.value.map(o => o.attendance_record_id)))
-    await loadAttendanceForRecords(recordIds)
+    await loadAttendanceForRecords(recordIds, requestId)
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '获取考勤异议列表失败'
-    ElMessage.error(msg)
+    if (requestId === listRequest) ElMessage.error(msg)
   } finally {
     if (requestId === listRequest) loading.value = false
   }
 }
 
-async function loadAttendanceForRecords(recordIds: string[]) {
+async function loadAttendanceForRecords(recordIds: string[], requestId: number) {
   const missing = recordIds.filter(id => id && !attendanceMap.value[id])
   if (missing.length === 0) return
   await Promise.allSettled(
     missing.map(async id => {
       try {
         const att = await getAttendanceRecord(id)
-        attendanceMap.value[id] = att
+        if (requestId === listRequest) attendanceMap.value[id] = att
       } catch (e) {
         console.warn(`拉取考勤记录 #${id} 失败:`, e)
       }
@@ -98,6 +102,8 @@ watch(statusFilter, () => {
   activeIndex.value = 0
   fetchObjections()
 })
+watch(() => sessionStore.currentSemesterId, () => { page.value = 1; activeIndex.value = 0; attendanceMap.value = {}; void fetchObjections() })
+onBeforeUnmount(() => { listRequest++ })
 
 onMounted(() => {
   fetchObjections()

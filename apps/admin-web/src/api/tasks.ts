@@ -59,6 +59,7 @@ export interface InspectionTaskItem {
 }
 
 export interface TaskListQuery {
+  needs_attention?: 'unassigned' | 'roster'
   page?: number
   page_size?: number
   semester_id?: string
@@ -114,6 +115,7 @@ export interface OccurrencesQueryResult {
 
 export async function listTasks(query: TaskListQuery): Promise<PaginatedResult<InspectionTaskItem>> {
   const params = new URLSearchParams()
+  if (query.needs_attention) params.set('needs_attention', query.needs_attention)
   if (query.page) params.set('page', String(query.page))
   if (query.page_size) params.set('page_size', String(query.page_size))
   if (query.semester_id) params.set('semester_id', query.semester_id)

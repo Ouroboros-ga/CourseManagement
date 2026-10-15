@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import AppIcon from '../components/AppIcon.vue'
+import CampusDimensions from '../components/campus/CampusDimensions.vue'
 import {
   listStudents,
   listAdministrativeClasses,
@@ -79,7 +80,7 @@ watch(
 )
 
 async function fetchReportData() {
-  if (!sessionStore.currentSemesterId) return
+  if (!sessionStore.currentSemesterId || !sessionStore.hasPermission('statistics.read')) return
   loading.value = true
   try {
     const semId = Number(sessionStore.currentSemesterId)
@@ -601,6 +602,7 @@ function formatViolationType(type: string): string {
 
 <template>
   <div class="report-page" v-loading="loading">
+    <CampusDimensions />
     <!-- 页头 -->
     <header class="page-head">
       <div class="crumb font-mono">

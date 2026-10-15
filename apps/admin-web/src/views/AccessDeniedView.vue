@@ -1,0 +1,1 @@
+<template><el-result icon="warning" title="暂时无法访问此页面" sub-title="当前账号在所选学院没有相应能力，请刷新学院权限或联系管理员。"><template #extra><router-link class="btn" to="/dashboard/home">返回工作台</router-link></template></el-result></template>

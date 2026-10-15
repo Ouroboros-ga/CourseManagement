@@ -12,9 +12,9 @@ const resources: { value: ScopedAcademicKind; label: string; permission: string 
   { value: 'semesters', label: '学校共享学期目录', permission: 'academic.read' },
   { value: 'qualifications', label: '志愿者资格', permission: 'volunteer.read' }
 ]
-export function useScopedAcademicData(collegeId: () => string, capabilities: () => string[]) {
+export function useScopedAcademicData(collegeId: () => string, capabilities: () => string[], allowedKinds?: () => ScopedAcademicKind[] | undefined) {
   const session = useSessionStore()
-  const options = computed(() => resources.filter(item => capabilities().includes(item.permission)))
+  const options = computed(() => resources.filter(item => capabilities().includes(item.permission) && (!allowedKinds?.() || allowedKinds()!.includes(item.value))))
   const kind = shallowRef<ScopedAcademicKind | ''>('')
   const page = shallowRef(1)
   const keyword = shallowRef('')
@@ -24,7 +24,8 @@ export function useScopedAcademicData(collegeId: () => string, capabilities: () 
   const error = shallowRef('')
   const busy = shallowRef(false)
   const context = () => `${identityContext(session.currentUser)}:${collegeId()}:${capabilities().join(',')}`
-  const epoch = new ContextEpoch(() => `${context()}:${kind.value}:${page.value}:${query.value}`)
+  const semesterId = () => ['teaching-classes', 'schedules', 'qualifications'].includes(kind.value) ? session.currentSemesterId || '' : ''
+  const epoch = new ContextEpoch(() => `${context()}:${kind.value}:${page.value}:${query.value}:${semesterId()}`)
   let active = true
   onUnmounted(() => { active = false; epoch.invalidate() })
   async function load() {
@@ -33,7 +34,9 @@ export function useScopedAcademicData(collegeId: () => string, capabilities: () 
     if (!active || !collegeId() || !kind.value || !identityContext(session.currentUser)) return
     busy.value = true
     try {
-      const result = await listScopedAcademic(collegeId(), kind.value, page.value, query.value)
+      const result = semesterId()
+        ? await listScopedAcademic(collegeId(), kind.value, page.value, query.value, semesterId())
+        : await listScopedAcademic(collegeId(), kind.value, page.value, query.value)
       if (!active || !ticket.isCurrent()) return
       rows.value = result.items; total.value = result.total
     } catch (e) {
@@ -45,7 +48,8 @@ export function useScopedAcademicData(collegeId: () => string, capabilities: () 
     kind.value = options.value[0]?.value || ''
   }, { immediate: true })
   watch(kind, () => { page.value = 1; keyword.value = ''; query.value = '' })
-  watch([context, kind, page, query], () => { void load() }, { immediate: true })
+  watch(semesterId, () => { page.value = 1 })
+  watch([context, kind, page, query, semesterId], () => { void load() }, { immediate: true })
   function search() {
     const value = keyword.value.trim()
     if (page.value !== 1 || query.value !== value) { page.value = 1; query.value = value }

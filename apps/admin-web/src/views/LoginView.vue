@@ -23,7 +23,7 @@ async function handleLogin() {
   try {
     await sessionStore.signIn(username.value, password.value)
     ElMessage.success('登录成功')
-    router.push('/dashboard/schedule')
+    router.push('/dashboard/home')
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'message' in err) {
       errorMessage.value = String(err.message)

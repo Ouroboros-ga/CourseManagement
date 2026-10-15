@@ -17,6 +17,7 @@ export const useSessionStore = defineStore('session', () => {
   const workspace = computed(() => workspaces.value.find(row => row.id === workspaceCollegeId.value) || null)
   const workspaceMode = computed(() => !!(campusRuntime.value?.academic_scoped || campusRuntime.value?.business_scoped))
   let workspaceEpoch = 0
+  let academicEpoch = 0
 
   function selectWorkspace(cid: string) {
     if (!workspaces.value.some(row => row.id === cid && row.status === 'ACTIVE')) return
@@ -30,7 +31,9 @@ export const useSessionStore = defineStore('session', () => {
     workspaceError.value = ''
     try {
       const mode = await request<CampusRuntime>('/api/v1/me/campus-runtime')
-      const rows = mode.academic_scoped || mode.business_scoped ? await listWorkspaces() : []
+      let rows: College[] = []
+      try { rows = await listWorkspaces() }
+      catch (error) { if (mode.academic_scoped || mode.business_scoped) throw error }
       if (epoch !== workspaceEpoch || actorId !== currentUser.value?.id) return
       campusRuntime.value = mode
       workspaces.value = rows.filter(row => row.status === 'ACTIVE')
@@ -123,17 +126,19 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   async function fetchAcademicContext(preferredId?: string): Promise<void> {
+    const epoch = ++academicEpoch, actorId = currentUser.value?.id
     try {
       // 拉取全部学期（包含 ACTIVE 与 ARCHIVED），确保全局支持切换与查阅
       const res = await listSemesters('')
+      if (epoch !== academicEpoch || actorId !== currentUser.value?.id) return
       semesters.value = res.items || []
       if (semesters.value.length > 0) {
         const storedId = localStorage.getItem('preferred_semester_id') || ''
         const candidateId = preferredId || currentSemester.value?.id || storedId
 
-        // 查找优先级：仅在 ACTIVE 学期中匹配指定的候选ID；若无指定或已归档则取第一个 ACTIVE 学期
+        // 明确选择的历史学期也须保留；只在选择不存在时回退到有效学期。
         const activeList = semesters.value.filter(s => s.status === 'ACTIVE')
-        let target = candidateId ? activeList.find(s => String(s.id) === String(candidateId)) : null
+        let target = candidateId ? semesters.value.find(s => String(s.id) === String(candidateId)) : null
         if (!target) {
           target = activeList[0] || semesters.value.find(s => s.status === 'ACTIVE') || semesters.value[0]
         }
@@ -150,6 +155,7 @@ export const useSessionStore = defineStore('session', () => {
   function setSemester(semesterId: string): void {
     const found = semesters.value.find(s => String(s.id) === String(semesterId))
     if (found) {
+      academicEpoch += 1
       currentSemester.value = found
       localStorage.setItem('preferred_semester_id', found.id)
       currentWeekNo.value = calculateCurrentNaturalWeek(found.first_monday || found.start_date, found.total_weeks)
@@ -202,6 +208,8 @@ export const useSessionStore = defineStore('session', () => {
     } finally {
       currentUser.value = null
       workspaceEpoch += 1
+      academicEpoch += 1
+      semesters.value = []; currentSemester.value = null
       workspaces.value = []; workspaceCollegeId.value = ''; campusRuntime.value = null
       configureWorkspace(null, '')
       isRestored.value = true

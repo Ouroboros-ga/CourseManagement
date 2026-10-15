@@ -1,20 +1,21 @@
 <script setup lang="ts">
 import TimeProfiles from './TimeProfiles.vue'
-import { computed, onUnmounted, shallowRef, watch } from 'vue'
-import { listScopedAcademic, type ScopedAcademicRow } from '../../api/scopedAcademic'
+import SchoolTimeDefaults from './SchoolTimeDefaults.vue'
+import type { CollegePeriodTime } from '../../api/collegeTime'
+import { computed, shallowRef, watch } from 'vue'
 import { useCollegeTimeConfiguration } from '../../composables/useCollegeTimeConfiguration'
 import { useSessionStore } from '../../stores/session'
-import { ContextEpoch, identityContext } from '../../utils/contextEpoch'
+import { markWorkspaceSaved } from '../../composables/useWorkspaceChanges'
 
 const props = defineProps<{ collegeId: string }>()
 const session = useSessionStore()
-const semesters = shallowRef<ScopedAcademicRow[]>([])
-const semesterError = shallowRef('')
+const draftRoot = shallowRef<HTMLElement | null>(null)
 const state = useCollegeTimeConfiguration(() => props.collegeId)
 const { semesterId, form, previewResult, versions, busy, error, message, preview, publish } = state
+watch(message, value => { if (value) markWorkspaceSaved(draftRoot.value) })
 const formMethods = computed(() => form.value)
+function fillTemplatePeriods(periods: CollegePeriodTime[]) { form.value = { ...form.value, periods } }
 const hasRetainedTasks = computed(() => (previewResult.value?.retained_future_task_ids.length || 0) > 0)
-const semesterEpoch = new ContextEpoch(() => `${identityContext(session.currentUser)}:${props.collegeId}`)
 const mappingError = shallowRef('')
 const mappingText = computed(() => Object.entries(form.value.grid_slot_mapping || {})
   .sort(([a], [b]) => Number(a) - Number(b)).map(([raw, period]) => `${raw}=${period}`).join(', '))
@@ -32,27 +33,7 @@ function updateMapping(value: string) {
   form.value = { ...form.value, grid_slot_mapping: mapping }
 }
 
-watch(() => `${identityContext(session.currentUser)}:${props.collegeId}`, async () => {
-  const cid = props.collegeId, ticket = semesterEpoch.begin()
-  semesters.value = []; semesterId.value = ''; semesterError.value = ''
-  if (!cid) return
-  try {
-    let page = 1, rows: ScopedAcademicRow[] = []
-    while (ticket.isCurrent()) {
-      const response = await listScopedAcademic(cid, 'semesters', page, '')
-      if (!ticket.isCurrent()) return
-      rows = [...rows, ...response.items]
-      if (rows.length >= response.total) break
-      if (!response.items.length) throw new Error('学期分页发生变化，请刷新')
-      page += 1
-    }
-    semesters.value = rows.filter(row => row.status === 'ACTIVE')
-    semesterId.value = semesters.value[0]?.id || ''
-  } catch (e) {
-    if (ticket.isCurrent()) semesterError.value = e instanceof Error ? e.message : '读取学期失败'
-  }
-}, { immediate: true })
-onUnmounted(() => semesterEpoch.invalidate())
+watch(() => session.currentSemesterId, value => { semesterId.value = value }, { immediate: true })
 
 function updateEffectiveFrom(value: string) {
   form.value = { ...form.value, effective_from: value || '' }
@@ -104,16 +85,15 @@ function updateConfirmation(value: boolean | string | number) {
 </script>
 
 <template>
-  <section class="college-time">
+  <section ref="draftRoot" class="college-time" data-unsaved-form>
     <p>本院作息说明：新生成课次使用生效版本；已有任务保留原作息快照。</p>
-    <el-alert v-if="semesterError || error" :title="semesterError || error" type="error" :closable="false" />
+    <SchoolTimeDefaults :college-id="collegeId" :semester-id="semesterId" :configuration="formMethods" @changed="state.loadVersions" @fill-periods="fillTemplatePeriods" />
+    <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="message" :title="message" type="success" :closable="false" />
 
     <div class="field-row">
       <label for="college-time-semester">学期</label>
-      <el-select id="college-time-semester" v-model="semesterId" placeholder="选择学期" :disabled="busy" aria-label="学期">
-        <el-option v-for="row in semesters" :key="row.id" :value="row.id" :label="String(row.name)" />
-      </el-select>
+      <span>业务学期：{{ session.currentSemesterName }}</span>
       <label for="college-time-effective-date">生效日期</label>
       <el-date-picker
         id="college-time-effective-date" :model-value="formMethods.effective_from" type="date"

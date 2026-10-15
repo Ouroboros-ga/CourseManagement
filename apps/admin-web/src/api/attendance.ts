@@ -5,6 +5,9 @@ export type AttendanceSourceType = 'SUBMISSION' | 'CORRECTION' | 'OBJECTION_FINA
 
 export interface AttendanceTaskBrief {
   task_id: string
+  responsible_college_id?: string | null
+  responsible_college_name?: string | null
+  semester_status?: 'ACTIVE' | 'ARCHIVED' | null
   inspection_date: string
   inspection_type: string
   course_name_snapshot?: string | null
@@ -60,7 +63,7 @@ export interface AttendanceVersionItem {
 
 export interface ListAttendanceParams {
   task_id?: number
-  semester_id?: number
+  semester_id?: string | number
   effective_type?: AttendanceType
   page?: number
   page_size?: number
@@ -105,4 +108,8 @@ export async function correctAttendanceRecord(
     method: 'POST',
     body: JSON.stringify(body)
   })
+}
+
+export function correctArchivedAttendance(collegeId: string, recordId: string, body: { attendance_type: AttendanceType; reason: string; current_version: number }) {
+  return request<AttendanceRecord>(`/api/v1/colleges/${encodeURIComponent(collegeId)}/attendance/${encodeURIComponent(recordId)}/archived-corrections`, { method: 'POST', body: JSON.stringify(body) })
 }

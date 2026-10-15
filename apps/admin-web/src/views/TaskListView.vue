@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { confirmGroupAssignment, confirmGroupPlan } from '../composables/confirmGroupAssignment'
 import { formatBeijingTime } from '@/utils/datetime'
+import { useRoute } from 'vue-router'
 import { assignmentWarnings } from '../utils/assignmentWarnings'
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ContextEpoch } from '../utils/contextEpoch'
 import TaskStatusTag from '../components/TaskStatusTag.vue'
 import TaskDrawer from '../components/TaskDrawer.vue'
 import AppIcon from '../components/AppIcon.vue'
@@ -26,6 +28,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatPeriodText, PERIOD_PRESET_OPTIONS } from '../utils/period'
 
 const sessionStore = useSessionStore()
+const route = useRoute()
+const needsAttention = computed(() => ['unassigned', 'roster'].includes(String(route.query.needs_attention)) ? route.query.needs_attention as 'unassigned' | 'roster' : undefined)
+const attentionPage = ref(1), attentionTotal = ref(0)
+const taskEpoch = new ContextEpoch(() => JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId,
+  sessionStore.currentSemesterId, sessionStore.currentWeekNo, needsAttention.value, attentionPage.value]))
+onUnmounted(() => taskEpoch.invalidate())
 
 const loading = ref(false)
 const tasks = ref<InspectionTaskItem[]>([])
@@ -106,19 +114,24 @@ const weekDayOptions = computed(() => {
 })
 
 async function fetchTasks() {
+  const ticket = taskEpoch.begin()
   if (!sessionStore.currentSemesterId) return
   loading.value = true
   try {
     const res = await listTasks({
       semester_id: sessionStore.currentSemesterId,
-      week_no: sessionStore.currentWeekNo,
-      page_size: 200
+      week_no: needsAttention.value ? undefined : sessionStore.currentWeekNo,
+      needs_attention: needsAttention.value,
+      page: needsAttention.value ? attentionPage.value : undefined,
+      page_size: needsAttention.value ? 50 : 200
     })
+    if (!ticket.isCurrent()) return
     tasks.value = res.items || []
+    attentionTotal.value = res.total
   } catch (err: unknown) {
-    console.error('获取任务列表失败:', err)
+    if (ticket.isCurrent()) console.error('获取任务列表失败:', err)
   } finally {
-    loading.value = false
+    if (ticket.isCurrent()) loading.value = false
   }
 }
 
@@ -138,6 +151,7 @@ watch(selectedDayFilter, () => {
 onMounted(() => {
   fetchTasks()
 })
+watch([needsAttention, attentionPage], () => { selectedTaskIds.value = []; void fetchTasks() })
 
 const statusAliasMap: Record<string, string[]> = {
   '待执行': ['待执行', 'NOT_STARTED'],
@@ -641,10 +655,13 @@ async function handleConfirmCancelFromEdit() {
       </p>
     </header>
 
+    <el-alert v-if="needsAttention" :title="`正在查看本学期${needsAttention === 'unassigned' ? '未排班' : '待核对名单'}任务，共 ${attentionTotal} 条；本视图不受顶部周次限制。`" type="info" :closable="false" />
+    <el-pagination v-if="needsAttention" v-model:current-page="attentionPage" :page-size="50" :total="attentionTotal" layout="prev, pager, next, total" />
+
     <!-- 统计分栏 -->
     <div class="stat-row">
       <div class="stat-cell">
-        <div class="label">本周计划总任务</div>
+        <div class="label">{{ needsAttention ? '当前页待办任务' : '本周计划总任务' }}</div>
         <div class="value font-mono">{{ stats.total }}</div>
         <div class="note">数据库实时统计</div>
       </div>

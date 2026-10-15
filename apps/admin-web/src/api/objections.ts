@@ -80,6 +80,7 @@ export interface ObjectionItem {
 }
 
 export interface ListObjectionsParams {
+  semester_id?: string
   attendance_record_id?: number
   final_status?: ObjectionFinalStatus
   initial_status?: ObjectionInitialStatus
@@ -103,6 +104,7 @@ export interface FileAccessInfo {
 
 export async function listObjections(params: ListObjectionsParams = {}): Promise<ListObjectionsResult> {
   const query = new URLSearchParams()
+  if (params.semester_id) query.set('semester_id', params.semester_id)
   if (params.attendance_record_id) query.set('attendance_record_id', String(params.attendance_record_id))
   if (params.final_status) query.set('final_status', params.final_status)
   if (params.initial_status) query.set('initial_status', params.initial_status)

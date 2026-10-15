@@ -3,11 +3,20 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSessionStore } from '../stores/session'
 import { listObjections } from '../api/objections'
+import { primaryPages, auxiliaryPages, canAccessPage } from '../navigation/workspaceNavigation'
+import { useWorkspaceContext } from '../composables/useWorkspaceContext'
+import { useWorkspaceChanges } from '../composables/useWorkspaceChanges'
+import WorkspaceContextBar from '../components/workspace/WorkspaceContextBar.vue'
+import { ContextEpoch } from '../utils/contextEpoch'
 import schoolLogo from '../assets/school-logo.png'
 
 const router = useRouter()
 const route = useRoute()
 const sessionStore = useSessionStore()
+const { key: workspaceKey } = useWorkspaceContext()
+useWorkspaceChanges()
+const mobileNavigation = ref(false)
+const badgeEpoch = new ContextEpoch(() => workspaceKey.value)
 
 const pendingObjectionsCount = ref<number>(0)
 
@@ -75,16 +84,19 @@ async function checkSystemHealth() {
 }
 
 async function fetchBadgeCounts() {
+  const ticket = badgeEpoch.begin()
+  pendingObjectionsCount.value = 0
   if (!sessionStore.currentUser) return
 
   // 待终审考勤异议
   if (sessionStore.hasPermission('objection.final_review') || sessionStore.hasPermission('objection.read')) {
     try {
       const res = await listObjections({
+        semester_id: sessionStore.currentSemesterId || undefined,
         final_status: 'PENDING',
         page_size: 1
       })
-      pendingObjectionsCount.value = res.total || 0
+      if (ticket.isCurrent()) pendingObjectionsCount.value = res.total || 0
     } catch (e) {
       console.warn('获取待终审徽标计数失败:', e)
     }
@@ -101,6 +113,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  badgeEpoch.invalidate()
   if (healthTimer) {
     clearInterval(healthTimer)
     healthTimer = null
@@ -117,84 +130,16 @@ watch(() => sessionStore.workspaceCollegeId, () => {
 
 const currentUser = computed(() => sessionStore.currentUser)
 
-// Menu items filtered by user permissions
-const menuItems = computed(() => {
-  const list = [
-    {
-      id: 'campus', idx: '07', path: '/dashboard/campus', name: '学院与组织配置',
-      badge: null, badgeClass: '', permission: ''
-    },
-    {
-      id: 'volunteers',
-      idx: '00',
-      path: '/dashboard/volunteers',
-      name: '人员资质与绑定码',
-      badge: null as string | null,
-      badgeClass: '',
-      permission: 'volunteer.read'
-    },
-    {
-      id: 'schedule',
-      idx: '01',
-      path: '/dashboard/schedule',
-      name: '课次勾选与下发',
-      badge: null as string | null,
-      badgeClass: '',
-      permission: 'inspection.generate'
-    },
-    {
-      id: 'tasks',
-      idx: '02',
-      path: '/dashboard/tasks',
-      name: '查课任务与排班',
-      badge: null,
-      badgeClass: '',
-      permission: 'inspection.read'
-    },
-    {
-      id: 'objections',
-      idx: '03',
-      path: '/dashboard/objections',
-      name: '考勤异议处理',
-      badge: pendingObjectionsCount.value > 0 ? String(pendingObjectionsCount.value) : null,
-      badgeClass: 'badge-red',
-      permission: 'objection.final_review'
-    },
-    {
-      id: 'reports',
-      idx: '04',
-      path: '/dashboard/reports',
-      name: '考勤看板与详表',
-      badge: null,
-      badgeClass: '',
-      permission: 'report.read'
-    },
-    {
-      id: 'users',
-      idx: '05',
-      path: '/dashboard/users',
-      name: '人员与权限管理',
-      badge: null,
-      badgeClass: '',
-      permission: 'role.assign'
-    },
-    {
-      id: 'settings',
-      idx: '06',
-      path: '/dashboard/settings',
-      name: '平台与学期设置',
-      badge: null,
-      badgeClass: '',
-      permission: 'academic.manage'
-    }
-  ]
-
-  // Filter based on user's actual permissions (or show all if admin/preview mode)
-  return list.filter(item => {
-    if (!item.permission) return true
-    if (!sessionStore.currentUser) return true // preview mode fallback
-    return sessionStore.hasPermission(item.permission)
-  })
+const menuItems = computed(() => [...primaryPages, ...auxiliaryPages]
+  .filter(item => sessionStore.currentUser ? canAccessPage(item.id, sessionStore) : import.meta.env.DEV)
+  .map((item, index) => ({ ...item, idx: String(index + 1).padStart(2, '0'),
+    badge: item.id === 'attendance' && pendingObjectionsCount.value > 0 ? String(pendingObjectionsCount.value) : null,
+    badgeClass: 'badge-red' })))
+watch(workspaceKey, () => {
+  pendingObjectionsCount.value = 0
+  void fetchBadgeCounts()
+  const page = String(route.meta.workspacePage || '')
+  if (sessionStore.currentUser && page && !canAccessPage(page, sessionStore)) void router.replace('/dashboard/unavailable')
 })
 
 const userDisplayName = computed(() => {
@@ -247,7 +192,7 @@ async function handleLogout() {
           :class="{ on: route.path.startsWith(item.path) }"
         >
           <span class="idx font-mono">{{ item.idx }}</span>
-          <span class="name">{{ item.name }}</span>
+          <span class="name">{{ item.label }}</span>
           <span v-if="item.badge" class="badge font-mono" :class="item.badgeClass">{{ item.badge }}</span>
         </router-link>
       </nav>
@@ -277,77 +222,18 @@ async function handleLogout() {
     <div class="shell-main">
       <!-- 顶部学期周次栏 -->
       <header class="topbar">
-        <div v-if="sessionStore.workspaceMode" class="sem-picker">
-          <select aria-label="业务学院工作区" :value="sessionStore.workspaceCollegeId"
-            @change="event => sessionStore.selectWorkspace((event.target as HTMLSelectElement).value)">
-            <option v-if="!sessionStore.workspaces.length" value="">暂无授权学院</option>
-            <option v-for="row in sessionStore.workspaces" :key="row.id" :value="row.id">{{ row.name }}</option>
-          </select>
-          <button @click="sessionStore.refreshWorkspaces">刷新学院权限</button>
-        </div>
-        <div class="term font-mono">
-          <!-- 学期选择器 -->
-          <div class="sem-picker">
-            <select
-              class="t-sem-select font-mono"
-              :value="sessionStore.currentSemesterId"
-              @change="e => sessionStore.setSemester((e.target as HTMLSelectElement).value)"
-            >
-              <option v-if="!sessionStore.activeSemesters.length" value="">加载学期中...</option>
-              <option
-                v-for="s in sessionStore.activeSemesters"
-                :key="s.id"
-                :value="s.id"
-              >
-                {{ s.name }}
-              </option>
-            </select>
-          </div>
-
-          <span class="t-sep"></span>
-
-          <!-- 周次选择器 -->
-          <div class="week-picker">
-            <button
-              class="week-nav-btn"
-              :disabled="sessionStore.currentWeekNo <= 1"
-              title="上一周"
-              @click="sessionStore.setWeekNo(sessionStore.currentWeekNo - 1)"
-            >
-              ‹
-            </button>
-            <select
-              class="t-week-select font-mono"
-              :value="sessionStore.currentWeekNo"
-              @change="e => sessionStore.setWeekNo(Number((e.target as HTMLSelectElement).value))"
-            >
-              <option
-                v-for="w in sessionStore.totalWeeks"
-                :key="w"
-                :value="w"
-              >
-                第 {{ w }} 周
-              </option>
-            </select>
-            <button
-              class="week-nav-btn"
-              :disabled="sessionStore.currentWeekNo >= sessionStore.totalWeeks"
-              title="下一周"
-              @click="sessionStore.setWeekNo(sessionStore.currentWeekNo + 1)"
-            >
-              ›
-            </button>
-          </div>
-
-          <span class="t-range font-mono">{{ sessionStore.weekDateRange.text || '计算日期中' }}</span>
-        </div>
+        <button class="mobile-menu" @click="mobileNavigation = !mobileNavigation" :aria-expanded="mobileNavigation" aria-label="展开功能菜单">☰ 菜单</button>
+        <WorkspaceContextBar />
       </header>
+      <nav v-if="mobileNavigation" class="mobile-nav" aria-label="移动端功能菜单">
+        <router-link v-for="item in menuItems" :key="item.id" :to="item.path" @click="mobileNavigation = false">{{ item.label }}</router-link>
+      </nav>
 
       <main class="main">
         <el-alert v-if="sessionStore.workspaceError" :title="sessionStore.workspaceError" type="error" :closable="false" />
         <RouterView v-slot="{ Component }">
           <transition name="fade" mode="out-in">
-            <component :is="Component" :key="`${route.path}:${currentUser?.id || ''}:${sessionStore.workspaceCollegeId}:${sessionStore.workspace?.authorization_revision || ''}`" />
+            <component :is="Component" :key="`${route.path}:${workspaceKey}`" />
           </transition>
         </RouterView>
       </main>
@@ -356,6 +242,9 @@ async function handleLogout() {
 </template>
 
 <style scoped>
+.mobile-menu { display: none; }
+.mobile-nav { display: flex; flex-wrap: wrap; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
+.mobile-nav a { padding: 6px 12px; color: var(--ink); }
 .shell {
   display: grid;
   grid-template-columns: 240px 1fr;
@@ -633,7 +522,8 @@ async function handleLogout() {
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .topbar { padding: 0 16px; }
+  .topbar { padding: 12px 16px; height: auto; gap: 12px; flex-wrap: wrap; }
+  .mobile-menu { display: block; background: var(--paper); border: 1px solid var(--line); padding: 6px 10px; border-radius: 4px; }
   .main { padding: 16px; }
 }
 </style>

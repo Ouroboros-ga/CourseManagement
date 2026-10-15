@@ -1,4 +1,20 @@
 import { request } from './workspaceHttp'
+import { request as directRequest } from './http'
+
+export interface ImportChange {
+  action: 'CREATE' | 'UPDATE' | 'UNCHANGED'; entity: string; key: string
+  before: Record<string, unknown> | null; after: Record<string, unknown> | null
+  source: { filename: string; row?: number; sheet?: string; column?: string }
+}
+export interface ImportSetPlan {
+  revision: string; batch_ids: string[]; can_confirm: boolean; impact_note: string
+  files: Array<{ id: string; filename: string; target: string; summary: Record<string, unknown>
+    changes: ImportChange[]; issues: Array<{ severity: string; message: string; row?: number; field?: string; filename?: string }> }>
+}
+export interface ImportSetResult { status: string; batch_ids: string[]; files: Array<{ id: string; filename: string; summary: Record<string, unknown> }> }
+const setRoot = (cid: string) => `/api/v1/colleges/${encodeURIComponent(cid)}/imports/confirmation-set`
+export const previewImportSet = (cid: string, ids: string[]) => directRequest<ImportSetPlan>(`${setRoot(cid)}/preview`, { method: 'POST', body: JSON.stringify({ batch_ids: ids }) })
+export const confirmImportSet = (cid: string, ids: string[], revision: string) => directRequest<ImportSetResult>(`${setRoot(cid)}/confirm`, { method: 'POST', body: JSON.stringify({ batch_ids: ids, revision }) })
 
 export interface ImportPreviewResult {
   id: string

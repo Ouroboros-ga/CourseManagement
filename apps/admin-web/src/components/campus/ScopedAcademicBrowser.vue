@@ -6,9 +6,11 @@ import { useCampusMutation } from '../../composables/useCampusMutation'
 import { useConfigurationImpact } from '../../composables/useConfigurationImpact'
 import { useScopedAcademicData } from '../../composables/useScopedAcademicData'
 import ScopedClassEditor from './ScopedClassEditor.vue'
+import SharedIdentity from './SharedIdentity.vue'
+import { useSessionStore } from '../../stores/session'
 
-const props = withDefaults(defineProps<{ collegeId: string; capabilities: string[]; courseTypes?: CourseType[] }>(), { courseTypes: () => [] })
-const { options, kind, page, keyword, rows, total, busy, error, load, search } = useScopedAcademicData(() => props.collegeId, () => props.capabilities)
+const props = withDefaults(defineProps<{ collegeId: string; capabilities: string[]; courseTypes?: CourseType[]; allowedKinds?: ScopedAcademicKind[] }>(), { courseTypes: () => [] })
+const { options, kind, page, keyword, rows, total, busy, error, load, search } = useScopedAcademicData(() => props.collegeId, () => props.capabilities, () => props.allowedKinds)
 const { saving, run } = useCampusMutation(() => props.collegeId, () => { void load() })
 const confirmImpact = useConfigurationImpact(() => props.collegeId)
 const canClassify = computed(() => props.capabilities.includes('academic.manage'))
@@ -21,9 +23,11 @@ function classify(row: ScopedAcademicRow, typeId: string) {
   })
 }
 const opened = shallowRef(false)
+const identityId = shallowRef('')
+const session = useSessionStore()
 const editing = shallowRef<ScopedAcademicRow | null>(null)
 const canManageClasses = computed(() => props.capabilities.includes('academic.manage') && kind.value === 'administrative-classes')
-watch(() => props.collegeId, () => { opened.value = false; editing.value = null })
+watch(() => props.collegeId, () => { opened.value = false; editing.value = null; identityId.value = '' })
 const fields: Record<ScopedAcademicKind, { prop: string; label: string }[]> = {
   'administrative-classes': [{ prop: 'class_code', label: '班级代码' }, { prop: 'class_name', label: '班级名称' }, { prop: 'grade_year', label: '入学年份' }, { prop: 'status', label: '状态' }],
   students: [{ prop: 'student_no', label: '学号' }, { prop: 'name', label: '姓名' }, { prop: 'administrative_class_id', label: '行政班编号' }, { prop: 'status', label: '状态' }],
@@ -63,9 +67,13 @@ function formatField(row: ScopedAcademicRow, column: { property: string }) {
       </template>
     </el-table-column>
     <el-table-column v-if="canManageClasses" label="操作" width="100"><template #default="{ row }"><el-button link @click="edit(row)">编辑</el-button></template></el-table-column>
+    <el-table-column v-if="kind === 'teaching-classes' && canClassify && session.campusRuntime?.scheduling" label="教务身份"><template #default="{ row }"><el-button link :disabled="session.currentSemester?.status === 'ARCHIVED'" @click="identityId = row.id">核对共享教学班</el-button></template></el-table-column>
   </el-table>
   <el-pagination v-model:current-page="page" :total="total" :page-size="20" layout="prev, pager, next, total" />
   <ScopedClassEditor :college-id="collegeId" :opened="opened && canManageClasses" :row="editing" @close="opened = false" @changed="load" />
+  <el-dialog :model-value="!!identityId" title="核对共享教学班身份" width="850px" :close-on-click-modal="false" destroy-on-close @close="identityId = ''">
+    <SharedIdentity v-if="identityId" :college-id="collegeId" :teaching-id="identityId" @changed="identityId = ''; load()" />
+  </el-dialog>
 </template>
 <style scoped>
 .data-toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }

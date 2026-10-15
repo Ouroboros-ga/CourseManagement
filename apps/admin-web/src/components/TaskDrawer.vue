@@ -245,6 +245,8 @@ const close = () => {
             <p class="d-value">{{ formatPeriodText(task.start_period, task.end_period) }}</p>
             <p v-if="task.activity_start_at && task.activity_end_at" class="d-value">{{ formatBeijingTime(task.activity_start_at, 'minute') }} — {{ formatBeijingTime(task.activity_end_at, 'minute') }}</p>
             <p v-else-if="sessionStore.campusRuntime?.scheduling" class="d-value">历史实际时间未确认</p>
+            <p v-if="task.time_snapshot" class="d-value">{{ task.time_snapshot.source === 'SCHOOL_TEMPLATE' || task.time_snapshot.source === 'SCHOOL_PERIODS' ? '学校作息' : '学院作息' }} · {{ task.time_snapshot.calendar_source === 'COLLEGE_CALENDAR' ? '学院校历调整' : '学校校历' }}</p>
+            <p v-if="task.time_snapshot?.adjustment_source === 'SINGLE_OCCURRENCE'" class="d-value">本次课次调整</p>
           </div>
           <div>
             <span class="d-label">上课教室</span>

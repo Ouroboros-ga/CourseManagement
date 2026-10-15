@@ -9,8 +9,9 @@ export const setTeachingClassType = (cid: string, id: string, typeId: string, ve
   request<ScopedAcademicRow>(`${root(cid)}/teaching-classes/${encodeURIComponent(id)}/course-type`, {
     method: 'PUT', body: JSON.stringify({ course_type_id: typeId, classification_revision: version, future_impact_revision: revision })
   })
-export function listScopedAcademic(cid: string, kind: ScopedAcademicKind, page: number, keyword: string) {
+export function listScopedAcademic(cid: string, kind: ScopedAcademicKind, page: number, keyword: string, semesterId?: string) {
   const query = new URLSearchParams({ page: String(page), page_size: '20', keyword })
+  if (semesterId) query.set('semester_id', semesterId)
   return request<ScopedAcademicPage>(`${root(cid)}/${kind}?${query}`)
 }
 export const createScopedClass = (cid: string, body: ScopedClassBody) => request<ScopedAcademicRow>(`${root(cid)}/administrative-classes`, { method: 'POST', body: JSON.stringify(body) })
