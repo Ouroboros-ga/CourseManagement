@@ -835,7 +835,7 @@ function applySmartSample() {
 </script>
 
 <template>
-  <div v-loading="loading">
+  <div class="teaching-schedule-container">
     <el-alert v-if="props.openImport" title="整包按文件依次处理：成功文件会保存，失败文件可修正后重试。需要先核对时，请选择单文件分步导入。" type="info" :closable="false" />
     <header class="page-head">
       <div class="head-row">
@@ -902,7 +902,7 @@ function applySmartSample() {
     </div>
 
     <!-- TAB 1: 课次勾选与下发 -->
-    <div v-if="activeTab === 'dispatch'" class="tbl-wrap">
+    <div v-if="activeTab === 'dispatch'" v-loading="loading" class="tbl-wrap">
       <!-- 筛选条 -->
       <div class="filter-bar">
         <div class="fgroup">
@@ -1094,7 +1094,7 @@ function applySmartSample() {
     </div>
 
     <!-- TAB 2: 全校教务总课表库 -->
-    <div v-if="activeTab === 'master'" v-loading="masterLoading" class="tbl-wrap">
+    <div v-if="activeTab === 'master'" class="tbl-wrap">
       <!-- 搜索过滤条 -->
       <div class="filter-bar">
         <div class="fgroup">
@@ -1142,102 +1142,105 @@ function applySmartSample() {
         </div>
       </div>
 
-      <!-- 总课表列表 -->
-      <div v-if="masterTimetableList.length > 0">
-        <div class="section-title flex justify-between items-center py-1">
-          <div class="flex items-center gap-3">
-            <span>当前范围教务课表检索结果（共 {{ masterTimetableList.length }} 门排课）</span>
-            <span class="text-xs text-gray-500 font-normal">
-              其中查课覆盖课次：{{ masterTimetableList.filter(m => m.is_inspectable).length }} 门
-            </span>
+      <!-- 课表结果区 -->
+      <div v-loading="masterLoading" class="min-h-[160px]">
+        <!-- 总课表列表 -->
+        <div v-if="masterTimetableList.length > 0">
+          <div class="section-title flex justify-between items-center py-1">
+            <div class="flex items-center gap-3">
+              <span>当前范围教务课表检索结果（共 {{ masterTimetableList.length }} 门排课）</span>
+              <span class="text-xs text-gray-500 font-normal">
+                其中查课覆盖课次：{{ masterTimetableList.filter(m => m.is_inspectable).length }} 门
+              </span>
+            </div>
+            <button
+              type="button"
+              class="btn btn-outline btn-xs flex items-center gap-1.5"
+              :disabled="exportingMaster"
+              @click="handleExportMasterTimetable"
+            >
+              <AppIcon name="download" :size="13" />
+              <span>{{ exportingMaster ? '正在导出…' : '导出学期总课表 Excel' }}</span>
+            </button>
           </div>
-          <button
-            type="button"
-            class="btn btn-outline btn-xs flex items-center gap-1.5"
-            :disabled="exportingMaster"
-            @click="handleExportMasterTimetable"
-          >
-            <AppIcon name="download" :size="13" />
-            <span>{{ exportingMaster ? '正在导出…' : '导出学期总课表 Excel' }}</span>
-          </button>
-        </div>
-        <table class="tbl">
-          <thead>
-            <tr>
-              <th>时间</th>
-              <th>课程信息</th>
-              <th>教学班</th>
-              <th>上课地点</th>
-              <th>生效周次</th>
-              <th>人员与考勤追踪</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in masterTimetableList" :key="item.id">
-              <td>
-                <div class="font-bold">周{{ item.weekday }}</div>
-                <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period) }}</div>
-              </td>
-              <td>
-                <div class="cell-main font-bold">{{ item.course_name }}</div>
-                <div class="cell-sub font-mono text-xs text-gray-400">代码: {{ item.course_code }}</div>
-                <div
-                  v-if="item.teacher_name"
-                  class="inline-flex items-center gap-1 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded mt-1 font-medium"
-                  :title="item.head_teacher && (item.teacher_name === item.head_teacher) ? '优先采用班主任兜底呈现' : (item.head_teacher ? `班主任: ${item.head_teacher}` : undefined)"
-                >
-                  <AppIcon name="user" :size="11" />
-                  <span>教师: {{ item.teacher_name }}</span>
-                </div>
-              </td>
-              <td>
-                <div class="cell-main text-blue-700 font-medium flex items-center gap-1.5 flex-wrap">
-                  <span>{{ item.teaching_class_name }}</span>
-                  <span
-                    v-if="item.teaching_class_name && (item.teaching_class_name.includes('合班') || item.teaching_class_name.includes('+'))"
-                    class="px-1.5 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200"
-                    title="合班课程"
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>课程信息</th>
+                <th>教学班</th>
+                <th>上课地点</th>
+                <th>生效周次</th>
+                <th>人员与考勤追踪</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in masterTimetableList" :key="item.id">
+                <td>
+                  <div class="font-bold">周{{ item.weekday }}</div>
+                  <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period) }}</div>
+                </td>
+                <td>
+                  <div class="cell-main font-bold">{{ item.course_name }}</div>
+                  <div class="cell-sub font-mono text-xs text-gray-400">代码: {{ item.course_code }}</div>
+                  <div
+                    v-if="item.teacher_name"
+                    class="inline-flex items-center gap-1 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded mt-1 font-medium"
+                    :title="item.head_teacher && (item.teacher_name === item.head_teacher) ? '优先采用班主任兜底呈现' : (item.head_teacher ? `班主任: ${item.head_teacher}` : undefined)"
                   >
-                    合班
+                    <AppIcon name="user" :size="11" />
+                    <span>教师: {{ item.teacher_name }}</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="cell-main text-blue-700 font-medium flex items-center gap-1.5 flex-wrap">
+                    <span>{{ item.teaching_class_name }}</span>
+                    <span
+                      v-if="item.teaching_class_name && (item.teaching_class_name.includes('合班') || item.teaching_class_name.includes('+'))"
+                      class="px-1.5 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200"
+                      title="合班课程"
+                    >
+                      合班
+                    </span>
+                  </div>
+                  <div v-if="item.administrative_classes && item.administrative_classes.length > 0" class="cell-sub text-xs text-gray-500 mt-1">
+                    行政班: {{ item.administrative_classes.join(', ') }}
+                  </div>
+                </td>
+                <td>
+                  <span class="cell-main">{{ item.classroom || '未排教室' }}</span>
+                </td>
+                <td class="font-mono text-xs">
+                  <span class="px-2 py-0.5 bg-gray-100 rounded text-gray-700">
+                    {{ item.weeks.length > 8 ? `${item.weeks[0]}-${item.weeks[item.weeks.length - 1]}周 (共${item.weeks.length}周)` : item.weeks.join(',') + '周' }}
                   </span>
-                </div>
-                <div v-if="item.administrative_classes && item.administrative_classes.length > 0" class="cell-sub text-xs text-gray-500 mt-1">
-                  行政班: {{ item.administrative_classes.join(', ') }}
-                </div>
-              </td>
-              <td>
-                <span class="cell-main">{{ item.classroom || '未排教室' }}</span>
-              </td>
-              <td class="font-mono text-xs">
-                <span class="px-2 py-0.5 bg-gray-100 rounded text-gray-700">
-                  {{ item.weeks.length > 8 ? `${item.weeks[0]}-${item.weeks[item.weeks.length - 1]}周 (共${item.weeks.length}周)` : item.weeks.join(',') + '周' }}
-                </span>
-              </td>
-              <td>
-                <div v-if="item.is_physical_education" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-500">
-                  <AppIcon name="ban" :size="12" class="text-gray-400" />
-                  <span>体育课 · 免查</span>
-                </div>
-                <div v-else-if="item.enrolled_student_count > 0" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium border border-emerald-200">
-                  <AppIcon name="users" :size="12" class="text-emerald-600" />
-                  <span>需查课 · 名单 {{ item.enrolled_student_count }} 人</span>
-                </div>
-                <div v-else class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 border border-amber-200">
-                  <AppIcon name="alert" :size="12" class="text-amber-500" />
-                  <span>暂无学生名单</span>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div v-if="!masterLoading && masterTimetableList.length === 0" class="empty-box">
-        <div class="empty-icon flex justify-center mb-2">
-          <AppIcon name="book" :size="36" class="text-gray-300" />
+                </td>
+                <td>
+                  <div v-if="item.is_physical_education" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-500">
+                    <AppIcon name="ban" :size="12" class="text-gray-400" />
+                    <span>体育课 · 免查</span>
+                  </div>
+                  <div v-else-if="item.enrolled_student_count > 0" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium border border-emerald-200">
+                    <AppIcon name="users" :size="12" class="text-emerald-600" />
+                    <span>需查课 · 名单 {{ item.enrolled_student_count }} 人</span>
+                  </div>
+                  <div v-else class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 border border-amber-200">
+                    <AppIcon name="alert" :size="12" class="text-amber-500" />
+                    <span>暂无学生名单</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <div class="empty-text">未检索到符合条件的排课记录</div>
-        <div class="empty-sub">请检查筛选条件，或使用上方“批量导入教务数据”导入网格课表</div>
+
+        <div v-if="!masterLoading && masterTimetableList.length === 0" class="empty-box">
+          <div class="empty-icon flex justify-center mb-2">
+            <AppIcon name="book" :size="36" class="text-gray-300" />
+          </div>
+          <div class="empty-text">未检索到符合条件的排课记录</div>
+          <div class="empty-sub">请检查筛选条件，或使用上方“批量导入教务数据”导入网格课表</div>
+        </div>
       </div>
     </div>
 
@@ -1247,6 +1250,7 @@ function applySmartSample() {
       title="导入教务数据"
       width="720px"
       :close-on-click-modal="false"
+      :append-to-body="true"
       class="import-dialog"
     >
       <!-- 模式切换 -->
@@ -1540,6 +1544,7 @@ function applySmartSample() {
       title="智能抽查推荐"
       width="640px"
       :close-on-click-modal="false"
+      :append-to-body="true"
       class="sample-dialog"
     >
       <!-- 范围模式切换 -->
@@ -1776,6 +1781,7 @@ function applySmartSample() {
       title="批量生成早/晚自习排课"
       width="720px"
       :close-on-click-modal="false"
+      :append-to-body="true"
       class="self-study-dialog"
     >
       <div class="space-y-4">

@@ -745,7 +745,7 @@ async function handleAddConfirm() {
 </script>
 
 <template>
-  <div v-loading="loading">
+  <div class="student-directory-container">
     <header class="page-head">
       <div class="title-row">
         <div>
@@ -830,7 +830,7 @@ async function handleAddConfirm() {
     </div>
 
     <!-- 主表格区域 -->
-    <div class="tbl-wrap">
+    <div v-loading="loading" class="tbl-wrap">
       <div class="tbl-head">
         <div>
           <h3>学生与志愿者名册（共 {{ totalStudents }} 条）</h3>
@@ -1078,6 +1078,7 @@ async function handleAddConfirm() {
       v-model="tokenDialogVisible"
       title="一次性小程序绑定码已签发"
       width="540px"
+      append-to-body
       destroy-on-close
     >
       <div class="token-dialog-body">
@@ -1117,6 +1118,7 @@ async function handleAddConfirm() {
       v-model="assignDialogVisible"
       :title="'为志愿者【' + (assignTargetStudent?.name || '') + '】指派查课任务'"
       width="640px"
+      append-to-body
       destroy-on-close
     >
       <div v-loading="assigning" class="assign-dialog-body">
@@ -1155,6 +1157,7 @@ async function handleAddConfirm() {
       v-model="addDialogVisible"
       title="添加志愿者 / 录入学生档案"
       width="520px"
+      append-to-body
       destroy-on-close
     >
       <div v-loading="adding" class="add-dialog-body">
@@ -1255,6 +1258,7 @@ async function handleAddConfirm() {
       v-model="batchExportDialogVisible"
       title="批量生成学生 6 位绑定码并导出 Excel"
       width="540px"
+      append-to-body
       destroy-on-close
     >
       <div v-loading="batchExporting" class="export-dialog-body space-y-4">

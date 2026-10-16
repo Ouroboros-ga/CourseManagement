@@ -71,7 +71,7 @@ function formatField(row: ScopedAcademicRow, column: { property: string }) {
   </el-table>
   <el-pagination v-model:current-page="page" :total="total" :page-size="20" layout="prev, pager, next, total" />
   <ScopedClassEditor :college-id="collegeId" :opened="opened && canManageClasses" :row="editing" @close="opened = false" @changed="load" />
-  <el-dialog :model-value="!!identityId" title="核对共享教学班身份" width="850px" :close-on-click-modal="false" destroy-on-close @close="identityId = ''">
+  <el-dialog :model-value="!!identityId" title="核对共享教学班身份" width="850px" :close-on-click-modal="false" append-to-body destroy-on-close @close="identityId = ''">
     <SharedIdentity v-if="identityId" :college-id="collegeId" :teaching-id="identityId" @changed="identityId = ''; load()" />
   </el-dialog>
 </template>
