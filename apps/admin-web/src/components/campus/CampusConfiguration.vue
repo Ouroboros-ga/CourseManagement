@@ -21,8 +21,10 @@ const schedulingReady = computed(() => businessReady.value && !!session.campusRu
 </script>
 <template>
   <section class="campus-page">
-    <h1>学院与组织配置</h1>
-    <p>维护学院配置、课程分类与志愿者组织。</p>
+    <header class="page-head">
+      <h1>学院与组织配置</h1>
+      <p class="sub">维护学院配置、课程分类与志愿者组织。</p>
+    </header>
     <el-alert title="启用多学院业务前，请完成存量数据归属核对。作息调整会保留已生成任务的时间快照。" type="info" :closable="false" />
     <el-alert v-if="!schedulingReady" title="作息计算、组成员与组织排班尚未启用。相关入口暂不可操作，类型/组配置和教务发布仍可按授权使用。" type="info" :closable="false" />
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
@@ -33,7 +35,7 @@ const schedulingReady = computed(() => businessReady.value && !!session.campusRu
       <el-button :loading="busy" @click="loadWorkspaces">刷新学院与权限</el-button>
     </div>
     <el-empty v-if="!collegeId && !isSuper && !error" description="尚未获得学院配置授权，请联系超级管理员" />
-    <el-tabs v-if="(college || isSuper) && !error" v-loading="busy">
+    <el-tabs v-if="(college || isSuper) && !error" v-loading="busy" class="tabs-embed">
       <el-tab-pane v-if="isSuper" label="学院与授权">
         <CampusAdministration :key="`admin:${userId}:${collegeId}`" :college="college" @changed="loadWorkspaces" />
       </el-tab-pane>

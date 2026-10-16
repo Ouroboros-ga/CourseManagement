@@ -29,7 +29,7 @@ watch(() => [props.collegeId, props.groups] as const, () => {
       </el-select>
     </div>
     <el-empty v-if="!groupId || !semesterId" description="请先选择学期并创建志愿者组" />
-    <el-tabs v-else>
+    <el-tabs v-else class="tabs-embed">
       <el-tab-pane v-if="mode !== 'sampling'" label="成员、支援与请假">
         <GroupMembers :college-id="collegeId" :group-id="groupId" :semester-id="semesterId"
           :semester-name="semesterName" :can-manage="canManage" :is-super="isSuper" />

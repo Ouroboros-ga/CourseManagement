@@ -498,3 +498,268 @@ select.input { cursor: pointer; }
   padding-top: 20px;
   color: var(--ink-soft);
 }
+
+/* ============================================================
+   统一动画令牌与过渡基座
+   ============================================================ */
+:root {
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-f: 0.14s;
+  --dur-m: 0.22s;
+}
+
+/* tab 内容切换容器：min-height 防止矮内容页签切换时页面塌陷上跳 */
+.tab-stage {
+  position: relative;
+  min-height: 360px;
+}
+.tab-fade-enter-active {
+  transition: opacity var(--dur-m) var(--ease), transform var(--dur-m) var(--ease);
+}
+.tab-fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.tab-fade-leave-active {
+  transition: opacity var(--dur-f) ease;
+}
+.tab-fade-leave-to {
+  opacity: 0;
+}
+
+/* ---------- el-tabs 纸面秩序化（覆盖默认蓝色） ---------- */
+.el-tabs__header {
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--line);
+}
+.el-tabs__nav-wrap::after {
+  display: none;
+}
+.el-tabs__item {
+  height: 38px;
+  line-height: 38px;
+  padding: 0 16px !important;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--ink-mute);
+  transition: color var(--dur-f) ease;
+}
+.el-tabs__item:first-child { padding-left: 4px !important; }
+.el-tabs__item:hover { color: var(--ink); }
+.el-tabs__item.is-active {
+  color: var(--ink);
+  font-weight: 700;
+}
+.el-tabs__item.is-focus,
+.el-tabs__item:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.el-tabs__active-bar {
+  height: 2px;
+  background: var(--ink);
+  transition: width var(--dur-m) var(--ease), transform var(--dur-m) var(--ease);
+}
+.el-tabs__content {
+  display: none; /* 导航型页签仅作切换，内容由各页面自行渲染 */
+}
+/* 内容内嵌型页签（组件内部使用）恢复显示并加平滑进场 */
+.el-tabs.tabs-embed .el-tabs__content {
+  display: block;
+  overflow: visible;
+  min-height: 360px;
+}
+.tabs-embed .el-tabs__content .el-tab-pane {
+  animation: tabpane-in var(--dur-m) var(--ease);
+}
+@keyframes tabpane-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.el-tabs--top .el-tabs__header .el-tabs__nav-scroll { overflow: visible; }
+
+/* ---------- v-loading 统一（防加载期高度塌陷） ---------- */
+.el-loading-parent--relative {
+  min-height: 140px;
+}
+.el-loading-mask {
+  background: rgba(250, 248, 245, 0.72);
+  backdrop-filter: blur(1px);
+  transition: opacity var(--dur-m) ease;
+}
+.el-loading-spinner .path {
+  stroke: var(--ink);
+  stroke-width: 3;
+}
+.el-loading-spinner .el-loading-text {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+/* ---------- el-alert 左竖线语义化 ---------- */
+.el-alert {
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ink-mute);
+  background: var(--paper-deep);
+  padding: 12px 16px;
+  font-family: inherit;
+}
+.el-alert__title {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+.el-alert--info { border-left-color: var(--blue); background: var(--blue-soft); }
+.el-alert--success { border-left-color: var(--green); background: var(--green-soft); }
+.el-alert--warning { border-left-color: var(--amber); background: var(--amber-soft); }
+.el-alert--error { border-left-color: var(--accent); background: var(--accent-soft); }
+.el-alert__icon { color: var(--ink-mute); }
+.el-alert--info .el-alert__icon { color: var(--blue); }
+.el-alert--success .el-alert__icon { color: var(--green); }
+.el-alert--warning .el-alert__icon { color: var(--amber); }
+.el-alert--error .el-alert__icon { color: var(--accent); }
+
+/* ---------- el-empty / el-divider / el-button 适配 ---------- */
+.el-empty { padding: 44px 0; }
+.el-empty__description p {
+  color: var(--ink-mute);
+  font-size: 12px;
+  font-family: inherit;
+}
+.el-empty__image svg .fill {
+  fill: var(--line-strong);
+}
+.el-divider { border-top: 1px solid var(--line); margin: 20px 0; }
+.el-divider__text {
+  background: var(--paper);
+  color: var(--ink-mute);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.el-button {
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 12.5px;
+  border-color: var(--line-strong);
+  color: var(--ink);
+  background: var(--paper);
+  transition: all var(--dur-m) var(--ease);
+}
+.el-button:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--paper);
+}
+.el-button--primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.el-button--primary:hover,
+.el-button--primary:focus {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+.el-button--text,
+.el-button.is-link {
+  color: var(--blue);
+}
+.el-button--text:hover,
+.el-button.is-link:hover {
+  color: var(--ink);
+  background: transparent;
+}
+.el-button.is-disabled,
+.el-button.is-disabled:hover {
+  background: var(--paper-deep);
+  border-color: var(--line);
+  color: var(--ink-mute);
+}
+
+/* ---------- el-tag 语义色对齐设计令牌 ---------- */
+.el-tag {
+  border-radius: 20px;
+  font-family: inherit;
+  font-weight: 600;
+}
+.el-tag--success {
+  --el-tag-bg-color: var(--green-soft);
+  --el-tag-border-color: transparent;
+  --el-tag-text-color: var(--green);
+}
+.el-tag--danger {
+  --el-tag-bg-color: var(--accent-soft);
+  --el-tag-border-color: transparent;
+  --el-tag-text-color: var(--accent);
+}
+.el-tag--warning {
+  --el-tag-bg-color: var(--amber-soft);
+  --el-tag-border-color: transparent;
+  --el-tag-text-color: var(--amber);
+}
+.el-tag--info {
+  --el-tag-bg-color: var(--paper-deep);
+  --el-tag-border-color: transparent;
+  --el-tag-text-color: var(--ink-mute);
+}
+
+/* ---------- el-table 适配（使用原生表格的组件） ---------- */
+.el-table {
+  --el-table-border-color: var(--line);
+  --el-table-header-bg-color: var(--paper-deep);
+  --el-table-header-text-color: var(--ink-mute);
+  --el-table-text-color: var(--ink);
+  --el-table-row-hover-bg-color: var(--paper-deep);
+  --el-table-tr-bg-color: var(--paper);
+  font-family: inherit;
+  background: var(--paper);
+}
+.el-table th.el-table__cell {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line-strong);
+}
+.el-table .el-table__cell {
+  padding: 12px 0;
+}
+
+/* ---------- el-pagination / el-select / el-input 细节 ---------- */
+.el-pagination {
+  --el-pagination-button-bg-color: var(--paper);
+  --el-pagination-hover-color: var(--ink);
+  font-family: inherit;
+}
+.el-pagination .el-pager li.is-active {
+  background: var(--ink);
+  color: var(--paper);
+}
+.el-select__wrapper,
+.el-input__wrapper {
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 1px var(--line-strong) inset;
+  font-family: inherit;
+}
+.el-select__wrapper.is-focused,
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--ink) inset;
+}
+
+/* ---------- 尊重系统减弱动效偏好 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .tab-fade-enter-active,
+  .tab-fade-leave-active,
+  .fade-enter-active,
+  .fade-leave-active,
+  .el-tabs__active-bar {
+    transition: none;
+  }
+}

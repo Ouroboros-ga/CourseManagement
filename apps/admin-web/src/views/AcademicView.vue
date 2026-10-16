@@ -23,21 +23,27 @@ const tab = usePageTabs(() => tabs.value.map(row => row.id))
   <section>
     <header class="page-head"><h1>教务资料</h1><p class="sub">维护本院教务资料。导入与发布分别确认，学生个人修改不会被覆盖。</p></header>
     <el-tabs v-model="tab"><el-tab-pane v-for="row in tabs" :key="row.id" :name="row.id" :label="row.label" /></el-tabs>
-    <ScheduleView v-if="tab === 'timetable'" mode="academic" />
-    <div v-else-if="tab === 'imports'">
-      <ImportWizard />
-      <el-divider />
-      <el-button @click="showLegacyImport = !showLegacyImport">{{ showLegacyImport ? '关闭旧兼容入口' : '打开旧兼容入口（批量逐文件保存）' }}</el-button>
-      <ScheduleView v-if="showLegacyImport" mode="academic" :open-import="true" />
+    <div class="tab-stage">
+      <Transition name="tab-fade" mode="out-in">
+        <ScheduleView v-if="tab === 'timetable'" key="timetable" mode="academic" />
+        <div v-else-if="tab === 'imports'" key="imports">
+          <ImportWizard />
+          <el-divider />
+          <el-button @click="showLegacyImport = !showLegacyImport">{{ showLegacyImport ? '关闭旧兼容入口' : '打开旧兼容入口（批量逐文件保存）' }}</el-button>
+          <ScheduleView v-if="showLegacyImport" mode="academic" :open-import="true" />
+        </div>
+        <CampusWorkspace v-else key="workspace" v-slot="scope">
+          <Transition name="tab-fade" mode="out-in">
+            <ScopedAcademicBrowser v-if="tab === 'classes'" key="classes" :college-id="scope.collegeId" :capabilities="scope.college.capabilities" :course-types="scope.types" :allowed-kinds="['teaching-classes', 'courses']" />
+            <CourseTypeManager v-else-if="tab === 'types'" key="types" :college-id="scope.collegeId" :rows="scope.types" :can-manage="scope.can('academic.course_type.manage')" @changed="scope.reload" />
+            <div v-else-if="tab === 'time'" key="time">
+              <CollegeTimeConfiguration v-if="session.campusRuntime?.business_scoped && session.campusRuntime?.scheduling" :college-id="scope.collegeId" />
+              <el-alert v-else title="学院作息业务尚未启用；已有学校节次与校历可在“学期与平台设置”中按权限维护。" type="info" :closable="false" />
+            </div>
+            <AcademicPublication v-else key="publication" :college-id="scope.collegeId" />
+          </Transition>
+        </CampusWorkspace>
+      </Transition>
     </div>
-    <CampusWorkspace v-else v-slot="scope">
-      <ScopedAcademicBrowser v-if="tab === 'classes'" :college-id="scope.collegeId" :capabilities="scope.college.capabilities" :course-types="scope.types" :allowed-kinds="['teaching-classes', 'courses']" />
-      <CourseTypeManager v-if="tab === 'types'" :college-id="scope.collegeId" :rows="scope.types" :can-manage="scope.can('academic.course_type.manage')" @changed="scope.reload" />
-      <template v-if="tab === 'time'">
-        <CollegeTimeConfiguration v-if="session.campusRuntime?.business_scoped && session.campusRuntime?.scheduling" :college-id="scope.collegeId" />
-        <el-alert v-else title="学院作息业务尚未启用；已有学校节次与校历可在“学期与平台设置”中按权限维护。" type="info" :closable="false" />
-      </template>
-      <AcademicPublication v-if="tab === 'publication'" :college-id="scope.collegeId" />
-    </CampusWorkspace>
   </section>
 </template>

@@ -21,13 +21,19 @@ const tab = usePageTabs(() => tabs.value.map(row => row.id))
   <section>
     <header class="page-head"><h1>查课安排</h1><p class="sub">先生成任务，再确认排班。排班未完成时保留已生成任务。</p></header>
     <el-tabs v-model="tab"><el-tab-pane v-for="row in tabs" :key="row.id" :name="row.id" :label="row.label" /></el-tabs>
-    <TaskListView v-if="tab === 'tasks'" />
-    <ScheduleView v-else-if="tab === 'selection'" mode="inspection" />
-    <CampusWorkspace v-else v-slot="scope">
-      <GroupOperations v-if="tab === 'sampling' && session.campusRuntime?.business_scoped && session.campusRuntime?.scheduling" mode="sampling" :college-id="scope.collegeId" :groups="scope.groups" :capabilities="scope.college.capabilities" :is-super="scope.isSuper" />
-      <ConfigurationImpacts v-else-if="tab === 'impacts' && session.campusRuntime?.business_scoped" :college-id="scope.collegeId" :capabilities="scope.college.capabilities" />
-      <CollegeDeadlines v-else-if="tab === 'deadlines' && session.campusRuntime?.business_scoped" :college-id="scope.collegeId" :can-manage="scope.can('submission_deadline.manage')" />
-      <el-alert v-else title="该学院业务能力尚未启用；请使用当前已开放入口或联系管理员确认准备情况。" type="info" :closable="false" />
-    </CampusWorkspace>
+    <div class="tab-stage">
+      <Transition name="tab-fade" mode="out-in">
+        <TaskListView v-if="tab === 'tasks'" key="tasks" />
+        <ScheduleView v-else-if="tab === 'selection'" key="selection" mode="inspection" />
+        <CampusWorkspace v-else key="workspace" v-slot="scope">
+          <Transition name="tab-fade" mode="out-in">
+            <GroupOperations v-if="tab === 'sampling' && session.campusRuntime?.business_scoped && session.campusRuntime?.scheduling" key="sampling" mode="sampling" :college-id="scope.collegeId" :groups="scope.groups" :capabilities="scope.college.capabilities" :is-super="scope.isSuper" />
+            <ConfigurationImpacts v-else-if="tab === 'impacts' && session.campusRuntime?.business_scoped" key="impacts" :college-id="scope.collegeId" :capabilities="scope.college.capabilities" />
+            <CollegeDeadlines v-else-if="tab === 'deadlines' && session.campusRuntime?.business_scoped" key="deadlines" :college-id="scope.collegeId" :can-manage="scope.can('submission_deadline.manage')" />
+            <el-alert v-else key="unavailable" title="该学院业务能力尚未启用；请使用当前已开放入口或联系管理员确认准备情况。" type="info" :closable="false" />
+          </Transition>
+        </CampusWorkspace>
+      </Transition>
+    </div>
   </section>
 </template>
