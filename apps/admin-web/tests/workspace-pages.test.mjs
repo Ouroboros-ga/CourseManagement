@@ -6,6 +6,11 @@ import ts from 'typescript'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import * as vue from 'vue'
 
+const epochCode = ts.transpileModule(readFileSync(new URL('../src/utils/contextEpoch.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 }
+}).outputText
+const contextEpoch = await import(`data:text/javascript;base64,${Buffer.from(epochCode).toString('base64')}`)
+
 function component(path, props, session, api) {
   const { descriptor } = parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
   const script = compileScript(descriptor, { id: path })
@@ -13,12 +18,6 @@ function component(path, props, session, api) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
   }).outputText
   const hooks = [], mounts = [], module = { exports: {} }
-  class Epoch {
-    revision = 0
-    constructor(key) { this.key = key }
-    begin() { const key = this.key(), revision = ++this.revision; return { isCurrent: () => key === this.key() && revision === this.revision } }
-    invalidate() { this.revision++ }
-  }
   vm.runInNewContext(code, {
     module, exports: module.exports, console,
     require: name => {
@@ -26,7 +25,7 @@ function component(path, props, session, api) {
       if (name.endsWith('/stores/session')) return { useSessionStore: () => session }
       if (name.endsWith('/api/academic')) return api
       if (name.endsWith('/api/campus')) return { listGroups: api.listGroups }
-      if (name.endsWith('/utils/contextEpoch')) return { ContextEpoch: Epoch }
+      if (name.endsWith('/utils/contextEpoch')) return contextEpoch
       if (name.endsWith('/api/workspaceHttp')) return { isAcademicScoped: () => true }
       if (name === 'element-plus') return { ElMessage: { error() {}, success() {}, warning() {} }, ElMessageBox: {} }
       return {}

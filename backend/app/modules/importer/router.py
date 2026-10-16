@@ -57,6 +57,86 @@ def get_import_template(
     return success(result.model_dump(), _rid(request))
 
 
+@router.get("/import-templates/{target}/file")
+def download_import_template(
+    target: str, actor: CurrentUserDep, service: ServiceDep, request: Request
+):
+    import io
+    import urllib.parse
+
+    import openpyxl
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from starlette.responses import Response
+
+    result = service.get_template(actor, target)
+    spec = result.model_dump()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "导入数据"
+
+    columns = spec.get("columns", [])
+    headers = [col["header"] for col in columns]
+    if headers:
+        ws.append(headers)
+
+    header_font = Font(name="Microsoft YaHei", size=11, bold=True, color="1F2937")
+    header_fill = PatternFill(start_color="F3F4F6", end_color="F3F4F6", fill_type="solid")
+    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin", color="D1D5DB"),
+        right=Side(style="thin", color="D1D5DB"),
+        top=Side(style="thin", color="D1D5DB"),
+        bottom=Side(style="thin", color="D1D5DB"),
+    )
+
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+        cell.border = thin_border
+
+    data_font = Font(name="Microsoft YaHei", size=10)
+    for row_data in spec.get("example_rows", []):
+        row_values = []
+        for col in columns:
+            row_values.append(row_data.get(col["header"], ""))
+        ws.append(row_values)
+        for cell in ws[ws.max_row]:
+            cell.font = data_font
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+            cell.border = thin_border
+
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or "")) for cell in col)
+        col_letter = openpyxl.utils.get_column_letter(col[0].column)
+        ws.column_dimensions[col_letter].width = max(max_len * 2 + 6, 14)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    target_names = {
+        "admin_roster": "行政班与学生名单模板",
+        "class_duty": "班级管理责任关系模板",
+        "timetable": "学院教务课表标准长表模板",
+        "volunteer": "志愿者学期资格底册模板",
+        "roster": "教学班补充名单模板",
+        "grid_timetable": "学校网格课表说明",
+    }
+    filename = f"{target_names.get(target, target + '_template')}.xlsx"
+    encoded_filename = urllib.parse.quote(filename)
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
 # ---- 创建预览（上传 xlsx，解析暂存，不写业务表）----
 @router.post("/imports")
 async def create_import(
@@ -73,9 +153,10 @@ async def create_import(
     content = await file.read(10 * 1024 * 1024 + 1)
     if len(content) > 10 * 1024 * 1024:
         raise AppError(ErrorCode.VALIDATION_ERROR, "单个导入文件不能超过 10 MiB", 422)
+    resolved_target = "admin_roster" if target == "class_duty" else target
     result = service.create_preview(
         actor,
-        target=target,
+        target=resolved_target,
         content=content,
         semester_id=semester_id,
         teaching_class_id=teaching_class_id,

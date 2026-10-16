@@ -13,7 +13,7 @@ export function useImportWizard() {
     session.currentSemesterId, session.workspace?.authorization_revision, target.value, teachingClassId.value])
   const selection = () => JSON.stringify(selectedIds.value)
   const canUpload = computed(() => !!target.value && !!files.value.length && files.value.length <= 20 && !!session.workspaceCollegeId
-    && (target.value === 'admin_roster' || !!session.currentSemesterId)
+    && (['admin_roster', 'class_duty'].includes(target.value) || !!session.currentSemesterId)
     && (target.value !== 'roster' || !!teachingClassId.value))
   watch(context, () => {
     generation++; plan.value = null; result.value = null; drafts.value = []; selectedIds.value = []
@@ -39,7 +39,7 @@ export function useImportWizard() {
         if (file.size > 10 * 1024 * 1024) { uploadErrors.value.push(`${file.name}：超过 10 MiB`); continue }
         try {
           const draft = await uploadImportFile(target.value, file, {
-            semester_id: target.value === 'admin_roster' ? undefined : session.currentSemesterId,
+            semester_id: ['admin_roster', 'class_duty'].includes(target.value) ? undefined : session.currentSemesterId,
             teaching_class_id: target.value === 'roster' ? teachingClassId.value : undefined,
             replace: false
           })

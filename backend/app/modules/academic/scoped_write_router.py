@@ -16,6 +16,7 @@ from app.modules.academic.scoped_write_schemas import (
     DeleteMany,
     ElectiveBatch,
     QualificationUpsert,
+    SelfStudyBatchCreate,
     SemesterReset,
     UpdateBody,
 )
@@ -65,6 +66,18 @@ def batch_elective(
         ScopedAcademicWriteService(
             db, actor, cid, getattr(request.state, "request_id", None)
         ).batch_elective(body.model_dump()),
+        getattr(request.state, "request_id", None),
+    )
+
+
+@router.post("/teaching-classes/batch-self-study")
+def batch_self_study(
+    cid: ResourceId, actor: CurrentUserDep, db: Db, request: Request, body: SelfStudyBatchCreate
+):
+    return success(
+        ScopedAcademicWriteService(
+            db, actor, cid, getattr(request.state, "request_id", None)
+        ).batch_self_study(body.model_dump()),
         getattr(request.state, "request_id", None),
     )
 

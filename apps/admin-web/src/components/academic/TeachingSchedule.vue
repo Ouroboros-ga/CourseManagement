@@ -28,6 +28,7 @@ import {
   type ImportPreviewResult,
   type BulkImportResult
 } from '../../api/importer'
+import { batchCreateSelfStudy } from '../../api/scopedAcademic'
 import TaskStatusTag from '../../components/TaskStatusTag.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import { formatPeriodText } from '../../utils/period'
@@ -83,7 +84,7 @@ function formatWeekday(dateStr: string): string {
 // ---- 导入教务数据弹窗 ----
 const showImportDialog = ref(false)
 const importMode = ref<'bulk' | 'single'>('bulk')
-const importTarget = ref<'admin_roster' | 'grid_timetable' | 'elective_course'>('grid_timetable')
+const importTarget = ref<'admin_roster' | 'grid_timetable' | 'timetable'>('grid_timetable')
 const importFile = ref<File | null>(null)
 const importUploading = ref(false)
 const importConfirming = ref(false)
@@ -137,6 +138,29 @@ const smartSampleForm = ref({
   max_tasks_per_class: 1,
   sample_ratio: 0.35,
   exclude_already_generated: true
+})
+
+// ---- 批量生成早/晚自习状态 ----
+const showSelfStudyDialog = ref(false)
+const selfStudySubmitting = ref(false)
+const selfStudyClassSearch = ref('')
+const selfStudyForm = ref({
+  self_study_type: 'morning_study' as 'morning_study' | 'evening_study',
+  selected_class_ids: [] as string[],
+  start_week: 1,
+  end_week: 18,
+  weekdays: [1, 2, 3, 4, 5] as number[],
+  period_start: 1,
+  period_end: 2,
+  classroom: '',
+  teacher_name: '',
+  remark: ''
+})
+
+const filteredAdminClassesForSelfStudy = computed(() => {
+  const kw = selfStudyClassSearch.value.trim().toLowerCase()
+  if (!kw) return adminClasses.value
+  return adminClasses.value.filter(c => c.class_name.toLowerCase().includes(kw) || String(c.grade_year || '').includes(kw))
 })
 
 async function loadData() {
@@ -401,6 +425,137 @@ async function triggerDispatch() {
     ElMessage.error(msg)
   } finally {
     dispatchLoading.value = false
+  }
+}
+
+// ---- 批量生成早/晚自习逻辑 ----
+function handleSelfStudyTypeChange() {
+  if (selfStudyForm.value.self_study_type === 'morning_study') {
+    selfStudyForm.value.period_start = 1
+    selfStudyForm.value.period_end = 2
+  } else {
+    selfStudyForm.value.period_start = 9
+    selfStudyForm.value.period_end = 10
+  }
+}
+
+function openSelfStudyDialog() {
+  if (!sessionStore.currentSemesterId) {
+    ElMessage.warning('请先在顶部选择学期')
+    return
+  }
+  selfStudyForm.value = {
+    self_study_type: 'morning_study',
+    selected_class_ids: [],
+    start_week: 1,
+    end_week: sessionStore.totalWeeks || 18,
+    weekdays: [1, 2, 3, 4, 5],
+    period_start: 1,
+    period_end: 2,
+    classroom: '',
+    teacher_name: '',
+    remark: ''
+  }
+  selfStudyClassSearch.value = ''
+  showSelfStudyDialog.value = true
+  if (adminClasses.value.length === 0 && sessionStore.hasPermission('academic.read')) {
+    listAdministrativeClasses({ page_size: 100 }).then(res => {
+      adminClasses.value = res.items || []
+    })
+  }
+}
+
+function toggleSelectAllSelfStudyClasses() {
+  const visibleIds = filteredAdminClassesForSelfStudy.value.map(c => c.id)
+  const allSelected = visibleIds.length > 0 && visibleIds.every(id => selfStudyForm.value.selected_class_ids.includes(id))
+  if (allSelected) {
+    selfStudyForm.value.selected_class_ids = selfStudyForm.value.selected_class_ids.filter(id => !visibleIds.includes(id))
+  } else {
+    const set = new Set([...selfStudyForm.value.selected_class_ids, ...visibleIds])
+    selfStudyForm.value.selected_class_ids = Array.from(set)
+  }
+}
+
+function toggleSelfStudyClass(id: string) {
+  const idx = selfStudyForm.value.selected_class_ids.indexOf(id)
+  if (idx >= 0) {
+    selfStudyForm.value.selected_class_ids.splice(idx, 1)
+  } else {
+    selfStudyForm.value.selected_class_ids.push(id)
+  }
+}
+
+async function handleBatchSubmitSelfStudy() {
+  const cid = sessionStore.workspaceCollegeId || sessionStore.workspaces[0]?.id
+  if (!cid) {
+    ElMessage.warning('未获取到当前学院标识，请确认当前工作区')
+    return
+  }
+  if (!sessionStore.currentSemesterId) {
+    ElMessage.warning('请先选择学期')
+    return
+  }
+  if (selfStudyForm.value.selected_class_ids.length === 0) {
+    ElMessage.warning('请至少勾选一个目标行政班')
+    return
+  }
+  if (selfStudyForm.value.weekdays.length === 0) {
+    ElMessage.warning('请至少勾选一个上课星期')
+    return
+  }
+  if (selfStudyForm.value.start_week > selfStudyForm.value.end_week) {
+    ElMessage.warning('起始周次不能大于结束周次')
+    return
+  }
+  if (selfStudyForm.value.period_start > selfStudyForm.value.period_end) {
+    ElMessage.warning('开始节次不能大于结束节次')
+    return
+  }
+
+  selfStudySubmitting.value = true
+  try {
+    const weeks = Array.from(
+      { length: selfStudyForm.value.end_week - selfStudyForm.value.start_week + 1 },
+      (_, i) => selfStudyForm.value.start_week + i
+    )
+    const res = await batchCreateSelfStudy(cid, {
+      study_type: selfStudyForm.value.self_study_type === 'morning_study' ? 'EARLY' : 'LATE',
+      semester_id: Number(sessionStore.currentSemesterId),
+      class_ids: selfStudyForm.value.selected_class_ids.map(Number),
+      weeks,
+      weekdays: selfStudyForm.value.weekdays,
+      start_period: selfStudyForm.value.period_start,
+      end_period: selfStudyForm.value.period_end,
+      default_classroom: selfStudyForm.value.classroom.trim() || undefined,
+      teacher_name: selfStudyForm.value.teacher_name.trim() || undefined,
+      reason: selfStudyForm.value.remark.trim() || undefined
+    })
+
+    ElMessageBox.alert(
+      `<div class="space-y-2">
+        <p class="font-bold text-emerald-800">批量生成排课成功！</p>
+        <div class="text-sm text-gray-700 bg-emerald-50 p-3 rounded border border-emerald-200">
+          <div>覆盖行政班：<strong>${res.classes_count}</strong> 个</div>
+          <div>新建教学班：<strong>${res.classes_created}</strong> 个</div>
+          <div>生成课次排期：<strong>${res.schedules_created}</strong> 门</div>
+          <div>同步关联学生：<strong>${res.students_linked}</strong> 人次</div>
+        </div>
+        <p class="text-xs text-gray-500">已生成自习课表，可前往教务总课表查看或在此进行课次下发。</p>
+      </div>`,
+      '批量自习排课完成',
+      { dangerouslyUseHTMLString: true, confirmButtonText: '知道了' }
+    )
+    showSelfStudyDialog.value = false
+    if (activeTab.value === 'master') {
+      await loadMasterTimetableData()
+    } else {
+      await loadData()
+    }
+  } catch (err: unknown) {
+    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '批量生成自习排课失败'
+    ElMessage.error(msg)
+  } finally {
+    selfStudySubmitting.value = false
   }
 }
 
@@ -696,6 +851,14 @@ function applySmartSample() {
           <button v-if="props.mode !== 'inspection' && (sessionStore.hasPermission('import.execute') || sessionStore.hasPermission('course_schedule.import'))" class="btn btn-outline" @click="openImportDialog">
             <AppIcon name="upload" :size="14" />
             <span>批量导入教务数据</span>
+          </button>
+          <button
+            v-if="props.mode !== 'inspection' && (sessionStore.hasPermission('course_schedule.manage') || sessionStore.hasPermission('academic.manage'))"
+            class="btn btn-outline border-blue-200 text-blue-700 hover:bg-blue-50"
+            @click="openSelfStudyDialog"
+          >
+            <AppIcon name="calendar" :size="14" />
+            <span>批量生成自习排课</span>
           </button>
           <button
             v-if="activeTab === 'dispatch'"
@@ -1278,7 +1441,7 @@ function applySmartSample() {
           <select v-model="importTarget" class="input dlg-select" @change="importPreview = null">
             <option value="admin_roster">责任区班主任辅导员名单 / 行政班花名册（.xlsx / .xls / .csv）</option>
             <option value="grid_timetable">学校网格课表（.xls / .xlsx）— 提取排课并关联行政班名单</option>
-            <option value="elective_course">选修课 / 分班课名单（.xlsx）— 多教学班选课与课表录入</option>
+            <option value="timetable">平台标准教务排课长表（.xlsx / .xls / .csv）</option>
           </select>
         </div>
 
@@ -1605,6 +1768,208 @@ function applySmartSample() {
           </button>
         </div>
       </div>
+    </el-dialog>
+
+    <!-- 弹窗: 批量生成早/晚自习排课 -->
+    <el-dialog
+      v-model="showSelfStudyDialog"
+      title="批量生成早/晚自习排课"
+      width="720px"
+      :close-on-click-modal="false"
+      class="self-study-dialog"
+    >
+      <div class="space-y-4">
+        <!-- 业务提示 -->
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 leading-relaxed">
+          <div class="font-bold flex items-center gap-1 mb-1">
+            <AppIcon name="info" :size="14" />
+            <span>自习排课说明</span>
+          </div>
+          <p>
+            系统将针对所选行政班，自动匹配学院已有的“早自习”或“晚自习”课程类型，建立专属教学班，并自动同步该班当前有效在籍学生名单与排课时间安排。无需再制作或上传自习 Excel 表格。
+          </p>
+        </div>
+
+        <!-- 自习类型选择 -->
+        <div class="step-block">
+          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">自习类型</label>
+          <div class="flex gap-4">
+            <label class="flex items-center gap-2 cursor-pointer p-3 border rounded-lg flex-1 hover:border-blue-500 transition-colors" :class="{ 'border-blue-600 bg-blue-50/50': selfStudyForm.self_study_type === 'morning_study' }">
+              <input type="radio" v-model="selfStudyForm.self_study_type" value="morning_study" @change="handleSelfStudyTypeChange" class="text-blue-600" />
+              <div>
+                <div class="font-bold text-sm text-gray-900">早自习 (Morning Study)</div>
+                <div class="text-xs text-gray-500">通常安排在清晨或上午第 1-2 节前/时段</div>
+              </div>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer p-3 border rounded-lg flex-1 hover:border-blue-500 transition-colors" :class="{ 'border-blue-600 bg-blue-50/50': selfStudyForm.self_study_type === 'evening_study' }">
+              <input type="radio" v-model="selfStudyForm.self_study_type" value="evening_study" @change="handleSelfStudyTypeChange" class="text-blue-600" />
+              <div>
+                <div class="font-bold text-sm text-gray-900">晚自习 (Evening Study)</div>
+                <div class="text-xs text-gray-500">通常安排在晚间第 9-10 节或 10-11 节时段</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- 目标行政班选择 -->
+        <div class="step-block">
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-bold text-gray-700 uppercase tracking-wider">
+              目标行政班级（已选 {{ selfStudyForm.selected_class_ids.length }} / {{ adminClasses.length }} 个）
+            </label>
+            <div class="flex items-center gap-2">
+              <input
+                v-model="selfStudyClassSearch"
+                type="text"
+                placeholder="搜索班级或年级..."
+                class="px-2 py-1 text-xs border rounded w-36"
+              />
+              <button
+                type="button"
+                class="text-xs text-blue-600 hover:underline cursor-pointer"
+                @click="toggleSelectAllSelfStudyClasses"
+              >
+                {{ filteredAdminClassesForSelfStudy.length > 0 && filteredAdminClassesForSelfStudy.every(c => selfStudyForm.selected_class_ids.includes(c.id)) ? '取消全选' : '全选筛选班级' }}
+              </button>
+            </div>
+          </div>
+          <div class="border rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2 bg-gray-50/50">
+            <div
+              v-for="c in filteredAdminClassesForSelfStudy"
+              :key="c.id"
+              class="flex items-center gap-1.5 p-1.5 rounded hover:bg-white text-xs cursor-pointer border border-transparent hover:border-gray-200"
+              @click="toggleSelfStudyClass(c.id)"
+            >
+              <input
+                type="checkbox"
+                :value="c.id"
+                v-model="selfStudyForm.selected_class_ids"
+                class="rounded border-gray-300"
+                @click.stop
+              />
+              <span class="truncate" :title="c.class_name">{{ c.class_name }}</span>
+            </div>
+            <div v-if="filteredAdminClassesForSelfStudy.length === 0" class="col-span-full text-center text-xs text-gray-400 py-3">
+              未找到匹配的行政班
+            </div>
+          </div>
+        </div>
+
+        <!-- 排课周期与时间 -->
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">周次范围 (周)</label>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="selfStudyForm.start_week"
+                type="number"
+                min="1"
+                max="30"
+                class="input text-center font-mono w-20"
+              />
+              <span class="text-gray-400">至</span>
+              <input
+                v-model.number="selfStudyForm.end_week"
+                type="number"
+                min="1"
+                max="30"
+                class="input text-center font-mono w-20"
+              />
+              <span class="text-xs text-gray-500 font-mono">第 {{ selfStudyForm.start_week }}-{{ selfStudyForm.end_week }} 周</span>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">节次时段 (节)</label>
+            <div class="flex items-center gap-2">
+              <input
+                v-model.number="selfStudyForm.period_start"
+                type="number"
+                min="1"
+                max="20"
+                class="input text-center font-mono w-20"
+              />
+              <span class="text-gray-400">至</span>
+              <input
+                v-model.number="selfStudyForm.period_end"
+                type="number"
+                min="1"
+                max="20"
+                class="input text-center font-mono w-20"
+              />
+              <span class="text-xs text-gray-500 font-mono">第 {{ selfStudyForm.period_start }}-{{ selfStudyForm.period_end }} 节</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 星期选择 -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-bold text-gray-700">上课星期</label>
+            <div class="flex gap-2 text-xs">
+              <button type="button" class="text-blue-600 hover:underline" @click="selfStudyForm.weekdays = [1, 2, 3, 4, 5]">周一至周五</button>
+              <button type="button" class="text-blue-600 hover:underline" @click="selfStudyForm.weekdays = [1, 2, 3, 4, 5, 6, 7]">全周</button>
+              <button type="button" class="text-gray-500 hover:underline" @click="selfStudyForm.weekdays = []">清空</button>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <label
+              v-for="d in [{ k: 1, l: '周一' }, { k: 2, l: '周二' }, { k: 3, l: '周三' }, { k: 4, l: '周四' }, { k: 5, l: '周五' }, { k: 6, l: '周六' }, { k: 7, l: '周日' }]"
+              :key="d.k"
+              class="flex-1 text-center py-1.5 px-2 text-xs border rounded cursor-pointer transition-colors"
+              :class="selfStudyForm.weekdays.includes(d.k) ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold' : 'bg-white text-gray-600 hover:bg-gray-50'"
+            >
+              <input type="checkbox" :value="d.k" v-model="selfStudyForm.weekdays" class="hidden" />
+              <span>{{ d.l }}</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 选填信息：地点、值班人、备注 -->
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">上课教室 / 地点 (选填)</label>
+            <input
+              v-model="selfStudyForm.classroom"
+              type="text"
+              placeholder="如：各班固定教室 / 综教楼"
+              class="input text-xs w-full"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">负责 / 值班教师 (选填)</label>
+            <input
+              v-model="selfStudyForm.teacher_name"
+              type="text"
+              placeholder="如：辅导员 / 班主任姓名"
+              class="input text-xs w-full"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">备注说明 (选填)</label>
+          <input
+            v-model="selfStudyForm.remark"
+            type="text"
+            placeholder="如：2026秋季学期大一晚自习统一排课"
+            class="input text-xs w-full"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-2 pt-2">
+          <button class="btn btn-sm" @click="showSelfStudyDialog = false">取消</button>
+          <button
+            class="btn btn-dark btn-sm"
+            :disabled="selfStudySubmitting || selfStudyForm.selected_class_ids.length === 0"
+            @click="handleBatchSubmitSelfStudy"
+          >
+            <span v-if="selfStudySubmitting" class="spin">⟳</span>
+            <span>{{ selfStudySubmitting ? '正在批量生成…' : `确认批量生成 (${selfStudyForm.selected_class_ids.length} 班级)` }}</span>
+          </button>
+        </div>
+      </template>
     </el-dialog>
   </div>
 </template>

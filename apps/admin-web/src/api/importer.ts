@@ -107,3 +107,33 @@ export async function uploadBulkImport(
   })
 }
 
+export async function downloadImportTemplateFile(target: string): Promise<void> {
+  const url = `/api/v1/import-templates/${encodeURIComponent(target)}/file`
+  const res = await fetch(url, {
+    method: 'GET',
+    credentials: 'include'
+  })
+  if (!res.ok) {
+    throw new Error(`下载模板失败 (${res.status})`)
+  }
+  const blob = await res.blob()
+  let filename = `${target}_template.xlsx`
+  const disp = res.headers.get('Content-Disposition')
+  if (disp) {
+    const matchUtf8 = disp.match(/filename\*=UTF-8''([^;]+)/i)
+    if (matchUtf8) {
+      filename = decodeURIComponent(matchUtf8[1])
+    } else {
+      const match = disp.match(/filename="?([^";]+)"?/i)
+      if (match) filename = decodeURIComponent(match[1])
+    }
+  }
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(link.href)
+}
+

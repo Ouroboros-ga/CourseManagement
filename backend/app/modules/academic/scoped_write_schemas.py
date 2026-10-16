@@ -62,6 +62,21 @@ class ElectiveBatch(StrictModel):
     reason: str | None = Field(default=None, max_length=512)
 
 
+class SelfStudyBatchCreate(StrictModel):
+    semester_id: PositiveId
+    study_type: str = Field(pattern=r"^(?:EARLY|LATE)$")
+    course_type_id: PositiveId | None = None
+    class_ids: list[PositiveId] = Field(min_length=1, max_length=200)
+    weeks: list[int] = Field(min_length=1, max_length=60)
+    weekdays: list[int] = Field(min_length=1, max_length=7)
+    start_period: int = Field(ge=1, le=60)
+    end_period: int = Field(ge=1, le=60)
+    classrooms: dict[str, str] = Field(default_factory=dict)
+    default_classroom: str | None = Field(default=None, max_length=128)
+    teacher_name: str | None = Field(default=None, max_length=128)
+    reason: str | None = Field(default=None, max_length=512)
+
+
 CREATE_SCHEMAS = {
     "students": StudentCreate,
     "courses": CourseCreate,

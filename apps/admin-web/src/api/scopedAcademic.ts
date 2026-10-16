@@ -16,3 +16,33 @@ export function listScopedAcademic(cid: string, kind: ScopedAcademicKind, page: 
 }
 export const createScopedClass = (cid: string, body: ScopedClassBody) => request<ScopedAcademicRow>(`${root(cid)}/administrative-classes`, { method: 'POST', body: JSON.stringify(body) })
 export const updateScopedClass = (cid: string, row: ScopedAcademicRow, body: ScopedClassBody) => request<ScopedAcademicRow>(`${root(cid)}/administrative-classes/${encodeURIComponent(row.id)}`, { method: 'PATCH', body: JSON.stringify({ ...body, ownership_version: row.ownership_version }) })
+
+export interface SelfStudyBatchBody {
+  semester_id: number | string
+  study_type: 'EARLY' | 'LATE'
+  course_type_id?: number | string | null
+  class_ids: Array<number | string>
+  weeks: number[]
+  weekdays: number[]
+  start_period: number
+  end_period: number
+  classrooms?: Record<string, string>
+  default_classroom?: string | null
+  teacher_name?: string | null
+  reason?: string | null
+}
+
+export interface SelfStudyBatchResult {
+  status: string
+  study_type: string
+  classes_count: number
+  classes_created: number
+  schedules_created: number
+  students_linked: number
+}
+
+export const batchCreateSelfStudy = (cid: string, body: SelfStudyBatchBody) =>
+  request<SelfStudyBatchResult>(`${root(cid)}/teaching-classes/batch-self-study`, {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })

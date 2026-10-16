@@ -98,7 +98,7 @@ async function fetchBadgeCounts() {
       })
       if (ticket.isCurrent()) pendingObjectionsCount.value = res.total || 0
     } catch (e) {
-      console.warn('获取待终审徽标计数失败:', e)
+      if (ticket.isCurrent()) console.warn('获取待终审徽标计数失败:', e)
     }
   }
 }
@@ -107,7 +107,6 @@ onMounted(async () => {
   if (sessionStore.semesters.length === 0) {
     await sessionStore.fetchAcademicContext()
   }
-  await fetchBadgeCounts()
   await checkSystemHealth()
   healthTimer = window.setInterval(checkSystemHealth, 30000)
 })
@@ -120,13 +119,10 @@ onUnmounted(() => {
   }
 })
 
-watch(() => route.path, () => {
-  fetchBadgeCounts()
-})
-watch(() => sessionStore.workspaceCollegeId, () => {
-  pendingObjectionsCount.value = 0
+// 学院已包含在工作区 key 中，统一监听可合并同一轮上下文变更。
+watch([() => route.path, workspaceKey], () => {
   void fetchBadgeCounts()
-})
+}, { immediate: true })
 
 const currentUser = computed(() => sessionStore.currentUser)
 
@@ -136,8 +132,6 @@ const menuItems = computed(() => [...primaryPages, ...auxiliaryPages]
     badge: item.id === 'attendance' && pendingObjectionsCount.value > 0 ? String(pendingObjectionsCount.value) : null,
     badgeClass: 'badge-red' })))
 watch(workspaceKey, () => {
-  pendingObjectionsCount.value = 0
-  void fetchBadgeCounts()
   const page = String(route.meta.workspacePage || '')
   if (sessionStore.currentUser && page && !canAccessPage(page, sessionStore)) void router.replace('/dashboard/unavailable')
 })

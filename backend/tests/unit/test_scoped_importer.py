@@ -141,3 +141,35 @@ def test_grid_import_uses_explicit_mapping_and_validates_actual_time_before_writ
         db.scalars(select(CourseSchedule).where(CourseSchedule.classroom == "fixture room"))
     )
     assert len(inserted) == 1 and inserted[0].start_period == 2
+
+
+def test_class_duty_template_and_preview(campus):
+    service, db, _, _, sid = prepare(campus)
+    grant(campus[0], campus[2], campus[3], campus[4], ["student.manage", "import.execute"])
+
+    # 测试模板 spec 能够取得 class_duty
+    spec = service.get_template(service.actor, "class_duty")
+    assert spec.target == "class_duty"
+    assert any(c["header"] == "班主任" for c in spec.columns)
+    assert any(c["header"] == "辅导员" for c in spec.columns)
+
+    # 上传 class_duty 表格（包含班级名称、班主任、辅导员）
+    content = sheet([
+        ["班级", "班主任", "辅导员"],
+        ["一班", "张老师", "李辅导员"],
+    ])
+    previewed = service.create_preview(
+        service.actor,
+        target="admin_roster",
+        content=content,
+        semester_id=None,
+        teaching_class_id=None,
+        filename="duty.xlsx",
+        replace=False,
+        request_id=None,
+    )
+    assert previewed.can_confirm
+    assert previewed.summary.get("class_duties_count") == 1
+    batch = db.get(ImportBatch, int(previewed.id))
+    assert batch.payload_json["class_duties"][0]["head_teacher"] == "张老师"
+    assert batch.payload_json["class_duties"][0]["counselor"] == "李辅导员"

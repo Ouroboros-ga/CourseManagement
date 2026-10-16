@@ -18,6 +18,7 @@ TARGET_MANAGE_PERMISSION: dict[str, str] = {
     ImportTarget.ADMIN_ROSTER.value: PermissionCode.STUDENT_MANAGE.value,
     ImportTarget.GRID_TIMETABLE.value: PermissionCode.COURSE_SCHEDULE_IMPORT.value,
     ImportTarget.ELECTIVE_COURSE.value: PermissionCode.COURSE_SCHEDULE_IMPORT.value,
+    "class_duty": PermissionCode.STUDENT_MANAGE.value,
 }
 
 # 各模板需要的作用域参数（semester_id / teaching_class_id）。
@@ -28,6 +29,7 @@ TARGET_SCOPE_FIELDS: dict[str, tuple[str, ...]] = {
     ImportTarget.ADMIN_ROSTER.value: (),
     ImportTarget.GRID_TIMETABLE.value: ("semester_id",),
     ImportTarget.ELECTIVE_COURSE.value: ("semester_id",),
+    "class_duty": (),
 }
 
 
@@ -68,15 +70,35 @@ TIMETABLE_COLUMNS = [
     TemplateColumn("end_period", "结束大节", ("结束大节", "end_period", "止节"), True),
     TemplateColumn("weeks", "周次", ("周次", "weeks", "上课周"), True),
     TemplateColumn("classroom", "上课地点", ("上课地点", "地点", "classroom"), False),
+    TemplateColumn(
+        "teacher",
+        "任课教师",
+        ("任课教师", "任课老师", "授课教师", "教师", "老师", "teacher"),
+        False,
+    ),
 ]
 
 ADMIN_ROSTER_COLUMNS = [
     TemplateColumn("student_no", "学号", ("学号", "student_no", "studentno", "no"), True),
     TemplateColumn("name", "姓名", ("姓名", "name", "student_name"), True),
-    TemplateColumn("class_name", "班级", ("班级", "班级名称", "行政班", "class_name", "class"), True),
+    TemplateColumn(
+        "class_name", "班级", ("班级", "班级名称", "行政班", "class_name", "class"), True
+    ),
     TemplateColumn("college", "学院", ("学院", "所属学院", "college", "department"), False),
     TemplateColumn("grade_year", "年级", ("年级", "入学年级", "grade_year", "grade"), False),
     TemplateColumn("class_code", "班级代码", ("班级代码", "班号", "class_code"), False),
+]
+
+CLASS_DUTY_COLUMNS = [
+    TemplateColumn(
+        "class_name", "班级", ("班级", "班级名称", "行政班", "class_name", "class"), True
+    ),
+    TemplateColumn(
+        "head_teacher", "班主任", ("班主任", "班主任姓名", "head_teacher", "headteacher"), False
+    ),
+    TemplateColumn("counselor", "辅导员", ("辅导员", "辅导员姓名", "counselor"), False),
+    TemplateColumn("college", "学院", ("学院", "所属学院", "college", "department"), False),
+    TemplateColumn("grade_year", "年级", ("年级", "入学年级", "grade_year", "grade"), False),
 ]
 
 GRID_TIMETABLE_COLUMNS = [
@@ -103,6 +125,7 @@ TEMPLATES: dict[str, list[TemplateColumn]] = {
     ImportTarget.ADMIN_ROSTER.value: ADMIN_ROSTER_COLUMNS,
     ImportTarget.GRID_TIMETABLE.value: GRID_TIMETABLE_COLUMNS,
     ImportTarget.ELECTIVE_COURSE.value: ELECTIVE_COURSE_COLUMNS,
+    "class_duty": CLASS_DUTY_COLUMNS,
 }
 
 
@@ -120,6 +143,7 @@ def template_spec(target: str) -> dict[str, object]:
                 "教学班码": "CS-2401-A",
                 "课程代码": "C001",
                 "课程名称": "高等数学",
+                "任课教师": "张教授",
                 "星期": "周一",
                 "开始大节": "1",
                 "结束大节": "2",
@@ -132,6 +156,15 @@ def template_spec(target: str) -> dict[str, object]:
                 "学号": "0419260101",
                 "姓名": "张三",
                 "班级": "数据科学2601",
+                "学院": "人工智能学院",
+                "年级": "2026",
+            }
+        ],
+        "class_duty": [
+            {
+                "班级": "数据科学2601",
+                "班主任": "张老师",
+                "辅导员": "李辅导员",
                 "学院": "人工智能学院",
                 "年级": "2026",
             }

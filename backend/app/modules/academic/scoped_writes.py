@@ -45,6 +45,13 @@ class ScopedAcademicWriteService(ScopedAcademicService):
         return create(self, validated(ElectiveBatch, data))
 
     @atomic_write
+    def batch_self_study(self, data):
+        from app.modules.academic.scoped_self_study import create_self_study
+        from app.modules.academic.scoped_write_schemas import SelfStudyBatchCreate
+
+        return create_self_study(self, validated(SelfStudyBatchCreate, data))
+
+    @atomic_write
     def reset_semester(self, sid, data):
         from app.modules.academic.scoped_reset import reset, snapshot
         from app.modules.academic.scoped_write_schemas import SemesterReset
@@ -166,7 +173,12 @@ class ScopedAcademicWriteService(ScopedAcademicService):
             actual = resolver.teaching_day(self.college_id, semester.id, day)
             if actual and actual[0] in weeks and actual[1] == row.weekday:
                 resolver.interval(
-                    self.college_id, semester.id, day, row.start_period, row.end_period, teaching_class_id=row.teaching_class_id
+                    self.college_id,
+                    semester.id,
+                    day,
+                    row.start_period,
+                    row.end_period,
+                    teaching_class_id=row.teaching_class_id,
                 )
             day += timedelta(days=1)
 

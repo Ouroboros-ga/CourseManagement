@@ -42,9 +42,10 @@ def prepare(service, actor, body):
 
 
 def validate(service, plans, *, strict=True):
-    if not service._generation_group:
+    generation_group = getattr(service, "_generation_group", None)
+    if not (isinstance(generation_group, tuple) and len(generation_group) == 2):
         return plans
-    group, version = service._generation_group
+    group, version = generation_group
     config = version.configuration
     rule = InspectionScope(
         group.college_id,
