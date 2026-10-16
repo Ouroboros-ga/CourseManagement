@@ -854,7 +854,7 @@ function applySmartSample() {
           </button>
           <button
             v-if="props.mode !== 'inspection' && (sessionStore.hasPermission('course_schedule.manage') || sessionStore.hasPermission('academic.manage'))"
-            class="btn btn-outline border-blue-200 text-blue-700 hover:bg-blue-50"
+            class="btn btn-outline"
             @click="openSelfStudyDialog"
           >
             <AppIcon name="calendar" :size="14" />
@@ -862,10 +862,10 @@ function applySmartSample() {
           </button>
           <button
             v-if="activeTab === 'dispatch'"
-            class="btn btn-outline border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100 font-semibold"
+            class="btn btn-outline"
             @click="openSmartSampleDialog"
           >
-            <AppIcon name="sparkles" :size="14" class="text-amber-700" />
+            <AppIcon name="sparkles" :size="14" />
             <span>智能抽查推荐</span>
           </button>
           <button
@@ -939,7 +939,7 @@ function applySmartSample() {
             <button
               v-if="selectedKeys.length > 0"
               type="button"
-              class="btn btn-outline btn-xs text-rose-700 border-rose-200 hover:bg-rose-50"
+              class="btn btn-outline btn-xs"
               @click="selectedKeys = []"
             >
               清空选择
@@ -949,7 +949,7 @@ function applySmartSample() {
         <table class="tbl">
           <thead>
             <tr>
-              <th style="width: 52px;" class="text-center">
+              <th class="th-check">
                 <div class="checkbox-wrapper" title="全选 / 取消全选">
                   <input
                     type="checkbox"
@@ -981,10 +981,10 @@ function applySmartSample() {
                 class="pinned-divider-row"
               >
                 <td colspan="7" class="pinned-divider-cell">
-                  <div class="flex items-center gap-2 text-xs text-slate-400 py-1 font-mono">
-                    <span class="h-px bg-slate-200 flex-1"></span>
+                  <div class="divider-note font-mono">
+                    <span class="divider-line"></span>
                     <span>⬆ 以上为已选课次（共 {{ selectedOccurrencesCount }} 节已置顶）· ⬇ 以下为未勾选课次</span>
-                    <span class="h-px bg-slate-200 flex-1"></span>
+                    <span class="divider-line"></span>
                   </div>
                 </td>
               </tr>
@@ -1018,7 +1018,7 @@ function applySmartSample() {
                   <div class="cell-main font-semibold">{{ item.course_name }}</div>
                   <div class="cell-sub text-xs flex items-center gap-1.5 flex-wrap">
                     <span class="font-mono">#{{ item.course_schedule_id }}</span>
-                    <span v-if="item.teacher_name" class="px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-medium">
+                    <span v-if="item.teacher_name" class="chip chip-blue">
                       {{ item.teacher_name }}
                     </span>
                   </div>
@@ -1028,7 +1028,7 @@ function applySmartSample() {
                     <span>{{ item.class_name || item.teaching_class_name || '—' }}</span>
                     <span
                       v-if="(item.class_name || item.teaching_class_name || '').includes('合班') || (item.class_name || item.teaching_class_name || '').includes('+')"
-                      class="px-1.5 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200"
+                      class="chip chip-blue"
                       title="相同教室与时段自动合班查课"
                     >
                       合班
@@ -1053,7 +1053,7 @@ function applySmartSample() {
       </div>
 
       <!-- 本周已生成的任务清单 -->
-      <div v-if="weekTasks.length > 0" style="margin-top: 24px;">
+      <div v-if="weekTasks.length > 0" class="week-tasks">
         <div class="section-title">本周数据库中已有查课任务（共 {{ weekTasks.length }} 条）</div>
         <table class="tbl">
           <thead>
@@ -1086,7 +1086,7 @@ function applySmartSample() {
       <!-- 空状态 -->
       <div v-if="!loading && !hasData" class="empty-box">
         <div class="empty-icon flex justify-center mb-2">
-          <AppIcon name="folder-open" :size="36" class="text-gray-300" />
+          <AppIcon name="folder-open" :size="36" class="icon-mute" />
         </div>
         <div class="empty-text">当前周次（第 {{ sessionStore.currentWeekNo }} 周）暂无可下发课次及已有任务</div>
         <div class="empty-sub">您可以点击右上角“批量导入教务数据”录入班级花名册与课表</div>
@@ -1149,7 +1149,7 @@ function applySmartSample() {
           <div class="section-title flex justify-between items-center py-1">
             <div class="flex items-center gap-3">
               <span>当前范围教务课表检索结果（共 {{ masterTimetableList.length }} 门排课）</span>
-              <span class="text-xs text-gray-500 font-normal">
+              <span class="dim-note">
                 其中查课覆盖课次：{{ masterTimetableList.filter(m => m.is_inspectable).length }} 门
               </span>
             </div>
@@ -1182,10 +1182,10 @@ function applySmartSample() {
                 </td>
                 <td>
                   <div class="cell-main font-bold">{{ item.course_name }}</div>
-                  <div class="cell-sub font-mono text-xs text-gray-400">代码: {{ item.course_code }}</div>
+                  <div class="cell-sub font-mono text-xs">代码: {{ item.course_code }}</div>
                   <div
                     v-if="item.teacher_name"
-                    class="inline-flex items-center gap-1 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded mt-1 font-medium"
+                    class="chip chip-blue chip-mt"
                     :title="item.head_teacher && (item.teacher_name === item.head_teacher) ? '优先采用班主任兜底呈现' : (item.head_teacher ? `班主任: ${item.head_teacher}` : undefined)"
                   >
                     <AppIcon name="user" :size="11" />
@@ -1193,17 +1193,17 @@ function applySmartSample() {
                   </div>
                 </td>
                 <td>
-                  <div class="cell-main text-blue-700 font-medium flex items-center gap-1.5 flex-wrap">
+                  <div class="cell-main flex items-center gap-1.5 flex-wrap">
                     <span>{{ item.teaching_class_name }}</span>
                     <span
                       v-if="item.teaching_class_name && (item.teaching_class_name.includes('合班') || item.teaching_class_name.includes('+'))"
-                      class="px-1.5 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200"
+                      class="chip chip-blue"
                       title="合班课程"
                     >
                       合班
                     </span>
                   </div>
-                  <div v-if="item.administrative_classes && item.administrative_classes.length > 0" class="cell-sub text-xs text-gray-500 mt-1">
+                  <div v-if="item.administrative_classes && item.administrative_classes.length > 0" class="cell-sub text-xs mt-1">
                     行政班: {{ item.administrative_classes.join(', ') }}
                   </div>
                 </td>
@@ -1211,21 +1211,21 @@ function applySmartSample() {
                   <span class="cell-main">{{ item.classroom || '未排教室' }}</span>
                 </td>
                 <td class="font-mono text-xs">
-                  <span class="px-2 py-0.5 bg-gray-100 rounded text-gray-700">
+                  <span class="chip chip-gray">
                     {{ item.weeks.length > 8 ? `${item.weeks[0]}-${item.weeks[item.weeks.length - 1]}周 (共${item.weeks.length}周)` : item.weeks.join(',') + '周' }}
                   </span>
                 </td>
                 <td>
-                  <div v-if="item.is_physical_education" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-500">
-                    <AppIcon name="ban" :size="12" class="text-gray-400" />
+                  <div v-if="item.is_physical_education" class="chip chip-gray">
+                    <AppIcon name="ban" :size="12" />
                     <span>体育课 · 免查</span>
                   </div>
-                  <div v-else-if="item.enrolled_student_count > 0" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 font-medium border border-emerald-200">
-                    <AppIcon name="users" :size="12" class="text-emerald-600" />
+                  <div v-else-if="item.enrolled_student_count > 0" class="chip chip-green">
+                    <AppIcon name="users" :size="12" />
                     <span>需查课 · 名单 {{ item.enrolled_student_count }} 人</span>
                   </div>
-                  <div v-else class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 border border-amber-200">
-                    <AppIcon name="alert" :size="12" class="text-amber-500" />
+                  <div v-else class="chip chip-amber">
+                    <AppIcon name="alert" :size="12" />
                     <span>暂无学生名单</span>
                   </div>
                 </td>
@@ -1236,7 +1236,7 @@ function applySmartSample() {
 
         <div v-if="!masterLoading && masterTimetableList.length === 0" class="empty-box">
           <div class="empty-icon flex justify-center mb-2">
-            <AppIcon name="book" :size="36" class="text-gray-300" />
+            <AppIcon name="book" :size="36" class="icon-mute" />
           </div>
           <div class="empty-text">未检索到符合条件的排课记录</div>
           <div class="empty-sub">请检查筛选条件，或使用上方“批量导入教务数据”导入网格课表</div>
@@ -1592,7 +1592,7 @@ function applySmartSample() {
                   <span>{{ c.class_name }}</span>
                   <span
                     v-if="targetClasses.some(t => t.class_id === Number(c.id))"
-                    class="text-xs text-slate-400 font-mono"
+                    class="dim-note font-mono"
                   >
                     已添加
                   </span>
@@ -1625,13 +1625,12 @@ function applySmartSample() {
               <AppIcon name="usergroup" :size="15" />
               <span>已选重点班级</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="rb-head-side">
               <span class="rb-meta font-mono">已选 {{ targetClasses.length }} 个班 · 每班上限 {{ targetClassQuota }} 节</span>
               <button
                 v-if="targetClasses.length > 0"
                 type="button"
-                class="btn btn-sm"
-                style="padding: 2px 8px; font-size: 11px; height: 24px; border: 1px solid #cbd5e1; background: #fff; color: #ef4444; cursor: pointer;"
+                class="row-action danger"
                 title="清空所有已选班级"
                 @click="targetClasses = []"
               >
@@ -1650,8 +1649,8 @@ function applySmartSample() {
                 <span class="cr-course font-mono">{{ tc.class_name }}</span>
                 <span class="cr-class">重点抽查班级</span>
               </div>
-              <div class="cr-right" style="display: flex; align-items: center; gap: 10px;">
-                <span class="font-mono text-xs text-slate-500">上限 {{ targetClassQuota }} 节/周</span>
+              <div class="cr-right">
+                <span class="font-mono text-xs dim">上限 {{ targetClassQuota }} 节/周</span>
                 <button
                   type="button"
                   class="btn-remove-class"
@@ -1662,7 +1661,7 @@ function applySmartSample() {
                 </button>
               </div>
             </div>
-            <div v-if="targetClasses.length === 0" class="more-row font-mono" style="padding: 28px 12px; color: var(--ink-mute);">
+            <div v-if="targetClasses.length === 0" class="more-row roomy font-mono">
               暂未添加重点班级，请在上方选择行政班级加入
             </div>
           </div>
@@ -1721,12 +1720,11 @@ function applySmartSample() {
             <AppIcon name="check-circle" :size="15" />
             <span>推荐查课清单</span>
           </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="rb-head-side">
             <span class="rb-meta font-mono">精选 {{ smartSampleResult.sampled_count }} / 候选 {{ smartSampleResult.total_candidates }} 门</span>
             <button
               type="button"
-              class="btn btn-sm"
-              style="padding: 2px 8px; font-size: 11px; height: 24px; border: 1px solid #cbd5e1; background: #fff; color: #4338ca; cursor: pointer;"
+              class="row-action"
               :disabled="smartSampling"
               title="重新随机生成一套推荐课次"
               @click="runSmartSample"
@@ -1744,7 +1742,7 @@ function applySmartSample() {
               <span class="cr-class">{{ item.class_name }}</span>
             </div>
             <div class="cr-right font-mono">
-              <span style="font-weight: 600; color: #1e293b;">{{ item.inspection_date }} (周{{ formatWeekday(item.inspection_date) }})</span> · {{ formatPeriodText(item.start_period, item.end_period) }} · {{ item.classroom }}
+              <span class="cell-main">{{ item.inspection_date }} (周{{ formatWeekday(item.inspection_date) }})</span> · {{ formatPeriodText(item.start_period, item.end_period) }} · {{ item.classroom }}
             </div>
           </div>
           <div v-if="smartSampleResult.items.length > 15" class="more-row font-mono">
@@ -1757,7 +1755,6 @@ function applySmartSample() {
           <button
             type="button"
             class="btn btn-sm"
-            style="border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; cursor: pointer;"
             :disabled="smartSampling"
             @click="runSmartSample"
           >
@@ -1786,7 +1783,7 @@ function applySmartSample() {
     >
       <div class="space-y-4">
         <!-- 业务提示 -->
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 leading-relaxed">
+        <div class="note-box note-blue">
           <div class="font-bold flex items-center gap-1 mb-1">
             <AppIcon name="info" :size="14" />
             <span>自习排课说明</span>
@@ -1798,20 +1795,20 @@ function applySmartSample() {
 
         <!-- 自习类型选择 -->
         <div class="step-block">
-          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">自习类型</label>
+          <label class="form-label upper mb-2">自习类型</label>
           <div class="flex gap-4">
-            <label class="flex items-center gap-2 cursor-pointer p-3 border rounded-lg flex-1 hover:border-blue-500 transition-colors" :class="{ 'border-blue-600 bg-blue-50/50': selfStudyForm.self_study_type === 'morning_study' }">
-              <input type="radio" v-model="selfStudyForm.self_study_type" value="morning_study" @change="handleSelfStudyTypeChange" class="text-blue-600" />
+            <label class="radio-card" :class="{ selected: selfStudyForm.self_study_type === 'morning_study' }">
+              <input type="radio" v-model="selfStudyForm.self_study_type" value="morning_study" @change="handleSelfStudyTypeChange" />
               <div>
-                <div class="font-bold text-sm text-gray-900">早自习 (Morning Study)</div>
-                <div class="text-xs text-gray-500">通常安排在清晨或上午第 1-2 节前/时段</div>
+                <div class="rt">早自习 (Morning Study)</div>
+                <div class="rs">通常安排在清晨或上午第 1-2 节前/时段</div>
               </div>
             </label>
-            <label class="flex items-center gap-2 cursor-pointer p-3 border rounded-lg flex-1 hover:border-blue-500 transition-colors" :class="{ 'border-blue-600 bg-blue-50/50': selfStudyForm.self_study_type === 'evening_study' }">
-              <input type="radio" v-model="selfStudyForm.self_study_type" value="evening_study" @change="handleSelfStudyTypeChange" class="text-blue-600" />
+            <label class="radio-card" :class="{ selected: selfStudyForm.self_study_type === 'evening_study' }">
+              <input type="radio" v-model="selfStudyForm.self_study_type" value="evening_study" @change="handleSelfStudyTypeChange" />
               <div>
-                <div class="font-bold text-sm text-gray-900">晚自习 (Evening Study)</div>
-                <div class="text-xs text-gray-500">通常安排在晚间第 9-10 节或 10-11 节时段</div>
+                <div class="rt">晚自习 (Evening Study)</div>
+                <div class="rs">通常安排在晚间第 9-10 节或 10-11 节时段</div>
               </div>
             </label>
           </div>
@@ -1820,7 +1817,7 @@ function applySmartSample() {
         <!-- 目标行政班选择 -->
         <div class="step-block">
           <div class="flex items-center justify-between mb-2">
-            <label class="text-xs font-bold text-gray-700 uppercase tracking-wider">
+            <label class="form-label upper">
               目标行政班级（已选 {{ selfStudyForm.selected_class_ids.length }} / {{ adminClasses.length }} 个）
             </label>
             <div class="flex items-center gap-2">
@@ -1828,34 +1825,33 @@ function applySmartSample() {
                 v-model="selfStudyClassSearch"
                 type="text"
                 placeholder="搜索班级或年级..."
-                class="px-2 py-1 text-xs border rounded w-36"
+                class="input input-xs"
               />
               <button
                 type="button"
-                class="text-xs text-blue-600 hover:underline cursor-pointer"
+                class="link-btn"
                 @click="toggleSelectAllSelfStudyClasses"
               >
                 {{ filteredAdminClassesForSelfStudy.length > 0 && filteredAdminClassesForSelfStudy.every(c => selfStudyForm.selected_class_ids.includes(c.id)) ? '取消全选' : '全选筛选班级' }}
               </button>
             </div>
           </div>
-          <div class="border rounded-lg p-2 max-h-40 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2 bg-gray-50/50">
+          <div class="class-grid-box">
             <div
               v-for="c in filteredAdminClassesForSelfStudy"
               :key="c.id"
-              class="flex items-center gap-1.5 p-1.5 rounded hover:bg-white text-xs cursor-pointer border border-transparent hover:border-gray-200"
+              class="class-pick-item"
               @click="toggleSelfStudyClass(c.id)"
             >
               <input
                 type="checkbox"
                 :value="c.id"
                 v-model="selfStudyForm.selected_class_ids"
-                class="rounded border-gray-300"
                 @click.stop
               />
               <span class="truncate" :title="c.class_name">{{ c.class_name }}</span>
             </div>
-            <div v-if="filteredAdminClassesForSelfStudy.length === 0" class="col-span-full text-center text-xs text-gray-400 py-3">
+            <div v-if="filteredAdminClassesForSelfStudy.length === 0" class="class-pick-empty">
               未找到匹配的行政班
             </div>
           </div>
@@ -1864,7 +1860,7 @@ function applySmartSample() {
         <!-- 排课周期与时间 -->
         <div class="grid grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">周次范围 (周)</label>
+            <label class="form-label mb-1">周次范围 (周)</label>
             <div class="flex items-center gap-2">
               <input
                 v-model.number="selfStudyForm.start_week"
@@ -1873,7 +1869,7 @@ function applySmartSample() {
                 max="30"
                 class="input text-center font-mono w-20"
               />
-              <span class="text-gray-400">至</span>
+              <span class="dim">至</span>
               <input
                 v-model.number="selfStudyForm.end_week"
                 type="number"
@@ -1881,11 +1877,11 @@ function applySmartSample() {
                 max="30"
                 class="input text-center font-mono w-20"
               />
-              <span class="text-xs text-gray-500 font-mono">第 {{ selfStudyForm.start_week }}-{{ selfStudyForm.end_week }} 周</span>
+              <span class="dim-note font-mono">第 {{ selfStudyForm.start_week }}-{{ selfStudyForm.end_week }} 周</span>
             </div>
           </div>
           <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">节次时段 (节)</label>
+            <label class="form-label mb-1">节次时段 (节)</label>
             <div class="flex items-center gap-2">
               <input
                 v-model.number="selfStudyForm.period_start"
@@ -1894,7 +1890,7 @@ function applySmartSample() {
                 max="20"
                 class="input text-center font-mono w-20"
               />
-              <span class="text-gray-400">至</span>
+              <span class="dim">至</span>
               <input
                 v-model.number="selfStudyForm.period_end"
                 type="number"
@@ -1902,7 +1898,7 @@ function applySmartSample() {
                 max="20"
                 class="input text-center font-mono w-20"
               />
-              <span class="text-xs text-gray-500 font-mono">第 {{ selfStudyForm.period_start }}-{{ selfStudyForm.period_end }} 节</span>
+              <span class="dim-note font-mono">第 {{ selfStudyForm.period_start }}-{{ selfStudyForm.period_end }} 节</span>
             </div>
           </div>
         </div>
@@ -1933,7 +1929,7 @@ function applySmartSample() {
         <!-- 选填信息：地点、值班人、备注 -->
         <div class="grid grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">上课教室 / 地点 (选填)</label>
+            <label class="form-label mb-1">上课教室 / 地点 (选填)</label>
             <input
               v-model="selfStudyForm.classroom"
               type="text"
@@ -1942,7 +1938,7 @@ function applySmartSample() {
             />
           </div>
           <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">负责 / 值班教师 (选填)</label>
+            <label class="form-label mb-1">负责 / 值班教师 (选填)</label>
             <input
               v-model="selfStudyForm.teacher_name"
               type="text"
@@ -1953,7 +1949,7 @@ function applySmartSample() {
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-gray-700 mb-1">备注说明 (选填)</label>
+          <label class="form-label mb-1">备注说明 (选填)</label>
           <input
             v-model="selfStudyForm.remark"
             type="text"

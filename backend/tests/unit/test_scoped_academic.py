@@ -294,6 +294,8 @@ def test_master_timetable_loads_with_in_memory_index(campus):
 
     config, db, admin, teacher, a, b = campus
     one, two, unknown, teaching, schedule, student_a, student_b = records(db, a, b)
+    one.head_teacher = "郑班主任"
+    teaching.teacher_name = "张授课老师"
     db.add(TeachingClassStudent(teaching_class_id=teaching.id, student_id=student_a.id))
     db.commit()
     grant(config, admin, teacher, a, ["academic.read"])
@@ -302,4 +304,6 @@ def test_master_timetable_loads_with_in_memory_index(campus):
     assert result["total"] >= 1
     item = next(r for r in result["items"] if r["id"] == str(schedule.id))
     assert item["teaching_class_id"] == str(teaching.id)
+    assert item["teacher_name"] == "张授课老师"
+    assert item["head_teacher"] == "郑班主任"
     assert one.class_name in item["administrative_classes"]

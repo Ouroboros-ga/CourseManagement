@@ -1572,7 +1572,7 @@ class AcademicService:
             sched_teacher = (cs.teacher or tc.teacher_name or "").strip()
             if sched_teacher in ("", "未指定", "None"):
                 sched_teacher = None
-            eff_teacher = ht_str or sched_teacher
+            eff_teacher = sched_teacher
 
             if keyword:
                 kw = keyword.strip().lower()
@@ -1587,7 +1587,7 @@ class AcademicService:
                     or kw in (c.course_code or "").lower()
                     or kw in (tc.class_name or "").lower()
                     or kw in (cs.classroom or "").lower()
-                    or kw in (eff_teacher or "").lower()
+                    or kw in (sched_teacher or "").lower()
                     or kw in ac_texts
                 )
                 if not matches_kw:
@@ -1607,7 +1607,7 @@ class AcademicService:
                     teaching_class_id=str(tc.id),
                     teaching_class_code=tc.class_code,
                     teaching_class_name=tc.class_name,
-                    teacher_name=eff_teacher,
+                    teacher_name=sched_teacher,
                     head_teacher=ht_str,
                     counselor=co_str,
                     weekday=cs.weekday,

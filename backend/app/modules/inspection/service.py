@@ -1047,11 +1047,11 @@ class InspectionService:
             cos = [x[2] for x in admin_info_list if x[2]]
             co_str = "、".join(dict.fromkeys(cos)) if cos else None
 
-            # 优先显示班主任兜底
+            # 任课教师优先；若任课教师未指定（如自习课），才以班主任兜底
             raw_teacher = (t.teacher_name_snapshot or "").strip()
             if raw_teacher in ("", "未指定", "None"):
                 raw_teacher = None
-            eff_teacher = ht_str or raw_teacher
+            eff_teacher = raw_teacher or ht_str
 
             result.append(
                 self._to_task_dto(

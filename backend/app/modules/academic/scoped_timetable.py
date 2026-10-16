@@ -103,7 +103,7 @@ def master_timetable(
             teaching_class_id=teaching.id,
             teaching_class_code=teaching.class_code,
             teaching_class_name=teaching.class_name,
-            teacher_name=teachers or teaching.teacher_name,
+            teacher_name=schedule.teacher or teaching.teacher_name or None,
             head_teacher=teachers,
             counselor=counselors,
             weekday=schedule.weekday,

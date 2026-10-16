@@ -126,11 +126,31 @@ watch([() => route.path, workspaceKey], () => {
 
 const currentUser = computed(() => sessionStore.currentUser)
 
-const menuItems = computed(() => [...primaryPages, ...auxiliaryPages]
-  .filter(item => sessionStore.currentUser ? canAccessPage(item.id, sessionStore) : import.meta.env.DEV)
-  .map((item, index) => ({ ...item, idx: String(index + 1).padStart(2, '0'),
-    badge: item.id === 'attendance' && pendingObjectionsCount.value > 0 ? String(pendingObjectionsCount.value) : null,
-    badgeClass: 'badge-red' })))
+interface NavItem {
+  id: string
+  label: string
+  path: string
+  idx: string
+  badge: string | null
+  badgeClass: string
+}
+
+// 过滤权限后连续编号；考勤页挂待终审徽标
+function decoratePages(pages: typeof primaryPages, startIdx: number): NavItem[] {
+  return pages
+    .filter(item => sessionStore.currentUser ? canAccessPage(item.id, sessionStore) : import.meta.env.DEV)
+    .map((item, i) => ({
+      id: item.id,
+      label: item.label,
+      path: item.path,
+      idx: String(startIdx + i).padStart(2, '0'),
+      badge: item.id === 'attendance' && pendingObjectionsCount.value > 0 ? String(pendingObjectionsCount.value) : null,
+      badgeClass: 'badge-red'
+    }))
+}
+
+const primaryNav = computed(() => decoratePages(primaryPages, 1))
+const auxiliaryNav = computed(() => decoratePages(auxiliaryPages, primaryNav.value.length + 1))
 watch(workspaceKey, () => {
   const page = String(route.meta.workspacePage || '')
   if (sessionStore.currentUser && page && !canAccessPage(page, sessionStore)) void router.replace('/dashboard/unavailable')
@@ -184,10 +204,24 @@ async function handleLogout() {
 
       <nav class="side-nav">
         <router-link
-          v-for="item in menuItems"
+          v-for="item in primaryNav"
           :key="item.id"
           :to="item.path"
           class="side-link"
+          :class="{ on: route.path.startsWith(item.path) }"
+        >
+          <span class="idx font-mono">{{ item.idx }}</span>
+          <span class="name">{{ item.label }}</span>
+          <span v-if="item.badge" class="badge font-mono" :class="item.badgeClass">{{ item.badge }}</span>
+        </router-link>
+        <div v-if="auxiliaryNav.length" class="nav-sep">
+          <span class="nav-group font-mono">系统 SYSTEM</span>
+        </div>
+        <router-link
+          v-for="item in auxiliaryNav"
+          :key="item.id"
+          :to="item.path"
+          class="side-link side-link-aux"
           :class="{ on: route.path.startsWith(item.path) }"
         >
           <span class="idx font-mono">{{ item.idx }}</span>
@@ -225,7 +259,13 @@ async function handleLogout() {
         <WorkspaceContextBar />
       </header>
       <nav v-if="mobileNavigation" class="mobile-nav" aria-label="移动端功能菜单">
-        <router-link v-for="item in menuItems" :key="item.id" :to="item.path" @click="mobileNavigation = false">{{ item.label }}</router-link>
+        <router-link
+          v-for="item in [...primaryNav, ...auxiliaryNav]"
+          :key="item.id"
+          :to="item.path"
+          :class="{ on: route.path.startsWith(item.path) }"
+          @click="mobileNavigation = false"
+        >{{ item.label }}</router-link>
       </nav>
 
       <main class="main">
@@ -329,16 +369,21 @@ async function handleLogout() {
   transition: all 0.2s;
   position: relative;
 }
-.side-link .idx { font-size: 10px; font-weight: 500; opacity: 0.6; }
+.side-link .idx { font-size: 10px; font-weight: 500; opacity: 0.6; transition: color 0.2s; }
 .side-link:hover { color: var(--ink); background: var(--paper-deep); }
-.side-link.on { color: var(--ink); font-weight: 600; }
+.side-link.on {
+  color: var(--ink);
+  font-weight: 600;
+  background: var(--paper-deep);
+}
+.side-link.on .idx { color: var(--accent); opacity: 1; }
 .side-link.on::before {
   content: '';
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 2px;
+  width: 3px;
   background: var(--accent);
 }
 .side-link .badge {
@@ -346,11 +391,23 @@ async function handleLogout() {
   font-size: 10px;
   font-weight: 600;
   padding: 2px 7px;
-  border-radius: 20px;
+  border-radius: 10px;
   align-self: center;
 }
 .badge-red { background: var(--accent-soft); color: var(--accent); }
-.badge-amber { background: var(--amber-soft); color: var(--amber); }
+
+/* 分组：主导航 / 系统辅助导航 */
+.nav-sep {
+  margin: 16px 24px 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.nav-group {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--ink-mute);
+}
+.side-link-aux { padding-top: 9px; padding-bottom: 9px; font-size: 12.5px; }
 
 .side-user {
   padding: 16px 20px;
@@ -461,70 +518,15 @@ async function handleLogout() {
   min-width: 0;
 }
 .topbar {
-  min-height: 48px;
-  height: auto;
+  height: 52px;
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 32px;
+  padding: 0 32px;
   flex-shrink: 0;
   background: var(--paper);
 }
-.term {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-.sem-picker { display: flex; align-items: center; }
-.t-sem-select {
-  background: var(--paper-deep);
-  border: 1px solid var(--line);
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 8px;
-  border-radius: 2px;
-  cursor: pointer;
-  outline: none;
-}
-.t-sem-select:hover { border-color: var(--line-strong); }
-.term .t-sep { width: 1px; height: 14px; background: var(--line-strong); }
-
-.week-picker {
-  display: flex;
-  align-items: center;
-  background: var(--ink);
-  border-radius: 2px;
-  padding: 1px;
-}
-.week-nav-btn {
-  background: none;
-  border: none;
-  color: var(--paper);
-  font-size: 13px;
-  font-weight: bold;
-  cursor: pointer;
-  padding: 2px 6px;
-  opacity: 0.8;
-  transition: opacity 0.15s;
-}
-.week-nav-btn:hover:not(:disabled) { opacity: 1; }
-.week-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.t-week-select {
-  background: transparent;
-  border: none;
-  color: var(--paper);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 4px;
-  cursor: pointer;
-  outline: none;
-}
-.t-week-select option { background: var(--paper); color: var(--ink); }
-.term .t-range { color: var(--ink-mute); font-size: 11px; }
 
 /* ---------- 内容区 ---------- */
 .main {
@@ -536,8 +538,24 @@ async function handleLogout() {
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .topbar { padding: 12px 16px; height: auto; gap: 12px; flex-wrap: wrap; }
-  .mobile-menu { display: block; background: var(--paper); border: 1px solid var(--line); padding: 6px 10px; border-radius: 4px; }
+  .topbar { padding: 0 16px; height: auto; min-height: 52px; gap: 12px; flex-wrap: wrap; }
+  .mobile-menu {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--paper);
+    border: 1px solid var(--line-strong);
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: 600;
+    color: var(--ink);
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .mobile-menu:hover { border-color: var(--ink); }
+  .mobile-nav a.on { font-weight: 700; color: var(--accent); }
   .main { padding: 16px; }
 }
 </style>

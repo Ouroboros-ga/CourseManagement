@@ -326,6 +326,9 @@ onMounted(() => {
         <span v-if="currentAdminClass?.head_teacher" class="text-slate-500">
           班主任: {{ currentAdminClass.head_teacher }}
         </span>
+        <span v-if="currentAdminClass?.counselor" class="text-slate-500">
+          辅导员: {{ currentAdminClass.counselor }}
+        </span>
         <span class="text-slate-300">|</span>
         <span class="font-mono text-slate-600">
           第 {{ selectedWeek }} 周（{{ currentWeekCourses.length }} 门课）
@@ -490,6 +493,14 @@ onMounted(() => {
           <div v-if="activeCourse.administrative_classes && activeCourse.administrative_classes.length > 0" class="flex items-start gap-2">
             <span class="text-slate-400 shrink-0">合班行政班：</span>
             <span class="text-slate-700">{{ activeCourse.administrative_classes.join('、') }}</span>
+          </div>
+          <div v-if="activeCourse.head_teacher || currentAdminClass?.head_teacher" class="flex items-center gap-2">
+            <span class="text-slate-400 shrink-0">班级班主任：</span>
+            <span class="text-slate-700">{{ activeCourse.head_teacher || currentAdminClass?.head_teacher }}</span>
+          </div>
+          <div v-if="activeCourse.counselor || currentAdminClass?.counselor" class="flex items-center gap-2">
+            <span class="text-slate-400 shrink-0">年级辅导员：</span>
+            <span class="text-slate-700">{{ activeCourse.counselor || currentAdminClass?.counselor }}</span>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-slate-400 shrink-0">查课与名单：</span>
