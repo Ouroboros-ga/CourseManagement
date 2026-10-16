@@ -532,15 +532,15 @@ async function handleBatchSubmitSelfStudy() {
     })
 
     ElMessageBox.alert(
-      `<div class="space-y-2">
-        <p class="font-bold text-emerald-800">批量生成排课成功！</p>
-        <div class="text-sm text-gray-700 bg-emerald-50 p-3 rounded border border-emerald-200">
+      `<div>
+        <p style="font-weight:700;color:var(--green);margin-bottom:6px;">批量生成排课成功！</p>
+        <div style="font-size:12px;color:var(--ink-soft);background:var(--green-soft);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--line);border-left:3px solid var(--green);line-height:1.7;">
           <div>覆盖行政班：<strong>${res.classes_count}</strong> 个</div>
           <div>新建教学班：<strong>${res.classes_created}</strong> 个</div>
           <div>生成课次排期：<strong>${res.schedules_created}</strong> 门</div>
           <div>同步关联学生：<strong>${res.students_linked}</strong> 人次</div>
         </div>
-        <p class="text-xs text-gray-500">已生成自习课表，可前往教务总课表查看或在此进行课次下发。</p>
+        <p style="font-size:11px;color:var(--ink-mute);margin-top:8px;">已生成自习课表，可前往教务总课表查看或在此进行课次下发。</p>
       </div>`,
       '批量自习排课完成',
       { dangerouslyUseHTMLString: true, confirmButtonText: '知道了' }
@@ -661,7 +661,7 @@ async function confirmImport() {
     ElMessageBox.alert(
       `本次文件导入成功！<br/><br/>
       <b>数据概要：</b><br/>
-      <pre style="background:#f4f4f5;padding:8px;border-radius:4px;font-size:12px;">${JSON.stringify(res.summary, null, 2)}</pre>`,
+      <pre style="background:var(--paper-deep);border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;font-size:12px;font-family:'JetBrains Mono',monospace;">${JSON.stringify(res.summary, null, 2)}</pre>`,
       '导入落库成功',
       {
         dangerouslyUseHTMLString: true,
@@ -1906,19 +1906,19 @@ function applySmartSample() {
         <!-- 星期选择 -->
         <div>
           <div class="flex items-center justify-between mb-1.5">
-            <label class="text-xs font-bold text-gray-700">上课星期</label>
+            <label class="form-label">上课星期</label>
             <div class="flex gap-2 text-xs">
-              <button type="button" class="text-blue-600 hover:underline" @click="selfStudyForm.weekdays = [1, 2, 3, 4, 5]">周一至周五</button>
-              <button type="button" class="text-blue-600 hover:underline" @click="selfStudyForm.weekdays = [1, 2, 3, 4, 5, 6, 7]">全周</button>
-              <button type="button" class="text-gray-500 hover:underline" @click="selfStudyForm.weekdays = []">清空</button>
+              <button type="button" class="link-btn" @click="selfStudyForm.weekdays = [1, 2, 3, 4, 5]">周一至周五</button>
+              <button type="button" class="link-btn" @click="selfStudyForm.weekdays = [1, 2, 3, 4, 5, 6, 7]">全周</button>
+              <button type="button" class="link-btn mute" @click="selfStudyForm.weekdays = []">清空</button>
             </div>
           </div>
           <div class="flex gap-2">
             <label
               v-for="d in [{ k: 1, l: '周一' }, { k: 2, l: '周二' }, { k: 3, l: '周三' }, { k: 4, l: '周四' }, { k: 5, l: '周五' }, { k: 6, l: '周六' }, { k: 7, l: '周日' }]"
               :key="d.k"
-              class="flex-1 text-center py-1.5 px-2 text-xs border rounded cursor-pointer transition-colors"
-              :class="selfStudyForm.weekdays.includes(d.k) ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold' : 'bg-white text-gray-600 hover:bg-gray-50'"
+              class="day-pick"
+              :class="selfStudyForm.weekdays.includes(d.k) ? 'selected' : ''"
             >
               <input type="checkbox" :value="d.k" v-model="selfStudyForm.weekdays" class="hidden" />
               <span>{{ d.l }}</span>
@@ -2042,22 +2042,22 @@ function applySmartSample() {
 }
 
 .selectable-row:hover:not(.row-disabled) {
-  background-color: #f8fafc;
+  background-color: var(--paper-deep);
 }
 
 .selectable-row.row-selected {
-  background-color: #eff6ff !important;
+  background-color: var(--blue-soft) !important;
 }
 
 .selectable-row.row-selected:hover {
-  background-color: #dbeafe !important;
+  background-color: color-mix(in srgb, var(--blue) 18%, var(--paper)) !important;
 }
 
 .pinned-divider-row td {
-  background: #f8fafc !important;
+  background: var(--paper-deep) !important;
   padding: 4px 16px !important;
-  border-top: 1px dashed #cbd5e1;
-  border-bottom: 1px dashed #cbd5e1;
+  border-top: 1px dashed var(--line-strong);
+  border-bottom: 1px dashed var(--line-strong);
 }
 
 .row-disabled {
@@ -2086,7 +2086,7 @@ function applySmartSample() {
   width: 18px;
   height: 18px;
   border-radius: 4px;
-  accent-color: #0f172a;
+  accent-color: var(--ink);
   cursor: pointer;
   transition: transform 0.1s ease;
 }
@@ -2358,7 +2358,7 @@ function applySmartSample() {
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--paper);
   margin-bottom: 12px;
 }
 .rb-files.tall {
@@ -2548,9 +2548,9 @@ function applySmartSample() {
   transition: all 0.15s ease;
 }
 .scope-tab.active {
-  background: #ffffff;
+  background: var(--paper);
   color: var(--ink);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(28, 27, 26, 0.08);
 }
 /* ---------- 智能抽查：重点行政班级与配额控制 ---------- */
 .targeted-box-block {
@@ -2589,7 +2589,7 @@ function applySmartSample() {
 .rb-files.target-classes-files {
   height: 135px;
   max-height: 135px;
-  background: #ffffff;
+  background: var(--paper);
   margin-bottom: 0;
 }
 .btn-remove-class {
@@ -2600,18 +2600,203 @@ function applySmartSample() {
   height: 20px;
   border: none;
   background: transparent;
-  color: #94a3b8;
+  color: var(--ink-mute);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 .btn-remove-class:hover {
-  background: #fee2e2;
-  color: #ef4444;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 :deep(.sample-dialog .el-dialog__body) {
   max-height: 80vh;
   overflow-y: auto;
+}
+
+/* ============================================================
+   纸面秩序语义化补充（替代 Tailwind 原色工具类）
+   ============================================================ */
+.th-check { width: 52px; text-align: center; }
+.week-tasks { margin-top: 24px; }
+.btn-xs { padding: 2px 6px; font-size: 11px; border-radius: var(--radius); }
+
+.icon-mute { color: var(--line-strong); }
+.dim { color: var(--ink-mute); }
+.dim-note { font-size: 11px; color: var(--ink-mute); }
+
+/* ---------- 语义徽标 ---------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.chip-blue { background: var(--blue-soft); color: var(--blue); }
+.chip-green { background: var(--green-soft); color: var(--green); }
+.chip-amber { background: var(--amber-soft); color: var(--amber); }
+.chip-red { background: var(--accent-soft); color: var(--accent); }
+.chip-gray { background: var(--paper-deep); color: var(--ink-mute); }
+.chip-mt { margin-top: 4px; }
+
+/* ---------- 行内小按钮 ---------- */
+.row-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--dur-f) ease;
+  white-space: nowrap;
+}
+.row-action:hover { border-color: var(--ink); color: var(--ink); }
+.row-action.danger { color: var(--accent); }
+.row-action.danger:hover { border-color: var(--accent); background: var(--accent-soft); }
+.row-action:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---------- 提示框 ---------- */
+.note-box {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ink-mute);
+  background: var(--paper-deep);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+.note-box.note-blue { border-left-color: var(--blue); background: var(--blue-soft); }
+
+/* ---------- 分割提示条 ---------- */
+.divider-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 11px;
+  color: var(--ink-mute);
+}
+.divider-line { height: 1px; flex: 1; background: var(--line-strong); }
+
+/* ---------- 结果块头部侧栏 / 变体 ---------- */
+.rb-head-side { display: flex; align-items: center; gap: 8px; }
+.class-item-row .cr-right { display: flex; align-items: center; gap: 10px; }
+.more-row.roomy { padding: 28px 12px; }
+
+/* ---------- 表单标签与链接按钮 ---------- */
+.form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.form-label.upper {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--blue);
+  cursor: pointer;
+}
+.link-btn:hover { color: var(--ink); text-decoration: underline; }
+.link-btn.mute { color: var(--ink-mute); }
+.link-btn.mute:hover { color: var(--ink); }
+
+/* ---------- 自习类型单选卡片 ---------- */
+.radio-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 12px;
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color var(--dur-f) ease, box-shadow var(--dur-f) ease;
+}
+.radio-card:hover { border-color: var(--ink); }
+.radio-card.selected { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.radio-card input { accent-color: var(--ink); }
+.radio-card .rt { font-size: 13px; font-weight: 700; color: var(--ink); }
+.radio-card .rs { font-size: 11px; color: var(--ink-mute); }
+
+/* ---------- 行政班勾选网格 ---------- */
+.input-xs { padding: 4px 8px; font-size: 11px; width: 144px; }
+.class-grid-box {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+@media (min-width: 640px) {
+  .class-grid-box { grid-template-columns: repeat(3, 1fr); }
+}
+.class-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  transition: all var(--dur-f) ease;
+}
+.class-pick-item:hover { background: var(--paper); border-color: var(--line-strong); }
+.class-pick-item input { accent-color: var(--ink); }
+.class-pick-empty {
+  grid-column: 1 / -1;
+  padding: 12px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+
+/* ---------- 星期选择按钮 ---------- */
+.day-pick {
+  flex: 1;
+  padding: 6px 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-mute);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+  user-select: none;
+  transition: all var(--dur-f) ease;
+}
+.day-pick:hover { border-color: var(--ink); color: var(--ink); }
+.day-pick.selected {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+  font-weight: 700;
 }
 </style>
