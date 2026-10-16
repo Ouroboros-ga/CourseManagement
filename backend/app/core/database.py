@@ -34,6 +34,25 @@ def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def iso_utc(dt: datetime | None) -> str | None:
+    """统一全系统时刻类（Timestamp）ISO 8601 UTC 输出格式（必须以 'Z' 结尾）。"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.isoformat() + "Z"
+    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+try:
+    import fastapi.encoders
+    from pydantic import BaseModel, ConfigDict
+
+    fastapi.encoders.ENCODERS_BY_TYPE[datetime] = iso_utc
+    BaseModel.model_config = ConfigDict(json_encoders={datetime: iso_utc})
+except Exception:
+    pass
+
+
 DATETIME_3 = DateTime(timezone=False).with_variant(mysql.DATETIME(fsp=3), "mysql")
 
 # 业务日历日期（学期起止、首周一、校历覆盖日期）以本地 DATE 存储，不带时区

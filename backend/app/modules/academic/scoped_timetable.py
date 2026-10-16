@@ -68,6 +68,10 @@ def master_timetable(
             if day not in roster_cache:
                 roster_cache[day] = index.at(day)
             roster = roster_cache[day].get(teaching.id, [])
+            if not roster:
+                # 当日因学籍迁移基线生效日期等未核实情况导致正式名单为空时，
+                # 回退使用迁移前投影名单，消除排课与课表界面的历史断崖。
+                roster = index.for_personal_timetable(day).get(teaching.id, [])
             class_ids = set()
             for student in roster:
                 enrollment = index.enrollment_at(student.id, day)

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, raiseload
 
 from app.common.pagination import PageParams
 from app.core.exceptions import NotFoundError, PermissionDeniedError
-from app.modules.academic.enrollment_models import StudentEnrollment
+from app.modules.academic.enrollment_models import StudentEnrollment, TeachingClassAudience
 from app.modules.academic.models import (
     AdministrativeClass,
     Course,
@@ -215,9 +215,25 @@ class ScopedAcademicRepository:
             .where(TeachingClassStudent.teaching_class_id == teaching_class_id)
             .correlate(None)
         )
-        # 首期不开放跨院名单。拒绝部分可见名单，避免把缺失人员当作真实名单。
-        visible = list(self.db.scalars(self.query("students").where(Student.id.in_(ids))))
         all_ids = set(self.db.scalars(ids))
+        if not all_ids:
+            aud_classes = list(
+                self.db.scalars(
+                    select(TeachingClassAudience.administrative_class_id)
+                    .where(TeachingClassAudience.teaching_class_id == teaching_class_id)
+                )
+            )
+            if aud_classes:
+                visible = list(
+                    self.db.scalars(
+                        self.query("students").where(
+                            Student.administrative_class_id.in_(aud_classes)
+                        )
+                    )
+                )
+                return sorted(visible, key=lambda row: row.id)
+        # 首期不开放跨院名单。拒绝部分可见名单，避免把缺失人员当作真实名单。
+        visible = list(self.db.scalars(self.query("students").where(Student.id.in_(all_ids))))
         if {row.id for row in visible} != all_ids:
             raise PermissionDeniedError("名单含外院或未确定归属学生，需先核对")
         return sorted(visible, key=lambda row: row.id)

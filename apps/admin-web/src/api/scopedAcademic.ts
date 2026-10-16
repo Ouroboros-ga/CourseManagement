@@ -46,3 +46,16 @@ export const batchCreateSelfStudy = (cid: string, body: SelfStudyBatchBody) =>
     method: 'POST',
     body: JSON.stringify(body)
   })
+
+export interface TeachingClassStudentItem {
+  id: string
+  student_no: string
+  name: string
+  gender?: string
+  administrative_class_id?: string
+  administrative_class_name?: string
+  status?: string
+}
+
+export const getTeachingClassRoster = (cid: string, tid: string) =>
+  request<TeachingClassStudentItem[]>(`${root(cid)}/teaching-classes/${encodeURIComponent(tid)}/roster`)

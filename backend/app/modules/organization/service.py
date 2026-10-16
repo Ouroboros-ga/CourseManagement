@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import utcnow
+from app.core.database import iso_utc, utcnow
 from app.core.exceptions import (
     AppError,
     ConflictError,
@@ -186,7 +186,7 @@ class CampusService:
             ):
                 value = str(value)
             elif isinstance(value, datetime):
-                value = value.replace(tzinfo=UTC).isoformat()
+                value = iso_utc(value)
             elif hasattr(value, "isoformat"):
                 value = value.isoformat()
             data[column.name] = value

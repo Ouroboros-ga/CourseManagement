@@ -86,6 +86,15 @@ class ScopedAcademicService:
                 result["status"] = (
                     "ACTIVE" if enrollment.status == "ENROLLED" else enrollment.status
                 )
+            ac_id = (
+                enrollment.administrative_class_id
+                if enrollment and enrollment.administrative_class_id
+                else row.administrative_class_id
+            )
+            if ac_id:
+                ac = self.db.get(AdministrativeClass, ac_id)
+                if ac:
+                    result["administrative_class_name"] = ac.class_name
         if row.__tablename__ == "course_schedule":
             if week_nos is not None:
                 result["week_nos"] = week_nos

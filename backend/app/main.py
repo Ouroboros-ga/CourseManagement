@@ -8,14 +8,21 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 
+import fastapi.encoders
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict
 
 from app.api.health import router as health_router
 from app.core.config import get_settings
+from app.core.database import iso_utc
 from app.core.exceptions import AppError
 from app.core.logging import get_logger, setup_logging
+
+fastapi.encoders.ENCODERS_BY_TYPE[datetime] = iso_utc
+BaseModel.model_config = ConfigDict(json_encoders={datetime: iso_utc})
 from app.core.middleware import RequestIdMiddleware
 from app.modules.academic.enrollment_router import router as enrollment_router
 from app.modules.academic.export_router import router as course_export_router

@@ -28,7 +28,7 @@ import {
   type ImportPreviewResult,
   type BulkImportResult
 } from '../../api/importer'
-import { batchCreateSelfStudy } from '../../api/scopedAcademic'
+import { batchCreateSelfStudy, getTeachingClassRoster, type TeachingClassStudentItem } from '../../api/scopedAcademic'
 import TaskStatusTag from '../../components/TaskStatusTag.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import { formatPeriodText } from '../../utils/period'
@@ -261,6 +261,42 @@ async function handleExportMasterTimetable() {
     ElMessage.error(err?.message || '导出学期课表失败')
   } finally {
     exportingMaster.value = false
+  }
+}
+
+// ---- 查看教学班学生名单 ----
+const showRosterDialog = ref(false)
+const rosterLoading = ref(false)
+const currentRosterItem = ref<MasterTimetableItem | null>(null)
+const rosterStudents = ref<TeachingClassStudentItem[]>([])
+const rosterSearch = ref('')
+
+const filteredRosterStudents = computed(() => {
+  const q = rosterSearch.value.trim().toLowerCase()
+  if (!q) return rosterStudents.value
+  return rosterStudents.value.filter(s =>
+    (s.name && s.name.toLowerCase().includes(q)) ||
+    (s.student_no && s.student_no.toLowerCase().includes(q)) ||
+    (s.administrative_class_name && s.administrative_class_name.toLowerCase().includes(q))
+  )
+})
+
+async function openTeachingClassRoster(item: MasterTimetableItem) {
+  currentRosterItem.value = item
+  rosterSearch.value = ''
+  rosterStudents.value = []
+  showRosterDialog.value = true
+  rosterLoading.value = true
+  try {
+    const cid = sessionStore.workspaceCollegeId || '1'
+    const tid = String(item.teaching_class_id)
+    const list = await getTeachingClassRoster(cid, tid)
+    rosterStudents.value = list || []
+  } catch (err: unknown) {
+    console.error('加载教学班学生名单失败:', err)
+    ElMessage.error(err instanceof Error ? err.message : '加载教学班学生名单失败')
+  } finally {
+    rosterLoading.value = false
   }
 }
 
@@ -1220,11 +1256,21 @@ function applySmartSample() {
                     <AppIcon name="ban" :size="12" />
                     <span>体育课 · 免查</span>
                   </div>
-                  <div v-else-if="item.enrolled_student_count > 0" class="chip chip-green">
+                  <div
+                    v-else-if="item.enrolled_student_count > 0"
+                    class="chip chip-green cursor-pointer hover:opacity-80 transition-opacity"
+                    title="点击查看教学班学生名单"
+                    @click="openTeachingClassRoster(item)"
+                  >
                     <AppIcon name="users" :size="12" />
                     <span>需查课 · 名单 {{ item.enrolled_student_count }} 人</span>
                   </div>
-                  <div v-else class="chip chip-amber">
+                  <div
+                    v-else
+                    class="chip chip-amber cursor-pointer hover:opacity-80 transition-opacity"
+                    title="点击排查/查看教学班学生名单"
+                    @click="openTeachingClassRoster(item)"
+                  >
                     <AppIcon name="alert" :size="12" />
                     <span>暂无学生名单</span>
                   </div>
@@ -1243,6 +1289,74 @@ function applySmartSample() {
         </div>
       </div>
     </div>
+
+    <!-- 弹窗: 查看教学班学生名单 -->
+    <el-dialog
+      v-model="showRosterDialog"
+      :title="`教学班学生名单 · ${currentRosterItem?.course_name || ''}`"
+      width="680px"
+      :append-to-body="true"
+      class="roster-dialog"
+    >
+      <div v-if="currentRosterItem" class="roster-dialog-content">
+        <!-- 头部概览信息 -->
+        <div class="roster-meta-grid mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm grid grid-cols-2 gap-2">
+          <div><span class="text-slate-500">教学班：</span><span class="font-medium text-slate-800">{{ currentRosterItem.teaching_class_name }}</span></div>
+          <div><span class="text-slate-500">任课教师：</span><span class="font-medium text-slate-800">{{ currentRosterItem.teacher_name || '未指定' }}</span></div>
+          <div><span class="text-slate-500">关联行政班：</span><span class="text-slate-700">{{ currentRosterItem.administrative_classes?.join(', ') || '未关联' }}</span></div>
+          <div><span class="text-slate-500">当前名单：</span><span class="font-semibold text-emerald-600">{{ rosterStudents.length }} 人</span></div>
+        </div>
+
+        <!-- 搜索过滤 -->
+        <div class="flex items-center justify-between mb-3 gap-2">
+          <div class="text-xs text-slate-500">
+            共找到 {{ filteredRosterStudents.length }} 名学生
+          </div>
+          <el-input
+            v-model="rosterSearch"
+            placeholder="搜索姓名、学号或行政班..."
+            clearable
+            size="small"
+            style="width: 240px;"
+          />
+        </div>
+
+        <!-- 名单表格 -->
+        <div v-loading="rosterLoading" style="min-height: 180px; max-height: 400px; overflow-y: auto;">
+          <table v-if="filteredRosterStudents.length > 0" class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 bg-slate-100 text-xs text-slate-600 font-medium">
+                <th class="py-2 px-3 w-12 text-center">#</th>
+                <th class="py-2 px-3">学号</th>
+                <th class="py-2 px-3">姓名</th>
+                <th class="py-2 px-3">行政班级</th>
+                <th class="py-2 px-3 w-20 text-center">状态</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-for="(stu, idx) in filteredRosterStudents" :key="stu.id" class="hover:bg-slate-50">
+                <td class="py-2 px-3 text-center text-xs text-slate-400 font-mono">{{ idx + 1 }}</td>
+                <td class="py-2 px-3 font-mono text-xs text-slate-700">{{ stu.student_no }}</td>
+                <td class="py-2 px-3 font-medium text-slate-900">{{ stu.name }}</td>
+                <td class="py-2 px-3 text-xs text-slate-600">{{ stu.administrative_class_name || currentRosterItem.administrative_classes?.[0] || '-' }}</td>
+                <td class="py-2 px-3 text-center">
+                  <span class="inline-block px-1.5 py-0.5 text-xs rounded bg-emerald-50 text-emerald-700 border border-emerald-200">在籍</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div v-else-if="!rosterLoading" class="py-8 text-center text-slate-400 text-sm">
+            <AppIcon name="users" :size="32" class="mx-auto mb-2 text-slate-300" />
+            <p v-if="rosterSearch">未找到符合搜索条件的学生</p>
+            <p v-else>该教学班尚未关联在籍学生名单</p>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <button type="button" class="btn btn-secondary" @click="showRosterDialog = false">关闭</button>
+      </template>
+    </el-dialog>
 
     <!-- 弹窗: 导入教务数据 -->
     <el-dialog
