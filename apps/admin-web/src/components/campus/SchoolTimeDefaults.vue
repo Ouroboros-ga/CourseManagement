@@ -44,7 +44,7 @@ async function run(action: 'preview' | 'adopt' | 'publish') {
       if (ticket.isCurrent()) { message.value = '已发布学校默认版本；学院需预览并明确采用。'; markWorkspaceSaved(root.value); await read.load() }
     }
   } catch (e) { if (ticket.isCurrent()) { preview.value = null; error.value = e instanceof Error ? e.message : '操作失败，请重新预览' } }
-  finally { if (ticket.isCurrent()) saving.value = false }
+  finally { if (ticket.isLatest()) saving.value = false }
 }
 </script>
 <template>

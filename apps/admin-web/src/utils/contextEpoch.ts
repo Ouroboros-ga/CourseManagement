@@ -9,7 +9,10 @@ export class ContextEpoch {
   begin() {
     const revision = ++this.revision
     const key = this.contextKey()
-    return { isCurrent: () => revision === this.revision && key === this.contextKey() }
+    return {
+      isCurrent: () => revision === this.revision && key === this.contextKey(),
+      isLatest: () => revision === this.revision
+    }
   }
   invalidate() { this.revision++ }
 }

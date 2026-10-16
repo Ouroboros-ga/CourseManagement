@@ -221,6 +221,7 @@ def test_http_scoped_read_write_and_old_url_gate(campus, monkeypatch):
     from app.core.exceptions import AppError
     from app.modules.academic.router import router as old_router
     from app.modules.academic.scoped_router import router
+    from app.modules.academic.scoped_write_router import router as write_router
     from app.modules.identity.deps import get_current_user
     from fastapi import FastAPI, Request
     from fastapi.responses import JSONResponse
@@ -235,6 +236,7 @@ def test_http_scoped_read_write_and_old_url_gate(campus, monkeypatch):
     monkeypatch.setattr(settings, "campus_academic_scoped_enabled", True)
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.include_router(write_router, prefix="/api/v1")
     app.include_router(old_router, prefix="/api/v1/academic")
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: teacher
@@ -284,3 +286,20 @@ def test_http_scoped_read_write_and_old_url_gate(campus, monkeypatch):
         monkeypatch.setattr(settings, "campus_academic_scoped_enabled", False)
         assert client.get("/api/v1/academic/administrative-classes").status_code == 200
         assert client.get(base).status_code == 503
+
+
+def test_master_timetable_loads_with_in_memory_index(campus):
+    from app.modules.academic.models import TeachingClassStudent
+    from app.modules.academic.scoped_timetable import master_timetable
+
+    config, db, admin, teacher, a, b = campus
+    one, two, unknown, teaching, schedule, student_a, student_b = records(db, a, b)
+    db.add(TeachingClassStudent(teaching_class_id=teaching.id, student_id=student_a.id))
+    db.commit()
+    grant(config, admin, teacher, a, ["academic.read"])
+    scoped = service(db, teacher, a["id"])
+    result = master_timetable(scoped, schedule.semester_id)
+    assert result["total"] >= 1
+    item = next(r for r in result["items"] if r["id"] == str(schedule.id))
+    assert item["teaching_class_id"] == str(teaching.id)
+    assert one.class_name in item["administrative_classes"]

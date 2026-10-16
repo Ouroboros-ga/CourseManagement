@@ -41,7 +41,7 @@ export function useScopedAcademicData(collegeId: () => string, capabilities: () 
       rows.value = result.items; total.value = result.total
     } catch (e) {
       if (active && ticket.isCurrent()) error.value = e instanceof Error ? e.message : '加载失败'
-    } finally { if (active && ticket.isCurrent()) busy.value = false }
+    } finally { if (!active || ticket.isLatest()) busy.value = false }
   }
   watch(context, () => {
     epoch.invalidate(); page.value = 1; keyword.value = ''; query.value = ''

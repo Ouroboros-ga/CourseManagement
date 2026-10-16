@@ -262,7 +262,7 @@ async function openResetSemesterDialog() {
     if (ticket.isCurrent()) resetPreview.value = result
   } catch (e) {
     if (ticket.isCurrent()) ElMessage.error(e instanceof Error ? e.message : '重置预览失败')
-  } finally { if (ticket.isCurrent()) resetPreviewLoading.value = false }
+  } finally { if (ticket.isLatest()) resetPreviewLoading.value = false }
 }
 
 async function handleResetSemesterData() {

@@ -24,7 +24,7 @@ export function useAcademicPublication(collegeId: () => string) {
       if (ticket.isCurrent()) previewResult.value = value
     } catch (e) {
       if (ticket.isCurrent()) error.value = e instanceof Error ? e.message : '发布预览失败'
-    } finally { if (ticket.isCurrent()) busy.value = false }
+    } finally { if (ticket.isLatest()) busy.value = false }
   }
   async function publish() {
     const value = previewResult.value
@@ -41,7 +41,7 @@ export function useAcademicPublication(collegeId: () => string) {
         previewResult.value = null
         error.value = e instanceof Error ? e.message : '发布失败，请重新预览'
       }
-    } finally { if (ticket.isCurrent()) busy.value = false }
+    } finally { if (ticket.isLatest()) busy.value = false }
   }
   return { semesterId, previewResult, busy, error, message, preview, publish }
 }

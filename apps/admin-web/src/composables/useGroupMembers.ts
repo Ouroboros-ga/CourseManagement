@@ -90,7 +90,7 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
     } catch (caught) {
       if (!disposed && ticket === loadEpoch && revision === epoch && key === contextKey()) error.value = errorMessage(caught)
     } finally {
-      if (!disposed && ticket === loadEpoch && revision === epoch && key === contextKey()) loading.value = false
+      if (disposed || ticket === loadEpoch) loading.value = false
     }
   }
 
@@ -105,7 +105,7 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
     } catch (caught) {
       if (!disposed && ticket === candidateEpoch && key === contextKey()) error.value = errorMessage(caught)
     } finally {
-      if (!disposed && ticket === candidateEpoch && key === contextKey()) candidateLoading.value = false
+      if (disposed || ticket === candidateEpoch) candidateLoading.value = false
     }
   }
 
@@ -145,7 +145,7 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
       cancelEdit(); message.value = kind === 'members' ? '已新增组成员' : '已新增跨院支援授权'
       await load()
     } catch (caught) { if (ticket === epoch && key === contextKey() && !disposed) handleWriteError(caught) }
-    finally { if (ticket === epoch && key === contextKey() && !disposed) writing.value = false }
+    finally { if (disposed || ticket === epoch) writing.value = false }
   }
 
   async function prepareChange(row: GroupMember, revoke = false) {
@@ -163,7 +163,7 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
       pendingChange.value = { kind, row, impact, draft: { ...draft.value, status: revoke ? 'INACTIVE' : draft.value.status }, revoke, context: key }
     } catch (caught) {
       if (ticket === epoch && key === contextKey() && !disposed) handleWriteError(caught)
-    } finally { if (ticket === epoch && key === contextKey() && !disposed) writing.value = false }
+    } finally { if (disposed || ticket === epoch) writing.value = false }
   }
 
   async function applyChange() {
@@ -195,7 +195,7 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
       await load()
     } catch (caught) {
       if (ticket === epoch && key === contextKey() && !disposed) handleWriteError(caught)
-    } finally { if (ticket === epoch && key === contextKey() && !disposed) writing.value = false }
+    } finally { if (disposed || ticket === epoch) writing.value = false }
   }
 
   function handleWriteError(caught: unknown) {

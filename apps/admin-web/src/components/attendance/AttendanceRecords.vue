@@ -24,7 +24,7 @@ async function load() {
     const result = await listAttendance({ semester_id: session.currentSemesterId, page: page.value, page_size: 20, effective_type: filter.value || undefined })
     if (ticket.isCurrent()) { rows.value = result.items; total.value = result.total }
   } catch (e) { if (ticket.isCurrent()) error.value = e instanceof Error ? e.message : '考勤读取失败' }
-  finally { if (ticket.isCurrent()) busy.value = false }
+  finally { if (ticket.isLatest()) busy.value = false }
 }
 async function open(row: AttendanceRecord) {
   selected.value = row

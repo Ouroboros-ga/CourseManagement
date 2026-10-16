@@ -3,7 +3,7 @@
 from collections import defaultdict
 from datetime import date
 
-from sqlalchemy import select, true
+from sqlalchemy import or_, select, true
 from sqlalchemy.orm import Session
 
 from app.modules.academic.enrollment_models import (
@@ -65,13 +65,22 @@ class RosterIndex:
         candidates = set().union(*self.dated_ids.values(), *self.legacy.values())
         class_ids = set().union(*self.audiences.values())
         if class_ids:
-            historical = select(StudentEnrollment.student_id).where(
-                StudentEnrollment.administrative_class_id.in_(class_ids)
+            historical = set(
+                rows(
+                    select(StudentEnrollment.student_id).where(
+                        StudentEnrollment.administrative_class_id.in_(class_ids)
+                    )
+                ).scalars()
+            )
+            cond = (
+                or_(Student.administrative_class_id.in_(class_ids), Student.id.in_(historical))
+                if historical
+                else Student.administrative_class_id.in_(class_ids)
             )
             candidates.update(
                 rows(
                     select(Student.id).where(
-                        Student.id.in_(historical) | Student.administrative_class_id.in_(class_ids),
+                        cond,
                         Student.id.in_(student_ids) if student_ids is not None else true(),
                     )
                 ).scalars()
@@ -85,6 +94,19 @@ class RosterIndex:
             .order_by(StudentEnrollment.effective_from.desc(), StudentEnrollment.revision.desc())
         ).scalars():
             self.enrollments[enrollment.student_id].append(enrollment)
+
+    def enrollment_at(self, student_id: int, on_date: date) -> StudentEnrollment | None:
+        timeline = self.enrollments.get(student_id, [])
+        return next(
+            (
+                e
+                for e in timeline
+                if not e.superseded
+                and e.effective_from <= on_date
+                and (e.effective_to is None or on_date < e.effective_to)
+            ),
+            None,
+        )
 
     def for_personal_timetable(self, on_date: date) -> dict[int, list[Student]]:
         """个人显示可投影迁移基线之前的整班课表，不作为历史学籍证据。

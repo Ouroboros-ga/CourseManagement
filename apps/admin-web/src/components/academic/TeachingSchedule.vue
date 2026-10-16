@@ -66,7 +66,7 @@ const hasData = computed(() => occurrences.value.length > 0 || weekTasks.value.l
 const masterTimetableList = ref<MasterTimetableItem[]>([])
 const masterLoading = ref(false)
 const masterWeekday = ref<number | ''>('')
-const masterWeekNo = ref<number | ''>('')
+const masterWeekNo = ref<number | ''>(sessionStore.currentWeekNo || '')
 const masterAdminClassId = ref<string>('')
 const masterKeyword = ref('')
 
@@ -189,6 +189,9 @@ async function loadData() {
 
 async function loadMasterTimetableData() {
   if (!sessionStore.currentSemesterId) return
+  if (masterWeekNo.value === '' && sessionStore.currentWeekNo) {
+    masterWeekNo.value = sessionStore.currentWeekNo
+  }
   masterLoading.value = true
   try {
     if (!adminClasses.value.length && sessionStore.hasPermission('academic.read')) {

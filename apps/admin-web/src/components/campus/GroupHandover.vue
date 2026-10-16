@@ -27,7 +27,7 @@ async function run(confirm = false) {
       if (ticket.isCurrent()) preview.value = result
     }
   } catch (e) { if (ticket.isCurrent()) { preview.value = null; error.value = e instanceof Error ? e.message : '交接失败' } }
-  finally { if (ticket.isCurrent()) saving.value = false }
+  finally { if (ticket.isLatest()) saving.value = false }
 }
 </script>
 <template>

@@ -120,7 +120,7 @@ export function useGroupSampling(context: GroupSamplingContext, api: GroupSampli
     } catch (caught) {
       if (ticket === classEpoch && contextTicket === contextEpoch && key === contextKey() && !disposed) error.value = errorMessage(caught)
     } finally {
-      if (ticket === classEpoch && contextTicket === contextEpoch && key === contextKey() && !disposed) classLoading.value = false
+      if (disposed || ticket === classEpoch) classLoading.value = false
     }
   }
 
@@ -176,7 +176,7 @@ export function useGroupSampling(context: GroupSamplingContext, api: GroupSampli
     } catch (caught) {
       if (ticket === previewEpoch && contextTicket === contextEpoch && key === contextKey() && formKey === stableFormKey(form.value) && !disposed) error.value = errorMessage(caught)
     } finally {
-      if (ticket === previewEpoch && contextTicket === contextEpoch && key === contextKey() && formKey === stableFormKey(form.value) && !disposed) previewing.value = false
+      if (disposed || ticket === previewEpoch) previewing.value = false
     }
   }
 
@@ -201,7 +201,7 @@ export function useGroupSampling(context: GroupSamplingContext, api: GroupSampli
           error.value = '抽查范围或数据已变化，请重新预览后确认生成'
         } else error.value = errorMessage(caught)
       }
-    } finally { if (ticket === contextEpoch && key === contextKey() && !disposed) writing.value = false }
+    } finally { if (disposed || ticket === contextEpoch) writing.value = false }
   }
 
   async function assign() {
@@ -219,7 +219,7 @@ export function useGroupSampling(context: GroupSamplingContext, api: GroupSampli
       message.value = '请核对具体人员与警告后确认派发；当前尚未写入排班。'
     } catch (caught) {
       if (ticket === contextEpoch && key === contextKey() && !disposed) error.value = errorMessage(caught)
-    } finally { if (ticket === contextEpoch && key === contextKey() && !disposed) writing.value = false }
+    } finally { if (disposed || ticket === contextEpoch) writing.value = false }
   }
 
   async function confirmAssignment() {
@@ -238,7 +238,7 @@ export function useGroupSampling(context: GroupSamplingContext, api: GroupSampli
         error.value = errorMessage(caught)
         if (isConflict(caught)) { assignmentPlan.value = null; confirmedWarnings.value = [] }
       }
-    } finally { if (ticket === contextEpoch && key === contextKey() && !disposed) writing.value = false }
+    } finally { if (disposed || ticket === contextEpoch) writing.value = false }
   }
 
   const activeClasses = computed(() => classes.value.filter(item => item.status === 'ACTIVE'))

@@ -438,7 +438,7 @@ async function loadData() {
   } catch (err: unknown) {
     if (ticket.isCurrent()) ElMessage.error(err instanceof Error ? err.message : '学生资料读取失败')
   } finally {
-    if (ticket.isCurrent()) loading.value = false
+    if (ticket.isLatest()) loading.value = false
   }
 }
 

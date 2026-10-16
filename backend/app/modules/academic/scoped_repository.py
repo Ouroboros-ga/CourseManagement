@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session, raiseload
 
 from app.common.pagination import PageParams
@@ -88,54 +88,60 @@ class ScopedAcademicRepository:
         if self.scope.action not in permitted[kind]:
             raise PermissionDeniedError("动作不匹配资源范围")
         cid = self.scope.college_id
-        class_ids = (
-            select(AdministrativeClass.id)
-            .where(AdministrativeClass.college_id == cid)
-            .correlate(None)
-        )
-        teaching_ids = (
-            select(TeachingClass.id).where(TeachingClass.college_id == cid).correlate(None)
-        )
-        day = as_of or business_today()
-        timeline_ids = select(StudentEnrollment.student_id).correlate(None)
-        dated_ids = (
-            select(StudentEnrollment.student_id)
-            .where(
-                StudentEnrollment.college_id == cid,
-                StudentEnrollment.superseded.is_(False),
-                StudentEnrollment.effective_from <= day,
-                or_(StudentEnrollment.effective_to.is_(None), StudentEnrollment.effective_to > day),
-            )
-            .correlate(None)
-        )
-        student_scope = or_(
-            Student.id.in_(dated_ids),
-            Student.id.not_in(timeline_ids) & Student.administrative_class_id.in_(class_ids),
-        )
-        # 显式日期只返回有学籍事实的人员，不以今日投影伪造过去或未来归属。
-        if as_of is not None:
-            student_scope = Student.id.in_(dated_ids)
-        student_ids = select(Student.id).where(student_scope).correlate(None)
         stmt = select(model).options(raiseload("*"))
         if model is AdministrativeClass:
             stmt = stmt.where(AdministrativeClass.college_id == cid)
         elif model is TeachingClass:
             stmt = stmt.where(TeachingClass.college_id == cid)
         elif model is CourseSchedule:
+            teaching_ids = (
+                select(TeachingClass.id).where(TeachingClass.college_id == cid).correlate(None)
+            )
             stmt = stmt.where(
                 and_(
                     CourseSchedule.college_id == cid,
                     CourseSchedule.teaching_class_id.in_(teaching_ids),
                 )
             )
-        elif model is Student:
-            stmt = stmt.where(student_scope)
-        elif model is VolunteerQualification:
-            stmt = stmt.where(VolunteerQualification.student_id.in_(student_ids),
-                              VolunteerQualification.college_id == cid)
+        elif model in (Student, VolunteerQualification):
+            class_ids = (
+                select(AdministrativeClass.id)
+                .where(AdministrativeClass.college_id == cid)
+                .correlate(None)
+            )
+            day = as_of or business_today()
+            dated_ids = (
+                select(StudentEnrollment.student_id)
+                .where(
+                    StudentEnrollment.college_id == cid,
+                    StudentEnrollment.superseded.is_(False),
+                    StudentEnrollment.effective_from <= day,
+                    or_(
+                        StudentEnrollment.effective_to.is_(None),
+                        StudentEnrollment.effective_to > day,
+                    ),
+                )
+                .correlate(None)
+            )
+            student_scope = or_(
+                Student.id.in_(dated_ids),
+                ~exists(select(1).where(StudentEnrollment.student_id == Student.id))
+                & Student.administrative_class_id.in_(class_ids),
+            )
+            # 显式日期只返回有学籍事实的人员，不以今日投影伪造过去或未来归属。
+            if as_of is not None:
+                student_scope = Student.id.in_(dated_ids)
+            if model is Student:
+                stmt = stmt.where(student_scope)
+            else:
+                student_ids = select(Student.id).where(student_scope).correlate(None)
+                stmt = stmt.where(
+                    VolunteerQualification.student_id.in_(student_ids),
+                    VolunteerQualification.college_id == cid,
+                )
         elif model is Course:
             stmt = stmt.where(or_(Course.college_id.is_(None), Course.college_id == cid))
-        elif model not in (Course, Semester):
+        elif model is not Semester:
             raise PermissionDeniedError()
         # Course/Semester 是显式学校共享只读目录；没有通用“不匹配则全表”的分支。
         return stmt.execution_options(populate_existing=True)

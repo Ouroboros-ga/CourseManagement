@@ -17,7 +17,7 @@ export function useWorkspaceRead<T>(key: () => string, enabled: () => boolean, f
       if (current()) data.value = result
     } catch (e) {
       if (current()) error.value = e instanceof Error ? e.message : '加载失败'
-    } finally { if (current()) busy.value = false }
+    } finally { if (!active || ticket === revision) busy.value = false }
   }
   watch([key, enabled], () => { void load() }, { immediate: true })
   onUnmounted(() => { active = false; revision++ })

@@ -6,7 +6,6 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import ConflictError
-from app.modules.academic.enrollment_service import EnrollmentService
 from app.modules.academic.models import AdministrativeClass, Course, CourseSchedule, TeachingClass
 from app.modules.academic.roster_index import RosterIndex
 from app.modules.academic.schemas import MasterTimetableItemResponse
@@ -52,8 +51,8 @@ def master_timetable(
             select(AdministrativeClass).where(AdministrativeClass.college_id == service.college_id)
         )
     }
-    enrollments = EnrollmentService(service.db)
     roster_cache = {}
+    roster_details_cache = {}
     result = []
     for schedule, teaching, course in rows:
         weeks = sorted(row.week_no for row in schedule.weeks)
@@ -64,32 +63,36 @@ def master_timetable(
             if week_no
             else min(max(business_today(), semester.start_date), semester.end_date)
         )
-        if day not in roster_cache:
-            roster_cache[day] = index.at(day)
-        roster = roster_cache[day].get(teaching.id, [])
-        class_ids = set()
-        for student in roster:
-            enrollment = enrollments.at(student.id, day)
-            class_id = (
-                enrollment.administrative_class_id
-                if enrollment
-                else student.administrative_class_id
+        cache_key = (teaching.id, day)
+        if cache_key not in roster_details_cache:
+            if day not in roster_cache:
+                roster_cache[day] = index.at(day)
+            roster = roster_cache[day].get(teaching.id, [])
+            class_ids = set()
+            for student in roster:
+                enrollment = index.enrollment_at(student.id, day)
+                class_id = (
+                    enrollment.administrative_class_id
+                    if enrollment
+                    else student.administrative_class_id
+                )
+                if class_id not in classes or (
+                    enrollment and enrollment.college_id != service.college_id
+                ):
+                    raise ConflictError(message="正式名单包含未核实或外院归属，请先处理教务名单")
+                class_ids.add(class_id)
+            details = [classes[cid] for cid in sorted(class_ids)]
+            teachers = (
+                "、".join(dict.fromkeys(row.head_teacher for row in details if row.head_teacher))
+                or None
             )
-            if class_id not in classes or (
-                enrollment and enrollment.college_id != service.college_id
-            ):
-                raise ConflictError(message="正式名单包含未核实或外院归属，请先处理教务名单")
-            class_ids.add(class_id)
+            counselors = (
+                "、".join(dict.fromkeys(row.counselor for row in details if row.counselor)) or None
+            )
+            roster_details_cache[cache_key] = (roster, class_ids, details, teachers, counselors)
+        roster, class_ids, details, teachers, counselors = roster_details_cache[cache_key]
         if administrative_class_id is not None and administrative_class_id not in class_ids:
             continue
-        details = [classes[cid] for cid in sorted(class_ids)]
-        teachers = (
-            "、".join(dict.fromkeys(row.head_teacher for row in details if row.head_teacher))
-            or None
-        )
-        counselors = (
-            "、".join(dict.fromkeys(row.counselor for row in details if row.counselor)) or None
-        )
         physical = is_physical_education(course.course_name)
         item = MasterTimetableItemResponse(
             id=schedule.id,

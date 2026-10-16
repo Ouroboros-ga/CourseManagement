@@ -60,14 +60,16 @@ class ScopedAcademicService:
         scope = resolve_scope(self.db, self.actor, self.college_id, action, write=write)
         return ScopedAcademicRepository(self.db, scope)
 
-    def _dto(self, row, *, as_of=None):
+    def _dto(self, row, *, as_of=None, enrollment=None, week_nos=None):
         result = self.campus._dto(row)
         if row.__tablename__ == "student":
-            from app.modules.academic.enrollment_service import EnrollmentService
             from app.modules.identity.role_scope import business_today
 
             day = as_of or business_today()
-            enrollment = EnrollmentService(self.db).at(row.id, day)
+            if enrollment is None:
+                from app.modules.academic.enrollment_service import EnrollmentService
+
+                enrollment = EnrollmentService(self.db).at(row.id, day)
             result["as_of"] = day.isoformat()
             result["enrollment_snapshot"] = enrollment.snapshot if enrollment else None
             result["enrollment_source"] = "DATED" if enrollment else "CURRENT_LEGACY"
@@ -77,22 +79,28 @@ class ScopedAcademicService:
                     if enrollment.administrative_class_id
                     else None
                 )
-                result["college_id"] = str(enrollment.college_id) if enrollment.college_id else None
-                result["enrollment_status"] = enrollment.status
-                result["status"] = "ACTIVE" if enrollment.status == "ENROLLED" else enrollment.status
-        if row.__tablename__ == "course_schedule":
-            # 不触发被禁止的关系隐式加载；子行只能经已授权父行查询。
-            from sqlalchemy import select
-
-            from app.modules.academic.models import CourseScheduleWeek
-
-            result["week_nos"] = list(
-                self.db.scalars(
-                    select(CourseScheduleWeek.week_no)
-                    .where(CourseScheduleWeek.schedule_id == row.id)
-                    .order_by(CourseScheduleWeek.week_no)
+                result["college_id"] = (
+                    str(enrollment.college_id) if enrollment.college_id else None
                 )
-            )
+                result["enrollment_status"] = enrollment.status
+                result["status"] = (
+                    "ACTIVE" if enrollment.status == "ENROLLED" else enrollment.status
+                )
+        if row.__tablename__ == "course_schedule":
+            if week_nos is not None:
+                result["week_nos"] = week_nos
+            else:
+                from sqlalchemy import select
+
+                from app.modules.academic.models import CourseScheduleWeek
+
+                result["week_nos"] = list(
+                    self.db.scalars(
+                        select(CourseScheduleWeek.week_no)
+                        .where(CourseScheduleWeek.schedule_id == row.id)
+                        .order_by(CourseScheduleWeek.week_no)
+                    )
+                )
         return result
 
     def list_rows(self, kind: str, params: PageParams, **filters):
@@ -106,8 +114,64 @@ class ScopedAcademicService:
             # 名单维护者需要选择教学班；仓储已明确允许该动作，不授予课表等其他读取。
             repo = self._repo("student.manage")
         rows, total = repo.page(kind, params, **filters)
+        if kind == "students" and rows:
+            from sqlalchemy import or_, select
+
+            from app.modules.academic.enrollment_models import StudentEnrollment
+            from app.modules.identity.role_scope import business_today
+
+            day = filters.get("as_of") or business_today()
+            student_ids = [r.id for r in rows]
+            enrollments = list(
+                self.db.scalars(
+                    select(StudentEnrollment)
+                    .where(
+                        StudentEnrollment.student_id.in_(student_ids),
+                        StudentEnrollment.superseded.is_(False),
+                        StudentEnrollment.effective_from <= day,
+                        or_(
+                            StudentEnrollment.effective_to.is_(None),
+                            StudentEnrollment.effective_to > day,
+                        ),
+                    )
+                    .order_by(
+                        StudentEnrollment.effective_from.desc(),
+                        StudentEnrollment.revision.desc(),
+                    )
+                )
+            )
+            enrollment_map = {}
+            for e in enrollments:
+                if e.student_id not in enrollment_map:
+                    enrollment_map[e.student_id] = e
+            items = [
+                self._dto(
+                    row,
+                    as_of=filters.get("as_of"),
+                    enrollment=enrollment_map.get(row.id),
+                )
+                for row in rows
+            ]
+        elif kind == "schedules" and rows:
+            from collections import defaultdict
+
+            from sqlalchemy import select
+
+            from app.modules.academic.models import CourseScheduleWeek
+
+            schedule_ids = [r.id for r in rows]
+            weeks_map = defaultdict(list)
+            for sid, wno in self.db.execute(
+                select(CourseScheduleWeek.schedule_id, CourseScheduleWeek.week_no)
+                .where(CourseScheduleWeek.schedule_id.in_(schedule_ids))
+                .order_by(CourseScheduleWeek.week_no)
+            ):
+                weeks_map[sid].append(wno)
+            items = [self._dto(row, week_nos=weeks_map[row.id]) for row in rows]
+        else:
+            items = [self._dto(row, as_of=filters.get("as_of")) for row in rows]
         return {
-            "items": [self._dto(row, as_of=filters.get("as_of")) for row in rows],
+            "items": items,
             "total": total,
             "page": params.page,
             "page_size": params.page_size,

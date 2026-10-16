@@ -27,7 +27,7 @@ export function useCollegeDeadlines(collegeId: () => string, canManage: () => bo
       for (const row of result) drafts[row.inspection_date] = formatBeijingTime(row.deadline_at, 'minute').slice(11, 16)
     } catch (e) {
       if (ticket.isCurrent()) error.value = e instanceof Error ? e.message : '截止配置读取失败'
-    } finally { if (ticket.isCurrent()) busy.value = false }
+    } finally { if (ticket.isLatest()) busy.value = false }
   }
 
   async function save(row: CollegeDeadline) {

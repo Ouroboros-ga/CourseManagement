@@ -24,7 +24,9 @@ export function useImportWizard() {
   onUnmounted(() => { active = false; generation++ })
   function ticket() {
     const captured = context(), selected = selection(), revision = ++generation
-    return () => active && revision === generation && captured === context() && selected === selection()
+    const check = () => active && revision === generation && captured === context() && selected === selection()
+    check.isLatest = () => !active || revision === generation
+    return check
   }
   async function upload() {
     if (!canUpload.value || busy.value) return
@@ -49,7 +51,7 @@ export function useImportWizard() {
         }
       }
       if (current()) { busy.value = false; selectedIds.value = found.map(row => row.id) }
-    } finally { if (current()) busy.value = false }
+    } finally { if (current.isLatest()) busy.value = false }
   }
   async function review() {
     if (busy.value || !selectedIds.value.length) return
@@ -59,7 +61,7 @@ export function useImportWizard() {
       const response = await previewImportSet(session.workspaceCollegeId, [...selectedIds.value])
       if (current()) plan.value = response
     } catch (e) { if (current()) error.value = e instanceof Error ? e.message : '核对失败' }
-    finally { if (current()) busy.value = false }
+    finally { if (current.isLatest()) busy.value = false }
   }
   async function confirm() {
     if (!plan.value?.can_confirm || busy.value || result.value) return
@@ -73,7 +75,7 @@ export function useImportWizard() {
         error.value = e instanceof Error ? e.message : '未收到确认结果，可重试同一集合，不会重复写入'
         if (e && typeof e === 'object' && 'status' in e && e.status === 409) plan.value = null
       }
-    } finally { if (current()) busy.value = false }
+    } finally { if (current.isLatest()) busy.value = false }
   }
   return { target, teachingClassId, files, drafts, selectedIds, plan, result, busy, error, uploadErrors, canUpload, upload, review, confirm }
 }

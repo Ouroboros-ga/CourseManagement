@@ -131,7 +131,7 @@ async function fetchTasks() {
   } catch (err: unknown) {
     if (ticket.isCurrent()) console.error('获取任务列表失败:', err)
   } finally {
-    if (ticket.isCurrent()) loading.value = false
+    if (ticket.isLatest()) loading.value = false
   }
 }
 

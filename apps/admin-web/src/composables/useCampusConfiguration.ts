@@ -51,7 +51,7 @@ export function useCampusConfiguration() {
       groups.value = groupRows
     } catch (e) {
       if (ticket.isCurrent()) error.value = e instanceof Error ? e.message : '获取配置失败'
-    } finally { if (ticket.isCurrent()) busy.value = false }
+    } finally { if (ticket.isLatest()) busy.value = false }
   }
   watch(userId, () => {
     workspaceEpoch.invalidate(); epoch.invalidate()
