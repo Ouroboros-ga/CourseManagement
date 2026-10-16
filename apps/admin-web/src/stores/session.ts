@@ -27,7 +27,8 @@ export const useSessionStore = defineStore('session', () => {
 
   async function refreshWorkspaces() {
     const epoch = ++workspaceEpoch, actorId = currentUser.value?.id
-      configureWorkspace(null, '')
+    // Keep routing and visible permissions on one snapshot until refresh completes.
+    // Resetting only the HTTP context here invalidates in-flight reads without a UI reload.
     workspaceError.value = ''
     try {
       const mode = await request<CampusRuntime>('/api/v1/me/campus-runtime')

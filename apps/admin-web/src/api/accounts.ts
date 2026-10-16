@@ -81,6 +81,8 @@ export async function createTeacherAccount(body: TeacherAccountCreatePayload): P
   return request<TeacherAccountItem>('/api/v1/teacher-accounts', {
     method: 'POST',
     body: JSON.stringify({
+      college_id: body.college_id,
+      can_view_school_summary: body.can_view_school_summary ?? false,
       username: body.username.trim(),
       display_name: body.display_name.trim(),
       initial_password: body.initial_password || 'Teacher@123456'
