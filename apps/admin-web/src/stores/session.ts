@@ -137,9 +137,12 @@ export const useSessionStore = defineStore('session', () => {
         const storedId = localStorage.getItem('preferred_semester_id') || ''
         const candidateId = preferredId || currentSemester.value?.id || storedId
 
-        // 明确选择的历史学期也须保留；只在选择不存在时回退到有效学期。
+        // 明确选择的历史学期也须保留；只在选择不存在或非显式指定且已归档时回退到有效学期。
         const activeList = semesters.value.filter(s => s.status === 'ACTIVE')
         let target = candidateId ? semesters.value.find(s => String(s.id) === String(candidateId)) : null
+        if (!preferredId && target && target.status === 'ARCHIVED' && activeList.length > 0) {
+          target = activeList[0]
+        }
         if (!target) {
           target = activeList[0] || semesters.value.find(s => s.status === 'ACTIVE') || semesters.value[0]
         }

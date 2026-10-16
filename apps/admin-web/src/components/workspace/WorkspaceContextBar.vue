@@ -56,8 +56,8 @@ function weekChanged(event: Event) {
     <span class="divider">｜</span>
     <template v-if="mode === 'semester'">
       <select aria-label="业务学期" :value="session.currentSemesterId" @change="semesterChanged">
-        <option v-if="!session.semesters.length" value="">暂无学期</option>
-        <option v-for="row in session.semesters" :key="row.id" :value="row.id">{{ row.name }}{{ row.status === 'ARCHIVED' ? '（已归档）' : '' }}</option>
+        <option v-if="!session.activeSemesters.length" value="">暂无有效学期</option>
+        <option v-for="row in session.activeSemesters" :key="row.id" :value="row.id">{{ row.name }}</option>
       </select>
       <template v-if="showsWeek && session.currentSemesterId">
         <select aria-label="教学周" :value="session.currentWeekNo" @change="weekChanged">
