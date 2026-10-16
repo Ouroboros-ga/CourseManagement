@@ -177,7 +177,12 @@ async function handleLogout() {
         <div class="brand-wrap">
           <img :src="schoolLogo" alt="绍兴理工学院校徽" class="brand-logo" />
           <div class="brand-titles">
-            <div class="college-name font-serif">{{ sessionStore.workspace?.name || '学院工作区' }}</div>
+            <div
+              class="college-name font-serif"
+              :title="sessionStore.workspace?.name || '学院工作区'"
+            >
+              {{ sessionStore.workspace?.name || '学院工作区' }}
+            </div>
             <div class="system-name font-serif">查课管理后台</div>
           </div>
         </div>
@@ -261,20 +266,24 @@ async function handleLogout() {
   top: 0;
   height: 100vh;
   background: var(--paper);
+  overflow-x: hidden;
 }
 .side-brand {
-  padding: 0 20px 24px;
+  padding: 0 16px 20px;
   border-bottom: 1px solid var(--line);
   margin-bottom: 24px;
+  overflow: hidden;
 }
 .brand-wrap {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  overflow: hidden;
 }
 .brand-logo {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
@@ -285,22 +294,32 @@ async function handleLogout() {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  flex: 1;
+  overflow: hidden;
 }
 .brand-titles .college-name {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--ink);
-  letter-spacing: 0.04em;
-  line-height: 1.25;
-  white-space: nowrap;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .brand-titles .system-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--ink-soft);
   letter-spacing: 0.03em;
   line-height: 1.25;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .side-nav { flex: 1; overflow-y: auto; }
@@ -448,12 +467,13 @@ async function handleLogout() {
   min-width: 0;
 }
 .topbar {
-  height: 48px;
+  min-height: 48px;
+  height: auto;
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32px;
+  padding: 6px 32px;
   flex-shrink: 0;
   background: var(--paper);
 }

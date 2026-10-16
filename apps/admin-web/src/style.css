@@ -326,6 +326,8 @@ select.input { cursor: pointer; }
   color: var(--ink-mute);
   max-width: 680px;
   line-height: 1.5;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .page-head .head-actions {
   margin-top: 10px;

@@ -34,7 +34,7 @@ async function run(confirm = false) {
     <p>下面只推荐上课资料一致的教学班。请结合教务资料确认是否确为同一教学班；同名平行班请保持独立。关联不会共享学生名单、管理权限或考勤结果。</p>
     <el-alert v-if="error || loadError" :title="error || loadError" type="error" :closable="false" />
     <el-table :data="candidates?.items || []" empty-text="没有匹配候选，保留学院独立记录即可正常使用">
-      <el-table-column prop="college_name" label="维护学院" /><el-table-column prop="class_name" label="教学班" />
+      <el-table-column prop="college_name" label="维护学院" min-width="160" show-overflow-tooltip /><el-table-column prop="class_name" label="教学班" />
       <el-table-column label="时间地点"><template #default="{ row }"><p v-for="(m, i) in row.facts.meetings" :key="i">星期{{ m.weekday }} · 第{{ m.start_period }}—{{ m.end_period }}节 · {{ m.room }} · {{ m.teacher }} · 周次 {{ m.weeks.join('、') }}<br /><span v-for="t in m.times || []" :key="t.week">第{{ t.week }}周 {{ t.start || '时间待配置' }}—{{ t.end || '待配置' }}；</span></p></template></el-table-column>
       <el-table-column label="选择"><template #default="{ row }"><el-radio v-model="target" :value="row.teaching_class_id" :disabled="saving || row.already_linked">{{ row.already_linked ? '已关联' : '核对此班' }}</el-radio></template></el-table-column>
     </el-table>
