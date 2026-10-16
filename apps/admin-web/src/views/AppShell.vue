@@ -14,6 +14,7 @@ const router = useRouter()
 const route = useRoute()
 const sessionStore = useSessionStore()
 const { key: workspaceKey } = useWorkspaceContext()
+const viewKey = computed(() => `${sessionStore.workspaceCollegeId || ''}:${sessionStore.currentSemesterId || ''}:${sessionStore.currentUser?.id || ''}`)
 useWorkspaceChanges()
 const mobileNavigation = ref(false)
 const badgeEpoch = new ContextEpoch(() => workspaceKey.value)
@@ -272,7 +273,7 @@ async function handleLogout() {
         <el-alert v-if="sessionStore.workspaceError" :title="sessionStore.workspaceError" type="error" :closable="false" />
         <RouterView v-slot="{ Component }">
           <transition name="fade" mode="out-in">
-            <component :is="Component" :key="`${route.path}:${workspaceKey}`" />
+            <component :is="Component" :key="`${route.path}:${viewKey}`" />
           </transition>
         </RouterView>
       </main>

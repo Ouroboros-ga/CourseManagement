@@ -73,30 +73,54 @@ function weekChanged(event: Event) {
 <style scoped>
 .workspace-context {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 12px;
   width: 100%;
   min-width: 0;
+  min-height: 34px;
 }
 select {
   max-width: 300px;
-  padding: 7px 10px;
+  height: 32px;
+  line-height: 30px;
+  padding: 0 10px;
   border: 1px solid var(--line);
   background: var(--paper);
   border-radius: 5px;
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
+  box-sizing: border-box;
 }
 .current-workspace-name {
   max-width: 280px;
+  height: 32px;
+  line-height: 32px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: inline-block;
-  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
 }
-.divider, .range, .current-label { color: var(--ink-mute); font-size: 12px; }
-.refresh { margin-left: auto; border: 0; background: transparent; color: var(--blue); cursor: pointer; flex-shrink: 0; }
+.divider, .range, .current-label {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  line-height: 32px;
+  color: var(--ink-mute);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.refresh {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  cursor: pointer;
+  flex-shrink: 0;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+}
 </style>
