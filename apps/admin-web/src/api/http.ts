@@ -77,7 +77,13 @@ export async function request<T = unknown>(
   responseType: 'json' | 'blob' = 'json'
 ): Promise<T> {
   const headers = new Headers(init.headers || {})
-  headers.set('Accept', 'application/json')
+  if (responseType === 'blob') {
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/octet-stream, */*')
+    }
+  } else {
+    headers.set('Accept', 'application/json')
+  }
 
   if (!headers.has('Content-Type') && init.body && typeof init.body === 'string') {
     headers.set('Content-Type', 'application/json')
