@@ -35,6 +35,14 @@ const canEditSchoolTemplates = computed(
   () => sessionStore.hasAnyRole('SUPER_ADMIN') && !!sessionStore.campusRuntime?.scheduling
 )
 const schoolId = ref('')
+watch(canEditSchoolTemplates, async ready => {
+  if (!ready || schoolId.value) return
+  try {
+    schoolId.value = (await listSchools())[0]?.id || ''
+  } catch {
+    /* 学校主体尚未初始化时模板页签留空即可 */
+  }
+}, { immediate: true })
 
 // ==================== 1. 学期管理 ====================
 const semesters = ref<SemesterItem[]>([])
@@ -558,13 +566,6 @@ onMounted(async () => {
   await fetchPeriods()
   await fetchCalendarOverrides()
   loading.value = false
-  if (canEditSchoolTemplates.value && !schoolId.value) {
-    try {
-      schoolId.value = (await listSchools())[0]?.id || ''
-    } catch {
-      /* 学校主体尚未初始化时模板页签留空即可 */
-    }
-  }
 })
 </script>
 
