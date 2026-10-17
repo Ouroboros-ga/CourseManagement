@@ -28,9 +28,11 @@ from app.modules.academic.staff_models import FacultyStaff
 from app.modules.attendance.repository import AttendanceRepository
 from app.modules.attendance.schemas import (
     AttendanceCorrectionRequest,
+    AttendanceVersionResponse,
     ManagementAttendanceResponse,
 )
 from app.modules.attendance.service import AttendanceService
+from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.role_scope import business_today
 from app.modules.identity.service import CurrentUser
@@ -48,6 +50,33 @@ class StaffTeachingAttendanceService:
         self._repo = AttendanceRepository(db)
         self._attendance = AttendanceService(db)
 
+    def _guard(self, actor: CurrentUser, staff_ref: CurrentStaff, *, lock: bool):
+        """账号与档案当前都有效；写入口加锁重读，历史读取不持行锁。"""
+        if lock:
+            account = self._identity.get_user_by_id_for_update(actor.id)
+        else:
+            account = self._db.scalar(
+                select(UserAccount)
+                .where(UserAccount.id == actor.id)
+                .execution_options(populate_existing=True)
+            )
+        if account is None or account.status != "ACTIVE":
+            raise UnauthenticatedError("操作者账号不可用")
+        stmt = select(FacultyStaff).where(
+            FacultyStaff.id == staff_ref.staff_id,
+            FacultyStaff.user_id == actor.id,
+        )
+        if lock:
+            stmt = stmt.with_for_update()
+        profile = self._db.execute(
+            stmt.execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if profile is None:
+            raise NotFoundError("教职工档案不存在")
+        if profile.status != "ACTIVE":
+            raise PermissionDeniedError("教职工档案已停用")
+        return account, profile
+
     def correct_teaching(
         self,
         actor: CurrentUser,
@@ -57,20 +86,7 @@ class StaffTeachingAttendanceService:
         request_id: str | None = None,
     ) -> ManagementAttendanceResponse:
         """更正本人授课覆盖的教学班考勤；授权失效/非本人课程一律拒绝。"""
-        account = self._identity.get_user_by_id_for_update(actor.id)
-        if account is None or account.status != "ACTIVE":
-            raise UnauthenticatedError("操作者账号不可用")
-        profile = self._db.execute(
-            select(FacultyStaff)
-            .where(
-                FacultyStaff.id == staff_ref.staff_id,
-                FacultyStaff.user_id == actor.id,
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        ).scalar_one()
-        if profile.status != "ACTIVE":
-            raise PermissionDeniedError("教职工档案已停用")
+        self._guard(actor, staff_ref, lock=True)
 
         record = self._repo.get_record_for_update(record_id)
         if record is None:
@@ -104,6 +120,25 @@ class StaffTeachingAttendanceService:
             raise
         self._db.commit()
         return self._attendance._assemble([record])[0]
+
+    def teaching_versions(
+        self, actor: CurrentUser, staff_ref: CurrentStaff, record_id: int
+    ) -> list[AttendanceVersionResponse]:
+        """本人授课记录的认定历史：卡片允许 `view_history` 必须有对应入口，
+        不能只过滤列表却把历史留给需要全院 `attendance.read` 的旧接口。"""
+        self._guard(actor, staff_ref, lock=False)
+        record = self._repo.get_record(record_id)
+        if record is None:
+            raise NotFoundError("考勤记录不存在或无权访问")
+        task = self._db.scalar(
+            select(InspectionTask)
+            .where(InspectionTask.id == record.task_id)
+            .execution_options(populate_existing=True)
+        )
+        if task is None:
+            raise NotFoundError("考勤记录不存在或无权访问")
+        self._assert_teaching_coverage(actor.id, task)
+        return self._attendance.assemble_versions(record_id)
 
     def _assert_teaching_coverage(self, user_id: int, task: InspectionTask) -> None:
         """锁内复核本人当前有效授课关系同时覆盖记录任务与课次日期。"""

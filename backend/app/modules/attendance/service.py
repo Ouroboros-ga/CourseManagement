@@ -185,6 +185,14 @@ class AttendanceService:
         record = self._repo.get_record(record_id)
         if record is None or not self._can_read(actor, record):
             raise NotFoundError("考勤记录不存在或不可见")
+        return self.assemble_versions(record_id)
+
+    def assemble_versions(self, record_id: int) -> list[AttendanceVersionResponse]:
+        """把某条记录的历史认定装配为响应；不含权限判定。
+
+        全院读取入口与教工本人授课入口各自先完成范围核验，再共用同一份历史口径，
+        避免第二条实现漂移出不同的“更正轨迹”解释。
+        """
         return [
             AttendanceVersionResponse(
                 id=v.id,

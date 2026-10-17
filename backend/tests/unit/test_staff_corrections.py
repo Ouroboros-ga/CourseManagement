@@ -22,6 +22,7 @@ from app.modules.inspection.models import InspectionTask
 from app.modules.organization.models import College, School
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 COURSE_DAY = date(2026, 10, 7)  # 星期三，第 6 教学周
 OCC_KEY = "s:1|2026-10-07"
@@ -29,7 +30,9 @@ OCC_KEY = "s:1|2026-10-07"
 
 @pytest.fixture(name="db")
 def correction_db():
-    engine = create_engine("sqlite://")
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     event.listen(engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON"))
     Base.metadata.create_all(engine)
     with Session(engine, expire_on_commit=False) as db:
@@ -359,3 +362,45 @@ def test_correction_leaves_pending_objection_open_and_reports_it(db, monkeypatch
     assert result.objection_status == ObjectionFinalStatus.PENDING.value
     assert result.current_version == 2
     assert bumps == [1]
+
+
+def test_own_history_is_readable_and_foreign_record_stays_hidden(db, monkeypatch):
+    from app.core.exceptions import NotFoundError
+    from app.modules.attendance.models import AttendanceSourceType
+    from app.modules.report.source_revision import SourceRevisionService
+
+    monkeypatch.setattr(SourceRevisionService, "bump_for_task_id", lambda session, tid: None)
+    add_relation(db, local_class=1)
+    ref = staff_ref(db)
+    service(db).correct_teaching(ref.user, ref, 1, request(1), "REQ-H")
+
+    rows = service(db).teaching_versions(ref.user, ref, 1)
+    assert [(v.version_no, v.source_type) for v in rows] == [
+        (2, AttendanceSourceType.CORRECTION.value)
+    ]
+    # 记录 2 属于学院 2 的教学班：本地任命不扩散，历史同样不可见。
+    with pytest.raises(NotFoundError):
+        service(db).teaching_versions(ref.user, ref, 2)
+
+
+def test_history_route_is_mounted_and_narrows_by_teaching_relation(db, monkeypatch):
+    from app.core.database import get_db
+    from app.main import create_app
+    from app.modules.identity.deps import get_current_user
+    from app.modules.report.source_revision import SourceRevisionService
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(SourceRevisionService, "bump_for_task_id", lambda session, tid: None)
+    add_relation(db, local_class=1)
+    ref = staff_ref(db)
+    service(db).correct_teaching(ref.user, ref, 1, request(1), "REQ-HR")
+
+    app = create_app()
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: ref.user
+    with TestClient(app) as client:
+        mine = client.get("/api/v1/me/teaching-attendance/1/versions")
+        assert mine.status_code == 200, mine.text
+        assert [row["version_no"] for row in mine.json()["data"]] == [2]
+        foreign = client.get("/api/v1/me/teaching-attendance/2/versions")
+        assert foreign.status_code == 404, foreign.text
