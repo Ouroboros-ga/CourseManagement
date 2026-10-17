@@ -233,9 +233,18 @@ PRE_BINDING
 ```text
 GET  /me
 POST /me/student-binding
+POST /me/staff-binding
 POST /auth/refresh
 POST /auth/logout
 ```
+
+`GET /me` 在受限会话下返回 `app_context`：本人是否已有有效教职工档案、可进入的工作视图，以及
+`student`/`staff` 两种模式和默认入口。模式与能力摘要只用于决定显示哪个入口，不授予任何资源权限；
+每个资源的授权仍逐请求由服务端从有效关系计算，不接受客户端提交的角色切换标签、`staff_id` 或
+`college_id`。
+
+绑定教职工档案后，本人查课卡片、统计、导出和本人可见材料按“教工读取范围”一节逐请求判定；
+学生本人课表与本人考勤继续要求有效学生身份，不因绑定教工档案而放宽。
 
 禁止访问：
 
@@ -859,6 +868,12 @@ submission_deadline.manage
 | `POST /imports/{id}/confirm` | `import.execute` + 对应目标权限 |
 | `GET /imports/{id}/errors` | `import.execute` + 对应目标权限 |
 
+教职工三类目标（`faculty_staff`、`class_responsibility`、`teaching_assignment`）不对应旧的学籍或
+排班权限：预览、模板下载和确认都要求 `import.execute` 加本学院范围的 `staff.manage`，两个条件
+缺任一即 403。`student.manage` 或 `course_schedule.import` 不能导入教职工档案、任命班主任/辅导
+员或建立授课关系；学院范围由 URL 的 `cid` 决定，动作与学院不能拼接。确认阶段按批次记录的真实资
+料种类重新授权，与预览使用同一条件。
+
 ---
 
 ## 12.6 任务与排班
@@ -1270,3 +1285,78 @@ read 与 manage 分别配置，Web 维护还需相应 read 能力。当前授权
 - `statistics.school.read` 延续已发布规则，只提供明确的校级汇总查看，不授予全校学生明细、文件或写权限。新双维度汇总沿用此授权。
 - 全校学期归档仅超管明确确认；普通任务写入、新异议和普通考勤更正对已归档学期拒绝。归档更正还须真实教师/超管身份及该负责学院的 `attendance.correct`，强制原因和当前版本，追加审计与历史认定，不解冻其他业务。
 - 本人考勤仍按具体记录与其任务访问。跨院多条记录的照片和异议分别核验，不因共享课程或学生当前归属而串院。
+
+## 2026-10-17 教工协作权限（已实现，未部署）
+
+本轮不新增角色。教工能力由一个院级虚拟动作和一组本人范围谓词构成，动作定义在
+`identity/authorization.py`，与学院配置动作同表管理但不映射到任何旧 Permission code。
+
+| 动作 | 当前行为 |
+| --- | --- |
+| `staff.manage` | 本院教职工档案增删改与启停、账号关联/解绑、授课关系与班级责任关系的建立/结束/交接、绑定码签发与撤销、教职工三类资料导入 |
+
+`staff.manage` 只由超管通过明确 `scoped_grant` 或固定学院管理员身份产生；教师、学籍管理员、
+志愿者负责人都不默认拥有，也不从 `student.manage`、`course_schedule.import`、
+`academic.manage` 派生。动作与 `cid` 必须同时有效：拥有 A 学院的管理能力不能读写 B 学院档案，
+也不能拼接成全院授权。档案写入按学院—账号—档案—稳定父资源—关系顺序加锁，使用 `lock_version`
+乐观并发，过期返回 409；关键事实、版本和审计在同一事务提交。
+
+管理入口在 `/api/v1/colleges/{cid}/...`，同时受 `CAMPUS_CONFIGURATION_ENABLED` 与
+`CAMPUS_ACADEMIC_SCOPED_ENABLED` 控制，未启用时返回 503 而不是降级放行。
+
+**绑定码**：`POST /colleges/{cid}/staff/{staff_id}/binding-tokens` 只在本院 `staff.manage` 下签发，
+数据库仅存摘要（`staff_binding_token.token_hash`），明文码不入库、不入审计。兑换走
+`POST /me/staff-binding`（工号 + 码），一次性原子兑换：行锁下已用或已过期的码返回 409，工号不匹配
+只增加失败次数并返回 422，已关联其他账号的档案不能被抢绑。兑换不创建账号、不授予角色、不合并
+同名档案，也不改变学生的 PRE_BINDING 语义。撤销已签发的码需要同一学院 `staff.manage`；已兑换的
+码保留签发历史。
+
+**本人读取范围**：`/api/v1/me/inspection-records`（卡片、`/summary`、`/{task_id}`、
+`/{task_id}/attendance`、`/export`）按每次请求从有效关系计算，不读取客户端提交的 `staff_id`、
+`college_id` 或模式标签。判定要求账号、档案与学院三者当前有效且学院与档案同校，因此停用档案、
+解绑后失效或学院停用都会使下一次读取立即拒绝，而不需要重启会话。
+
+| 视图 | 范围 |
+| --- | --- |
+| 授课（`view=teaching`） | `LOCAL` 只命中该本地教学班；`SHARED` 只通过教学班上已确认的共享身份扩展，并要求学校与学期一致。课程名、教师姓名、教室不参与授权 |
+| 责任班级（`view=responsible`） | 只统计本人有效责任关系覆盖的行政班；学生子集取任务名单快照中的行政班，不使用学生当前班级，也不泄露同任务其他学生 |
+
+尚未形成正式考勤的课次返回 `counts=null`，未查课不计为缺勤；跨学院任务分别展示与统计，不合并
+判定。导出与明细共用同一谓词，先授权后分页，直接访问无权 `task_id` 被拒绝。
+
+**材料与照片**：现场照片与异议证明材料逐文件判定（`file/staff_access.py`），复用同一读取谓词。
+任课教师可访问本人授权课次的照片；班主任/辅导员仅在任务归属学院为本人档案学院、且名单快照中
+存在本人责任班学生时可访问。跨院只读汇总不隐含材料权限：能看到汇总不等于能取原图签名链接。
+教工本人材料访问独立于学生绑定，因此已关联有效档案的受限会话不被学生守卫挡在门外；学生与管理员
+的原有文件守卫未放宽。
+
+**本人写入与审核范围**：读取谓词同时就是写入谓词，教工本人入口不引入新的权限码，也不借用管理员码。
+
+| 入口 | 判定 | 边界 |
+| --- | --- | --- |
+| `POST /me/teaching-attendance/{record_id}/corrections` | 该记录的当前有效**授课**关系覆盖其任务，与 `view=teaching` 同一谓词 | 不要求 `attendance.correct`；跨院授课只放开那门课，不解锁该学院其他资料。`current_version` 不符 409，绝不覆盖他人新认定；追加 `CORRECTION` 版本、更新的是原任务负责学院的报表源修订。**不结案任何异议**，已发起的异议继续由责任学院审核 |
+| `GET /me/teaching-attendance/{record_id}/versions` | 同上授课谓词，逐请求重算 | 只读入口不加 `FOR UPDATE` 行锁；越界与不存在统一 404。卡片 `allowed_actions` 里的 `view_history` 只是显示提示，不是授权令牌 |
+| `GET/PATCH /me/teaching-classes/{id}/occurrences/{occurrence_key}/location` | 该教学班的授课关系当前有效（`LOCAL` 锚点即该班，`SHARED` 需已确认共享身份） | 只联动该真实课次尚未完成的任务；已完成、已取消、已形成考勤的任务保留现场原地点，历史快照不改写。PATCH 带所见 `revision`，冲突 409 |
+| `POST /me/responsible-objections/{objection_id}/review` | 本人有效责任关系覆盖名单快照中的该生班级，**且**任务由本人档案所属学院负责 | 不要求 `objection.final_review`，学院全局审核权限与责任区审核互不派生。外院任务在列表里 `can_review=false`，复制请求调用得到 403（要求由该学院审核）；不在本人责任范围得到 404 防枚举。改判以**审核时**的考勤版本起版，被他人推进后未刷新即 409 |
+
+责任区一次审核与管理员终审复用同一条状态机和同一套版本链、审计、报表源修订（`objection/staff_service.py`
+继承 `ObjectionService.apply_final_review`），只是范围谓词不同，不存在第二套审批。职责结束、换届交接、
+档案停用或学院停用之后，下一次读取、导出、照片签名与写入立即按新范围判断，不需要等待会话过期。
+
+管理端 Web 的入口判定同样不放宽管理权限：`workspaceNavigation` 只为考勤页增加 `allowSelfScope`，
+纯教工（无任何管理权限）由此能进入“我的授课/我的班级/我的待处理异议”，但教务、学籍、排班、报表、
+教职工档案等学院管理页仍按原有能力判定，`staff.manage` 缺失即不显示也不可访问。
+
+**导入**：`faculty_staff`、`class_responsibility`、`teaching_assignment` 是 `import_batch.target`
+的正式取值（迁移 `f26a1017s003` 放宽 CHECK），不再借用 `admin_roster`/`timetable` 别名。授权要求
+见 12.5：`import.execute` + 本院 `staff.manage`。工号严格保留前导零、按学校内唯一档案匹配；只有
+姓名时同名多人或未知工号一律阻断，不自动授权；责任列为空或整行缺失不结束现有任职；授课锚点必须
+显式填写，留空按 `LOCAL`，不会因为教学班恰好挂有共享身份而自动升级为跨院可见的 `SHARED`。
+
+导入与院级管理接口共用同一套写入判定（`academic/staff_rules.py` 与 `StaffRepository` 的区间谓词）：
+半开区间 `[effective_from, effective_to)`、同锚点重叠拒绝、LOCAL/SHARED 覆盖同一共享身份拒绝、
+交接开始日必须晚于在任起始日。差别只在编排——管理接口一次一个操作，导入整批在单一提交点原子
+落库，任一冲突全部回滚。约束冲突一律映射为 409，不暴露为 500。
+
+`/me` 的 `app_context` 只提供入口显示信息与默认模式，不是授权凭据；所有资源授权逐请求重算。
+真实 MySQL 并发（锁顺序与一次性兑换）尚未在独立 `*_test` 库验证，本轮只有 SQLite 单元证据。

@@ -91,8 +91,8 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 | 日期 | 2026-09-27（按当前代码修订） |
 | 权限基线 | [PERMISSIONS.md V1.1](./PERMISSIONS.md)（第 12 节 API 映射为权威来源） |
 | 当前实施对照 | [实施状态](development/IMPLEMENTATION_STATUS.md)；旧本地权限实施文档不再作为仓库入口 |
-| 范围 | 描述当前 `main.py` 已注册的 P1–P7 及管理补全 API；P7 统计与版本化周报见附录 F。实际完整路径及 152 个操作见 [API_INDEX.md](./API_INDEX.md)，机器可读 schema 见 [openapi.json](./openapi.json)。管理补全综合回归进行中；正式学校模板与真实微信前端联调仍待验收。 |
-| 代码 | `backend/app/modules/identity/{router,service,schemas,repository,wechat,deps}.py`、`backend/app/modules/audit/models.py`、`backend/app/modules/academic/{router,service,schemas,repository,models}.py`、`backend/app/modules/importer/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/inspection/*`、`backend/app/modules/attendance/*`、`backend/app/modules/file/*`、`backend/app/modules/objection/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/report/`、`backend/app/common/parsing/{time_slots,xlsx_tabular}.py` |
+| 范围 | 描述当前 `main.py` 已注册的 P1–P7、管理补全与 2026-10-17 教工协作 API；P7 统计与版本化周报见附录 F，教工契约见“教工协作增量契约”。实际完整路径及 329 个路径、390 个操作见 [API_INDEX.md](./API_INDEX.md)，机器可读 schema 见 [openapi.json](./openapi.json)。管理补全综合回归进行中；正式学校模板与真实微信前端联调仍待验收，教工入口尚未部署。 |
+| 代码 | `backend/app/modules/identity/{router,service,schemas,repository,wechat,deps,staff_binding,staff_deps,staff_scope}.py`、`backend/app/modules/audit/models.py`、`backend/app/modules/academic/{router,service,schemas,repository,models,staff_router,staff_service,staff_schemas,staff_repository,staff_rules}.py`、`backend/app/modules/importer/{router,service,schemas,repository,models,permissions,staff_adapter}.py`、`backend/app/modules/inspection/*`（含 `staff_record_{router,query,schemas}.py`）、`backend/app/modules/attendance/*`、`backend/app/modules/file/*`（含 `staff_access.py`）、`backend/app/modules/objection/{router,service,schemas,repository,models,permissions}.py`、`backend/app/modules/report/`（含 `staff_export.py`）、`backend/app/common/parsing/{time_slots,xlsx_tabular}.py` |
 
 ## 1. 通用约定
 
@@ -207,7 +207,9 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 ## 6. PRE_BINDING 受限会话语义（PERMISSIONS.md 1.6）
 
 PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **且** 无任何角色时成立。
-- 放行白名单：`GET /me`、`POST /me/student-binding`、`POST /auth/refresh`、`POST /auth/logout`（登录类不算业务白名单）。
+- 放行白名单：`GET /me`、`POST /me/student-binding`、`POST /me/staff-binding`、`POST /auth/refresh`、`POST /auth/logout`（登录类不算业务白名单）。
+- 教职工本人入口不使用学生守卫：`/me/inspection-records*` 与教工材料访问逐请求核对有效档案，
+  因此已关联档案的受限会话可以读取本人范围；`require_binding_complete` 继续只保护学生本人接口。
 - 刷新只能延续该受限态，不能因旧令牌曾含角色而获得管理入口。
 - 功能权限守卫（`require_permission`）天然拦住受限用户的业务访问（其 `permissions` 为空）；`require_binding_complete` 为「依赖本人 student_id」的接口再加一道纵深。
 - Web 管理员不受此态影响（持有角色）。
@@ -441,7 +443,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | `GET /objections` | `objection.read \| initial_review \| final_review`（任一） | Service 解析范围：`MANAGE` 全量 / `OWN` 加 `student_id=本人` 谓词 / `NONE` 403。分页 + `attendance_record_id/final_status/initial_status` 过滤 |
 | `GET /objections/{objection_id}` | 同上（任一） | 越界/不可见与不存在统一 404 防枚举；`MANAGE` 可读任意、`OWN` 仅本人 |
 | `POST /objections/{objection_id}/initial-review` | `objection.initial_review` | `ObjectionInitialReviewRequest{decision∈{PASSED,REJECTED},comment?(≤512)}`。锁异议行，`initial_status≠PENDING` → 409 `STATE_CONFLICT`；置状态/处理人/时刻/意见，**绝不改考勤**，审计 `objection.initial_review` |
-| `POST /objections/{objection_id}/final-review` | `objection.final_review` | `ObjectionFinalReviewRequest{decision∈{APPROVED,REJECTED},final_type?(∈全集),comment?,current_version(ge1)}`。先探异议（不加锁，缺失 404）→ `AttendanceRecord` `FOR UPDATE` → 异议 `FOR UPDATE` 重读；`final_status≠PENDING` → 409。`REJECTED` 不改考勤。`APPROVED` 须给 `final_type`（缺 422）；`final_type≠effective_type` 即"更正"，须另持 `attendance.correct`（否则 403），且 `current_version==record.current_version` 且 `record.current_version==base_attendance_version`（任一不符 409 `VERSION_CONFLICT`，不覆盖他人新认定），通过则同事务改 `effective_type`、`current_version=base+1`、**追加** `AttendanceRecordVersion(source=OBJECTION_FINAL,source_id=objection.id)`。审计 `objection.final_review`（before/after 含考勤） |
+| `POST /objections/{objection_id}/final-review` | `objection.final_review` | `ObjectionFinalReviewRequest{decision∈{APPROVED,REJECTED},final_type?(∈全集),comment?,current_version(ge1)}`。先探异议（不加锁，缺失 404）→ `AttendanceRecord` `FOR UPDATE` → 异议 `FOR UPDATE` 重读；`final_status≠PENDING` → 409。`REJECTED` 不改考勤。`APPROVED` 须给 `final_type`（缺 422）；`final_type≠effective_type` 即"更正"，须另持 `attendance.correct`（否则 403），且 `current_version==record.current_version`（不符 409 `VERSION_CONFLICT`，不覆盖他人新认定），通过则同事务改 `effective_type`、**以当前版本起版** `current_version=record.current_version+1`、**追加** `AttendanceRecordVersion(source=OBJECTION_FINAL,source_id=objection.id)`；判定与当前认定相同时不改考勤、不校验版本。审计 `objection.final_review`（before/after 含考勤，after 记 `attendance_changed_since_filing` 与 `base_attendance_version`）|
 
 状态机：`initial_status∈{PENDING,PASSED,REJECTED}`、`final_status∈{PENDING,APPROVED,REJECTED}`（`PENDING` 即"未完成异议"）。`Objection` 用 `TimestampMixin`（可变流转，有 `updated_at`）；`attendance_record_id` 随考勤 `CASCADE`，`student_id` 对主数据 `RESTRICT`。`ObjectionFile` 联合主键、`file_id` 对文件 `RESTRICT`。
 
@@ -646,3 +648,62 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 ### 迁移回退边界
 
 三个新增迁移是本轮唯一新增链。迁移前先核对既有重叠责任；有冲突在 MySQL DDL 前阻断，不静默删历史。迁移演练在服务器临时库执行。产生跨院同编码目录后不能盲目降回全局唯一约束；降级先拒绝并要求核对备份，不自动删课程。应用回退不得把新增业务事实当作可丢弃草稿。
+
+## 教工协作增量契约（2026-10-17，本地已实现，未部署）
+
+对应迁移 `f26a1017s001`（档案与任职关系表）、`f26a1017s002`（绑定凭据表）、`f26a1017s003`
+（`import_batch.target` 放宽）。响应中的 ID 一律字符串（避免 JavaScript 截断 BIGINT），路径与查询
+参数按整数接收并校验范围，请求体里的关联 ID 用字符串（`^[1-9][0-9]{0,18}$`）。关系区间统一半开
+`[effective_from, effective_to)`，`effective_to` 为空表示仍在任，非空时必须晚于 `effective_from`。
+写入口要求 `lock_version`，不符返回 409 `VERSION_CONFLICT`；数据库约束冲突（唯一工号、锚点
+CHECK、区间 CHECK、外键）一律映射为 409，不返回 500。事实、版本与审计同事务提交。
+
+### 院级管理入口（`staff.manage`，受 `CAMPUS_CONFIGURATION_ENABLED` 与 `CAMPUS_ACADEMIC_SCOPED_ENABLED` 控制，未启用 503）
+
+| 功能 | 路径与方法 | 主要约束 |
+| --- | --- | --- |
+| 档案列表/建立 | `GET/POST /api/v1/colleges/{cid}/staff` | POST body `staff_no`（保留前导零，学校内唯一）、`name`、可选 `phone`、`status`、`reason`。跨学院重号 409 |
+| 档案读取/修改 | `GET/PATCH /api/v1/colleges/{cid}/staff/{staff_id}` | PATCH 必带 `lock_version`，且至少修改一个档案字段；姓名与状态不得置空 |
+| 账号关联/解绑 | `PUT /api/v1/colleges/{cid}/staff/{staff_id}/account`，同前缀 `POST /account-unlink` | 只关联已存在账号，不读取姓名做匹配，不创建账号、不改角色与权限；档案已绑他账号或账号已绑他档案 409 |
+| 绑定码签发/撤销 | `POST /api/v1/colleges/{cid}/staff/{staff_id}/binding-tokens`，`POST /api/v1/colleges/{cid}/staff-binding-tokens/{token_id}/revoke` | 库内只存摘要，明文只在签发响应出现一次；已兑换的码不可撤销复用，重复撤销幂等 |
+| 授课关系 | `GET/POST /api/v1/colleges/{cid}/teaching-staff-assignments`，同前缀 `POST /{rid}/end` | `anchor_type=LOCAL` 只给 `teaching_class_id`，`SHARED` 只给 `academic_offering_id`，另一个必须为空（数据库 CHECK 同规则）。同锚点重叠、或 LOCAL 与 SHARED 覆盖同一共享身份 → 409 |
+| 班级责任关系 | `GET/POST /api/v1/colleges/{cid}/class-staff-responsibilities`，同前缀 `POST /{rid}/end`、`POST /{rid}/handover` | `duty` 为 `HEAD_TEACHER`/`COUNSELOR`；关系只落在档案所属学院的行政班。同班同职责在职重叠 409。`handover` body `successor_staff_id`、`effective_on`、`lock_version`，一个事务内结束旧关系并建立新关系，交接日必须晚于在任起始日，接班人档案须有效且非同一人 |
+
+`end` 的 `effective_to` 早于开始日拒绝；延长区间同样重查重叠，不制造并存的第二条在任关系。
+
+### 本人入口（无学院开关，逐请求按有效档案判定）
+
+| 功能 | 路径与方法 | 主要约束 |
+| --- | --- | --- |
+| 进入教职工身份 | `POST /api/v1/me/staff-binding` | body `staff_no` + `binding_code`。一次性原子兑换：已用/过期 409，工号不匹配只累计失败次数并 422，已关联账号的档案不能被抢绑。姓名与手机号不作为认领依据 |
+| 入口能力摘要 | `GET /api/v1/me` | 响应含 `app_context`：`modes`、`default_mode`、`administrator` 与 `staff.views.teaching/responsible`。仅用于显示入口，不构成授权 |
+| 本人查课卡片 | `GET /api/v1/me/inspection-records?view=teaching\|responsible` | 可选 `semester_id`、`inspection_date`、`date_from`、`date_to`、`teaching_class_id`、`administrative_class_id`、`responsible_college_id`、`course_name`、`page`、`page_size`（≤200）。SQL 先授权后分页 |
+| 卡片详情与明细 | 同前缀 `/{task_id}`、`/{task_id}/attendance` | `view` 必填并参与授权判定；明细只返回有权范围内的学生，责任视图不泄露同任务其他学生。无正式考勤时 `counts=null`，未查课不计缺勤 |
+| 汇总与导出 | 同前缀 `/summary`、`/export` | `/summary` 按学院与整体分列，跨学院任务不合并；`/export` 产出 xlsx，`Content-Disposition` 用 `filename*=UTF-8''`，与明细共用同一谓词 |
+| 本人认定更正 | `POST /api/v1/me/teaching-attendance/{record_id}/corrections` | body `attendance_type`、`current_version`（所见版本）、可选 `reason`。逐记录核对有效授课关系后复用管理员同一更正事务：追加 `CORRECTION` 版本、推进 `current_version`、更新报表源修订（指向原任务负责学院数据域）。版本不符 409，不覆盖他人认定；**不触碰异议状态**，已发起的异议继续待责任学院审核 |
+| 本人认定历史 | `GET /api/v1/me/teaching-attendance/{record_id}/versions` | 与卡片 `allowed_actions` 的 `view_history` 配套；只读入口不持 `FOR UPDATE`，先核对本人当前授课关系覆盖该任务，越界与不存在统一 404；复用 `assemble_versions`，不另建投影 |
+| 指定课次换教室 | `GET/PATCH /api/v1/me/teaching-classes/{teaching_class_id}/occurrences/{occurrence_key}/location` | PATCH body `location`（`null` 表示恢复课表原地点）、`revision`（所见地点版本）、可选 `reason`。只联动该真实课次尚未完成的任务，已完成/已取消/已形成考勤的任务保留现场原地点；GET 不加行锁。并发写冲突回滚后最多重试三次，仍冲突 409 |
+| 责任区异议与一次审核 | `GET /api/v1/me/responsible-objections`、`GET …/{objection_id}`、`POST …/{objection_id}/review` | 列表/详情只聚合本人有效责任关系覆盖的学生；逐条返回 `can_review` 与 `review_block_reason`。审核复用管理员终审同一条状态机（`decision/final_type/comment/current_version`），锁序为学院锚点→考勤→异议；不在本人范围统一 404 防枚举，任务确属外院负责 403 要求由该学院审核，版本过期或已结案 409 |
+
+审核改判所需的考勤版本以**审核时**的版本为准：教师更正等合法写入推进版本后，责任学院按刷新后的
+`current_version` 重新提交即可结案，不再要求考勤版本等于异议发起时的 `base_attendance_version`
+（旧规则会让异议在被更正后永久无法审核，而学生有一条未完成异议时不能再次发起）。发起版本与本次
+落差记入审计的 `attendance_changed_since_filing` 与 `base_attendance_version`，版本链完整保留。
+
+材料访问（现场照片、异议证明）在文件域按逐文件事实判定：任课教师限本人授权课次，班主任/辅导员
+限本院任务且名单快照中存在本人责任班学生；跨院只读汇总不隐含材料权限。撤权或档案停用后下一次
+读取或签名即拒绝。
+
+### 教职工资料导入
+
+目标值 `faculty_staff`、`class_responsibility`、`teaching_assignment` 直接作为
+`import_batch.target` 落库（`f26a1017s003` 放宽 CHECK），不再借用 `admin_roster`/`timetable` 别名；
+历史批次仍按 `payload.import_type` 识别。模板下载、预览与确认要求 `import.execute` 加本院
+`staff.manage`，确认阶段按批次真实种类重新授权。请求走既有 `/api/v1/colleges/{cid}/imports` 与确认
+集合契约，无新增端点。
+
+解析与写入约定：工号按字符串匹配并保留前导零；只有姓名时同名多人或未知工号阻断，不自动授权；
+责任列为空或整行缺失不结束现有任职；授课锚点必须显式，留空按 `LOCAL`，无效值报
+`INVALID_ANCHOR_TYPE`；同锚点重叠或跨锚点覆盖同一共享身份在预览给出
+`MULTIPLE_TEACHING_OVERLAP`/`ANCHOR_OVERLAP`，确认阶段 409；补录区间只更新与之重叠的那条任命，
+不影响不重叠的历史记录。整批在确认集合的单一提交点落库，任一行失败全部回滚，重试不重复。
