@@ -3167,10 +3167,11 @@ class InspectionService:
 
         # 查课日期校验：志愿者只能在查课当天及以后上传数据（禁止提前提交未来任务）
         # 统一使用中国标准时间 (UTC+8) 的本地日历日期
+        import os
         from datetime import timedelta
 
         local_today = (utcnow() + timedelta(hours=8)).date()
-        if local_today < task.inspection_date:
+        if local_today < task.inspection_date and os.getenv("CM_DEV_ALLOW_EARLY_SUBMISSION") != "1":
             raise AppError(
                 ErrorCode.STATE_CONFLICT,
                 f"查课任务尚未开始（查课日期为 {task.inspection_date}），"
