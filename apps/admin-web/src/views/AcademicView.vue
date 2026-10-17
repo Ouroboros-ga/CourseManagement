@@ -13,11 +13,15 @@ import ImportHome from '../components/academic/ImportHome.vue'
 const session = useSessionStore()
 const route = useRoute()
 const router = useRouter()
+// 学院独立作息是全校级节次之外的另一套数据，只有两个运行开关同时开启才可能配置；
+// 开关未开时整页无内容可填，因此不显示页签，而不是留下一个只能读提示的空页签。
+const collegeTimeReady = computed(() => !!session.campusRuntime?.business_scoped && !!session.campusRuntime?.scheduling)
 const tabs = computed(() => [
   ...(session.hasPermission('academic.read') ? [{ id: 'timetable', label: '正式课表' }, { id: 'classes', label: '教学班与分类' }] : []),
   ...(['import.execute', 'course_schedule.import'].some(p => session.hasPermission(p)) ? [{ id: 'imports', label: '资料准备' }] : []),
   ...(session.hasPermission('academic.course_type.read') ? [{ id: 'types', label: '课程类型' }] : []),
-  ...(session.hasPermission('academic.manage') ? [{ id: 'time', label: '作息与校历' }, { id: 'publication', label: '发布给学生' }] : [])
+  ...(session.hasPermission('academic.manage') && collegeTimeReady.value ? [{ id: 'time', label: '本院作息与校历' }] : []),
+  ...(session.hasPermission('academic.manage') ? [{ id: 'publication', label: '发布给学生' }] : [])
 ])
 const tab = usePageTabs(() => tabs.value.map(row => row.id))
 
@@ -61,10 +65,7 @@ watch(
             <div v-else-if="tab === 'types'" key="types">
               <CourseTypeManager :college-id="scope.collegeId" :rows="scope.types" :can-manage="scope.can('academic.course_type.manage')" @changed="scope.reload" />
             </div>
-            <div v-else-if="tab === 'time'" key="time">
-              <CollegeTimeConfiguration v-if="session.campusRuntime?.business_scoped && session.campusRuntime?.scheduling" :college-id="scope.collegeId" />
-              <el-alert v-else title="学院作息业务尚未启用；已有学校节次与校历可在“学期与平台设置”中按权限维护。" type="info" :closable="false" />
-            </div>
+            <CollegeTimeConfiguration v-else-if="tab === 'time'" key="time" :college-id="scope.collegeId" />
             <AcademicPublication v-else key="publication" :college-id="scope.collegeId" />
           </Transition>
         </CampusWorkspace>

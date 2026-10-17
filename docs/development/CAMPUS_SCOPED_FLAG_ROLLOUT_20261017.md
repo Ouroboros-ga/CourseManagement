@@ -106,7 +106,7 @@ A02/A03/A04 直接落在"打开 business_scoped 后才会走到的新链路"上�
 
 ### 4.2 前端
 
-- 页签显隐与运行开关不一致：`views/AcademicView.vue:20` 只看 `academic.manage` 能力就渲染"作息与校历""发布给学生"，靠子组件的 `campusRuntime` 判断降级；`components/campus/CampusConfiguration.vue:55` 用 `:disabled="!schedulingReady"`。两种写法并存，审计 §1 已点名。统一成一处：由 `campusRuntime` 决定入口是否出现，能力只决定能否操作。
+- ~~页签显隐与运行开关不一致：`views/AcademicView.vue` 只看 `academic.manage` 能力就渲染"作息与校历""发布给学生"，靠子组件的 `campusRuntime` 判断降级；`components/campus/CampusConfiguration.vue:55` 用 `:disabled="!schedulingReady"`。两种写法并存，审计 §1 已点名。~~ 已统一：`AcademicView` 的本院作息页签改由 `campusRuntime.business_scoped && campusRuntime.scheduling` 决定是否出现，页签存在即可用，不再渲染只能读提示的空页签；`CampusConfiguration.vue` 整页无任何路由引用，已删除（见第 9 节）。剩余同类写法在 `views/InspectionsView.vue:32,34,37`（`sampling`/`deadlines`/`impacts` 页签存在但内容降级为提示），本轮未动。
 - 已经正确跟随开关的：`views/TaskListView.vue:547`（节次上限 6 与 60）、`components/academic/TeachingSchedule.vue:51`、`components/campus/CampusDimensions.vue:10`、`views/InspectionsView.vue:30-32`、`views/OrganizationsView.vue:27,34`、`views/SchoolView.vue:43`。这些不用动，但要一起回归。
 - 作息数据在开关为假时全部 403：`api/collegeTime.ts`、`api/schoolTime.ts`、`api/timeProfiles.ts`、`api/schoolTimeTemplates.ts` 的失败目前只落到组件内的 error 条，没有统一的"功能未启用"识别。建议后端把 403 换成可判别的 code，前端据此显示说明而不是红色报错。
 
@@ -126,7 +126,7 @@ A02/A03/A04 直接落在"打开 business_scoped 后才会走到的新链路"上�
 
 ## 6. 建议执行顺序
 
-1. ~~修前端空白页签缺陷（独立于开关，见第 8 节），并把页签显隐统一到 `campusRuntime`。~~ 空白缺陷已定位为 out-in 过渡多根子组件并修复（`19438bb`）；页签显隐统一到 `campusRuntime` 仍未做。
+1. ~~修前端空白页签缺陷（独立于开关，见第 8 节），并把页签显隐统一到 `campusRuntime`。~~ 空白缺陷已定位为 out-in 过渡多根子组件并修复（`19438bb`）；教务资料的本院作息页签显隐已统一到 `campusRuntime`，作息入口的作用域拆分见第 9 节；`InspectionsView` 的页签显隐仍按旧写法。
 2. 定稿 3.2 的白名单判定：账号权限类、files、school 级路径各自要不要学院前缀；改 `workspaceHttp.ts` 并补单测。
 3. 修 A02/A03/A04（A01/A05 同批），每项带能失败的回归用例。
 4. 完成第 5 节的存量归属与分类，产出前后计数对比。
@@ -149,4 +149,30 @@ A02/A03/A04 直接落在"打开 business_scoped 后才会走到的新链路"上�
 
 已按调用点包单元素根的方式修复，并加静态守卫 `apps/admin-web/tests/transition-root-invariant.test.mjs` 遍历全部 `mode="out-in"` Transition。证据见[过渡单根修复发布记录](../archive/2026-10-17/operations/TRANSITION_ROOT_RELEASE_20261017.md)。
 
-仍待处理：`CampusAdministration`、`GroupManager`、`ImportHome` 等组件本身仍是多根，目前只靠调用点包裹规避；新页面把它们直接放进 out-in Transition 会重新触发同一缺陷，由上述测试拦截。
+仍待处理：`GroupManager`、`ImportHome` 等组件本身仍是多根，目前只靠调用点包裹规避；新页面把它们直接放进 out-in Transition 会重新触发同一缺陷，由上述测试拦截。`CampusAdministration` 与 `TeacherCollegeEditor` 已在第 9 节的重排中改为单根 `<section>`。
+
+## 9. 作息入口与学院管理页的作用域拆分（2026-10-17）
+
+用户报告"学校与学院管理"页逻辑混乱：同屏出现两个学院选择器，学校作息模板编辑器挂在"学院、教师与授权"页签里，而作息入口在"教务资料→作息与校历""学期与平台设置"也各有一处。
+
+先纠正一个前提：这三处**不是同一份数据**，不能简单当成冗余删掉。
+
+| 入口 | 实际编辑的对象 | 后端 | 生产可用 |
+| --- | --- | --- | --- |
+| 学期与平台设置 → 节次作息时间表 | 当前全校学期的节次定义 | `GET/PUT /api/v1/academic/semesters/{sid}/period-definitions/{no}` | 是 |
+| 学期与平台设置 → 学校作息模板（本次移入） | 学院可引用的全校可复用模板及不可变版本 | `/api/v1/schools/{sid}/time-templates` | 否（写路径要求超管，消费端受 scheduling 开关） |
+| 教务资料 → 本院作息与校历 | 学院自己的作息版本、校历与网格映射 | `/api/v1/colleges/{cid}/academic/semesters/{sid}/time-versions` | 否（`CAMPUS_SCHEDULING_ENABLED=false`） |
+
+本次改动：
+
+- `CampusAdministration.vue` 去掉 `SchoolTimeTemplates` 与"当前学院：改名/停用"两块，只剩学院结构创建与授权/任命；根节点改为单 `<section>`。
+- `SchoolTimeTemplates.vue` 与 `TimePeriodEditor.vue` 移入 `SettingsView.vue` 第四个页签"学校作息模板"，由 `hasAnyRole('SUPER_ADMIN') && campusRuntime.scheduling` 控制显隐。**不能直接删除**：`TimeProfiles.vue` 的"从学校模板导入"（`importTemplateDraft`、`listTemplateUpdates`）是它的唯一消费端，删掉编辑入口会让 P3 开启后模板列表恒为空。
+- `AcademicView.vue` 的本院作息页签改由 `campusRuntime.business_scoped && campusRuntime.scheduling` 决定出现，页签名改为"本院作息与校历"与全校级区分；删掉原先只能读提示的降级条。
+- `SchoolView.vue` 把"管理对象"提升为页面上方上下文条，选择器、状态标签、重命名、停用/恢复集中在此，并明确说明它不切换当前业务工作区。全页只剩这一个学院选择器。
+- `TeacherCollegeEditor.vue` 不再显示裸 `college_id`，改显示"现在的归属 / 已归属「本院」"，按钮带目标学院名，已绑定时禁用；`handoff` 由原来的 `[object Object]` 改为可读摘要。
+- `CollegeGrantEditor.vue` 把"未选择的资源不开放""受限授权暂不支持导入、报表和全院教学数据动作"从段落改为随"资源范围"选择实时变化的字段提示，并给范围与动作选择器加占位说明。
+- 删除 `components/campus/CampusConfiguration.vue`：它不在任何路由里（`/dashboard/campus` 渲染的是 `CampusView.vue` 的迁移说明页），却是上述三处作息重叠里的第三处，保留会误导后续改动。
+
+静态守卫：`apps/admin-web/tests/college-admin-scope.test.mjs` 固定这五条边界（学院与授权组件不含作息与改名、全页仅一个学院选择器、作息页签跟随开关、模板编辑在设置页且限超管、已删除页面不被接回路由）。
+
+未做：`InspectionsView` 的 `sampling`/`deadlines`/`impacts` 仍是"页签存在但内容降级为提示"的旧写法；本次未动，避免把开关改造扩到查课页。

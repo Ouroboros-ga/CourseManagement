@@ -7,7 +7,7 @@ import { campusActionLabels, listCourseTypes, listGroups, listGrants, previewGra
 import { listScopedAcademic } from '../../api/scopedAcademic'
 import { ContextEpoch } from '../../utils/contextEpoch'
 
-const props = defineProps<{ collegeId: string }>()
+const props = defineProps<{ collegeId: string; collegeName: string }>()
 const emit = defineEmits<{ changed: [] }>()
 const accounts = ref<RoleAssignmentTarget[]>([]), grants = ref<ScopedGrant[]>([])
 const options = ref<{ id: string; name: string }[]>([])
@@ -16,6 +16,12 @@ const form = reactive({ user_id: '', actions: [] as string[], kind: 'GROUPS' as 
 const epoch = new ContextEpoch(() => props.collegeId)
 const limited = new Set(['inspection.read', 'inspection.roster.read', 'inspection.roster.manage', 'inspection.generate', 'inspection.cancel', 'assignment.manage', 'assignment.change_review', 'submission.read', 'submission.review', 'attendance.read', 'attendance.correct', 'attendance.expected_count_adjust', 'objection.read', 'objection.final_review', 'volunteer.group.read', 'volunteer.group.manage', 'volunteer.member.manage', 'volunteer.config.publish'])
 const actionOptions = computed(() => Object.entries(campusActionLabels).filter(([code]) => form.kind === 'COLLEGE' || (limited.has(code) && (form.kind === 'GROUPS' || !code.startsWith('volunteer.')))))
+const scopeHint = computed(() => {
+  if (form.kind === 'COLLEGE') return '覆盖本院全部资源，包括以后新增的班级、组与课表；只有这个范围能授权导入、报表、统计、学生与教学数据等全院动作。'
+  return form.kind === 'GROUPS'
+    ? '只有这里勾选的组对该账号开放，其余组不可见、不可操作。导入、报表与全院教学数据需要改用“整个学院”范围。'
+    : '只有这里勾选的类型或班级对该账号开放，其余资源不可见、不可操作；志愿者组类动作和导入、报表、全院教学数据需要改用“整个学院”范围。'
+})
 const accountName = (id: string) => accounts.value.find(row => row.id === id)?.display_name || `账号 ${id}`
 async function load() {
   const ticket = epoch.begin()
@@ -89,15 +95,20 @@ onUnmounted(() => { epoch.invalidate(); optionSerial++ })
 </script>
 <template>
   <section>
-    <h3>跨学院与组织范围授权</h3>
-    <p>教师默认管理本学院。这里配置额外授权；未选择的资源不开放。受限授权暂不支持导入、报表和全院教学数据动作。</p>
+    <h3>跨范围授权 · {{ collegeName }}</h3>
+    <p>教师默认管理本学院，这里配置的是额外授权。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-form label-position="top" :disabled="busy">
       <el-button @click="preset">使用组织负责人配置</el-button>
       <el-form-item label="被授权账号"><el-select v-model="form.user_id" filterable><el-option v-for="row in accounts" :key="row.id" :value="row.id" :label="`${row.display_name}（${row.username || row.id}）`" /></el-select></el-form-item>
-      <el-form-item label="资源范围"><el-select v-model="form.kind"><el-option value="GROUPS" label="指定志愿者组" /><el-option value="COURSE_TYPES" label="指定课程类型" /><el-option value="TEACHING_CLASSES" label="指定教学班" /><el-option value="COLLEGE" label="整个学院" /></el-select></el-form-item>
-      <el-form-item v-if="form.kind !== 'COLLEGE'" label="明确选择资源"><el-select v-model="form.ids" multiple filterable :loading="loadingOptions"><el-option v-for="row in options" :key="row.id" :value="row.id" :label="row.name" /></el-select></el-form-item>
-      <el-form-item label="允许操作"><el-select v-model="form.actions" multiple><el-option v-for="[code, label] in actionOptions" :key="code" :value="code" :label="label" /></el-select></el-form-item>
+      <el-form-item label="资源范围">
+        <el-select v-model="form.kind"><el-option value="GROUPS" label="指定志愿者组" /><el-option value="COURSE_TYPES" label="指定课程类型" /><el-option value="TEACHING_CLASSES" label="指定教学班" /><el-option value="COLLEGE" label="整个学院" /></el-select>
+        <p class="scope-hint">{{ scopeHint }}</p>
+      </el-form-item>
+      <el-form-item v-if="form.kind !== 'COLLEGE'" label="明确选择资源">
+        <el-select v-model="form.ids" multiple filterable :loading="loadingOptions" placeholder="留空即不开放任何资源"><el-option v-for="row in options" :key="row.id" :value="row.id" :label="row.name" /></el-select>
+      </el-form-item>
+      <el-form-item label="允许操作"><el-select v-model="form.actions" multiple placeholder="未勾选的动作不授予"><el-option v-for="[code, label] in actionOptions" :key="code" :value="code" :label="label" /></el-select></el-form-item>
       <el-form-item label="授权截止（本地时间，留空长期有效）"><el-date-picker v-model="form.expires" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" /></el-form-item>
       <el-button type="primary" :loading="busy" :disabled="!form.user_id || !form.actions.length || (form.kind !== 'COLLEGE' && !form.ids.length)" @click="save">预览并确认授权</el-button>
     </el-form>
@@ -113,4 +124,5 @@ onUnmounted(() => { epoch.invalidate(); optionSerial++ })
 <style scoped>
 section { margin-top: 28px; }
 .el-select { width: 100%; }
+.scope-hint { margin: 4px 0 0; font-size: 12px; line-height: 1.6; color: var(--ink-soft); }
 </style>

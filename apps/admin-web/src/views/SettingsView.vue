@@ -20,12 +20,21 @@ import {
   type CalendarOverrideItem
 } from '../api/academic'
 import AppIcon from '../components/AppIcon.vue'
+import SchoolTimeTemplates from '../components/campus/SchoolTimeTemplates.vue'
+import { listSchools } from '../api/campus'
 import { ContextEpoch } from '../utils/contextEpoch'
 
 const sessionStore = useSessionStore()
 
-const activeTab = ref<'semester' | 'periods' | 'rules'>('semester')
+const activeTab = ref<'semester' | 'periods' | 'rules' | 'schoolTemplates'>('semester')
 const loading = ref(false)
+
+// 学校作息模板是学院独立作息（P3）的模板来源，与本页“节次作息时间表”不是同一份数据：
+// 前者是学院可引用的可复用模板，后者直接决定当前全校排课与查课的节次时刻。
+const canEditSchoolTemplates = computed(
+  () => sessionStore.hasAnyRole('SUPER_ADMIN') && !!sessionStore.campusRuntime?.scheduling
+)
+const schoolId = ref('')
 
 // ==================== 1. 学期管理 ====================
 const semesters = ref<SemesterItem[]>([])
@@ -549,6 +558,13 @@ onMounted(async () => {
   await fetchPeriods()
   await fetchCalendarOverrides()
   loading.value = false
+  if (canEditSchoolTemplates.value && !schoolId.value) {
+    try {
+      schoolId.value = (await listSchools())[0]?.id || ''
+    } catch {
+      /* 学校主体尚未初始化时模板页签留空即可 */
+    }
+  }
 })
 </script>
 
@@ -664,6 +680,15 @@ onMounted(async () => {
       >
         <AppIcon name="shield" :size="14" />
         <span>查课业务规则</span>
+      </button>
+      <button
+        v-if="canEditSchoolTemplates"
+        class="tab-btn"
+        :class="{ active: activeTab === 'schoolTemplates' }"
+        @click="activeTab = 'schoolTemplates'"
+      >
+        <AppIcon name="clock" :size="14" />
+        <span>学校作息模板</span>
       </button>
     </div>
 
@@ -924,6 +949,19 @@ onMounted(async () => {
           </ul>
         </div>
       </div>
+    </div>
+
+    <!-- ==================== Tab 4: 学校作息模板 ==================== -->
+    <div v-if="activeTab === 'schoolTemplates'" class="space-y-4">
+      <div class="banner" style="border-color: var(--blue); background: var(--blue-soft);">
+        <div class="b-desc">
+          本页“节次作息时间表”决定当前全校排课与查课的实际节次；下面的学校作息模板只是供学院引用的可复用方案。保存模板不会改动全校节次，也不会改动任何学院现行作息。
+        </div>
+      </div>
+      <div v-if="!schoolId" class="panel">
+        <p class="text-xs text-[var(--ink-mute)]">尚未初始化学校主体，无法建立全校作息模板。</p>
+      </div>
+      <SchoolTimeTemplates v-else :key="schoolId" :school-id="schoolId" />
     </div>
 
     <!-- 弹窗 1: 开启新学期 -->
