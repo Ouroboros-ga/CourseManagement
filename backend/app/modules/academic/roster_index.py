@@ -94,6 +94,36 @@ class RosterIndex:
             .order_by(StudentEnrollment.effective_from.desc(), StudentEnrollment.revision.desc())
         ).scalars():
             self.enrollments[enrollment.student_id].append(enrollment)
+        # 反向索引：把 at() 的「每个学生扫全部教学班」降为只扫可能命中的那几个。
+        self._dated_by_student: dict[int, list[tuple[int, date, date | None]]] = defaultdict(list)
+        for tid, members in self.dated.items():
+            for member in members:
+                self._dated_by_student[member.student_id].append(
+                    (tid, member.effective_from, member.effective_to)
+                )
+        self._legacy_by_student: dict[int, set[int]] = defaultdict(set)
+        for tid, sids in self.legacy.items():
+            for sid in sids:
+                self._legacy_by_student[sid].add(tid)
+        self._audiences_by_class: dict[int | None, set[int]] = defaultdict(set)
+        for tid, cids in self.audiences.items():
+            for cid in cids:
+                self._audiences_by_class[cid].add(tid)
+
+    def _candidate_teaching_ids(
+        self, student_id: int, class_id: int | None, on_date: date
+    ) -> set[int]:
+        """该学生在指定日期可能进入的教学班：显式参与、旧名单、整班受众三路并集。"""
+        explicit = {
+            tid
+            for tid, effective_from, effective_to in self._dated_by_student.get(student_id, ())
+            if effective_from <= on_date and (effective_to is None or on_date < effective_to)
+        }
+        return (
+            explicit
+            | self._legacy_by_student.get(student_id, set())
+            | self._audiences_by_class.get(class_id, set())
+        )
 
     def enrollment_at(self, student_id: int, on_date: date) -> StudentEnrollment | None:
         timeline = self.enrollments.get(student_id, [])
@@ -141,15 +171,6 @@ class RosterIndex:
 
     def at(self, on_date: date) -> dict[int, list[Student]]:
         result: dict[int, list[Student]] = {tid: [] for tid in self.ids}
-        explicit = {
-            tid: {
-                m.student_id
-                for m in members
-                if m.effective_from <= on_date
-                and (m.effective_to is None or on_date < m.effective_to)
-            }
-            for tid, members in self.dated.items()
-        }
         for student in self.students:
             timeline = self.enrollments[student.id]
             enrollment = next(
@@ -170,11 +191,6 @@ class RosterIndex:
                 if timeline or student.status != "ACTIVE":
                     continue
                 class_id = student.administrative_class_id
-            for tid in self.ids:
-                if (
-                    student.id in explicit.get(tid, set())
-                    or student.id in self.legacy[tid]
-                    or class_id in self.audiences[tid]
-                ):
-                    result[tid].append(student)
+            for tid in self._candidate_teaching_ids(student.id, class_id, on_date):
+                result[tid].append(student)
         return result
