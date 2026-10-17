@@ -62,6 +62,16 @@ export const useSessionStore = defineStore('session', () => {
   const userRoles = computed(() => currentUser.value?.roles || [])
   const permissions = computed(() => new Set(currentUser.value?.permissions || []))
 
+  // 本人教职工视图：只决定入口是否出现与视图切换，不授予任何学院管理权限。
+  const staffContext = computed(() => currentUser.value?.app_context?.staff || null)
+  const staffViews = computed(() => ({
+    teaching: !!staffContext.value?.views?.teaching,
+    responsible: !!staffContext.value?.views?.responsible
+  }))
+  const isStaffOnly = computed(() =>
+    !!staffContext.value && !currentUser.value?.app_context?.administrator
+  )
+
   function hasPermission(perm: string): boolean {
     if (workspaceMode.value && Object.prototype.hasOwnProperty.call(campusActionLabels, perm)) {
       return !!workspace.value?.capabilities.includes(perm)
@@ -237,6 +247,9 @@ export const useSessionStore = defineStore('session', () => {
     isAuthenticated,
     userRoles,
     permissions,
+    staffContext,
+    staffViews,
+    isStaffOnly,
     hasPermission,
     hasAnyRole,
     setSemester,

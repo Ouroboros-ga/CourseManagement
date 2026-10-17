@@ -7,11 +7,14 @@ export interface WorkspacePage {
   permissions: string[]
   superOnly?: boolean
   capability?: string
+  /** 无全院权限但具备本人教职工视图时也可进入；页面内只显示本人范围页签。 */
+  allowSelfScope?: boolean
 }
 export interface WorkspaceActor {
   hasPermission: (code: string) => boolean
   hasAnyRole: (...codes: string[]) => boolean
   workspace?: { capabilities: string[] } | null
+  staffViews?: { teaching: boolean; responsible: boolean }
 }
 export const primaryPages: WorkspacePage[] = [
   { id: 'home', label: '工作台', path: '/dashboard/home', permissions: [] },
@@ -19,7 +22,7 @@ export const primaryPages: WorkspacePage[] = [
   { id: 'students', label: '学生与班级', path: '/dashboard/students', permissions: ['student.read', 'student.manage', 'academic.read', 'identity.binding.manage'] },
   { id: 'organizations', label: '志愿者组织', path: '/dashboard/organizations', permissions: ['volunteer.read', 'volunteer.manage', 'volunteer.group.read'] },
   { id: 'inspections', label: '查课安排', path: '/dashboard/inspections', permissions: ['inspection.read', 'inspection.generate', 'assignment.manage', 'submission.read'] },
-  { id: 'attendance', label: '考勤与异议', path: '/dashboard/attendance', permissions: ['attendance.read', 'objection.read', 'objection.final_review'] },
+  { id: 'attendance', label: '考勤与异议', path: '/dashboard/attendance', permissions: ['attendance.read', 'objection.read', 'objection.final_review'], allowSelfScope: true },
   { id: 'reports', label: '统计报表', path: '/dashboard/reports', permissions: ['statistics.read', 'report.read', 'statistics.school.read'] }
 ]
 export const auxiliaryPages: WorkspacePage[] = [
@@ -35,7 +38,10 @@ export function canAccessPage(id: string, actor: WorkspaceActor): boolean {
   if (!page) return false
   if (page.superOnly) return actor.hasAnyRole('SUPER_ADMIN')
   if (page.capability) return !!actor.workspace?.capabilities?.includes(page.capability)
-  return !page.permissions.length || page.permissions.some(code => actor.hasPermission(code))
+  if (!page.permissions.length) return true
+  if (page.permissions.some(code => actor.hasPermission(code))) return true
+  // 纯教工无全院权限也不获得任何学院管理入口，只放开带“本人范围”页签的页面。
+  return !!page.allowSelfScope && !!actor.staffViews && (actor.staffViews.teaching || actor.staffViews.responsible)
 }
 export function pageContextMode(id: string, tab = ''): ContextMode {
   if (['students', 'school', 'users', 'staff', 'help'].includes(id)) return 'current'

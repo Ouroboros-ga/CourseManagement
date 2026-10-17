@@ -7,6 +7,21 @@ export interface LoginResult {
   expires_in: number
 }
 
+export interface StaffAppContext {
+  staff_id: string
+  staff_no: string
+  name: string
+  college_id: string
+  views: { teaching: boolean; responsible: boolean }
+}
+
+export interface AppContext {
+  modes: string[]
+  default_mode?: string | null
+  administrator: boolean
+  staff?: StaffAppContext | null
+}
+
 export interface CurrentUser {
   id: string
   username: string
@@ -18,6 +33,8 @@ export interface CurrentUser {
   real_name?: string | null
   class_name?: string | null
   lock_version: number
+  /** 仅用于决定入口是否出现；真实授权逐请求由服务端计算。 */
+  app_context?: AppContext
 }
 
 export async function login(username: string, password: string): Promise<LoginResult> {

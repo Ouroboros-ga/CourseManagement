@@ -13,10 +13,17 @@ import {
   type ObjectionFinalStatus
 } from '../api/objections'
 import {
+  listResponsibleObjections,
+  reviewResponsibleObjection
+} from '../api/staffRecords'
+import {
   getAttendanceRecord,
   type AttendanceRecord,
   type AttendanceType
 } from '../api/attendance'
+
+/** selfScope 模式复用同一套审核交互，只把范围与写入口换成教工本人责任区接口。 */
+const props = defineProps<{ selfScope?: boolean }>()
 
 const sessionStore = useSessionStore()
 const route = useRoute()
@@ -30,6 +37,7 @@ const page = ref(1)
 const total = ref(0)
 let listRequest = 0
 const attendanceMap = ref<Record<string, AttendanceRecord>>({})
+const reviewability = ref<Record<string, { can_review: boolean; review_block_reason?: string | null }>>({})
 
 // 审核表单
 const finalDecision = ref<'LEAVE' | 'NORMAL' | 'LATE' | 'ABSENT' | 'REJECTED'>('LEAVE')
@@ -44,7 +52,8 @@ const typeMap: Record<string, string> = {
 
 async function fetchObjections() {
   const requestId = ++listRequest
-  if (!sessionStore.currentSemesterId) return
+  // 本人责任区不依赖学期目录（纯教工无 academic.read）；学院列表仍按原口径要求选中学期。
+  if (!props.selfScope && !sessionStore.currentSemesterId) return
   loading.value = true
   try {
     let final_status: ObjectionFinalStatus | undefined = undefined
@@ -55,6 +64,26 @@ async function fetchObjections() {
       final_status = 'APPROVED'
     } else if (statusFilter.value === 'REJECTED') {
       final_status = 'REJECTED'
+    }
+
+    if (props.selfScope) {
+      // 责任区列表已按任务名单快照班级与负责学院收窄；不再另拉全院考勤明细。
+      const res = await listResponsibleObjections({
+        semester_id: sessionStore.currentSemesterId,
+        final_status,
+        page: page.value,
+        page_size: 50
+      })
+      if (requestId !== listRequest) return
+      const rows = Array.isArray(res.items) ? res.items : []
+      objections.value = rows.map(row => row.objection)
+      reviewability.value = rows.reduce<Record<string, { can_review: boolean; review_block_reason?: string | null }>>((acc, row) => {
+        acc[row.objection.id] = { can_review: row.can_review, review_block_reason: row.review_block_reason }
+        return acc
+      }, {})
+      total.value = res.total || 0
+      if (activeIndex.value >= objections.value.length) activeIndex.value = 0
+      return
     }
 
     const res = await listObjections({
@@ -115,8 +144,31 @@ const activeObjection = computed<ObjectionItem | null>(() => {
 })
 
 const activeAttendance = computed<AttendanceRecord | null>(() => {
-  if (!activeObjection.value) return null
-  return attendanceMap.value[activeObjection.value.attendance_record_id] || null
+  const obj = activeObjection.value
+  if (!obj) return null
+  if (props.selfScope) {
+    // 本人责任区的考勤基准直接取响应中的当前认定与版本，
+    // 不请求需要全院 attendance.read 的记录明细。
+    const att = obj.attendance
+    if (!att) return null
+    return {
+      id: att.id,
+      task_id: att.task_id,
+      student_id: att.student_id,
+      effective_type: att.effective_type as AttendanceType,
+      current_version: att.current_version,
+      name: obj.student?.name ?? obj.student_name ?? null,
+      student_no: obj.student?.student_no ?? obj.student_no ?? null,
+      task: obj.task
+        ? {
+            course_name_snapshot: obj.task.course_name_snapshot,
+            class_name_snapshot: obj.task.class_name_snapshot,
+            inspection_date: obj.task.inspection_date
+          }
+        : undefined
+    } as unknown as AttendanceRecord
+  }
+  return attendanceMap.value[obj.attendance_record_id] || null
 })
 
 // 默认预设期望改判类型
@@ -143,6 +195,20 @@ function reviewerAccount(obj: ObjectionItem): string {
   return obj.final_reviewed_display_name ? `${obj.final_reviewed_display_name}（${account}）` : account
 }
 
+/** 本人责任区按服务端逐条给出的 can_review 显示动作；学院模式仍按原有权限。 */
+const canReviewActive = computed(() => {
+  const obj = activeObjection.value
+  if (!obj) return false
+  if (!props.selfScope) return sessionStore.hasPermission('objection.final_review')
+  return !!reviewability.value[obj.id]?.can_review
+})
+const activeBlockReason = computed(() =>
+  activeObjection.value
+    ? reviewability.value[activeObjection.value.id]?.review_block_reason ||
+      '该查课任务由其他学院负责，需由该学院审核；你只能核对自己班级的记录。'
+    : ''
+)
+
 async function handleFinalReview() {
   if (!activeObjection.value || submitLoading.value) return
   const objection = activeObjection.value
@@ -150,18 +216,25 @@ async function handleFinalReview() {
     ElMessage.warning('正在加载考勤基准数据，请稍后重试')
     return
   }
+  const gate = props.selfScope ? reviewability.value[objection.id] : null
+  if (props.selfScope && !gate?.can_review) {
+    ElMessage.warning(gate?.review_block_reason || '该查课任务由其他学院负责，需由该学院审核')
+    return
+  }
 
   const isReject = finalDecision.value === 'REJECTED'
   const targetType = isReject ? undefined : (finalDecision.value as AttendanceType)
+  const payload = {
+    decision: isReject ? ('REJECTED' as const) : ('APPROVED' as const),
+    final_type: targetType,
+    comment: finalReasonNote.value.trim() || undefined,
+    current_version: activeAttendance.value.current_version
+  }
 
   submitLoading.value = true
   try {
-    await finalReviewObjection(objection.id, {
-      decision: isReject ? 'REJECTED' : 'APPROVED',
-      final_type: targetType,
-      comment: finalReasonNote.value.trim() || undefined,
-      current_version: activeAttendance.value.current_version
-    })
+    if (props.selfScope) await reviewResponsibleObjection(objection.id, payload)
+    else await finalReviewObjection(objection.id, payload)
 
     if (isReject) {
       ElMessage.warning(`审核已驳回申诉，维持原考勤判定。`)
@@ -170,15 +243,21 @@ async function handleFinalReview() {
     }
 
     // 更新当前考勤快照
-    try {
-      const updatedAtt = await getAttendanceRecord(objection.attendance_record_id)
-      attendanceMap.value[objection.attendance_record_id] = updatedAtt
-    } catch {}
+    if (!props.selfScope) {
+      try {
+        const updatedAtt = await getAttendanceRecord(objection.attendance_record_id)
+        attendanceMap.value[objection.attendance_record_id] = updatedAtt
+      } catch {}
+    }
 
     await fetchObjections()
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '审核提交失败'
     ElMessage.error(msg)
+    // 版本冲突（409）：不覆盖他人新认定，立刻重取当前版本供重新核对。
+    if (err && typeof err === 'object' && (err as { status?: unknown }).status === 409) {
+      await fetchObjections()
+    }
   } finally {
     submitLoading.value = false
   }
@@ -561,7 +640,7 @@ const decisionOptions: DecisionOption[] = [
           </div>
 
           <!-- 若未审核，展示操作控件 -->
-          <div v-else-if="sessionStore.hasPermission('objection.final_review')">
+          <div v-else-if="canReviewActive">
             <div class="d-caption">
               <span class="d-rlabel">审核判定</span>
               <span class="d-wish-tip">
@@ -603,7 +682,9 @@ const decisionOptions: DecisionOption[] = [
               </button>
             </div>
           </div>
-          <div v-else class="cell-sub">需要学生负责人或更高权限管理员审核。</div>
+          <div v-else class="cell-sub">
+            {{ selfScope ? activeBlockReason : '需要学生负责人或更高权限管理员审核。' }}
+          </div>
         </div>
 
         <!-- 处理流程时间线 -->
