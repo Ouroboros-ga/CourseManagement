@@ -39,7 +39,9 @@ async function changed() { await load(); await session.refreshWorkspaces() }
           <el-select :model-value="targetId" @update:model-value="selectTarget" placeholder="管理对象学院" aria-label="管理对象学院"><el-option v-for="row in rows" :key="row.id" :value="row.id" :label="`${row.name}${row.status === 'INACTIVE' ? '（停用）' : ''}`" /></el-select>
           <CampusAdministration :key="targetId" :college="college" @changed="changed" />
         </div>
-        <OwnershipReconciliation v-else-if="tab === 'ownership'" key="ownership" :colleges="rows" />
+        <div v-else-if="tab === 'ownership'" key="ownership">
+          <OwnershipReconciliation :colleges="rows" />
+        </div>
         <SemesterArchive v-else-if="session.campusRuntime?.business_scoped" key="archive" />
         <el-alert v-else key="unavailable" title="学院业务启用后可进行全校学期归档。" type="info" :closable="false" />
       </Transition>

@@ -55,8 +55,12 @@ watch(
         </div>
         <CampusWorkspace v-else key="workspace" v-slot="scope">
           <Transition name="tab-fade" mode="out-in">
-            <ScopedAcademicBrowser v-if="tab === 'classes'" key="classes" :college-id="scope.collegeId" :capabilities="scope.college.capabilities" :course-types="scope.types" :allowed-kinds="['teaching-classes', 'courses']" />
-            <CourseTypeManager v-else-if="tab === 'types'" key="types" :college-id="scope.collegeId" :rows="scope.types" :can-manage="scope.can('academic.course_type.manage')" @changed="scope.reload" />
+            <div v-if="tab === 'classes'" key="classes">
+              <ScopedAcademicBrowser :college-id="scope.collegeId" :capabilities="scope.college.capabilities" :course-types="scope.types" :allowed-kinds="['teaching-classes', 'courses']" />
+            </div>
+            <div v-else-if="tab === 'types'" key="types">
+              <CourseTypeManager :college-id="scope.collegeId" :rows="scope.types" :can-manage="scope.can('academic.course_type.manage')" @changed="scope.reload" />
+            </div>
             <div v-else-if="tab === 'time'" key="time">
               <CollegeTimeConfiguration v-if="session.campusRuntime?.business_scoped && session.campusRuntime?.scheduling" :college-id="scope.collegeId" />
               <el-alert v-else title="学院作息业务尚未启用；已有学校节次与校历可在“学期与平台设置”中按权限维护。" type="info" :closable="false" />
