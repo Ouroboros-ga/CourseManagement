@@ -176,3 +176,25 @@ A02/A03/A04 直接落在"打开 business_scoped 后才会走到的新链路"上�
 静态守卫：`apps/admin-web/tests/college-admin-scope.test.mjs` 固定这五条边界（学院与授权组件不含作息与改名、全页仅一个学院选择器、作息页签跟随开关、模板编辑在设置页且限超管、已删除页面不被接回路由）。
 
 未做：`InspectionsView` 的 `sampling`/`deadlines`/`impacts` 仍是"页签存在但内容降级为提示"的旧写法；本次未动，避免把开关改造扩到查课页。
+
+本节改动已上线，证据与回退见[学院管理与作息入口作用域拆分发布记录](../archive/2026-10-17/operations/COLLEGE_ADMIN_SCOPE_RELEASE_20261017.md)。
+
+### 9.1 全校节次作息作为唯一入口，当前只有超管能写（已用 TestClient 核实）
+
+生产 `CAMPUS_ACADEMIC_SCOPED_ENABLED` 已为 `true`，`guard_legacy_academic`（`app/modules/academic/router.py:44`）因此已经生效：`/academic/semesters/{sid}/period-definitions` 与 `/academic/semesters/{sid}/calendar-overrides` 的读在 `shared_reads` 内放行，写在 `shared_writes` 内额外要求 `"SUPER_ADMIN" in list_role_codes(actor)`。前端 `workspaceUrl()` 把 `/academic/semesters*` 判为 shared 不改写，两端一致，所以这不是缺陷而是现行策略；问题在于它让"唯一作息入口"只对一类账号可用。
+
+本机 sqlite + TestClient 实测（同一账号只换 CurrentUser，服务内纵深重读固定为持有 `academic.manage`）：
+
+| 账号 | GET period-definitions | PUT period-definitions/1 | POST calendar-overrides |
+| --- | --- | --- | --- |
+| TEACHER_ADMIN（持 `academic.manage`） | 200 | **403 FORBIDDEN** | **403 FORBIDDEN** |
+| SUPER_ADMIN | 200 | 200 | — |
+
+403 文案是"请使用包含学院工作区的基础数据入口"。节次与校历是全校共享资源，学院侧没有对应写入口（`scoped_router.py` 的 `ResourceKind` 不含 period-definitions），所以这句话对教师管理员是一个无法执行的指引；页面上的"一键恢复高校标准作息"会连发 12 个 PUT，全部落到同一条 403。
+
+待定口径（择一，属产品决定）：
+
+1. 把"学期与平台设置"的节次与校历写入定为超管职责：前端按 `SUPER_ADMIN` 隐藏编辑动作或整页，后端文案改为"全校节次由平台管理员维护"。改动最小，与"全校统一作息基准"的现状一致。
+2. 放开教师管理员写：把两个 route name 从超管限定里拆出来。等于在学院隔离方向上开一个全校写入口，与第 2、3 节的方向相反，不建议。
+3. 等 P3 的 `CAMPUS_SCHEDULING_ENABLED` 打开后由学院作息版本承担差异，全校表退为默认值。依赖 4.1 的缺口先补齐。
+
