@@ -30,8 +30,13 @@ export function useScopedAcademicData(collegeId: () => string, capabilities: () 
   onUnmounted(() => { active = false; epoch.invalidate() })
   async function load() {
     const ticket = epoch.begin()
-    rows.value = []; total.value = 0; error.value = ''; busy.value = false
-    if (!active || !collegeId() || !kind.value || !identityContext(session.currentUser)) return
+    error.value = ''
+    if (!active || !collegeId() || !kind.value || !identityContext(session.currentUser)) {
+      rows.value = []
+      total.value = 0
+      busy.value = false
+      return
+    }
     busy.value = true
     try {
       const result = semesterId()
@@ -44,11 +49,11 @@ export function useScopedAcademicData(collegeId: () => string, capabilities: () 
     } finally { if (!active || ticket.isLatest()) busy.value = false }
   }
   watch(context, () => {
-    epoch.invalidate(); page.value = 1; keyword.value = ''; query.value = ''
+    epoch.invalidate(); page.value = 1; total.value = 0; rows.value = []; keyword.value = ''; query.value = ''
     kind.value = options.value[0]?.value || ''
   }, { immediate: true })
-  watch(kind, () => { page.value = 1; keyword.value = ''; query.value = '' })
-  watch(semesterId, () => { page.value = 1 })
+  watch(kind, () => { page.value = 1; total.value = 0; rows.value = []; keyword.value = ''; query.value = '' })
+  watch(semesterId, () => { page.value = 1; total.value = 0; rows.value = [] })
   watch([context, kind, page, query, semesterId], () => { void load() }, { immediate: true })
   function search() {
     const value = keyword.value.trim()

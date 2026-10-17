@@ -67,3 +67,25 @@ test('college change discards old result and unmount rejects pending writeback',
     assert.equal(f.state.rows.value.length, 0)
   } finally { f.stop() }
 })
+
+test('pagination preserves total during page transition to prevent reset to page 1', async () => {
+  const f = fixture()
+  try {
+    await flush()
+    f.calls[0].resolve({ items: [{ id: 'item-p1' }], total: 245 })
+    await flush()
+    assert.equal(f.state.total.value, 245)
+    assert.equal(f.state.page.value, 1)
+
+    f.state.page.value = 2
+    await flush()
+    assert.equal(f.state.total.value, 245)
+    assert.equal(f.calls.at(-1).args[2], 2)
+
+    f.calls.at(-1).resolve({ items: [{ id: 'item-p2' }], total: 245 })
+    await flush()
+    assert.equal(f.state.page.value, 2)
+    assert.equal(f.state.rows.value[0].id, 'item-p2')
+  } finally { f.stop() }
+})
+
