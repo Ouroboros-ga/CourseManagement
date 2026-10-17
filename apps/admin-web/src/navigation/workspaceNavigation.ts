@@ -6,10 +6,12 @@ export interface WorkspacePage {
   path: string
   permissions: string[]
   superOnly?: boolean
+  capability?: string
 }
 export interface WorkspaceActor {
   hasPermission: (code: string) => boolean
   hasAnyRole: (...codes: string[]) => boolean
+  workspace?: { capabilities: string[] } | null
 }
 export const primaryPages: WorkspacePage[] = [
   { id: 'home', label: '工作台', path: '/dashboard/home', permissions: [] },
@@ -23,6 +25,8 @@ export const primaryPages: WorkspacePage[] = [
 export const auxiliaryPages: WorkspacePage[] = [
   { id: 'school', label: '学校与学院管理', path: '/dashboard/school', permissions: [], superOnly: true },
   { id: 'users', label: '账号与权限', path: '/dashboard/users', permissions: ['role.assign', 'administrator_account.manage', 'teacher_account.manage'] },
+  // 教职工档案走学院运行开关（capability）而不是全局权限，避免无档案职能的学院出现过早入口。
+  { id: 'staff', label: '教职工档案', path: '/dashboard/staff', permissions: [], capability: 'staff.manage' },
   { id: 'settings', label: '学期与平台设置', path: '/dashboard/settings', permissions: ['academic.manage'] },
   { id: 'help', label: '帮助与操作说明', path: '/dashboard/help', permissions: [] }
 ]
@@ -30,12 +34,13 @@ export function canAccessPage(id: string, actor: WorkspaceActor): boolean {
   const page = [...primaryPages, ...auxiliaryPages].find(row => row.id === id)
   if (!page) return false
   if (page.superOnly) return actor.hasAnyRole('SUPER_ADMIN')
+  if (page.capability) return !!actor.workspace?.capabilities?.includes(page.capability)
   return !page.permissions.length || page.permissions.some(code => actor.hasPermission(code))
 }
 export function pageContextMode(id: string, tab = ''): ContextMode {
-  if (['students', 'school', 'users', 'help'].includes(id)) return 'current'
+  if (['students', 'school', 'users', 'staff', 'help'].includes(id)) return 'current'
   if (id === 'organizations') return ['members', 'qualifications', 'unavailability', 'preparation'].includes(tab) ? 'semester' : 'current'
-  if (id === 'academic' && ['types', 'courses'].includes(tab)) return 'current'
+  if (id === 'academic' && ['types', 'courses', 'teaching-assignments'].includes(tab)) return 'current'
   return 'semester'
 }
 export function workspaceContextKey(context: {

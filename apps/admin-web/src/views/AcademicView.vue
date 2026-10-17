@@ -10,7 +10,9 @@ import CourseTypeManager from '../components/campus/CourseTypeManager.vue'
 import CollegeTimeConfiguration from '../components/campus/CollegeTimeConfiguration.vue'
 import AcademicPublication from '../components/campus/AcademicPublication.vue'
 import ImportHome from '../components/academic/ImportHome.vue'
+import TeachingAssignments from '../components/staff/TeachingAssignments.vue'
 const session = useSessionStore()
+const canManageStaff = computed(() => !!session.workspace?.capabilities.includes('staff.manage'))
 const route = useRoute()
 const router = useRouter()
 // 学院独立作息是全校级节次之外的另一套数据，只有两个运行开关同时开启才可能配置；
@@ -18,6 +20,7 @@ const router = useRouter()
 const collegeTimeReady = computed(() => !!session.campusRuntime?.business_scoped && !!session.campusRuntime?.scheduling)
 const tabs = computed(() => [
   ...(session.hasPermission('academic.read') ? [{ id: 'timetable', label: '正式课表' }, { id: 'classes', label: '教学班与分类' }] : []),
+  ...(canManageStaff.value ? [{ id: 'teaching-assignments', label: '任课教师' }] : []),
   ...(['import.execute', 'course_schedule.import'].some(p => session.hasPermission(p)) ? [{ id: 'imports', label: '资料准备' }] : []),
   ...(session.hasPermission('academic.course_type.read') ? [{ id: 'types', label: '课程类型' }] : []),
   ...(session.hasPermission('academic.manage') && collegeTimeReady.value ? [{ id: 'time', label: '本院作息与校历' }] : []),
@@ -62,6 +65,7 @@ watch(
             <div v-if="tab === 'classes'" key="classes">
               <ScopedAcademicBrowser :college-id="scope.collegeId" :capabilities="scope.college.capabilities" :course-types="scope.types" :allowed-kinds="['teaching-classes', 'courses']" />
             </div>
+            <TeachingAssignments v-else-if="tab === 'teaching-assignments'" key="teaching-assignments" :college-id="scope.collegeId" />
             <div v-else-if="tab === 'types'" key="types">
               <CourseTypeManager :college-id="scope.collegeId" :rows="scope.types" :can-manage="scope.can('academic.course_type.manage')" @changed="scope.reload" />
             </div>
