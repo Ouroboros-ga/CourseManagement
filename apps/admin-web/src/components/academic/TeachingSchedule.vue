@@ -33,7 +33,7 @@ import TaskStatusTag from '../../components/TaskStatusTag.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import { formatPeriodText } from '../../utils/period'
 
-const props = withDefaults(defineProps<{ mode?: 'legacy' | 'academic' | 'inspection'; openImport?: boolean; openSelfStudy?: boolean }>(), { mode: 'legacy', openImport: false, openSelfStudy: false })
+const props = withDefaults(defineProps<{ mode?: 'legacy' | 'academic' | 'inspection'; openImport?: boolean; openSelfStudy?: boolean; importOnly?: boolean }>(), { mode: 'legacy', openImport: false, openSelfStudy: false, importOnly: false })
 const sessionStore = useSessionStore()
 
 const activeTab = ref<'dispatch' | 'master'>(props.mode === 'academic' ? 'master' : 'dispatch')
@@ -328,6 +328,7 @@ async function openTeachingClassRoster(item: MasterTimetableItem) {
 watch(
   () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo, selectedAdminClassId.value, executionGroupId.value],
   () => {
+    if (props.importOnly) return
     if (activeTab.value === 'dispatch') {
       loadData()
     } else {
@@ -337,6 +338,7 @@ watch(
 )
 
 watch(activeTab, (tab) => {
+  if (props.importOnly) return
   if (tab === 'master') {
     masterWeekNo.value = sessionStore.currentWeekNo
     loadMasterTimetableData()
@@ -347,7 +349,7 @@ watch(activeTab, (tab) => {
 
 onMounted(async () => {
   if (props.mode === 'academic') {
-    await loadMasterTimetableData()
+    if (!props.importOnly) await loadMasterTimetableData()
     if (props.openImport) openImportDialog()
     if (props.openSelfStudy) openSelfStudyDialog()
   } else await loadData()
@@ -904,6 +906,7 @@ function applySmartSample() {
 
 <template>
   <div class="teaching-schedule-container">
+    <template v-if="!props.importOnly">
     <el-alert v-if="props.openImport" title="整包按文件依次处理：成功文件会保存，失败文件可修正后重试。需要先核对时，请选择单文件分步导入。" type="info" :closable="false" />
     <header class="page-head">
       <div class="head-row">
@@ -1319,6 +1322,31 @@ function applySmartSample() {
           <div class="empty-text">未检索到符合条件的排课记录</div>
           <div class="empty-sub">请检查筛选条件，或使用上方“批量导入教务数据”导入网格课表</div>
         </div>
+      </div>
+    </div>
+    </template>
+
+    <div v-else class="import-only-panel">
+      <h2 class="import-only-title">资料导入</h2>
+      <p class="import-only-desc">
+        当前学院使用批量导入流程：整包按文件依次处理，成功文件会保存，失败文件可修正后重试。
+        需要先核对时，在导入窗口中选择“单文件分步导入”。
+      </p>
+      <div class="import-only-actions">
+        <button
+          v-if="sessionStore.hasPermission('import.execute') || sessionStore.hasPermission('course_schedule.import')"
+          class="btn btn-dark btn-sm"
+          @click="openImportDialog"
+        >
+          打开批量导入
+        </button>
+        <button
+          v-if="sessionStore.hasPermission('course_schedule.manage') || sessionStore.hasPermission('academic.manage')"
+          class="btn btn-outline btn-sm"
+          @click="openSelfStudyDialog"
+        >
+          批量生成自习排课
+        </button>
       </div>
     </div>
 
@@ -2150,6 +2178,33 @@ function applySmartSample() {
 </template>
 
 <style scoped>
+.import-only-panel {
+  max-width: 620px;
+  margin: 32px auto;
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+  text-align: center;
+}
+.import-only-title {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+.import-only-desc {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.8;
+  margin-bottom: 20px;
+}
+.import-only-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
 .sel-info { font-size: 13px; color: var(--ink-mute); }
 .sel-info strong { color: var(--ink); font-size: 15px; }
 

@@ -50,7 +50,7 @@ watch(
         <ScheduleView v-if="tab === 'timetable'" key="timetable" mode="academic" :open-self-study="openSelfStudy" />
         <div v-else-if="tab === 'imports'" key="imports">
           <ImportHome v-if="canUseNewImport" />
-          <ScheduleView v-else-if="canUseLegacyImport" mode="academic" :open-import="true" />
+          <ScheduleView v-else-if="canUseLegacyImport" mode="academic" :open-import="true" :import-only="true" />
           <el-result v-else icon="info" title="当前账号没有资料导入权限" sub-title="请联系学院教师管理员开通后再试。" />
         </div>
         <CampusWorkspace v-else key="workspace" v-slot="scope">
