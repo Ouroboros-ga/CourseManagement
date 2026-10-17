@@ -225,6 +225,7 @@ class CourseResponse(BaseModel):
 class TeachingClassCreateRequest(BaseModel):
     semester_id: int = Field(ge=1)
     course_id: int = Field(ge=1)
+    course_type_id: int | None = Field(default=None, ge=1)
     class_code: str | None = Field(default=None, max_length=64)
     class_name: str = Field(min_length=1, max_length=128)
     teacher_name: str | None = Field(default=None, max_length=128)
@@ -245,6 +246,7 @@ class TeachingClassResponse(BaseModel):
     id: IdStr
     semester_id: IdStr
     course_id: IdStr
+    course_type_id: OptIdStr = None
     class_code: str | None
     class_name: str
     teacher_name: str | None = None

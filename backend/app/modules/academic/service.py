@@ -962,6 +962,7 @@ class AcademicService:
         tc = TeachingClass(
             semester_id=sem.id,
             course_id=body.course_id,
+            course_type_id=body.course_type_id,
             class_code=body.class_code,
             class_name=body.class_name,
             teacher_name=body.teacher_name,

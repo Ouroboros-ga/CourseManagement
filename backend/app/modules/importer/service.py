@@ -65,6 +65,7 @@ from app.modules.importer import permissions as iperm
 from app.modules.importer.models import ImportBatch, ImportBatchStatus, ImportTarget
 from app.modules.importer.repository import ImporterRepository
 from app.modules.importer.schemas import (
+    ImportBatchListItem,
     ImportConfirmResponse,
     ImportPreviewResponse,
     ImportTemplateResponse,
@@ -183,12 +184,18 @@ class ImporterService:
         content: bytes,
         semester_id: int | None,
         teaching_class_id: int | None,
+        course_type_id: int | None = None,
         filename: str | None,
         replace: bool,
         request_id: str | None,
     ) -> ImportPreviewResponse:
         self._require_composite(actor.id, target)
         self._validate_scope(target, semester_id=semester_id, teaching_class_id=teaching_class_id)
+        if course_type_id is not None:
+            cid = getattr(self, "cid", None)
+            if cid is None and hasattr(actor, "college_id"):
+                cid = actor.college_id
+            self._resolve_course_type(cid, course_type_id)
 
         settings = get_settings()
         if target == ImportTarget.GRID_TIMETABLE.value:
@@ -234,6 +241,7 @@ class ImporterService:
                 )
         error_count = sum(1 for i in issues if i["severity"] == "error")
         payload["source_file_sha256"] = hashlib.sha256(content).hexdigest()
+        payload["course_type_id"] = course_type_id
         summary = {**summary, "error_count": error_count}
 
         batch = ImportBatch(
@@ -486,6 +494,10 @@ class ImporterService:
             "warnings": [i for i in issues if i.get("severity") != "error"],
         }
 
+    def list_recent(self, actor: CurrentUser, limit: int = 10) -> list[ImportBatchListItem]:
+        """最近导入列表仅学院工作区提供；旧兼容入口不暴露暂存批次清单。"""
+        raise AppError(ErrorCode.STATE_CONFLICT, "请从已授权学院工作区执行导入", 409)
+
     def _to_preview(self, batch: ImportBatch) -> ImportPreviewResponse:
         issues = batch.error_json or []
         errors = [i for i in issues if i.get("severity") == "error"]
@@ -682,10 +694,43 @@ class ImporterService:
         acct.lock_version += 1
         return True
 
+    def _resolve_course_type(
+        self, college_id: int | None, course_type_id: int | None
+    ) -> int | None:
+        from app.modules.academic.campus_models import CourseType
+
+        if course_type_id is not None:
+            stmt = select(CourseType).where(
+                CourseType.id == course_type_id,
+                CourseType.status == "ACTIVE",
+            )
+            if college_id is not None:
+                stmt = stmt.where(CourseType.college_id == college_id)
+            ctype = self._session.scalar(stmt)
+            if ctype is None:
+                raise AppError(
+                    ErrorCode.VALIDATION_ERROR, "所选课程类型不存在、非本院或已停用", 422
+                )
+            return ctype.id
+        if college_id is not None:
+            ctype = self._session.scalar(
+                select(CourseType).where(
+                    CourseType.college_id == college_id,
+                    CourseType.builtin_key == "regular",
+                    CourseType.status == "ACTIVE",
+                )
+            )
+            if ctype is not None:
+                return ctype.id
+        return None
+
     def _apply_timetable(
         self, actor: CurrentUser, batch: ImportBatch, payload: dict, request_id: str | None
     ) -> dict:
         sem = self._require_active_semester_for_confirm(batch.semester_id)
+        resolved_type_id = self._resolve_course_type(
+            batch.college_id, payload.get("course_type_id")
+        )
         entries: list[dict] = list(payload.get("rows") or [])
         # 写前整体核验周次/大节仍落在学期范围（学期总周数可能被改）。
         for e in entries:
@@ -715,6 +760,8 @@ class ImporterService:
                 tc = TeachingClass(
                     semester_id=sem.id,
                     course_id=course.id,
+                    college_id=batch.college_id,
+                    course_type_id=resolved_type_id,
                     class_code=e["class_code"],
                     class_name=e["course_name"],
                     teacher_name=e.get("teacher"),
@@ -723,8 +770,11 @@ class ImporterService:
                 self._academic.add(tc)
                 self._academic.flush()
                 tcs_created += 1
-            elif e.get("teacher") and not tc.teacher_name:
-                tc.teacher_name = e.get("teacher")
+            else:
+                if e.get("teacher") and not tc.teacher_name:
+                    tc.teacher_name = e.get("teacher")
+                if resolved_type_id and not tc.course_type_id:
+                    tc.course_type_id = resolved_type_id
             schedule = CourseSchedule(
                 semester_id=sem.id,
                 teaching_class_id=tc.id,
@@ -1393,6 +1443,9 @@ class ImporterService:
         self, actor: CurrentUser, batch: ImportBatch, payload: dict, request_id: str | None
     ) -> dict:
         sem = self._require_active_semester_for_confirm(batch.semester_id)
+        resolved_type_id = self._resolve_course_type(
+            batch.college_id, payload.get("course_type_id")
+        )
         class_name = payload.get("class_name") or ""
         courses_data: list[dict] = payload.get("courses") or []
 
@@ -1456,6 +1509,8 @@ class ImporterService:
                 tc = TeachingClass(
                     semester_id=sem.id,
                     course_id=course.id,
+                    college_id=batch.college_id,
+                    course_type_id=resolved_type_id,
                     class_code=tc_code,
                     class_name=f"{target_ac.class_name}-{cname}",
                     teacher_name=t_name,
@@ -1464,8 +1519,11 @@ class ImporterService:
                 self._academic.add(tc)
                 self._academic.flush()
                 tcs_created += 1
-            elif t_name and not tc.teacher_name:
-                tc.teacher_name = t_name
+            else:
+                if t_name and not tc.teacher_name:
+                    tc.teacher_name = t_name
+                if resolved_type_id and not tc.course_type_id:
+                    tc.course_type_id = resolved_type_id
 
             from app.modules.academic.enrollment_models import TeachingClassAudience
 
@@ -1621,6 +1679,9 @@ class ImporterService:
         self, actor: CurrentUser, batch: ImportBatch, payload: dict, request_id: str | None
     ) -> dict:
         sem = self._require_active_semester_for_confirm(batch.semester_id)
+        resolved_type_id = self._resolve_course_type(
+            batch.college_id, payload.get("course_type_id")
+        )
         groups = payload.get("groups") or []
 
         courses_created = 0
@@ -1649,6 +1710,8 @@ class ImporterService:
                 tc = TeachingClass(
                     semester_id=sem.id,
                     course_id=course.id,
+                    college_id=batch.college_id,
+                    course_type_id=resolved_type_id,
                     class_code=g["class_code"],
                     class_name=g["class_name"],
                     status="ACTIVE",
@@ -1656,6 +1719,8 @@ class ImporterService:
                 self._academic.add(tc)
                 self._academic.flush()
                 tcs_created += 1
+            elif resolved_type_id and not tc.course_type_id:
+                tc.course_type_id = resolved_type_id
 
             if not (payload.get("preserve_existing") and g.get("schedule_unchanged")):
                 schedule = CourseSchedule(
@@ -1705,6 +1770,7 @@ class ImporterService:
         actor: CurrentUser,
         semester_id: int,
         files: list[tuple[str, bytes]],
+        course_type_id: int | None = None,
         request_id: str | None = None,
     ) -> dict[str, object]:
         """批量导入多个名单和课表文件，支持 ZIP 压缩包自动解压并按顺序执行。"""
@@ -1713,10 +1779,13 @@ class ImporterService:
 
         from app.modules.importer.models import ImportTarget
 
-        # 1. 展开 ZIP 压缩包
+        # 1. 展开 ZIP 压缩包或收集表格文件
         expanded_files: list[tuple[str, bytes]] = []
         for filename, data in files:
-            if filename.lower().endswith(".zip") or data.startswith(b"PK\x03\x04"):
+            if filename.lower().endswith((".xlsx", ".xls", ".csv")):
+                base_name = filename.replace("\\", "/").split("/")[-1]
+                expanded_files.append((base_name, data))
+            elif filename.lower().endswith(".zip") or data.startswith(b"PK\x03\x04"):
                 try:
                     with zipfile.ZipFile(io.BytesIO(data)) as z:
                         for info in z.infolist():
@@ -1742,9 +1811,6 @@ class ImporterService:
                     raise AppError(
                         ErrorCode.VALIDATION_ERROR, f"ZIP压缩包解析失败：{exc}", http_status=422
                     ) from exc
-            elif filename.lower().endswith((".xlsx", ".xls", ".csv")):
-                base_name = filename.replace("\\", "/").split("/")[-1]
-                expanded_files.append((base_name, data))
 
         if not expanded_files:
             raise AppError(
@@ -1860,6 +1926,7 @@ class ImporterService:
                     content=data,
                     semester_id=semester_id,
                     teaching_class_id=None,
+                    course_type_id=course_type_id,
                     filename=fn,
                     replace=False,
                     request_id=request_id,

@@ -4,13 +4,13 @@ import { uploadImportFile, previewImportSet, confirmImportSet, type ImportPrevie
 
 export function useImportWizard() {
   const session = useSessionStore()
-  const target = ref('admin_roster'), teachingClassId = ref('')
+  const target = ref('admin_roster'), teachingClassId = ref(''), courseTypeId = ref('')
   const files = ref<File[]>([]), drafts = ref<Array<ImportPreviewResult & { filename: string }>>([])
   const selectedIds = ref<string[]>([]), plan = ref<ImportSetPlan | null>(null), result = ref<ImportSetResult | null>(null)
   const busy = ref(false), error = ref(''), uploadErrors = ref<string[]>([])
   let generation = 0, active = true
   const context = () => JSON.stringify([session.currentUser?.id, session.workspaceCollegeId,
-    session.currentSemesterId, session.workspace?.authorization_revision, target.value, teachingClassId.value])
+    session.currentSemesterId, session.workspace?.authorization_revision, target.value, teachingClassId.value, courseTypeId.value])
   const selection = () => JSON.stringify(selectedIds.value)
   const canUpload = computed(() => !!target.value && !!files.value.length && files.value.length <= 20 && !!session.workspaceCollegeId
     && (['admin_roster', 'class_duty'].includes(target.value) || !!session.currentSemesterId)
@@ -41,6 +41,7 @@ export function useImportWizard() {
           const draft = await uploadImportFile(target.value, file, {
             semester_id: ['admin_roster', 'class_duty'].includes(target.value) ? undefined : session.currentSemesterId,
             teaching_class_id: target.value === 'roster' ? teachingClassId.value : undefined,
+            course_type_id: courseTypeId.value || undefined,
             replace: false
           })
           if (!current()) return
@@ -77,5 +78,10 @@ export function useImportWizard() {
       }
     } finally { if (current.isLatest()) busy.value = false }
   }
-  return { target, teachingClassId, files, drafts, selectedIds, plan, result, busy, error, uploadErrors, canUpload, upload, review, confirm }
+  function removeDraft(id: string) {
+    drafts.value = drafts.value.filter(row => row.id !== id)
+    selectedIds.value = selectedIds.value.filter(row => row !== id)
+    if (!drafts.value.length) { files.value = []; plan.value = null; result.value = null }
+  }
+  return { target, teachingClassId, courseTypeId, files, drafts, selectedIds, plan, result, busy, error, uploadErrors, canUpload, upload, review, confirm, removeDraft }
 }

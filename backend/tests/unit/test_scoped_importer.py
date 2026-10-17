@@ -60,6 +60,27 @@ def test_foreign_cached_student_is_not_importable_and_batch_scope_is_fixed(campu
         foreign_service.get_batch(campus[2], batch.id)
 
 
+def test_list_recent_only_returns_batches_of_the_current_college(campus):
+    service, db, own, _, sid = prepare(campus)
+    first = preview(service, sid, own.student_no)
+    rows = service.list_recent(service.actor)
+    assert [row.id for row in rows] == [first.id]
+    item = rows[0]
+    assert item.target == "volunteer" and item.status == "PREVIEW"
+    assert item.filename == "fixture.xlsx" and item.semester_id == str(sid)
+    foreign_service = ScopedImporterService(db, campus[2], int(campus[5]["id"]))
+    assert foreign_service.list_recent(campus[2]) == []
+    assert "college_query_scope" not in db.info
+
+
+def test_list_recent_is_rejected_outside_college_workspace(campus):
+    from app.core.exceptions import AppError
+    from app.modules.importer.service import ImporterService
+
+    with pytest.raises(AppError):
+        ImporterService(campus[1]).list_recent(campus[2])
+
+
 def test_source_change_rejects_confirm_atomically_and_unchanged_source_applies(campus):
     service, db, own, _, sid = prepare(campus)
     first = preview(service, sid, own.student_no)

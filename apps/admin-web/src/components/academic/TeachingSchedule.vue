@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { listGroups, type VolunteerGroup } from '../../api/campus'
+import { listGroups, listCourseTypes, type VolunteerGroup, type CourseType } from '../../api/campus'
 import { confirmGroupPlan } from '../../composables/confirmGroupAssignment'
 import { ref, watch, onMounted, computed, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -90,6 +90,31 @@ const importUploading = ref(false)
 const importConfirming = ref(false)
 const importPreview = ref<ImportPreviewResult | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+
+// ---- 学院课程类型（供课表导入时指定课程类型，默认普通课） ----
+const collegeCourseTypes = ref<CourseType[]>([])
+const selectedCourseTypeId = ref<string>('')
+const loadingCourseTypes = ref(false)
+
+async function loadCollegeCourseTypes() {
+  const cid = sessionStore.workspaceCollegeId
+  if (!cid) return
+  loadingCourseTypes.value = true
+  try {
+    const list = await listCourseTypes(cid)
+    collegeCourseTypes.value = list.filter(t => t.status === 'ACTIVE')
+    const regular = collegeCourseTypes.value.find(t => t.code === 'builtin_regular' || t.name === '普通课')
+    if (regular) {
+      selectedCourseTypeId.value = regular.id
+    } else if (collegeCourseTypes.value.length > 0 && !selectedCourseTypeId.value) {
+      selectedCourseTypeId.value = collegeCourseTypes.value[0].id
+    }
+  } catch (err) {
+    console.error('加载学院课程类型失败', err)
+  } finally {
+    loadingCourseTypes.value = false
+  }
+}
 
 // ---- 批量/整包 ZIP 导入状态 ----
 const bulkFiles = ref<File[]>([])
@@ -604,6 +629,7 @@ function openImportDialog() {
   showImportDialog.value = true
   if (fileInputRef.value) fileInputRef.value.value = ''
   if (bulkFileInputRef.value) bulkFileInputRef.value.value = ''
+  loadCollegeCourseTypes()
 }
 
 const isDragging = ref(false)
@@ -673,7 +699,8 @@ async function uploadAndPreview() {
   importUploading.value = true
   try {
     const res = await uploadImportFile(importTarget.value, importFile.value, {
-      semester_id: sessionStore.currentSemesterId
+      semester_id: sessionStore.currentSemesterId,
+      course_type_id: selectedCourseTypeId.value || undefined
     })
     importPreview.value = res
     if (res.errors && res.errors.length > 0) {
@@ -730,7 +757,11 @@ async function submitBulkImport() {
   }
   bulkUploading.value = true
   try {
-    const res = await uploadBulkImport(sessionStore.currentSemesterId, bulkFiles.value)
+    const res = await uploadBulkImport(
+      sessionStore.currentSemesterId,
+      bulkFiles.value,
+      selectedCourseTypeId.value || undefined
+    )
     bulkResult.value = res
     const hasErr = res.file_results?.some(f => !isSuccessFile(f) && !isSkippedFile(f))
     if (hasErr) {
@@ -1417,6 +1448,20 @@ function applySmartSample() {
           </div>
         </div>
 
+        <!-- 课程类型选择 -->
+        <div v-if="!bulkResult" class="step-block" style="margin-bottom: 14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="step-label font-mono">课程类型（课表自动分类）</div>
+            <span v-if="loadingCourseTypes" style="font-size:12px; color:var(--ink-mute);">加载学院配置中…</span>
+          </div>
+          <select v-model="selectedCourseTypeId" class="input dlg-select" style="margin-top:6px;">
+            <option v-for="t in collegeCourseTypes" :key="t.id" :value="t.id">
+              {{ t.name }} {{ (t.code === 'builtin_regular' || t.name === '普通课') ? '（默认）' : '' }}
+            </option>
+          </select>
+          <div class="dz-sub" style="margin-top:4px;">压缩包内的课表将按所选类型建立教学班，默认全部建立为普通课。</div>
+        </div>
+
         <!-- 拖拽上传区 -->
         <div
           v-if="!bulkResult"
@@ -1561,6 +1606,19 @@ function applySmartSample() {
             <option value="grid_timetable">学校网格课表（.xls / .xlsx）— 提取排课并关联行政班名单</option>
             <option value="timetable">平台标准教务排课长表（.xlsx / .xls / .csv）</option>
           </select>
+        </div>
+
+        <div v-if="importTarget !== 'admin_roster' && !importPreview" class="step-block">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="step-label font-mono">STEP 1.5 · 课程类型</div>
+            <span v-if="loadingCourseTypes" style="font-size:12px; color:var(--ink-mute);">加载学院配置中…</span>
+          </div>
+          <select v-model="selectedCourseTypeId" class="input dlg-select" style="margin-top:6px;">
+            <option v-for="t in collegeCourseTypes" :key="t.id" :value="t.id">
+              {{ t.name }} {{ (t.code === 'builtin_regular' || t.name === '普通课') ? '（默认）' : '' }}
+            </option>
+          </select>
+          <div class="dz-sub" style="margin-top:4px;">导入该课表所生成的教学班将归入该课程类型（默认全部为普通课）。</div>
         </div>
 
         <div v-if="!importPreview" class="step-block">

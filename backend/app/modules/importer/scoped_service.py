@@ -211,6 +211,31 @@ class ScopedImporterService(ImporterService):
         with self.operation("import.execute"):
             return super().get_batch(actor, batch_id)
 
+    def list_recent(self, actor, limit=10):
+        from app.modules.importer.schemas import ImportBatchListItem
+
+        with self.operation("import.execute"):
+            rows = self._session.scalars(
+                select(ImportBatch)
+                .where(ImportBatch.college_id == self.cid)
+                .order_by(ImportBatch.id.desc())
+                .limit(limit)
+                .execution_options(populate_existing=True)
+            ).all()
+            return [
+                ImportBatchListItem(
+                    id=row.id,
+                    target=row.target,
+                    status=row.status,
+                    filename=row.filename,
+                    semester_id=row.semester_id,
+                    summary=row.summary_json or {},
+                    created_at=row.created_at,
+                    expires_at=row.expires_at,
+                )
+                for row in rows
+            ]
+
     def get_errors(self, actor, batch_id):
         with self.operation("import.execute"):
             return super().get_errors(actor, batch_id)

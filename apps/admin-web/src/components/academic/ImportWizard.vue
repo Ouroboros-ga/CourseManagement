@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSessionStore } from '../../stores/session'
 import { useImportWizard } from '../../composables/useImportWizard'
+import { listCourseTypes, type CourseType } from '../../api/campus'
 import { listScopedAcademic, type ScopedAcademicRow } from '../../api/scopedAcademic'
 import { downloadImportTemplateFile } from '../../api/importer'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -11,10 +12,28 @@ import ImportIdentityReview from './ImportIdentityReview.vue'
 
 const router = useRouter()
 const session = useSessionStore()
-const { target, teachingClassId, files, drafts, selectedIds, plan, result, busy, error, uploadErrors, canUpload, upload, review, confirm } = useImportWizard()
+const { target, teachingClassId, courseTypeId, files, drafts, selectedIds, plan, result, busy, error, uploadErrors, canUpload, upload, review, confirm } = useImportWizard()
 const teachingClasses = ref<ScopedAcademicRow[]>([]), classBusy = ref(false)
 const classError = ref(''), form = ref<HTMLElement | null>(null)
 const downloadingTemplate = ref(false)
+const courseTypes = ref<CourseType[]>([])
+
+async function loadCourseTypes() {
+  if (!session.workspaceCollegeId) return
+  try {
+    const list = await listCourseTypes(session.workspaceCollegeId)
+    courseTypes.value = list.filter(t => t.status === 'ACTIVE')
+    const regular = courseTypes.value.find(t => t.code === 'builtin_regular' || t.name === '普通课')
+    if (regular) {
+      courseTypeId.value = regular.id
+    } else if (courseTypes.value.length > 0 && !courseTypeId.value) {
+      courseTypeId.value = courseTypes.value[0].id
+    }
+  } catch (e) {
+    console.error('加载课程类型失败', e)
+  }
+}
+watch(() => session.workspaceCollegeId, loadCourseTypes, { immediate: true })
 
 watch(result, value => { if (value) markWorkspaceSaved(form.value) })
 const changePages = ref<Record<string, number>>({})
@@ -244,6 +263,24 @@ function goToTimetable() {
         </div>
       </div>
       <el-alert v-if="classError" :title="classError" type="error" :closable="false" />
+
+      <div v-if="['grid_timetable', 'timetable', 'elective_course'].includes(target)" class="form-row">
+        <label class="form-item-label">课程类型</label>
+        <div class="form-item-ctrl">
+          <el-select
+            v-model="courseTypeId"
+            placeholder="选择生成的教学班课程类型（默认普通课）"
+            class="target-select"
+          >
+            <el-option
+              v-for="row in courseTypes"
+              :key="row.id"
+              :value="row.id"
+              :label="`${row.name} ${(row.code === 'builtin_regular' || row.name === '普通课') ? '（默认）' : ''}`"
+            />
+          </el-select>
+        </div>
+      </div>
 
       <div class="form-row file-upload-row">
         <label class="form-item-label">选择文件</label>

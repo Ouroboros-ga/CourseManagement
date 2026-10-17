@@ -42,6 +42,7 @@ export async function uploadImportFile(
   options: {
     semester_id?: string | number
     teaching_class_id?: string | number
+    course_type_id?: string | number
     replace?: boolean
   } = {}
 ): Promise<ImportPreviewResult> {
@@ -53,6 +54,9 @@ export async function uploadImportFile(
   }
   if (options.teaching_class_id !== undefined && options.teaching_class_id !== null && options.teaching_class_id !== '') {
     formData.append('teaching_class_id', String(options.teaching_class_id))
+  }
+  if (options.course_type_id !== undefined && options.course_type_id !== null && options.course_type_id !== '') {
+    formData.append('course_type_id', String(options.course_type_id))
   }
   formData.append('replace', options.replace !== false ? 'true' : 'false')
 
@@ -70,6 +74,22 @@ export async function confirmImportBatch(batchId: string | number): Promise<Impo
 
 export async function getImportBatch(batchId: string | number): Promise<ImportPreviewResult> {
   return request<ImportPreviewResult>(`/api/v1/imports/${batchId}`)
+}
+
+export interface ImportBatchListItem {
+  id: string
+  target: string
+  status: string
+  filename: string | null
+  semester_id: string | null
+  summary: Record<string, unknown>
+  created_at: string
+  expires_at: string
+}
+
+/** 学院最近导入列表（资料准备首页）；workspaceHttp 自动改写为学院工作区地址。 */
+export async function listRecentImports(limit = 10): Promise<ImportBatchListItem[]> {
+  return request<ImportBatchListItem[]>(`/api/v1/imports?limit=${limit}`)
 }
 
 export interface BulkImportResult {
@@ -94,10 +114,14 @@ export interface BulkImportResult {
 
 export async function uploadBulkImport(
   semesterId: string | number,
-  files: File[]
+  files: File[],
+  courseTypeId?: string | number
 ): Promise<BulkImportResult> {
   const formData = new FormData()
   formData.append('semester_id', String(semesterId))
+  if (courseTypeId !== undefined && courseTypeId !== null && courseTypeId !== '') {
+    formData.append('course_type_id', String(courseTypeId))
+  }
   for (const f of files) {
     formData.append('files', f)
   }

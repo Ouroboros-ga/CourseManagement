@@ -147,6 +147,7 @@ async def create_import(
     target: Annotated[str, Form()],
     semester_id: Annotated[int | None, Form()] = None,
     teaching_class_id: Annotated[int | None, Form()] = None,
+    course_type_id: Annotated[int | None, Form()] = None,
     replace: Annotated[bool, Form()] = True,
 ) -> dict[str, object]:
     from app.core.exceptions import AppError, ErrorCode
@@ -160,11 +161,24 @@ async def create_import(
         content=content,
         semester_id=semester_id,
         teaching_class_id=teaching_class_id,
+        course_type_id=course_type_id,
         filename=file.filename,
         replace=replace,
         request_id=_rid(request),
     )
     return success(result.model_dump(), _rid(request))
+
+
+# ---- 最近导入列表（学院工作区资料准备首页；旧兼容入口由 Service 显式拒绝）----
+@router.get("/imports")
+def list_imports(
+    actor: ImportExecuteDep,
+    service: ServiceDep,
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> dict[str, object]:
+    result = service.list_recent(actor, limit)
+    return success([item.model_dump() for item in result], _rid(request))
 
 
 @router.get("/imports/{batch_id}")
@@ -202,6 +216,7 @@ async def bulk_import(
     service: ServiceDep,
     semester_id: Annotated[int, Form()],
     files: Annotated[list[UploadFile], File()],
+    course_type_id: Annotated[int | None, Form()] = None,
 ) -> dict[str, object]:
     """旧兼容入口逐文件预览并确认；前面的成功文件不会随后续文件失败回滚。"""
     raw_files: list[tuple[str, bytes]] = []
@@ -212,6 +227,7 @@ async def bulk_import(
         actor,
         semester_id=semester_id,
         files=raw_files,
+        course_type_id=course_type_id,
         request_id=_rid(request),
     )
     return success(result, _rid(request))

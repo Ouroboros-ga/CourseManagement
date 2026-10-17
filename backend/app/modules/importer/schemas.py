@@ -43,9 +43,25 @@ class ImportTemplateResponse(BaseModel):
     example_rows: list[dict]
 
 
+class ImportBatchListItem(BaseModel):
+    """GET /imports 列表项：学院最近导入批次的可读概要（按 id 倒序）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: IdStr
+    target: str
+    status: str
+    filename: str | None
+    semester_id: OptIdStr
+    summary: dict
+    created_at: object
+    expires_at: object
+
+
 __all__ = [
     "ImportPreviewResponse",
     "ImportConfirmResponse",
     "ImportTemplateResponse",
+    "ImportBatchListItem",
     "BaseModel",
 ]
