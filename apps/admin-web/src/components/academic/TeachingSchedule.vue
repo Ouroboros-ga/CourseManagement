@@ -33,7 +33,7 @@ import TaskStatusTag from '../../components/TaskStatusTag.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import { formatPeriodText } from '../../utils/period'
 
-const props = withDefaults(defineProps<{ mode?: 'legacy' | 'academic' | 'inspection'; openImport?: boolean }>(), { mode: 'legacy', openImport: false })
+const props = withDefaults(defineProps<{ mode?: 'legacy' | 'academic' | 'inspection'; openImport?: boolean; openSelfStudy?: boolean }>(), { mode: 'legacy', openImport: false, openSelfStudy: false })
 const sessionStore = useSessionStore()
 
 const activeTab = ref<'dispatch' | 'master'>(props.mode === 'academic' ? 'master' : 'dispatch')
@@ -349,6 +349,7 @@ onMounted(async () => {
   if (props.mode === 'academic') {
     await loadMasterTimetableData()
     if (props.openImport) openImportDialog()
+    if (props.openSelfStudy) openSelfStudyDialog()
   } else await loadData()
 })
 

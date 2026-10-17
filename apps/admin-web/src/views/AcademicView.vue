@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from '../stores/session'
 import { usePageTabs } from '../composables/usePageTabs'
 import CampusWorkspace from '../components/workspace/CampusWorkspace.vue'
@@ -8,16 +9,37 @@ import ScopedAcademicBrowser from '../components/campus/ScopedAcademicBrowser.vu
 import CourseTypeManager from '../components/campus/CourseTypeManager.vue'
 import CollegeTimeConfiguration from '../components/campus/CollegeTimeConfiguration.vue'
 import AcademicPublication from '../components/campus/AcademicPublication.vue'
-import ImportWizard from '../components/academic/ImportWizard.vue'
+import ImportHome from '../components/academic/ImportHome.vue'
 const session = useSessionStore()
-const showLegacyImport = ref(false)
+const route = useRoute()
+const router = useRouter()
 const tabs = computed(() => [
   ...(session.hasPermission('academic.read') ? [{ id: 'timetable', label: '正式课表' }, { id: 'classes', label: '教学班与分类' }] : []),
-  ...(['import.execute', 'course_schedule.import'].some(p => session.hasPermission(p)) ? [{ id: 'imports', label: '导入资料' }] : []),
+  ...(['import.execute', 'course_schedule.import'].some(p => session.hasPermission(p)) ? [{ id: 'imports', label: '资料准备' }] : []),
   ...(session.hasPermission('academic.course_type.read') ? [{ id: 'types', label: '课程类型' }] : []),
   ...(session.hasPermission('academic.manage') ? [{ id: 'time', label: '作息与校历' }, { id: 'publication', label: '发布给学生' }] : [])
 ])
 const tab = usePageTabs(() => tabs.value.map(row => row.id))
+
+// 新向导仅学院正式业务启用时可用；否则自动展示当前可用的旧兼容入口，不让教师二选一。
+const canUseNewImport = computed(() => !!session.campusRuntime?.business_scoped && session.hasPermission('import.execute'))
+const canUseLegacyImport = computed(() => session.hasPermission('import.execute') || session.hasPermission('course_schedule.import'))
+
+// “批量生成自习”快捷入口：消费一次性的 selfStudy 查询参数后立即清理，避免切换页签重复触发。
+const openSelfStudy = ref(false)
+watch(
+  () => route.query.selfStudy,
+  async value => {
+    if (value !== '1') return
+    openSelfStudy.value = true
+    const query = { ...route.query }
+    delete query.selfStudy
+    await router.replace({ query })
+    await nextTick()
+    openSelfStudy.value = false
+  },
+  { immediate: true }
+)
 </script>
 <template>
   <section>
@@ -25,12 +47,11 @@ const tab = usePageTabs(() => tabs.value.map(row => row.id))
     <el-tabs v-model="tab"><el-tab-pane v-for="row in tabs" :key="row.id" :name="row.id" :label="row.label" /></el-tabs>
     <div class="tab-stage">
       <Transition name="tab-fade" mode="out-in">
-        <ScheduleView v-if="tab === 'timetable'" key="timetable" mode="academic" />
+        <ScheduleView v-if="tab === 'timetable'" key="timetable" mode="academic" :open-self-study="openSelfStudy" />
         <div v-else-if="tab === 'imports'" key="imports">
-          <ImportWizard />
-          <el-divider />
-          <el-button @click="showLegacyImport = !showLegacyImport">{{ showLegacyImport ? '关闭旧兼容入口' : '打开旧兼容入口（批量逐文件保存）' }}</el-button>
-          <ScheduleView v-if="showLegacyImport" mode="academic" :open-import="true" />
+          <ImportHome v-if="canUseNewImport" />
+          <ScheduleView v-else-if="canUseLegacyImport" mode="academic" :open-import="true" />
+          <el-result v-else icon="info" title="当前账号没有资料导入权限" sub-title="请联系学院教师管理员开通后再试。" />
         </div>
         <CampusWorkspace v-else key="workspace" v-slot="scope">
           <Transition name="tab-fade" mode="out-in">
