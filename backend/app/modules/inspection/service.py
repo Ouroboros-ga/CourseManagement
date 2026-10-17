@@ -1266,16 +1266,15 @@ class InspectionService:
         tc_teacher_name = {t.id: t.teacher_name for t in tcs}
         tc_colleges = {t.id: t.college_id for t in tcs}
         tc_types = {t.id: t.course_type_id for t in tcs}
-        from app.modules.academic.participation import rosters_at
         from app.modules.academic.roster_index import RosterIndex
         from app.modules.academic.time_service import TimeResolver
 
         time_resolver = TimeResolver(self._session)
-        roster_index = None
         if get_settings().campus_scheduling_enabled:
             for cid in sorted({cid for cid in tc_colleges.values() if cid is not None}):
                 time_resolver.prefetch(cid, sem.id)
-            roster_index = RosterIndex(self._session, list(found_ids))
+        # 整周共用一份日期索引；逐日重建会把学生、名单和学籍全量重读重算。
+        roster_index = RosterIndex(self._session, list(found_ids))
 
         overrides = self._load_overrides(sem.id)
         items: dict[str, PlanItem] = {}
@@ -1308,7 +1307,7 @@ class InspectionService:
                     continue
                 day_schedules.append(s)
 
-            dated_rosters = roster_index.at(date_key) if roster_index else rosters_at(self._session, list(found_ids), date_key)
+            dated_rosters = roster_index.at(date_key)
             groups: dict[tuple, list[CourseSchedule]] = {}
             for s in day_schedules:
                 grp_key: tuple
