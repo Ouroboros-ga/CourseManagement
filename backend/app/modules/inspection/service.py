@@ -41,6 +41,7 @@ from app.core.exceptions import (
 )
 from app.core.permissions import RoleCode
 from app.modules.academic.calendar import resolve_teaching_day
+from app.modules.academic.enrollment_models import StudentEnrollment
 from app.modules.academic.models import (
     AdministrativeClass,
     CalendarOverride,
@@ -189,6 +190,24 @@ def _date_for_week_first_monday(first_monday: date_, week_no: int, weekday: int)
 def _week_no_for_date(first_monday: date_, on_date: date_) -> int:
     """日历日期 → 周次（以首周一为第 1 周基准）。"""
     return (on_date - first_monday).days // 7 + 1
+
+
+def _enrollment_on(
+    timeline: Sequence[StudentEnrollment] | None, on_date: date_
+) -> StudentEnrollment | None:
+    """与 `EnrollmentService.at()` 等价：取生效区间覆盖该日期的最新一条非取代记录。
+
+    时间线须已按 `effective_from DESC, revision DESC` 排序；`at()` 只按 effective_from
+    排序且无次级键，同日多条时结果不确定，这里用 revision 把它固定下来。
+    """
+    return next(
+        (
+            e
+            for e in timeline or ()
+            if e.effective_from <= on_date and (e.effective_to is None or on_date < e.effective_to)
+        ),
+        None,
+    )
 
 
 class InspectionService:
@@ -352,17 +371,7 @@ class InspectionService:
         return {c.date: c for c in self._academic.list_calendar_overrides(semester_id)}
 
     def _attach_rosters(self, items: list[PlanItem]) -> list[PlanItem]:
-
-        by_date: dict[date_, list[PlanItem]] = defaultdict(list)
-        for item in items:
-            by_date[item.inspection_date].append(item)
-        result = []
-        for on_date, daily in by_date.items():
-            result.extend(self._attach_rosters_at_date(daily))
-        return result
-
-    def _attach_rosters_at_date(self, items: list[PlanItem]) -> list[PlanItem]:
-        """批量取学生与行政班，回填每个计划条目的冻结名单快照。"""
+        """批量取学生、学籍时间线与行政班，回填每个计划条目的冻结名单快照。"""
         all_ids = {sid for it in items for sid in it.student_ids}
         if not all_ids:
             return items
@@ -372,7 +381,23 @@ class InspectionService:
             .scalars()
             .all()
         }
+        timelines: dict[int, list[StudentEnrollment]] = defaultdict(list)
+        for row in self._session.execute(
+            select(StudentEnrollment)
+            .where(
+                StudentEnrollment.student_id.in_(list(all_ids)),
+                StudentEnrollment.superseded.is_(False),
+            )
+            .order_by(StudentEnrollment.effective_from.desc(), StudentEnrollment.revision.desc())
+        ).scalars():
+            timelines[row.student_id].append(row)
         ac_ids = {s.administrative_class_id for s in students.values() if s.administrative_class_id}
+        ac_ids |= {
+            e.administrative_class_id
+            for rows in timelines.values()
+            for e in rows
+            if e.administrative_class_id
+        }
         acs = (
             {
                 a.id: a
@@ -387,21 +412,18 @@ class InspectionService:
         )
         for it in items:
             roster: list[TaskRosterMember] = []
-            from app.modules.academic.enrollment_service import EnrollmentService
-
-            enrollment_service = EnrollmentService(self._session)
             for sid in it.student_ids:
                 s = students.get(sid)
                 if s is None:
                     continue
                 ac = acs.get(s.administrative_class_id) if s.administrative_class_id else None
-                enrollment = enrollment_service.at(s.id, it.inspection_date)
+                enrollment = _enrollment_on(timelines.get(sid), it.inspection_date)
                 if (
                     enrollment is not None
                     and enrollment.administrative_class_id != s.administrative_class_id
                 ):
                     ac = (
-                        self._session.get(AdministrativeClass, enrollment.administrative_class_id)
+                        acs.get(enrollment.administrative_class_id)
                         if enrollment.administrative_class_id
                         else None
                     )
