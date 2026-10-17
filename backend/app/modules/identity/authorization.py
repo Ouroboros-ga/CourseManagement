@@ -44,15 +44,25 @@ BUSINESS_SCOPE_ACTIONS = frozenset(
      "submission_deadline.read", "submission_deadline.manage"}
 )
 
-CAMPUS_ACTIONS = ACADEMIC_SCOPE_ACTIONS | BUSINESS_SCOPE_ACTIONS | frozenset(
-    {
-        "academic.course_type.read",
-        "academic.course_type.manage",
-        "volunteer.group.read",
-        "volunteer.group.manage",
-        "volunteer.member.manage",
-        "volunteer.config.publish",
-    }
+# 教职工档案管理是显式院级能力：只由固定学院身份或明确 ScopedGrant 产生，
+# 不映射到任何旧 Permission code，避免负责人或普通教工被间接提权。
+STAFF_MANAGE_ACTION = "staff.manage"
+STAFF_SCOPE_ACTIONS = frozenset({STAFF_MANAGE_ACTION})
+
+CAMPUS_ACTIONS = (
+    ACADEMIC_SCOPE_ACTIONS
+    | BUSINESS_SCOPE_ACTIONS
+    | STAFF_SCOPE_ACTIONS
+    | frozenset(
+        {
+            "academic.course_type.read",
+            "academic.course_type.manage",
+            "volunteer.group.read",
+            "volunteer.group.manage",
+            "volunteer.member.manage",
+            "volunteer.config.publish",
+        }
+    )
 )
 
 CAMPUS_PERMISSION_ACTION = {

@@ -62,6 +62,7 @@ from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
 from app.modules.importer import permissions as iperm
+from app.modules.importer import staff_adapter
 from app.modules.importer.models import ImportBatch, ImportBatchStatus, ImportTarget
 from app.modules.importer.repository import ImporterRepository
 from app.modules.importer.schemas import (
@@ -119,26 +120,26 @@ class ImporterService:
 
     def _require_composite(self, actor_user_id: int, target: str) -> None:
         """组合权限：import.execute + 目标资源 manage。任一缺失即 403。"""
-        if target not in iperm.TARGET_MANAGE_PERMISSION:
+        self._require(actor_user_id, PermissionCode.IMPORT_EXECUTE.value)
+        self._require_target_manage(actor_user_id, target)
+
+    def _manage_action_for(self, target: str) -> str:
+        """目标所需的资源动作：教职工资料用院级 staff.manage，不借用旧目标权限。"""
+        if staff_adapter.is_staff_target(target):
+            return iperm.STAFF_IMPORT_ACTION
+        db_target = target
+        if db_target not in iperm.TARGET_MANAGE_PERMISSION:
             raise AppError(
                 ErrorCode.VALIDATION_ERROR,
                 "未知导入目标",
                 http_status=422,
                 field_errors={"target": target},
             )
-        self._require(actor_user_id, PermissionCode.IMPORT_EXECUTE.value)
-        self._require(actor_user_id, iperm.TARGET_MANAGE_PERMISSION[target])
+        return iperm.TARGET_MANAGE_PERMISSION[db_target]
 
     def _require_target_manage(self, actor_user_id: int, target: str) -> None:
         """仅要求目标资源 manage（用于下载/查看模板，PERMISSIONS.md 12.5）。"""
-        if target not in iperm.TARGET_MANAGE_PERMISSION:
-            raise AppError(
-                ErrorCode.VALIDATION_ERROR,
-                "未知导入目标",
-                http_status=422,
-                field_errors={"target": target},
-            )
-        self._require(actor_user_id, iperm.TARGET_MANAGE_PERMISSION[target])
+        self._require(actor_user_id, self._manage_action_for(target))
 
     def _audit(
         self,
@@ -170,6 +171,8 @@ class ImporterService:
     # ================================================================== #
     def get_template(self, actor: CurrentUser, target: str) -> ImportTemplateResponse:
         self._require_target_manage(actor.id, target)
+        if staff_adapter.is_staff_target(target):
+            return staff_adapter.get_template(target)
         spec = iperm.template_spec(target)
         return ImportTemplateResponse(**spec)
 
@@ -198,7 +201,27 @@ class ImporterService:
             self._resolve_course_type(cid, course_type_id)
 
         settings = get_settings()
-        if target == ImportTarget.GRID_TIMETABLE.value:
+        if staff_adapter.is_staff_target(target):
+            staff_norm = staff_adapter.normalize_staff_target(target)
+            cid = getattr(self, "cid", None)
+            if cid is None and hasattr(actor, "college_id"):
+                cid = actor.college_id
+            if cid is None:
+                raise AppError(ErrorCode.VALIDATION_ERROR, "请从已授权学院工作区执行导入", 422)
+            if staff_norm == "faculty_staff":
+                payload, issues, summary = staff_adapter.parse_faculty_staff(
+                    self._session, content, cid, filename
+                )
+            elif staff_norm == "class_responsibility":
+                payload, issues, summary = staff_adapter.parse_class_responsibility(
+                    self._session, content, cid, filename
+                )
+            else:
+                assert semester_id is not None
+                payload, issues, summary = staff_adapter.parse_teaching_assignment(
+                    self._session, content, semester_id, cid, filename
+                )
+        elif target == ImportTarget.GRID_TIMETABLE.value:
             payload, issues, summary = self._parse_grid_timetable(content, semester_id, filename)
         elif target == ImportTarget.ADMIN_ROSTER.value:
             payload, issues, summary = self._parse_admin_roster(content, filename)
@@ -244,8 +267,14 @@ class ImporterService:
         payload["course_type_id"] = course_type_id
         summary = {**summary, "error_count": error_count}
 
+        # 教职工三类资料按规范种类落库（同义目标名归一），不再借用旧目标的别名。
+        db_target = (
+            staff_adapter.normalize_staff_target(target)
+            if staff_adapter.is_staff_target(target)
+            else target
+        )
         batch = ImportBatch(
-            target=target,
+            target=db_target,
             status=ImportBatchStatus.PREVIEW.value,
             semester_id=semester_id,
             teaching_class_id=teaching_class_id,
@@ -272,6 +301,14 @@ class ImporterService:
     def _validate_scope(
         self, target: str, *, semester_id: int | None, teaching_class_id: int | None
     ) -> None:
+        if staff_adapter.is_staff_target(target):
+            staff_adapter.validate_scope(
+                target,
+                semester_id=semester_id,
+                teaching_class_id=teaching_class_id,
+                academic=self._academic,
+            )
+            return
         need = iperm.TARGET_SCOPE_FIELDS[target]
         if "semester_id" in need:
             if semester_id is None:
@@ -509,7 +546,7 @@ class ImporterService:
         )
         return ImportPreviewResponse(
             id=batch.id,
-            target=batch.target,
+            target=(batch.payload_json or {}).get("import_type") or batch.target,
             status=batch.status,
             semester_id=batch.semester_id,
             teaching_class_id=batch.teaching_class_id,
@@ -530,7 +567,10 @@ class ImporterService:
         batch = self._repo.get_for_update(batch_id)
         if batch is None:
             raise NotFoundError("导入批次不存在")
-        self._require_composite(actor.id, batch.target)
+        # 批次落库的 target 是教职工资料的兼容别名，确认时按真实资料种类授权。
+        self._require_composite(
+            actor.id, (batch.payload_json or {}).get("import_type") or batch.target
+        )
 
         if batch.status == ImportBatchStatus.CONFIRMED.value:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "该批次已确认，不可重复导入")
@@ -550,6 +590,8 @@ class ImporterService:
         self._session.execute(select(Semester.id).order_by(Semester.id).with_for_update()).all()
         if payload.get("confirmation_skip"):
             created = {"unchanged": True}
+        elif payload.get("import_type") and staff_adapter.is_staff_target(payload["import_type"]):
+            created = staff_adapter.apply_staff(self._session, actor, batch, payload, request_id)
         elif batch.target == ImportTarget.ROSTER.value:
             created = self._apply_roster(actor, batch, payload, request_id)
         elif batch.target == ImportTarget.VOLUNTEER.value:
@@ -579,7 +621,7 @@ class ImporterService:
             self._session.commit()
         return ImportConfirmResponse(
             id=batch.id,
-            target=batch.target,
+            target=(batch.payload_json or {}).get("import_type") or batch.target,
             status=batch.status,
             summary=batch.summary_json or {},
         )

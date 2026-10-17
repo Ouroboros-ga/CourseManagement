@@ -23,6 +23,18 @@ if TYPE_CHECKING:
     from app.modules.inspection.service import InspectionService, PlanItem
 
 
+def occurrence_location_terms(service, items) -> list[tuple[str, int]]:
+    """课次地点修订摘要项：覆盖行修订号变化 → 选择摘要变化 → 旧生成预览 409。"""
+    from app.modules.academic.occurrence_location import selection_summary_terms
+
+    keys: set[str] = set()
+    for item in items:
+        keys.update(getattr(item, "occurrence_keys", []) or [])
+    if not keys:
+        return []
+    return selection_summary_terms(service._session, keys)
+
+
 def build_scope(
     service: InspectionService,
     semester: Semester,
@@ -59,6 +71,7 @@ def build_scope(
             "teaching_class_ids": sorted(set(scope.teaching_class_ids)),
         },
         "periods": sorted((p.period_no, str(p.start_time), str(p.end_time)) for p in periods),
+        "occurrence_locations": occurrence_location_terms(service, items),
         "items": [
             [
                 i.task_key,

@@ -124,8 +124,10 @@ def create_app() -> FastAPI:
     app.include_router(offering_router, prefix="/api/v1")
     from app.modules.academic.management_router import router as academic_management_router
     app.include_router(academic_management_router, prefix="/api/v1")
-    from app.modules.volunteer.member_router import router as member_router
+    from app.modules.academic.staff_router import router as college_staff_router
+    app.include_router(college_staff_router, prefix="/api/v1")
     from app.modules.inspection.group_router import router as group_inspection_router
+    from app.modules.volunteer.member_router import router as member_router
     app.include_router(member_router, prefix="/api/v1")
     from app.modules.volunteer.management_router import router as organization_management_router
     app.include_router(organization_management_router, prefix="/api/v1")
@@ -155,12 +157,20 @@ def create_app() -> FastAPI:
     app.include_router(inspection_router, prefix="/api/v1")
     from app.modules.inspection.scoped_router import router as scoped_inspection_router
     app.include_router(scoped_inspection_router, prefix="/api/v1")
+    from app.modules.inspection.staff_record_router import router as staff_record_router
+    app.include_router(staff_record_router, prefix="/api/v1")
+    from app.modules.academic.occurrence_location_router import (
+        router as occurrence_location_router,
+    )
+    app.include_router(occurrence_location_router, prefix="/api/v1")
 
     # 文件路由（阶段 5）：受限上传、短时签名访问与验签下载（技术方案 16）。
     app.include_router(file_router, prefix="/api/v1")
 
     # 考勤路由（阶段 5）：当前考勤与历史认定读取（按数据范围）、最终考勤更正（技术方案 14）。
     app.include_router(attendance_router, prefix="/api/v1")
+    from app.modules.attendance.staff_router import router as staff_attendance_router
+    app.include_router(staff_attendance_router, prefix="/api/v1")
 
     # 异议路由（阶段 6）：学生对本人考勤提异议、初核/终审与终审更正考勤（技术方案 14）。
     app.include_router(objection_router, prefix="/api/v1")

@@ -231,6 +231,31 @@ class AttendanceService:
             from app.modules.academic.archive import require_open_task
 
             require_open_task(self._session, record.task_id)
+        self.apply_correction(
+            record,
+            body,
+            actor_user_id=actor.id,
+            request_id=request_id,
+            archived=getattr(self, "_archive_correction", False),
+        )
+        self._session.commit()
+        return self._assemble([record])[0]
+
+    def apply_correction(
+        self,
+        record: AttendanceRecord,
+        body: AttendanceCorrectionRequest,
+        *,
+        actor_user_id: int,
+        request_id: str | None,
+        archived: bool = False,
+    ) -> None:
+        """对已锁定（FOR UPDATE）的考勤行完成一次更正版本写入；不提交、不含权限判定。
+
+        管理员更正与教职工本人授课更正共用：当前认定的版本校验、版本追加、审计与
+        原任务负责学院的报表源修订单事务完成，失败整体回滚。调用方必须先锁定
+        考勤行并自行完成范围授权；本方法绝不读取或放宽任何权限。
+        """
         if record.current_version != body.current_version:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "考勤已被他人更正，请刷新后重看再操作")
         prev_type = record.effective_type
@@ -245,16 +270,14 @@ class AttendanceService:
                 attendance_type=body.attendance_type,
                 source_type=AttendanceSourceType.CORRECTION.value,
                 source_id=record.id,
-                changed_by=actor.id,
+                changed_by=actor_user_id,
                 reason=body.reason,
             )
         )
         self._repo.flush()
         self._audit(
-            actor_user_id=actor.id,
-            action="attendance.archived.correct"
-            if getattr(self, "_archive_correction", False)
-            else "attendance.correct",
+            actor_user_id=actor_user_id,
+            action="attendance.archived.correct" if archived else "attendance.correct",
             resource_type="attendance_record",
             resource_id=f"{record.id}",
             before={
@@ -270,8 +293,6 @@ class AttendanceService:
         )
         # 考勤事实被更正 → 同事务递增所属任务(学期,周)报表源修订号（技术方案 9.4；W7b 还 P6 挂账）。
         SourceRevisionService.bump_for_task_id(self._session, record.task_id)
-        self._session.commit()
-        return self._assemble([record])[0]
 
     # ================================================================== #
     # 装配（批量取任务上下文 + 名单快照，禁 N+1）

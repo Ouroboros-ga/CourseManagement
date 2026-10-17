@@ -35,6 +35,8 @@ from app.modules.identity.schemas import (
     RoleAssignmentRequest,
     RoleAssignmentResult,
     RoleAssignmentTargetsResponse,
+    StaffBindingRequest,
+    StaffBindingResult,
     StudentBindingRequest,
     StudentBindingResetRequest,
     StudentBindingResetResult,
@@ -44,6 +46,8 @@ from app.modules.identity.schemas import (
     WechatLoginResult,
 )
 from app.modules.identity.service import CurrentUser, IdentityService
+from app.modules.identity.staff_binding import StaffBindingService
+from app.modules.identity.staff_deps import resolve_app_context
 
 router = APIRouter(tags=["auth"])
 
@@ -191,6 +195,7 @@ def logout(
 def me(
     user: CurrentUserDep,
     request: Request,
+    db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, object]:
     data = CurrentUserResponse.build(
         id=user.id,
@@ -200,8 +205,29 @@ def me(
         roles=user.roles,
         permissions=user.permissions,
         pre_binding=user.pre_binding,
+        # 摘要来自服务端回查的有效档案，不写入访问令牌，也不改变权限集合。
+        app_context=resolve_app_context(db, user),
     )
     return success(data.model_dump(), getattr(request.state, "request_id", None))
+
+
+@router.post("/me/staff-binding")
+def bind_staff(
+    body: StaffBindingRequest,
+    user: CurrentUserDep,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, object]:
+    """教职工本人核销绑定码并关联档案；受限会话可用，且不因此获得管理员权限。"""
+    result = StaffBindingService(db).redeem(
+        user_id=user.id,
+        staff_no=body.staff_no,
+        binding_code=body.binding_code,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    return success(
+        StaffBindingResult(**result).model_dump(), getattr(request.state, "request_id", None)
+    )
 
 
 @router.post("/me/student-binding")

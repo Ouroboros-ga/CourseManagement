@@ -7,7 +7,8 @@ multipart 上传的参数在路由以 Form/File 声明，不走本体的 JSON �
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from typing import Any
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.modules.academic.schemas import IdStr, OptIdStr
 
@@ -28,12 +29,67 @@ class ImportPreviewResponse(BaseModel):
     expires_at: object
     can_confirm: bool
 
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_target(cls, data: Any) -> Any:
+        if hasattr(data, "payload_json") and data.payload_json:
+            it = data.payload_json.get("import_type")
+            if it:
+                if isinstance(data, dict):
+                    data["target"] = it
+                else:
+                    return {
+                        "id": str(data.id),
+                        "target": it,
+                        "status": data.status,
+                        "semester_id": data.semester_id,
+                        "teaching_class_id": data.teaching_class_id,
+                        "summary": data.summary_json or {},
+                        "errors": [
+                            i for i in (data.error_json or []) if i.get("severity") == "error"
+                        ],
+                        "warnings": [
+                            i for i in (data.error_json or []) if i.get("severity") != "error"
+                        ],
+                        "expires_at": data.expires_at,
+                        "can_confirm": (
+                            data.status == "PREVIEW"
+                            and not any(
+                                i.get("severity") == "error"
+                                for i in (data.error_json or [])
+                            )
+                        ),
+                    }
+        elif isinstance(data, dict):
+            pj = data.get("payload_json")
+            if isinstance(pj, dict) and pj.get("import_type"):
+                data["target"] = pj["import_type"]
+        return data
+
 
 class ImportConfirmResponse(BaseModel):
     id: IdStr
     target: str
     status: str
     summary: dict
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_target(cls, data: Any) -> Any:
+        if hasattr(data, "payload_json") and data.payload_json:
+            it = data.payload_json.get("import_type")
+            if it:
+                return {
+                    "id": str(data.id),
+                    "target": it,
+                    "status": data.status,
+                    "summary": data.summary_json or {},
+                }
+        elif isinstance(data, dict):
+            pj = data.get("payload_json")
+            if isinstance(pj, dict) and pj.get("import_type"):
+                data["target"] = pj["import_type"]
+        return data
 
 
 class ImportTemplateResponse(BaseModel):
@@ -56,6 +112,28 @@ class ImportBatchListItem(BaseModel):
     summary: dict
     created_at: object
     expires_at: object
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_target(cls, data: Any) -> Any:
+        if hasattr(data, "payload_json") and data.payload_json:
+            it = data.payload_json.get("import_type")
+            if it:
+                return {
+                    "id": str(data.id),
+                    "target": it,
+                    "status": data.status,
+                    "filename": data.filename,
+                    "semester_id": data.semester_id,
+                    "summary": data.summary_json or {},
+                    "created_at": data.created_at,
+                    "expires_at": data.expires_at,
+                }
+        elif isinstance(data, dict):
+            pj = data.get("payload_json")
+            if isinstance(pj, dict) and pj.get("import_type"):
+                data["target"] = pj["import_type"]
+        return data
 
 
 __all__ = [

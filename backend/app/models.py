@@ -19,14 +19,17 @@ from app.modules.academic import enrollment_models  # noqa: F401
 
 # 导入即注册到 Base.metadata。新增 models.py 必须在此登记，否则 autogenerate 检测不到。
 from app.modules.academic import models as academic_models  # noqa: F401
+from app.modules.academic import occurrence_location_models  # noqa: F401
 from app.modules.academic import publication_models as publication_models  # noqa: F401
 from app.modules.academic import offering_models  # noqa: F401
 from app.modules.academic import school_time_models as school_time_models  # noqa: F401
 from app.modules.academic import time_models as time_models  # noqa: F401
+from app.modules.academic import staff_models as staff_models  # noqa: F401
 from app.modules.attendance import models as attendance_models  # noqa: F401
 from app.modules.audit import models as audit_models  # noqa: F401
 from app.modules.file import models as file_models  # noqa: F401
 from app.modules.identity import models as identity_models  # noqa: F401
+from app.modules.identity import staff_binding_models as staff_binding_models  # noqa: F401
 from app.modules.importer import models as importer_models  # noqa: F401
 from app.modules.inspection import assignment_plan_models  # noqa: F401
 from app.modules.inspection import models as inspection_models  # noqa: F401

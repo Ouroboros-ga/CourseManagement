@@ -29,6 +29,9 @@ class ImportTarget(enum.StrEnum):
     ADMIN_ROSTER = "admin_roster"  # 行政班学生花名册（受 student.manage 守卫）
     GRID_TIMETABLE = "grid_timetable"  # 网格课表批量导入（受 academic.manage 守卫）
     ELECTIVE_COURSE = "elective_course"  # 选修课/分层课/多教学班导入（受 academic.manage 守卫）
+    FACULTY_STAFF = "faculty_staff"  # 教职工档案（受院级 staff.manage 守卫）
+    CLASS_RESPONSIBILITY = "class_responsibility"  # 班主任/责任区辅导员任职（staff.manage）
+    TEACHING_ASSIGNMENT = "teaching_assignment"  # 任课教师授课关系（staff.manage）
 
 
 class ImportBatchStatus(enum.StrEnum):
@@ -39,7 +42,8 @@ class ImportBatchStatus(enum.StrEnum):
 
 
 _ALLOWED_TARGET = (
-    "('roster','timetable','volunteer','admin_roster','grid_timetable','elective_course')"
+    "('roster','timetable','volunteer','admin_roster','grid_timetable','elective_course',"
+    "'faculty_staff','class_responsibility','teaching_assignment')"
 )
 _ALLOWED_STATUS = "('PREVIEW','CONFIRMED','FAILED','EXPIRED')"
 

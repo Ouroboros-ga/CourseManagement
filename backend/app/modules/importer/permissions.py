@@ -8,7 +8,13 @@
 from __future__ import annotations
 
 from app.core.permissions import PermissionCode
+from app.modules.identity.authorization import STAFF_MANAGE_ACTION
 from app.modules.importer.models import ImportTarget
+
+# 教职工三类资料（档案、班级责任、授课关系）按学院范围的 staff.manage 授权，
+# 不借用 student.manage / course_schedule.import：持有学籍或排班导入权限
+# 不等于可以建立教职工档案或任命责任人。
+STAFF_IMPORT_ACTION = STAFF_MANAGE_ACTION
 
 # 目标类型 → 对应的资源 manage 权限（组合上再要求 import.execute）。
 TARGET_MANAGE_PERMISSION: dict[str, str] = {

@@ -21,6 +21,13 @@ def changes_for(service, batch):
     payload = copy.deepcopy(batch.payload_json or {})
     changes, issues = [], []
 
+    from app.modules.importer import staff_adapter
+    is_staff = staff_adapter.is_staff_target(batch.target) or staff_adapter.is_staff_target(
+        payload.get("import_type") or ""
+    )
+    if is_staff:
+        return staff_adapter.changes_for_staff(service, batch)
+
     def issue(message, row=None):
         issues.append(
             {

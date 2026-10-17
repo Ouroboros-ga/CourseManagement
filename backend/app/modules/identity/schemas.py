@@ -62,6 +62,30 @@ class RoleInfo(BaseModel):
     name: str
 
 
+class StaffWorkViews(BaseModel):
+    """本人当前有效职责视图；不代表任何写入授权。"""
+
+    teaching: bool = False
+    responsible: bool = False
+
+
+class StaffAppSummary(BaseModel):
+    staff_id: str
+    staff_no: str
+    name: str
+    college_id: str
+    views: StaffWorkViews = StaffWorkViews()
+
+
+class AppContext(BaseModel):
+    """`/me` 增量：呈现模式与本人工作视图摘要，权限仍按逐请求计算。"""
+
+    modes: list[str] = []
+    default_mode: str | None = None
+    administrator: bool = False
+    staff: StaffAppSummary | None = None
+
+
 class CurrentUserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -72,6 +96,7 @@ class CurrentUserResponse(BaseModel):
     roles: list[str]
     permissions: list[str]
     binding_required: bool = False
+    app_context: AppContext | None = None
 
     @classmethod
     def build(
@@ -84,6 +109,7 @@ class CurrentUserResponse(BaseModel):
         roles: list[str],
         permissions: list[str],
         pre_binding: bool = False,
+        app_context: dict[str, object] | None = None,
     ) -> CurrentUserResponse:
         return cls(
             id=to_id_str(id),
@@ -93,6 +119,7 @@ class CurrentUserResponse(BaseModel):
             roles=roles,
             permissions=permissions,
             binding_required=pre_binding,
+            app_context=AppContext.model_validate(app_context) if app_context is not None else None,
         )
 
 
@@ -107,6 +134,21 @@ class StudentBindingResult(BaseModel):
     student_id: str
     student_no: str
     name: str
+
+
+class StaffBindingRequest(BaseModel):
+    """教职工本人绑定：工号加一次性绑定码，姓名与手机号不作为认领依据。"""
+
+    staff_no: str = Field(min_length=1, max_length=64)
+    binding_code: str = Field(min_length=6, max_length=128)
+
+
+class StaffBindingResult(BaseModel):
+    staff_id: str
+    staff_no: str
+    name: str
+    college_id: str
+    user_id: str
 
 
 class OptionalPermissionUpdate(BaseModel):

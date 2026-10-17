@@ -152,6 +152,14 @@ class FileService:
     # 访问授权 + 短时链接
     # ------------------------------------------------------------------ #
     def can_access(self, actor: CurrentUser, file: FileObject) -> bool:
+        # 教工本人材料访问独立于学生绑定：已关联有效档案的受限会话仍按逐文件事实判定，
+        # 由 can_staff_access_file 自己核对账号/档案/学院；学生与管理员路径守卫保持不变。
+        from app.modules.file.staff_access import can_staff_access_file
+
+        if can_staff_access_file(self._session, actor.id, file):
+            return True
+        if actor.pre_binding:
+            return False
         if self._settings.campus_business_scoped_enabled:
             return self._can_access_scoped(actor, file)
         from app.modules.identity.repository import IdentityRepository
@@ -209,22 +217,28 @@ class FileService:
                 OBJECTION_READ_PERMISSION,
             )
 
-            return self._repo.is_linked_to_readable_objection_for(
+            if self._repo.is_linked_to_readable_objection_for(
                 file_id=file.id,
                 actor_user_id=actor.id,
                 may_manage=bool(permissions & MANAGE_READ_PERMISSIONS),
                 may_read_own=OBJECTION_READ_PERMISSION in permissions,
-            )
+            ):
+                return True
+            from app.modules.file.staff_access import can_staff_access_file
+
+            return can_staff_access_file(self._session, actor.id, file)
         may_review = "submission.review" in permissions
         may_read_own = "submission.read" in permissions
-        if not (may_review or may_read_own):
-            return False
-        return self._repo.is_linked_to_submittable_for(
+        if (may_review or may_read_own) and self._repo.is_linked_to_submittable_for(
             file_id=file.id,
             actor_user_id=actor.id,
             may_review=may_review,
             may_read_own=may_read_own,
-        )
+        ):
+            return True
+        from app.modules.file.staff_access import can_staff_access_file
+
+        return can_staff_access_file(self._session, actor.id, file)
 
     def _can_access_scoped(self, actor: CurrentUser, file: FileObject) -> bool:
         from sqlalchemy import select

@@ -119,10 +119,15 @@ def download_import_template(
     target_names = {
         "admin_roster": "行政班与学生名单模板",
         "class_duty": "班级管理责任关系模板",
+        "class_responsibility": "班级管理责任关系模板",
         "timetable": "学院教务课表标准长表模板",
         "volunteer": "志愿者学期资格底册模板",
         "roster": "教学班补充名单模板",
         "grid_timetable": "学校网格课表说明",
+        "faculty_staff": "教职工档案导入模板",
+        "staff": "教职工档案导入模板",
+        "teaching_assignment": "任课教师授课关系模板",
+        "teaching_staff": "任课教师授课关系模板",
     }
     filename = f"{target_names.get(target, target + '_template')}.xlsx"
     encoded_filename = urllib.parse.quote(filename)
@@ -154,10 +159,9 @@ async def create_import(
     content = await file.read(10 * 1024 * 1024 + 1)
     if len(content) > 10 * 1024 * 1024:
         raise AppError(ErrorCode.VALIDATION_ERROR, "单个导入文件不能超过 10 MiB", 422)
-    resolved_target = "admin_roster" if target == "class_duty" else target
     result = service.create_preview(
         actor,
-        target=resolved_target,
+        target=target,
         content=content,
         semester_id=semester_id,
         teaching_class_id=teaching_class_id,

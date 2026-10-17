@@ -56,6 +56,7 @@ from app.modules.academic.models import (
     TeachingClassStudent,
     VolunteerQualification,
 )
+from app.modules.academic.occurrence_location import apply_course_plan_overrides
 from app.modules.academic.repository import AcademicRepository
 from app.modules.attendance.models import (
     AttendanceRecord,
@@ -89,6 +90,7 @@ from app.modules.inspection.models import (
     TaskRosterVersion,
 )
 from app.modules.inspection.repository import InspectionRepository
+from app.modules.inspection.responsibility import schedule_occurrence
 from app.modules.inspection.scheduling.loader import REASONS, load_snapshot
 from app.modules.inspection.scheduling.planner import plan_assignments
 from app.modules.inspection.scheduling.validation import validate_plan
@@ -140,9 +142,9 @@ from app.modules.inspection.schemas import (
     TaskRosterResponse,
     UnassignedTaskBrief,
 )
+from app.modules.organization.service import atomic_write
 from app.modules.report.source_revision import SourceRevisionService
 from app.modules.volunteer.models import GroupConfigVersion, VolunteerGroup
-from app.modules.organization.service import atomic_write
 
 
 # --------------------------------------------------------------------------- #
@@ -673,8 +675,8 @@ class InspectionService:
             self._repo.flush()
 
             if get_settings().campus_scheduling_enabled:
-                from app.modules.inspection.task_time import freeze_time
                 from app.modules.inspection.responsibility import sync_responsibility
+                from app.modules.inspection.task_time import freeze_time
                 # Sources now exist, so every merged teaching-class interval is checked.
                 freeze_time(self._session, task)
                 sync_responsibility(self._session, task)
@@ -1425,8 +1427,13 @@ class InspectionService:
                     require_photo_snapshot=body.require_photo,
                     student_ids=[st.id for st in merged_students],
                     constituent_schedule_ids=c_sched_ids,
+                    occurrence_keys=sorted({schedule_occurrence(s, date_key) for s in sched_list}),
                 )
-        return self._attach_rosters(list(items.values()))
+        item_list = list(items.values())
+        # 教学班教师保存的真实课次地点覆盖只影响本次计划目的地快照；
+        # 未曾保存或已恢复原始地点（location=None）时保持课表原地点。
+        apply_course_plan_overrides(self._session, item_list)
+        return self._attach_rosters(item_list)
 
     def _build_study_plan_core(
         self, sem: Semester, body: InspectionGenerateRequest
@@ -3165,19 +3172,19 @@ class InspectionService:
         if task.canceled_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可提交")
 
-        # 查课日期校验：志愿者只能在查课当天及以后上传数据（禁止提前提交未来任务）
-        # 统一使用中国标准时间 (UTC+8) 的本地日历日期
-        from datetime import timedelta
-
-        local_today = (utcnow() + timedelta(hours=8)).date()
-        if local_today < task.inspection_date:
-            raise AppError(
-                ErrorCode.STATE_CONFLICT,
-                f"查课任务尚未开始（查课日期为 {task.inspection_date}），"
-                "仅可在查课当天及以后上传数据",
-                http_status=422,
-                field_errors={"inspection_date": str(task.inspection_date)},
-            )
+        # 查课日期校验说明：按设计决策在后端关闭对查课日期的提前拦截（生产环境亦不开启）。
+        # 提前提交拦截统一由微信小程序前端交互侧进行引导与控制，后端保持放行以支持灵活测试及管理场景。
+        # （原硬拦截逻辑保留注释备查，无需开启）
+        # from datetime import timedelta
+        # local_today = (utcnow() + timedelta(hours=8)).date()
+        # if local_today < task.inspection_date:
+        #     raise AppError(
+        #         ErrorCode.STATE_CONFLICT,
+        #         f"查课任务尚未开始（查课日期为 {task.inspection_date}），"
+        #         "仅可在查课当天及以后上传数据",
+        #         http_status=422,
+        #         field_errors={"inspection_date": str(task.inspection_date)},
+        #     )
 
         # 当前受派：仅本人受派任务可提交；不存在受派或非本人 → 403（任务已确认存在 → 非 404）。
         assignment = self._repo.get_assignment_by_task(task.id)

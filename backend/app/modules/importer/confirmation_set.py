@@ -42,6 +42,13 @@ class ImportConfirmationSet:
                 semesters.add(teaching.semester_id)
         if len(semesters) > 1:
             raise ConflictError(message="一次确认不能混合多个学期")
+        has_semester = any(b.semester_id is not None for b in batches)
+        has_no_semester = any(
+            b.semester_id is None and (b.payload_json or {}).get("import_type") == "faculty_staff"
+            for b in batches
+        )
+        if has_semester and has_no_semester:
+            raise ConflictError(message="无学期资料与学期资料请分开确认")
         return batches
 
     def _plan(self, batches):
@@ -158,7 +165,7 @@ class ImportConfirmationSet:
                 {
                     "id": str(batch.id),
                     "filename": batch.filename,
-                    "target": batch.target,
+                    "target": (batch.payload_json or {}).get("import_type") or batch.target,
                     "changes": analysis["changes"],
                     "issues": issues,
                     "summary": batch.summary_json or {},
@@ -204,6 +211,14 @@ class ImportConfirmationSet:
             if plan["revision"] != revision:
                 raise ConflictError(ErrorCode.VERSION_CONFLICT, "资料或选择集合已变化，请重新核对")
             if not plan["can_confirm"]:
+                if any(
+                    i.get("code") == "CONFIRMATION_CONFLICT"
+                    for f in plan["files"]
+                    for i in f["issues"]
+                ):
+                    raise ConflictError(
+                        ErrorCode.VERSION_CONFLICT, "资料已发生变化，请重新核对上传"
+                    )
                 raise AppError(ErrorCode.VALIDATION_ERROR, "存在阻断问题，整批未保存", 422)
             try:
                 for batch in batches:
@@ -235,7 +250,12 @@ class ImportConfirmationSet:
             "status": "CONFIRMED",
             "batch_ids": [str(b.id) for b in batches],
             "files": [
-                {"id": str(b.id), "filename": b.filename, "summary": b.summary_json}
+                {
+                    "id": str(b.id),
+                    "filename": b.filename,
+                    "target": (b.payload_json or {}).get("import_type") or b.target,
+                    "summary": b.summary_json,
+                }
                 for b in batches
             ],
         }
