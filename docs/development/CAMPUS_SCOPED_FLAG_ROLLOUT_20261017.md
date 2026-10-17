@@ -126,7 +126,7 @@ A02/A03/A04 直接落在"打开 business_scoped 后才会走到的新链路"上�
 
 ## 6. 建议执行顺序
 
-1. 修前端空白页签缺陷（独立于开关，见第 8 节），并把页签显隐统一到 `campusRuntime`。
+1. ~~修前端空白页签缺陷（独立于开关，见第 8 节），并把页签显隐统一到 `campusRuntime`。~~ 空白缺陷已定位为 out-in 过渡多根子组件并修复（`19438bb`）；页签显隐统一到 `campusRuntime` 仍未做。
 2. 定稿 3.2 的白名单判定：账号权限类、files、school 级路径各自要不要学院前缀；改 `workspaceHttp.ts` 并补单测。
 3. 修 A02/A03/A04（A01/A05 同批），每项带能失败的回归用例。
 4. 完成第 5 节的存量归属与分类，产出前后计数对比。
@@ -141,8 +141,12 @@ A02/A03/A04 直接落在"打开 business_scoped 后才会走到的新链路"上�
 - 开关为真期间写入的 `college_id`、`college_id_snapshot`、作息版本、发布版本是**业务事实，回退不会清除**。回退只恢复入口，不恢复数据。
 - 回退前必须备份：沿用 `deploy/production/backup.sh` 并在发布记录里留 SHA-256 核对结果。
 
-## 8. 与开关无关的那个缺陷
+## 8. 页签整块空白（已定位并修复，与开关无关）
 
-"作息与校历""发布给学生"两个页签整块空白，不是开关造成的：开关为假时 `AcademicView.vue:62` 应显示说明条，而"发布给学生"的后端本来就已启用。`教学班与分类`/`课程类型` 正常说明 `CampusWorkspace` 的 `college` 已就绪。当前最可疑的是 `views/AcademicView.vue:57` 的内层 `<Transition name="tab-fade" mode="out-in">`：`ScopedAcademicBrowser` 和 `CourseTypeManager` 都是单根，而 `key="time"` 分支的 `<div>` 与 `AcademicPublication` 在切换时若未触发 `transitionend`，`mode="out-in"` 会一直不挂载新内容，表现就是纯空白。
+"作息与校历""发布给学生"整块空白不是开关造成的：开关为假时 `AcademicView.vue:62` 本应显示说明条，而"发布给学生"的后端本来就已启用。
 
-定位方法已给出（读 `.tab-stage` 的 `innerHTML.length` 与 `opacity`）。确认前不改代码。
+根因是 `<Transition mode="out-in">` 的子组件多根：`ScopedAcademicBrowser` 和 `CourseTypeManager` 渲染成 fragment，Vue 不挂载过渡钩子，`afterLeave` 永不触发，`isLeaving` 永久为真，Transition 之后只返回空占位节点。同一缺陷在 `SchoolView` 的 `OwnershipReconciliation` 上可稳定复现（切到"存量归属核对"再切回即空白）。
+
+已按调用点包单元素根的方式修复，并加静态守卫 `apps/admin-web/tests/transition-root-invariant.test.mjs` 遍历全部 `mode="out-in"` Transition。证据见[过渡单根修复发布记录](../archive/2026-10-17/operations/TRANSITION_ROOT_RELEASE_20261017.md)。
+
+仍待处理：`CampusAdministration`、`GroupManager`、`ImportHome` 等组件本身仍是多根，目前只靠调用点包裹规避；新页面把它们直接放进 out-in Transition 会重新触发同一缺陷，由上述测试拦截。
