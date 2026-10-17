@@ -22,7 +22,9 @@ initial_* 仅保留历史，旧初核入口拒绝写入。底层 final_* 字段�
   READY、本人上传、类别 OBJECTION_PROOF、未过期，关联前锁文件行与到期清理串行化；
 - 初核：PENDING→PASSED/REJECTED，**不改考勤**，为终审提供参考；
 - 终审：PENDING→APPROVED/REJECTED。通过且需更正时，同一事务改判考勤当前值、追加
-  OBJECTION_FINAL 版本并审计；考勤版本≠发起时版本 → VERSION_CONFLICT，绝不覆盖他人新认定。
+  OBJECTION_FINAL 版本并审计；审核者所见版本与考勤当前版本不一致 → VERSION_CONFLICT，绝不
+  覆盖他人新认定。考勤在异议发起后已被合法推进（如教师更正）时，按**当前**版本重新起版，
+  并把落差记入审计，使异议可在重新核对后结案，不自动关单。
   一次审核包含该异议的考勤改判能力，不依赖独立的 attendance.correct 权限。
 """
 
@@ -79,6 +81,12 @@ from app.modules.objection.schemas import (
     ObjectionTaskBrief,
 )
 from app.modules.report.source_revision import SourceRevisionService
+
+
+def assert_pending_review(obj: Objection) -> None:
+    """唯一状态机：已完成终审的异议不可再次审核。"""
+    if obj.final_status != ObjectionFinalStatus.PENDING.value:
+        raise ConflictError(ErrorCode.STATE_CONFLICT, "该异议已完成终审")
 
 
 class ObjectionService:
@@ -362,8 +370,9 @@ class ObjectionService:
         """终审：PENDING→APPROVED/REJECTED（技术方案 14、15；PERMISSIONS.md 758）。
 
         objection.final_review 包含通过该异议时的考勤改判能力；独立手工更正仍由
-        attendance.correct 控制。更正前校验考勤当前版本 == 异议发起版本，否则 VERSION_CONFLICT，
-        不覆盖他人新认定。锁序：先锁考勤、再锁异议（populate_existing 重读状态）。驳回不改考勤。
+        attendance.correct 控制。审核者所见 `current_version` 必须与考勤当前版本一致，否则
+        VERSION_CONFLICT，不覆盖他人新认定。锁序：先锁考勤、再锁异议（populate_existing 重读
+        状态）。驳回不改考勤。改判写入由 `apply_final_review` 完成，与教工责任区审核共用。
         """
         self._require(actor.id, perms.OBJECTION_FINAL_REVIEW_PERMISSION)
         self._legacy_manage_gate()
@@ -379,18 +388,44 @@ class ObjectionService:
             raise NotFoundError("异议不存在")
         from app.modules.academic.archive import require_open_task
         require_open_task(self._session, record.task_id)
-        if obj.final_status != ObjectionFinalStatus.PENDING.value:
-            raise ConflictError(ErrorCode.STATE_CONFLICT, "该异议已完成终审")
+        assert_pending_review(obj)
+        self.apply_final_review(
+            obj, record, body, actor_user_id=actor.id, request_id=request_id
+        )
+        self._session.commit()
+        self._session.refresh(obj)
+        return self._assemble([obj])[0]
 
+    def apply_final_review(
+        self,
+        obj: Objection,
+        record: AttendanceRecord,
+        body: ObjectionFinalReviewRequest,
+        *,
+        actor_user_id: int,
+        request_id: str | None,
+    ) -> bool:
+        """一次审核的事务核心：状态机、考勤版本链、审计与报表源修订。
+
+        管理员终审与教职工责任区审核共用同一条状态机（架构合同 §3：不新建第二套审批）。
+        调用方必须已按“考勤→异议”顺序锁定这两行、复核归档与各自的资源授权，并在本方法
+        成功后自行完成**单次**提交；本方法不读权限、不提交、失败由调用方回滚。
+
+        版本口径：审核者所见 `current_version` 必须等于考勤当前版本，否则 409，绝不覆盖他人
+        新认定。教师更正等合法写入推进版本后，审核以**当前**版本重新起版（而非异议发起时的
+        `base_attendance_version`），使“考勤已变化”的异议仍可在重新核对后结案，同时保留
+        完整版本链；发起版本与本次落差记入审计。
+        """
+        assert_pending_review(obj)
         now = utcnow()
         if body.decision == "REJECTED":
             obj.final_status = ObjectionFinalStatus.REJECTED.value
-            obj.final_reviewed_by = actor.id
+            obj.final_reviewed_by = actor_user_id
             obj.final_reviewed_at = now
             obj.final_comment = body.comment
             self._repo.flush()
             self._audit(
-                actor_user_id=actor.id,
+                actor_user_id=actor_user_id,
                 action="objection.final_review",
                 resource_id=f"{obj.id}",
                 before={"final_status": ObjectionFinalStatus.PENDING.value},
@@ -398,9 +433,7 @@ class ObjectionService:
                 reason=body.comment,
                 request_id=request_id,
             )
-            self._session.commit()
-            self._session.refresh(obj)
-            return self._assemble([obj])[0]
+            return False
 
         # APPROVED：须给出终审判定类型。
         if body.final_type is None:
@@ -416,20 +449,16 @@ class ObjectionService:
             "effective_type": record.effective_type,
             "current_version": record.current_version,
         }
+        changed_since_filing = record.current_version != obj.base_attendance_version
         if needs_correction:
             # 审核授权包含本次异议改判，不赋予独立的手工考勤更正能力。
-            # 审阅者所见版本须与考勤当前一致（乐观锁），且不覆盖他人在异议发起后的新认定。
+            # 审阅者所见版本须与考勤当前一致（乐观锁），据此不覆盖他人在异议发起后的新认定。
             if body.current_version != record.current_version:
                 raise ConflictError(
                     ErrorCode.VERSION_CONFLICT, "考勤已被他人更正，请刷新后重看再操作"
                 )
-            if record.current_version != obj.base_attendance_version:
-                raise ConflictError(
-                    ErrorCode.VERSION_CONFLICT,
-                    "考勤版本已与发起异议时不同，请重新查看后处理，不覆盖他人新认定",
-                )
             record.effective_type = target
-            record.current_version = obj.base_attendance_version + 1
+            record.current_version = record.current_version + 1
             self._repo.flush()
             self._repo.add(
                 AttendanceRecordVersion(
@@ -438,19 +467,19 @@ class ObjectionService:
                     attendance_type=target,
                     source_type=AttendanceSourceType.OBJECTION_FINAL.value,
                     source_id=obj.id,
-                    changed_by=actor.id,
+                    changed_by=actor_user_id,
                     reason=body.comment or obj.reason,
                 )
             )
         self._repo.flush()
         obj.final_status = ObjectionFinalStatus.APPROVED.value
-        obj.final_reviewed_by = actor.id
+        obj.final_reviewed_by = actor_user_id
         obj.final_reviewed_at = now
         obj.final_comment = body.comment
         obj.final_attendance_type = target
         self._repo.flush()
         self._audit(
-            actor_user_id=actor.id,
+            actor_user_id=actor_user_id,
             action="objection.final_review",
             resource_id=f"{obj.id}",
             before={
@@ -465,6 +494,9 @@ class ObjectionService:
                     "effective_type": record.effective_type,
                     "current_version": record.current_version,
                 },
+                # 考勤在异议发起后已被他人合法写入（如教师更正）；审核者已按新版本重新核对。
+                "attendance_changed_since_filing": changed_since_filing,
+                "base_attendance_version": obj.base_attendance_version,
             },
             reason=body.comment,
             request_id=request_id,
@@ -472,9 +504,7 @@ class ObjectionService:
         # 终审改判若实际更正了考勤 → 同事务递增该(学期,周)报表源修订号（技术方案 9.4；还 P6 挂账）。
         if needs_correction:
             SourceRevisionService.bump_for_task_id(self._session, record.task_id)
-        self._session.commit()
-        self._session.refresh(obj)
-        return self._assemble([obj])[0]
+        return needs_correction
 
     # ================================================================== #
     # 装配（批量取材料关联、学生与考勤上下文，禁 N+1）

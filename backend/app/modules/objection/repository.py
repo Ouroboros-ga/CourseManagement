@@ -12,14 +12,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from sqlalchemy import Select, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.common.pagination import PageParams
 from app.core.exceptions import PermissionDeniedError
 from app.modules.attendance.models import AttendanceRecord
 from app.modules.identity.resource_scope import ResourceScope
+from app.modules.identity.staff_scope import responsible_class_condition
 from app.modules.inspection.dimensions import TaskDimensions
-from app.modules.inspection.models import InspectionTask
+from app.modules.inspection.models import InspectionTask, TaskRosterMember
 from app.modules.objection.models import Objection, ObjectionFile, ObjectionFinalStatus
 
 
@@ -137,6 +138,127 @@ class ObjectionRepository:
             stmt = stmt.where(Objection.initial_status == initial_status)
         stmt = stmt.order_by(Objection.id.desc())
         return _paged(self._session, stmt, params)
+
+    # ---- 教工责任区（T05）：按任务名单快照行政班 + 当前责任关系收窄 ----
+    def _responsible_exists(self, user_id: int, as_of, *, review_college: bool = False):
+        """本人当前责任关系覆盖“该异议学生在此任务快照中的行政班”。
+
+        `review_college=True` 追加任务真实负责学院与档案学院的交集，仅用于判定能否改判；
+        省略时只表达读取范围（架构合同 §2：不能把 None 当作允许审核外院记录）。
+        """
+        att = aliased(AttendanceRecord)
+        task = aliased(InspectionTask)
+        member = aliased(TaskRosterMember)
+        return (
+            select(member.id)
+            .select_from(member, att, task)
+            .where(
+                att.id == Objection.attendance_record_id,
+                att.student_id == Objection.student_id,
+                task.id == att.task_id,
+                member.task_id == task.id,
+                member.roster_version == task.roster_version,
+                member.student_id == att.student_id,
+                member.administrative_class_id_snapshot.is_not(None),
+                responsible_class_condition(
+                    user_id,
+                    administrative_class_id=member.administrative_class_id_snapshot,
+                    as_of=as_of,
+                    review_college_id=task.college_id if review_college else None,
+                ),
+            )
+            .correlate(Objection)
+            .exists()
+        )
+
+    def list_responsible(
+        self,
+        user_id: int,
+        as_of,
+        params: PageParams,
+        *,
+        final_status: str | None = None,
+        initial_status: str | None = None,
+        semester_id: int | None = None,
+        administrative_class_id: int | None = None,
+    ) -> tuple[list[Objection], int]:
+        """责任区异议列表：SQL 先授权再分页，绝不在 Python 侧过滤。"""
+        stmt = self._objections().where(self._responsible_exists(user_id, as_of))
+        if final_status is not None:
+            stmt = stmt.where(Objection.final_status == final_status)
+        if initial_status is not None:
+            stmt = stmt.where(Objection.initial_status == initial_status)
+        if semester_id is not None or administrative_class_id is not None:
+            att = aliased(AttendanceRecord)
+            task = aliased(InspectionTask)
+            member = aliased(TaskRosterMember)
+            narrowing = (
+                select(member.id)
+                .select_from(member, att, task)
+                .where(
+                    att.id == Objection.attendance_record_id,
+                    task.id == att.task_id,
+                    member.task_id == task.id,
+                    member.roster_version == task.roster_version,
+                    member.student_id == att.student_id,
+                )
+            )
+            if semester_id is not None:
+                narrowing = narrowing.where(task.semester_id == semester_id)
+            if administrative_class_id is not None:
+                narrowing = narrowing.where(
+                    member.administrative_class_id_snapshot == administrative_class_id
+                )
+            stmt = stmt.where(narrowing.correlate(Objection).exists())
+        stmt = stmt.order_by(Objection.id.desc())
+        return _paged(self._session, stmt, params)
+
+    def get_responsible(
+        self, user_id: int, as_of, objection_id: int
+    ) -> tuple[Objection, int, int] | None:
+        """责任区内单条异议，连同任务与负责学院；不在范围即 None（防枚举）。"""
+        row = self._session.execute(
+            select(Objection, InspectionTask.id, InspectionTask.college_id)
+            .join(AttendanceRecord, AttendanceRecord.id == Objection.attendance_record_id)
+            .join(InspectionTask, InspectionTask.id == AttendanceRecord.task_id)
+            .where(
+                Objection.id == objection_id,
+                self._responsible_exists(user_id, as_of),
+            )
+        ).first()
+        if row is None:
+            return None
+        return row[0], int(row[1]), int(row[2])
+
+    def responsible_context(
+        self, objection_ids: Sequence[int]
+    ) -> dict[int, tuple[int, int]]:
+        """异议 → (任务 id, 任务负责学院)；单次批量取，禁 N+1。"""
+        ids = list(objection_ids)
+        if not ids:
+            return {}
+        rows = self._session.execute(
+            select(Objection.id, InspectionTask.id, InspectionTask.college_id)
+            .join(AttendanceRecord, AttendanceRecord.id == Objection.attendance_record_id)
+            .join(InspectionTask, InspectionTask.id == AttendanceRecord.task_id)
+            .where(Objection.id.in_(ids))
+        ).all()
+        return {int(r[0]): (int(r[1]), int(r[2])) for r in rows if r[2] is not None}
+
+    def reviewable_responsible_ids(
+        self, user_id: int, as_of, objection_ids: Sequence[int]
+    ) -> set[int]:
+        """给定异议中，本人既有责任关系又属本院负责任务的那些 id（审核动作口径）。"""
+        ids = list(objection_ids)
+        if not ids:
+            return set()
+        rows = self._session.execute(
+            select(Objection.id).where(
+                Objection.id.in_(ids),
+                self._responsible_exists(user_id, as_of, review_college=True),
+            )
+        ).all()
+        return {int(r[0]) for r in rows}
 
     # ---- 证明材料关联（禁 N+1）----
     def map_file_ids_by_objection(self, objection_ids: Sequence[int]) -> dict[int, list[int]]:
