@@ -130,3 +130,10 @@
 - 同机隔离SQLite、32份/1056条模拟名单：改前读取4.638秒＋核对3.504秒，6269条SQL、33次来源扫描；改后约2.96秒＋2.13秒，3584条SQL、2次来源扫描（ZIP一次、正式预览一次）。总耗时约减37%、SQL约减43%；不视为线上MySQL响应时间承诺。
 - 原ZIP仅在本地只读解析，32份/1053人不再出现COLLEGE_MISMATCH；原3份文件的7条辅助页差异仍报错待核对。未把真实学生资料上传或导入生产。
 - 34项定向后端回归通过，覆盖缩略/全半角名称、歧义/外院拒绝、批量查询、起始指纹只用于草稿且变更后失效、ZIP/隔离/原始格式/确认集合；定向Ruff通过。无迁移、依赖、开关或前端行为变更。
+
+### 2026-10-18 20:40 学院名称与预览提速发布
+
+- 应用源码 `ab3b2b441360e32b6e75374e0778d40e911fa1d4` 已合入推送 dev-main 并发布。后端 `/opt/course-management/releases/20261018-import-perf-ab3b2b4413`，Web `/opt/course-management/admin-web/releases/20261018-import-perf-ab3b2b4413`（沿用已验证的预览展示优化资源）。
+- 候选启动、内外网ready、首页与教务JS哈希、匿名接口鉴权及只读迁移版本核对通过。结构仍 `f26a1018s006`，环境配置哈希不变，业务隔离true/组织排班false；无数据库迁移、学生资料导入、配置或Nginx修改。
+- 完整备份 `/var/backups/course-management/20261018T124029Z.0Z3VVh`，SHA256SUMS通过。上一后端 `/opt/course-management/releases/20261018-roster-fix-f86c285be6`，上一Web `/opt/course-management/admin-web/releases/20261018-review-ui-fbde693161`；失败自动恢复两处指针并重启，人工回退同理，无需恢复数据库覆盖后续业务。
+- 证据 `/opt/course-management/incoming/20261018-import-perf-ab3b2b4/{DEPLOYED,ONLINE_VERIFICATION}.json`。旧批次存有原错误，不会随程序升级自动改写；用户刷新并重新添加ZIP、生成新预览后生效。线上没有代用户执行真实名单导入；性能数字来自前述隔离本地对比。
