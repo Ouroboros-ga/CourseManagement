@@ -759,15 +759,15 @@ CHECK、区间 CHECK、外键）一律映射为 409，不返回 500。事实、�
 `MULTIPLE_TEACHING_OVERLAP`/`ANCHOR_OVERLAP`，确认阶段 409；补录区间只更新与之重叠的那条任命，
 不影响不重叠的历史记录。整批在确认集合的单一提交点落库，任一行失败全部回滚，重试不重复。
 
-## 2026-10-18 导入 ZIP 预览（原接口随 bed04b8 发布，members 增量未发布）
+## 2026-10-18 导入 ZIP 预览（原接口随 bed04b8 发布，members 增量随 6a00179 发布）
 
 `POST /api/v1/colleges/{cid}/imports/confirmation-set/zip-preview`：multipart 上传 `file`、`target`，可选 `semester_id`、`teaching_class_id`、`course_type_id`。与原学院导入相同的功能/范围鉴权，仅创建成员预览，不写正式资料。返回 `files`（逐成员预览）、`errors`（filename/message）、`business_data_applied=false`。成功成员仍须经现有集合 preview 与携带 revision 的 confirm；前端必须让用户明确处理/排除失败成员，不能静默确认成功子集。
 
 限制：ZIP 10 MiB、20 个表格、每成员 10 MiB、总展开 50 MiB、目录项 200。接受 xls/xlsx/csv，拒绝不安全或重复路径、加密、链接、嵌套归档及其他文件。格式/范围不合规返回现有 422/权限错误；详细行为见 development/IMPORT_FLOW_SIMPLIFICATION_20261018.md。该接口开发完成不等于生产可用。
 
-### 2026-10-18 统一资料入口识别与模板（本地实现，未发布）
+### 2026-10-18 统一资料入口识别与模板（随 6a00179 发布）
 
-以下接口属于当前本地源码契约，尚未部署。共同受学院配置及正式业务隔离开关保护，并要求 `import.execute`；不得据此推断生产已开放。
+以下接口已随源码 `6a00179` 部署。共同受学院配置及正式业务隔离开关保护，并要求 `import.execute`；具体资料类型仍按目标管理权限核对。
 
 - `GET /api/v1/colleges/{cid}/imports/intake/catalog` 返回 `{types, max_files:20, max_file_bytes:10485760}`。`types` 仅列出当前操作者可管理的资料类型，每项含 `target`、`label`、`required`、`semester_required` 和 `manage_permission`。类型包括行政班与学生名单、教职工档案、班级责任关系、标准课表、教务网格课表、志愿者学期资格底册、教学班补充名单、选修与分层课补充资料；其中 `timetable` 与 `grid_timetable` 是两种课表来源，用户按实际文件选择。权限不足的类型不返回。`max_files` 是单次确认集合上限；单文件上限为 10 MiB。
 - `POST /api/v1/colleges/{cid}/imports/intake/inspect` 使用 multipart `file`，接受一个表格或混合 ZIP。响应 `data={files:[{filename,target,blocked,message,archive_member}],business_data_applied:false}`；不会建立导入草稿或写业务资料，不返回人员数据行。ZIP 内每个成员分别识别；未知类型的 `target` 为 `null`，可由用户选择后进入正式预览，文件内容仍由原导入解析器校验。单文件最大 10 MiB；ZIP 沿用 ZIP 预览的 10 MiB 压缩包、20 个表格、单成员 10 MiB、展开合计 50 MiB、目录项 200 及路径/格式安全限制。超过文件解析界限（20000 行或 256 列）、不可读文件及多于一个有内容工作表的表格会标为 `blocked`，不得静默忽略其他工作表，须拆分文件后重传。
