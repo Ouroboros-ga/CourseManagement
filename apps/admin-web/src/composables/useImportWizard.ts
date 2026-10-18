@@ -1,6 +1,6 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useSessionStore } from '../stores/session'
-import { uploadImportFile, previewImportArchive, previewImportSet, confirmImportSet, type ImportPreviewResult, type ImportSetPlan, type ImportSetResult } from '../api/importer'
+import { uploadImportFile, previewImportArchive, previewImportSet, confirmImportSet, type ImportPreviewResult, type ImportSetPlan, type ImportSetResult, type ImportUploadSource } from '../api/importer'
 
 export function useImportWizard() {
   const session = useSessionStore()
@@ -35,13 +35,14 @@ export function useImportWizard() {
     check.isLatest = () => !active || revision === generation
     return check
   }
-  async function upload() {
+  async function upload(sources?: ImportUploadSource[]) {
     if (!canUpload.value || busy.value) return
     selectedIds.value = []; drafts.value = []; plan.value = null; result.value = null
-    const current = ticket(), pendingFiles = [...files.value], found: typeof drafts.value = []
+    const current = ticket(), pendingFiles: ImportUploadSource[] = sources || files.value.map(file => ({ file })), found: typeof drafts.value = []
     busy.value = true; error.value = ''; uploadErrors.value = []; failuresExcluded.value = false
     try {
-      for (const file of pendingFiles) {
+      for (const source of pendingFiles) {
+        const file = source.file
         if (!current()) return
         if (file.size > 10 * 1024 * 1024) { uploadErrors.value.push(`${file.name}：超过 10 MiB`); continue }
         try {
@@ -52,7 +53,7 @@ export function useImportWizard() {
             replace: false
           }
           if (/\.zip$/i.test(file.name)) {
-            const archive = await previewImportArchive(session.workspaceCollegeId, target.value, file, options)
+            const archive = await previewImportArchive(session.workspaceCollegeId, target.value, file, { ...options, members: source.members })
             if (!current()) return
             found.push(...archive.files)
             uploadErrors.value.push(...archive.errors.map(item => `${file.name} / ${item.filename}：${item.message}`))

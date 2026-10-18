@@ -30,13 +30,34 @@ export const previewImportSet = (cid: string, ids: string[]) => directRequest<Im
 export const confirmImportSet = (cid: string, ids: string[], revision: string) => directRequest<ImportSetResult>(`${setRoot(cid)}/confirm`, { method: 'POST', body: JSON.stringify({ batch_ids: ids, revision }) })
 
 export async function previewImportArchive(cid: string, target: string, file: File,
-  options: { semester_id?: string; teaching_class_id?: string; course_type_id?: string }) {
+  options: { semester_id?: string; teaching_class_id?: string; course_type_id?: string; members?: string[] }) {
   const body = new FormData()
   body.append('file', file)
   body.append('target', target)
-  for (const [key, value] of Object.entries(options)) if (value) body.append(key, value)
+  for (const [key, value] of Object.entries(options)) if (value) body.append(key, Array.isArray(value) ? JSON.stringify(value) : value)
   return directRequest<{ files: Array<ImportPreviewResult & { filename: string }>; errors: Array<{ filename: string; message: string }> }>(
     `${setRoot(cid)}/zip-preview`, { method: 'POST', body })
+}
+
+export interface ImportCatalogItem {
+  target: string; label: string; required: boolean; semester_required: boolean; manage_permission: string
+}
+export interface ImportInspectedFile {
+  filename: string; target: string | null; blocked: boolean; message: string; archive_member: string | null
+}
+export interface ImportUploadSource { file: File; members?: string[] }
+const intakeRoot = (cid: string) => `/api/v1/colleges/${encodeURIComponent(cid)}/imports/intake`
+export const getImportCatalog = (cid: string) => directRequest<{ types: ImportCatalogItem[]; max_files: number; max_file_bytes: number }>(`${intakeRoot(cid)}/catalog`)
+export function inspectImportUpload(cid: string, file: File) {
+  const body = new FormData()
+  body.append('file', file, file.webkitRelativePath || file.name)
+  return directRequest<{ files: ImportInspectedFile[]; business_data_applied: false }>(`${intakeRoot(cid)}/inspect`, { method: 'POST', body })
+}
+export async function downloadImportTemplatePack(cid: string) {
+  const blob = await directRequest<Blob>(`${intakeRoot(cid)}/templates`, {}, false, 'blob')
+  const url = URL.createObjectURL(blob), link = document.createElement('a')
+  link.href = url; link.download = '学院资料标准模板.zip'; link.click()
+  URL.revokeObjectURL(url)
 }
 
 export interface ImportPreviewResult {
