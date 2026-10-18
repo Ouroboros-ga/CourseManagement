@@ -307,10 +307,11 @@ R5 按独立闭环补学校模板、学期组织准备、负责人交接和报�
 绑定码并发兑换、导入确认、名单归属冻结与档案/地点写入的真实 MySQL 锁语义（仅在确认过的独立
 `*_test` 库才可测）；本人课次日历在“学院作息”开关打开后的逐日解析（当前构建该开关关闭，回归覆盖
 的是共用校历路径）；小程序端侧改造（`record.js` 申诉固定 `desired_type=NORMAL` 仍为后续改造点）。
-本批改正已在本地 `dev-main` 成提交，并与远端 `8f5e161` 合并：志愿者提前提交按用户决定采用远端口径，
+本批改正已在本地 `dev-main` 成提交，并与远端 `8f5e161` 合并后推送到 `origin/dev-main`（合并提交
+`df5f3b1`）：志愿者提前提交按用户决定采用远端口径，
 后端**默认仍拒绝查课日期之前的提交**，`CM_DEV_ALLOW_EARLY_SUBMISSION=1` 时放行，此前本地把后端拦截整段
 关闭的做法随之外移（与 `WECHAT_DEVELOPER_CHANGES_20261014.md` 记的正式契约一致）。生产开关、部署与
-线上核验均未执行。
+线上核验均未执行，推送不等于上线。
 契约入口见 [API 契约](../API_CONTRACT.md) 的“教工协作增量契约”、[权限说明](../PERMISSIONS.md) 第 12 节、
 [设计与环境](STAFF_ARCHITECTURE_CONTRACT_20261017.md)、[协作增量](STAFF_COLLABORATION_EXTENSION_20261017.md)
 与[小程序三 Tab 交接](../integration/WECHAT_STAFF_THREE_TAB_PLAN_20261017.md)。
