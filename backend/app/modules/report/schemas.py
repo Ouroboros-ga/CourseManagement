@@ -68,13 +68,14 @@ class OverallStats(BaseModel):
 
 
 class ClassStatsItem(BaseModel):
-    """单班级指标（按任务名单快照 class_name_snapshot 归并，技术方案 17 第 554 行）。
+    """单班级指标（优先按任务名单的冻结学院与行政班 ID 归并，名称只展示）。
 
     excluded_task_count：因人工只调整总应到数、无分班明细可推导而被剔除出班级比例的任务数，
     不均摊、不臆造分母（技术方案 17 第 554 行）。
     """
 
     class_id: IdStr | None = None
+    college_id: IdStr | None = None
     class_name: str
     head_teacher: str | None = None
     counselor: str | None = None
@@ -94,6 +95,7 @@ class TaskStatsItem(BaseModel):
     """单任务/教学班聚合明细（可选 include_tasks=true 时返回）。"""
 
     task_id: IdStr
+    administrative_class_ids: list[IdStr] = Field(default_factory=list)
     inspection_date: date_type
     week_no: int
     course_name_snapshot: str | None = None
@@ -117,6 +119,9 @@ class AbnormalDetailItem(BaseModel):
     """异常考勤个人明细项（旷课/迟到/请假）。"""
 
     task_id: IdStr
+    student_id: IdStr | None = None
+    administrative_class_id_snapshot: IdStr | None = None
+    college_id_snapshot: IdStr | None = None
     attendance_type: str
     student_no: str
     name: str

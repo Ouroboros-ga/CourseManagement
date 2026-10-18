@@ -15,13 +15,15 @@ from datetime import date as date_
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import ColumnElement, Select, and_, case, func, select, true, update
+from sqlalchemy import ColumnElement, Select, and_, case, func, or_, select, true, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.modules.academic.models import AdministrativeClass
+from app.modules.academic.staff_models import ClassStaffResponsibility, FacultyStaff
 from app.modules.attendance.models import AttendanceRecord, AttendanceType
+from app.modules.identity.role_scope import business_today
 from app.modules.inspection.dimensions import TaskDimensions
 from app.modules.inspection.models import (
     InspectionSubmission,
@@ -30,6 +32,7 @@ from app.modules.inspection.models import (
     TaskDeadlineAssessment,
     TaskRosterMember,
 )
+from app.modules.report.class_identity import ClassIdentity, ClassKey
 from app.modules.report.models import (
     Report,
     ReportSourceRevision,
@@ -154,6 +157,18 @@ class ReportRepository:
                 InspectionTask.teacher_name_snapshot,
             ).where(InspectionTask.id.in_(task_ids))
         ).all()
+        classes: dict[int, set[int]] = {}
+        for tid, cid in self._session.execute(
+            select(TaskRosterMember.task_id, TaskRosterMember.administrative_class_id_snapshot)
+            .join(InspectionTask, InspectionTask.id == TaskRosterMember.task_id)
+            .where(
+                TaskRosterMember.task_id.in_(task_ids),
+                TaskRosterMember.roster_version == InspectionTask.roster_version,
+                TaskRosterMember.administrative_class_id_snapshot.is_not(None),
+            )
+            .distinct()
+        ):
+            classes.setdefault(tid, set()).add(cid)
         return {
             int(tid): {
                 "inspection_date": idate,
@@ -164,33 +179,80 @@ class ReportRepository:
                 "start_period": int(sp) if sp is not None else None,
                 "end_period": int(ep) if ep is not None else None,
                 "teacher_name_snapshot": teacher,
+                "administrative_class_ids": sorted(classes.get(tid, set())),
             }
             for tid, idate, wn, cname, course, classroom, sp, ep, teacher in rows
         }
 
     def class_duties_map(
-        self, class_names: set[str]
-    ) -> dict[str, tuple[str | None, str | None, int | None]]:
-        """班级名集合 -> (班主任, 辅导员, 班级ID)。"""
+        self, class_names: set, *, date_from: date_ | None = None, date_to: date_ | None = None
+    ) -> dict:
+        """按冻结 ID 查职责；旧名称仅在授权范围内唯一时兼容，不任选同名班。"""
         if not class_names:
             return {}
-        rows = self._session.execute(
-            select(
-                AdministrativeClass.class_name,
-                AdministrativeClass.head_teacher,
-                AdministrativeClass.counselor,
-                AdministrativeClass.id,
-            ).where(AdministrativeClass.class_name.in_(class_names),
-                AdministrativeClass.college_id.in_(self._college_ids) if self._college_ids is not None else true())
+        ids = {k.class_id for k in class_names if isinstance(k, ClassIdentity) and k.class_id}
+        names = {k.name if isinstance(k, ClassIdentity) else k for k in class_names}
+        rows = list(
+            self._session.scalars(
+                select(AdministrativeClass).where(
+                    or_(AdministrativeClass.id.in_(ids), AdministrativeClass.class_name.in_(names)),
+                    AdministrativeClass.college_id.in_(self._college_ids)
+                    if self._college_ids is not None
+                    else true(),
+                )
+            )
+        )
+        responsibilities = self._session.execute(
+            select(ClassStaffResponsibility, FacultyStaff.name)
+            .join(FacultyStaff, FacultyStaff.id == ClassStaffResponsibility.staff_id)
+            .join(
+                AdministrativeClass,
+                AdministrativeClass.id == ClassStaffResponsibility.administrative_class_id,
+            )
+            .where(
+                ClassStaffResponsibility.administrative_class_id.in_({r.id for r in rows}),
+                FacultyStaff.college_id == AdministrativeClass.college_id,
+            )
         ).all()
-        return {
-            str(name): (ht, co, int(cid) if cid is not None else None) for name, ht, co, cid in rows
-        }
+        start, end = date_from or business_today(), date_to or date_from or business_today()
+        out: dict[ClassKey, tuple[str | None, str | None, int | None]] = {}
+        for key in class_names:
+            if isinstance(key, ClassIdentity):
+                candidates = [
+                    r
+                    for r in rows
+                    if (r.id == key.class_id if key.class_id else r.class_name == key.name)
+                    and (key.college_id is None or r.college_id == key.college_id)
+                ]
+            else:
+                candidates = [r for r in rows if r.class_name == key]
+            if len(candidates) != 1:
+                out[key] = (None, None, None)
+                continue
+            ac = candidates[0]
+            values = []
+            for duty, legacy in (("HEAD_TEACHER", ac.head_teacher), ("COUNSELOR", ac.counselor)):
+                history = [
+                    (r, name)
+                    for r, name in responsibilities
+                    if r.administrative_class_id == ac.id and r.duty == duty
+                ]
+                current = sorted(
+                    {
+                        name
+                        for r, name in history
+                        if r.effective_from <= end
+                        and (r.effective_to is None or r.effective_to > start)
+                    }
+                )
+                values.append("、".join(current) if current else None if history else legacy)
+            out[key] = (values[0], values[1], ac.id)
+        return out
 
     # ---- 班级维度（按名单快照分组，技术方案 17 第 554 行）----
     def roster_counts_by_task_class(
         self, task_ids: list[int], *, current_version_only: bool = True
-    ) -> dict[tuple[int, str | None], int]:
+    ) -> dict[tuple[int, ClassKey], int]:
         """(task_id, class_name_snapshot) -> 名单人数（去重学生）。
 
         按各任务当前 roster_version 过滤，与"据以生成考勤"的名单一致（技术方案 10）。
@@ -198,24 +260,36 @@ class ReportRepository:
         """
         if not task_ids:
             return {}
-        stmt = select(
-            TaskRosterMember.task_id,
-            TaskRosterMember.class_name_snapshot,
-            func.count(func.distinct(TaskRosterMember.student_id)),
-        ).where(TaskRosterMember.task_id.in_(task_ids))
+        stmt = (
+            select(
+                TaskRosterMember.task_id,
+                func.coalesce(TaskRosterMember.college_id_snapshot, InspectionTask.college_id),
+                TaskRosterMember.administrative_class_id_snapshot,
+                TaskRosterMember.class_name_snapshot,
+                func.count(func.distinct(TaskRosterMember.student_id)),
+            )
+            .join(InspectionTask, InspectionTask.id == TaskRosterMember.task_id)
+            .where(TaskRosterMember.task_id.in_(task_ids))
+        )
         if current_version_only:
             # 仅保留成员名单版本 == 该任务当前 roster_version（经相关子查询）。
-            rv = select(InspectionTask.roster_version).where(
-                InspectionTask.id == TaskRosterMember.task_id
-            )
-            stmt = stmt.where(TaskRosterMember.roster_version == rv.scalar_subquery())
-        stmt = stmt.group_by(TaskRosterMember.task_id, TaskRosterMember.class_name_snapshot)
+            stmt = stmt.where(TaskRosterMember.roster_version == InspectionTask.roster_version)
+        stmt = stmt.group_by(
+            TaskRosterMember.task_id,
+            func.coalesce(TaskRosterMember.college_id_snapshot, InspectionTask.college_id),
+            TaskRosterMember.administrative_class_id_snapshot,
+            TaskRosterMember.class_name_snapshot,
+        )
         rows = self._session.execute(stmt).all()
-        return {(int(tid), cname): int(cnt) for tid, cname, cnt in rows}
+        out: dict[tuple[int, ClassKey], int] = {}
+        for tid, college, cid, name, count in rows:
+            key = (int(tid), ClassIdentity.from_snapshot(college, cid, name))
+            out[key] = out.get(key, 0) + int(count)
+        return out
 
     def attendance_counts_by_task_class(
         self, task_ids: list[int]
-    ) -> dict[tuple[int, str | None], dict[str, int]]:
+    ) -> dict[tuple[int, ClassKey], dict[str, int]]:
         """(task_id, 名单班级快照) -> {认定类型: 人数}。
 
         考勤 join 当前版本名单成员取班级快照分组（异常者必在其任务当前名单内，技术方案 12），
@@ -223,9 +297,6 @@ class ReportRepository:
         """
         if not task_ids:
             return {}
-        rv = select(InspectionTask.roster_version).where(
-            InspectionTask.id == TaskRosterMember.task_id
-        )
         type_cols = {
             etype.value: func.sum(
                 case(
@@ -241,29 +312,35 @@ class ReportRepository:
         stmt = (
             select(
                 AttendanceRecord.task_id,
+                func.coalesce(TaskRosterMember.college_id_snapshot, InspectionTask.college_id),
+                TaskRosterMember.administrative_class_id_snapshot,
                 TaskRosterMember.class_name_snapshot,
                 *(col.label(t) for t, col in type_cols.items()),
             )
+            .join(InspectionTask, InspectionTask.id == AttendanceRecord.task_id)
             .join(
                 TaskRosterMember,
                 and_(
                     TaskRosterMember.task_id == AttendanceRecord.task_id,
                     TaskRosterMember.student_id == AttendanceRecord.student_id,
-                    TaskRosterMember.roster_version == rv.scalar_subquery(),
+                    TaskRosterMember.roster_version == InspectionTask.roster_version,
                 ),
             )
             .where(AttendanceRecord.task_id.in_(task_ids))
-            .group_by(AttendanceRecord.task_id, TaskRosterMember.class_name_snapshot)
+            .group_by(
+                AttendanceRecord.task_id,
+                func.coalesce(TaskRosterMember.college_id_snapshot, InspectionTask.college_id),
+                TaskRosterMember.administrative_class_id_snapshot,
+                TaskRosterMember.class_name_snapshot,
+            )
         )
         rows = self._session.execute(stmt).all()
-        out: dict[tuple[int, str | None], dict[str, int]] = {}
-        for tid, cname, normal, leave, late, absent in rows:
-            out[(int(tid), cname)] = {
-                "NORMAL": int(normal or 0),
-                "LEAVE": int(leave or 0),
-                "LATE": int(late or 0),
-                "ABSENT": int(absent or 0),
-            }
+        out: dict[tuple[int, ClassKey], dict[str, int]] = {}
+        for tid, college, cid, name, normal, leave, late, absent in rows:
+            key = (int(tid), ClassIdentity.from_snapshot(college, cid, name))
+            bucket = out.setdefault(key, dict.fromkeys(("NORMAL", "LEAVE", "LATE", "ABSENT"), 0))
+            for label, value in zip(bucket, (normal, leave, late, absent), strict=True):
+                bucket[label] += int(value or 0)
         return out
 
     # ---- 未完成清单（当前状态派生 + 截止时快照，技术方案 13.3/17）----
@@ -427,6 +504,9 @@ class ReportRepository:
                 InspectionTask.end_period,
                 InspectionTask.classroom_snapshot,
                 InspectionTask.teacher_name_snapshot,
+                TaskRosterMember.student_id,
+                TaskRosterMember.administrative_class_id_snapshot,
+                func.coalesce(TaskRosterMember.college_id_snapshot, InspectionTask.college_id),
             )
             .join(
                 InspectionTask,
@@ -472,6 +552,9 @@ class ReportRepository:
                 "end_period": int(r[9]) if len(r) > 9 and r[9] is not None else None,
                 "classroom": str(r[10]) if len(r) > 10 and r[10] else "",
                 "teacher_name": str(r[11]) if len(r) > 11 and r[11] else "",
+                "student_id": str(r[12]),
+                "administrative_class_id_snapshot": str(r[13]) if r[13] is not None else None,
+                "college_id_snapshot": str(r[14]) if r[14] is not None else None,
             }
             for r in rows
         ]

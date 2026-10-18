@@ -121,6 +121,7 @@ class ReportService:
     ) -> GenerateReportResponse:
         self._guard(actor, perms.REPORT_GENERATE_PERMISSION)
         from sqlalchemy import select
+
         from app.modules.academic.models import Semester
         status = self._session.scalar(select(Semester.status).where(Semester.id == semester_id).with_for_update(read=True))
         if status == "ARCHIVED":
@@ -292,7 +293,13 @@ class ReportService:
         type_totals = agg.sum_type_totals(att_by_task)
         abnormal_total = type_totals["LEAVE"] + type_totals["LATE"] + type_totals["ABSENT"]
         overall = agg.build_overall(exp_total, type_totals, abnormal_total)
-        classes = agg.build_classes(expected, roster_by_tc, att_by_tc)
+        class_keys = {key for _, key in set(roster_by_tc) | set(att_by_tc) if key}
+        dates = [m["inspection_date"] for m in meta.values()]
+        duties = self._stat_repo.class_duties_map(
+            class_keys, date_from=min(dates) if dates else None,
+            date_to=max(dates) if dates else None,
+        )
+        classes = agg.build_classes(expected, roster_by_tc, att_by_tc, class_duties=duties)
         tasks = agg.build_tasks(ids, expected, att_by_task, meta)
 
         payload: dict[str, Any] = {

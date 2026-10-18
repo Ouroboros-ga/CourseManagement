@@ -11,7 +11,8 @@
 口径要点（技术方案 17，与 service 层注释一致）：
 1. 分母 = Σ expected_count_current，≤0 → statistics_available=false 且比率 null，不显示 0%/100%；
 2. 先累加分子分母再相除，不对各班百分比简单平均；
-3. 班级按 class_name_snapshot 归并；人工只调总数任务（cur≠snap）整任务从班级比例剔除，
+3. 班级按冻结学院/行政班 ID 归并，名称仅显示；旧缺失 ID 数据保留独立兼容分组。
+   人工只调总数任务（cur≠snap）整任务从班级比例剔除，
    计 excluded_task_count、不均摊；
 4. current_incomplete vs deadline_assessment 两指标互不混用（在 repository 未完成清单侧处理）。
 """
@@ -21,6 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.modules.attendance.models import AttendanceType
+from app.modules.report.class_identity import ClassIdentity, ClassKey
 from app.modules.report.schemas import (
     ClassStatsItem,
     OverallStats,
@@ -64,22 +66,22 @@ def build_overall(exp_total: int, type_totals: dict[str, int], abnormal_total: i
 
 def build_classes(
     expected: dict[int, tuple[int, int]],
-    roster_by_tc: dict[tuple[int, str | None], int],
-    att_by_tc: dict[tuple[int, str | None], dict[str, int]],
-    class_duties: dict[str, tuple[str | None, str | None]] | None = None,
+    roster_by_tc: dict[tuple[int, ClassKey], int],
+    att_by_tc: dict[tuple[int, ClassKey], dict[str, int]],
+    class_duties: dict | None = None,
 ) -> list[ClassStatsItem]:
-    """按班级名跨任务聚合。人工只调总数任务（cur≠snap）整任务从班级比例剔除。"""
-    excluded_by_class: dict[str, int] = {}
-    class_exp: dict[str, int] = {}
-    class_cnt: dict[str, dict[str, int]] = {}
+    """按冻结班级身份归并；旧纯函数调用仍接受字符串键，不用于推断新身份。"""
+    excluded_by_class: dict[ClassKey, int] = {}
+    class_exp: dict[ClassKey, int] = {}
+    class_cnt: dict[ClassKey, dict[str, int]] = {}
 
     def _is_excluded(tid: int) -> bool:
         cur, snap = expected.get(tid, (0, 0))
         return cur != snap
 
     keys = set(roster_by_tc) | set(att_by_tc)
-    for tid, cname in keys:
-        if not cname:  # 无班级快照者不参与"班级"维度（数据缺失，非可命名班）
+    for tid, cname in sorted(keys, key=str):
+        if not (cname.name if isinstance(cname, ClassIdentity) else cname):
             continue
         if _is_excluded(tid):
             excluded_by_class[cname] = excluded_by_class.get(cname, 0) + 1
@@ -92,23 +94,27 @@ def build_classes(
 
     names = set(class_exp) | set(excluded_by_class)
     items: list[ClassStatsItem] = []
-    for cname in sorted(names):
+    for cname in sorted(names, key=str):
         exp = class_exp.get(cname, 0)
         bucket = class_cnt.get(cname, {t.value: 0 for t in _TYPES})
         abnormal = bucket["LEAVE"] + bucket["LATE"] + bucket["ABSENT"]
         excluded = excluded_by_class.get(cname, 0)
         available = exp > 0
-        ht, co, cid = None, None, None
+        ht, co = None, None
+        cid = cname.class_id if isinstance(cname, ClassIdentity) else None
         if class_duties and cname in class_duties:
             duty_info = class_duties[cname]
             if len(duty_info) >= 3:
-                ht, co, cid = duty_info[0], duty_info[1], duty_info[2]
+                ht, co = duty_info[0], duty_info[1]
+                if not isinstance(cname, ClassIdentity):
+                    cid = duty_info[2]
             elif len(duty_info) >= 2:
                 ht, co = duty_info[0], duty_info[1]
         items.append(
             ClassStatsItem(
                 class_id=cid,
-                class_name=cname,
+                class_name=cname.name if isinstance(cname, ClassIdentity) else cname,
+                college_id=cname.college_id if isinstance(cname, ClassIdentity) else None,
                 head_teacher=ht,
                 counselor=co,
                 expected_count=exp,
@@ -147,6 +153,7 @@ def build_tasks(
         out.append(
             TaskStatsItem(
                 task_id=tid,
+                administrative_class_ids=m.get("administrative_class_ids", []),
                 inspection_date=m["inspection_date"],
                 week_no=int(m.get("week_no", 0)),
                 course_name_snapshot=m.get("course_name_snapshot"),

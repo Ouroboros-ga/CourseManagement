@@ -105,7 +105,11 @@ class StatisticsService:
         overall = agg.build_overall(exp_total, type_totals, abnormal_total)
 
         class_names = {cname for _tid, cname in (set(roster_by_tc) | set(att_by_tc)) if cname}
-        class_duties = self._repo.class_duties_map(class_names)
+        dates = [m["inspection_date"] for m in meta.values()]
+        class_duties = self._repo.class_duties_map(
+            class_names, date_from=min(dates) if dates else None,
+            date_to=max(dates) if dates else None,
+        )
         classes = agg.build_classes(expected, roster_by_tc, att_by_tc, class_duties=class_duties)
 
         tasks: list[TaskStatsItem] | None = None

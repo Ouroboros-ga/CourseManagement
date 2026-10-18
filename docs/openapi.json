@@ -16458,6 +16458,120 @@
         ]
       }
     },
+    "/api/v1/colleges/{cid}/imports/confirmation-set/person-links/preview": {
+      "post": {
+        "tags": [
+          "import-confirmation"
+        ],
+        "summary": "Person Link Preview",
+        "operationId": "person_link_preview_api_v1_colleges__cid__imports_confirmation_set_person_links_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonLinkSelection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/imports/confirmation-set/person-links/confirm": {
+      "post": {
+        "tags": [
+          "import-confirmation"
+        ],
+        "summary": "Person Link Confirm",
+        "operationId": "person_link_confirm_api_v1_colleges__cid__imports_confirmation_set_person_links_confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonLinkConfirmation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/colleges/{cid}/imports/confirmation-set/zip-preview": {
       "post": {
         "tags": [
@@ -33172,6 +33286,72 @@
           "end_time"
         ],
         "title": "PeriodTime"
+      },
+      "PersonLinkConfirmation": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "teaching",
+              "responsibility"
+            ],
+            "title": "Kind"
+          },
+          "semester_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semester Id"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "revision"
+        ],
+        "title": "PersonLinkConfirmation"
+      },
+      "PersonLinkSelection": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "teaching",
+              "responsibility"
+            ],
+            "title": "Kind"
+          },
+          "semester_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semester Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "PersonLinkSelection"
       },
       "PersonalEntry": {
         "properties": {

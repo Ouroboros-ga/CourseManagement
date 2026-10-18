@@ -702,6 +702,49 @@ CHECK、区间 CHECK、外键）一律映射为 409，不返回 500。事实、�
 限本院任务且名单快照中存在本人责任班学生；跨院只读汇总不隐含材料权限。撤权或档案停用后下一次
 读取或签名即拒绝。
 
+### 唯一人员关系与导入联动（2026-10-18，已实现，待部署）
+
+显式学院入口的 `timetable/grid_timetable/admin_roster` 在上传预览中增加
+`summary.person_links_create/person_links_existing/person_links_pending`，确认后增加
+`person_links_created`。普通长表可填 `教师工号`；旧班级责任表可填 `班主任工号/辅导员工号`。
+`class_duty` 是 `admin_roster` 的上传别名，继续使用该类型的下载模板。工号、学号填写文本，保留前导零。
+
+匹配顺序：同校工号准确匹配并核对姓名；只有姓名时须全校有效档案唯一，不采用“本院同名优先”。
+未知、同名、已有关系冲突作为 `PERSON_LINK_PENDING` 警告，不隐式创建人员/账号、不猜绑定微信，
+也不妨碍资料本身导入。有 `staff.manage` 才能建立人员关系；否则保存原资料并提示由有权人员补关联。
+关联写入与资料/审计同事务，精确确认集合纳入人员与任职关系基线，过期匹配返回409。
+重复导入保持既有关系日期与版本；空白/缺行不撤销、已结束的关系不因旧表重导恢复。
+授课仅关联本次学院的 LOCAL 教学班，不扩成跨院 SHARED 授权；授课开始不早于确认日或学期开始日，
+结束为学期结束次日（半开区间）。换教师/负责人及调整有效期仍走明确调整/交接。
+
+存量资料无需重新上传：
+
+- `POST /api/v1/colleges/{cid}/imports/confirmation-set/person-links/preview`
+  JSON `{ "kind": "teaching", "semester_id": "学期ID" }`，或 `{ "kind": "responsibility" }`。
+  返回 `revision`、上述三个计数的 `summary`、`links`、`pending`。关系行含 kind、班级标识、
+  name、staff_no、staff_id、半开有效期和 action（CREATE/UNCHANGED）；待处理行含 message。
+  不返回候选全校人员列表、手机号或绑定凭证。
+- `POST /api/v1/colleges/{cid}/imports/confirmation-set/person-links/confirm`
+  同一范围 JSON 加 `revision`。返回 `person_links_created/person_links_pending/summary`。
+  只补明确缺失关系，未知或冲突保留待办；资料、身份、关系、日期或学院变化返回409，重新预览后确认。
+
+两个入口均要求本院 `staff.manage`，沿用学院配置和正式业务开关，不绕过未启用状态。
+本轮仅增后端与 Web；不修改小程序身份绑定或学生考勤接口。
+
+### 报表与关系管理的身份字段（2026-10-18，待部署）
+
+`ClassStatsItem` 新增可空 `college_id`，`class_id` 优先来自任务名单冻结的行政班 ID，
+同名不同班不再合并。缺历史 ID 时不从当前学籍或名称猜填。`AbnormalDetailItem` 新增可空
+`student_id/administrative_class_id_snapshot/college_id_snapshot`；`TaskStatsItem` 新增
+`administrative_class_ids`（冻结名单当前版本的行政班集合）。上述所有 ID 对外为字符串。
+班级明细必须按这些 ID 筛选，不能用班名包含或学生姓名合并。当前底册只供辅助显示，不参与正式统计。
+负责人优先读取统计期间有效责任关系，期间交接展示命中姓名合集；从未建关系的旧文字仅兼容显示。
+已发布周报与历史快照不自动重写。
+
+本地授课关系管理按教学班所属学院限定，外院教师在本院授课不会转移课程管理权。
+`GET /colleges/{cid}/teaching-staff-assignments` 额外返回 staff_no/staff_name 供显示；
+教师档案及账号仍由其档案所属学院维护，SHARED 的既有授权范围保持不变。
+
 ### 教职工资料导入
 
 目标值 `faculty_staff`、`class_responsibility`、`teaching_assignment` 直接作为

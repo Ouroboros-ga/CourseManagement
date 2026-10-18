@@ -82,6 +82,7 @@ export interface OverallStats {
 
 export interface ClassStatsItem {
   class_id?: string | null
+  college_id?: string | null
   class_name: string
   head_teacher?: string | null
   counselor?: string | null
@@ -99,6 +100,9 @@ export interface ClassStatsItem {
 
 export interface AbnormalDetailItem {
   task_id: string
+  student_id?: string | null
+  administrative_class_id_snapshot?: string | null
+  college_id_snapshot?: string | null
   attendance_type: 'ABSENT' | 'LATE' | 'LEAVE' | string
   student_no: string
   name: string
@@ -115,6 +119,7 @@ export interface AbnormalDetailItem {
 
 export interface TaskStatsItem {
   task_id: string
+  administrative_class_ids?: string[]
   inspection_date: string
   week_no: number
   course_name_snapshot?: string | null

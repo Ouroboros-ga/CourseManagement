@@ -5,9 +5,9 @@ import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import AppIcon from '../components/AppIcon.vue'
 import CampusDimensions from '../components/campus/CampusDimensions.vue'
+import { detailBelongsToClass, taskBelongsToClass } from '../utils/reportClassIdentity'
 import {
   listStudents,
-  listAdministrativeClasses,
   type StudentItem
 } from '../api/academic'
 import {
@@ -396,8 +396,15 @@ const classStudents = ref<StudentItem[]>([])
 const classStudentKeyword = ref('')
 const classStudentStatusFilter = ref<'ALL' | 'ABNORMAL' | 'NORMAL'>('ALL')
 const detailTab = ref<'students' | 'tasks'>('students')
+let classLoadRevision = 0
+watch(() => JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId,
+  sessionStore.currentSemesterId, selectedWeek.value, sessionStore.workspace?.authorization_revision]), () => {
+  classLoadRevision++; selectedClass.value = null; showClassDetailDrawer.value = false
+  classStudents.value = []; classStudentsLoading.value = false
+}, { flush: 'sync' })
 
 async function openClassDetail(c: ClassStatsItem) {
+  const revision = ++classLoadRevision
   selectedClass.value = c
   showClassDetailDrawer.value = true
   classStudentKeyword.value = ''
@@ -408,22 +415,17 @@ async function openClassDetail(c: ClassStatsItem) {
   // 异步获取该行政班在学籍库中的全量底册名单
   classStudentsLoading.value = true
   try {
-    let classId = c.class_id
-    if (!classId) {
-      const res = await listAdministrativeClasses({ keyword: c.class_name })
-      const matched = res.items?.find(it => it.class_name === c.class_name)
-      if (matched) {
-        classId = matched.id
-      }
-    }
+    const classId = c.class_id
     if (classId) {
       const stuRes = await listStudents({ administrative_class_id: classId, page_size: 200 })
-      classStudents.value = stuRes.items || []
+      if (revision === classLoadRevision) {
+        classStudents.value = stuRes.items || []
+      }
     }
   } catch (err) {
     console.warn('获取班级学生底册失败:', err)
   } finally {
-    classStudentsLoading.value = false
+    if (revision === classLoadRevision) classStudentsLoading.value = false
   }
 }
 
@@ -441,8 +443,7 @@ export interface StudentAttendanceRow {
 // 当周该行政班在所有巡查课堂中产生的非 NORMAL 违纪考勤记录
 const classAbnormalDetails = computed<AbnormalDetailItem[]>(() => {
   if (!selectedClass.value || !attendanceStats.value?.details) return []
-  const cname = selectedClass.value.class_name
-  return attendanceStats.value.details.filter(d => d.class_name_snapshot === cname)
+  return attendanceStats.value.details.filter(d => detailBelongsToClass(selectedClass.value!, d))
 })
 
 // 班级完整考勤名单：融合学籍底册与当周违纪记录，【置顶有情况的同学】
@@ -460,7 +461,7 @@ const classStudentRoster = computed<StudentAttendanceRow[]>(() => {
   }>()
 
   for (const d of classAbnormalDetails.value) {
-    const key = d.student_no || d.name
+    const key = d.student_id ? `id:${d.student_id}` : `no:${d.student_no}`
     let item = abnormalMap.get(key)
     if (!item) {
       item = {
@@ -484,9 +485,10 @@ const classStudentRoster = computed<StudentAttendanceRow[]>(() => {
   const processedKeys = new Set<string>()
 
   for (const stu of classStudents.value) {
-    const key = stu.student_no || stu.name
+    const key = `id:${stu.id}`
     processedKeys.add(key)
-    const ab = abnormalMap.get(key)
+    processedKeys.add(`no:${stu.student_no}`)
+    const ab = abnormalMap.get(key) || abnormalMap.get(`no:${stu.student_no}`)
     if (ab) {
       rows.push({
         student_no: stu.student_no,
@@ -581,10 +583,9 @@ const filteredClassStudents = computed(() => {
 // 该班级当周关联的巡查课堂
 const selectedClassTasks = computed(() => {
   if (!selectedClass.value || !attendanceStats.value?.tasks) return []
-  const cname = selectedClass.value.class_name
   const abnormalTaskIds = new Set(classAbnormalDetails.value.map(d => String(d.task_id)))
   return attendanceStats.value.tasks.filter(t =>
-    (t.class_name_snapshot && t.class_name_snapshot.includes(cname)) ||
+    taskBelongsToClass(selectedClass.value!, t) ||
     abnormalTaskIds.has(String(t.task_id))
   )
 })
@@ -849,7 +850,7 @@ function formatViolationType(type: string): string {
           <tbody>
             <tr
               v-for="(c, idx) in filteredClasses"
-              :key="c.class_name"
+              :key="`${c.college_id || ''}:${c.class_id || c.class_name}`"
               class="clickable-row"
               @click="openClassDetail(c)"
             >
