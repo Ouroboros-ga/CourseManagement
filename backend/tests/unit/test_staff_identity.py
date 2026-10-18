@@ -412,6 +412,7 @@ def test_me_openapi_describes_the_existing_identity_context():
     response = schema["paths"]["/api/v1/me"]["get"]["responses"]["200"]["content"]
     ref = response["application/json"]["schema"]["$ref"].rsplit("/", 1)[1]
     envelope = schema["components"]["schemas"][ref]
+    assert "college_name" in schema["components"]["schemas"]["StaffAppSummary"]["properties"]
     assert "data" in envelope["properties"]
     assert "app_context" in schema["components"]["schemas"]["CurrentUserResponse"]["properties"]
 
@@ -443,3 +444,26 @@ def test_me_response_model_preserves_identity_combinations(
     assert data["app_context"]["modes"] == modes
     assert data["binding_required"] == actor.pre_binding
     assert data["roles"] == actor.roles
+    if bind_profile:
+        assert data["app_context"]["staff"]["college_id"] == "1"
+        assert data["app_context"]["staff"]["college_name"] == "甲院"
+    else:
+        assert data["app_context"]["staff"] is None
+
+
+def test_me_staff_college_name_follows_current_college(staff_env):
+    from app.modules.organization.models import College
+
+    profile = create_staff(staff_env, "001234")
+    bind(staff_env, profile, staff_env["accounts"]["wechat"])
+    db = staff_env["db"]
+    college = db.get(College, 1)
+    college.name = "学院新名称"
+    db.commit()
+    summary = resolve_app_context(db, staff_env["plain"])["staff"]
+    assert summary["college_id"] == "1"
+    assert summary["college_name"] == "学院新名称"
+
+    college.status = "INACTIVE"
+    db.commit()
+    assert resolve_app_context(db, staff_env["plain"])["staff"] is None
