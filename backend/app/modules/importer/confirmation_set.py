@@ -81,6 +81,15 @@ class ImportConfirmationSet:
             analysis = changes_for(self.service, batch)
             issues = [{**row, "filename": batch.filename} for row in (batch.error_json or [])]
             issues.extend(analysis["issues"])
+            if "person_links" in (batch.payload_json or {}):
+                from app.modules.importer.person_links import plan_links
+
+                current_links = plan_links(
+                    self.service, batch.target, batch.payload_json, batch.semester_id
+                )
+                if current_links != batch.payload_json["person_links"]:
+                    issues.append({"code": "CONFIRMATION_CONFLICT", "severity": "error",
+                                   "message": "人员匹配或任职关系已变化，请重新读取资料核对"})
             if not analysis["changes"] and not issues:
                 issues.append({"severity": "error", "filename": batch.filename,
                                "message": "文件中没有可核对的条目，请检查资料类型和文件内容"})
@@ -115,6 +124,7 @@ class ImportConfirmationSet:
             duplicate = fingerprint[-1] and fingerprint in seen_files
             if duplicate:
                 analysis["payload"]["confirmation_skip"] = True
+                analysis["payload"]["skip_person_links"] = True
                 for change in analysis["changes"]:
                     change["action"] = "UNCHANGED"
                 # 已处理的相同来源不再次应用，但不掩盖源修订或文件自身的阻断错误。
@@ -131,7 +141,10 @@ class ImportConfirmationSet:
                         change["key"],
                     )
                     value = json.dumps(change["after"], sort_keys=True, default=str)
-                    if key in keys and (keys[key][0] != batch.id or keys[key][1] != value):
+                    if key in keys and (
+                        keys[key][1] != value
+                        or change["entity"] != "person_relation" and keys[key][0] != batch.id
+                    ):
                         issues.append(
                             {
                                 "severity": "error",

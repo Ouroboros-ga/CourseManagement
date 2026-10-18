@@ -159,7 +159,9 @@ class ImporterService:
                 resource_type="import_batch",
                 resource_id=resource_id,
                 before_json=dict(before) if before is not None else None,
-                after_json=scoped_snapshot(dict(after) if after is not None else None, getattr(self, "cid", None)),
+                after_json=scoped_snapshot(
+                    dict(after) if after is not None else None, getattr(self, "cid", None)
+                ),
                 reason=reason,
                 request_id=request_id,
             )
@@ -192,6 +194,9 @@ class ImporterService:
         replace: bool,
         request_id: str | None,
     ) -> ImportPreviewResponse:
+        # 旧页面的责任表入口与行政班名单共用真实解析/落库目标，不能落入课表解析。
+        if target == "class_duty":
+            target = ImportTarget.ADMIN_ROSTER.value
         self._require_composite(actor.id, target)
         self._validate_scope(target, semester_id=semester_id, teaching_class_id=teaching_class_id)
         if course_type_id is not None:
@@ -227,7 +232,9 @@ class ImporterService:
             payload, issues, summary = self._parse_admin_roster(content, filename)
         else:
             try:
-                rows = read_tabular_rows(content, required_headers=iperm.required_headers(target), include_source=True)
+                rows = read_tabular_rows(
+                    content, required_headers=iperm.required_headers(target), include_source=True
+                )
             except ValueError as exc:
                 raise AppError(
                     ErrorCode.VALIDATION_ERROR, f"文件解析失败：{exc}", http_status=422
@@ -263,6 +270,22 @@ class ImporterService:
                     {"id": str(student.id), "version": student.lock_version} if student else None
                 )
         error_count = sum(1 for i in issues if i["severity"] == "error")
+        if target in {"timetable", "grid_timetable", "admin_roster"} and getattr(self, "cid", None):
+            from app.modules.importer.person_links import plan_links
+            from app.modules.importer.person_links import summary as link_summary
+
+            links = plan_links(self, target, payload, semester_id)
+            payload["person_links"] = links
+            summary.update(link_summary(links))
+            issues.extend(
+                _issue(
+                    "PERSON_LINK_PENDING",
+                    f"{row.get('class_name') or row.get('class_code')} · "
+                    f"{row.get('name') or row.get('staff_no') or '未填教师'}：{row['message']}",
+                    severity="warning",
+                )
+                for row in links["pending"]
+            )
         payload["source_file_sha256"] = hashlib.sha256(content).hexdigest()
         payload["course_type_id"] = course_type_id
         summary = {**summary, "error_count": error_count}
@@ -364,7 +387,8 @@ class ImporterService:
                 continue
             student_nos.append(no)
             student_sources[no] = {"row": idx, "sheet": raw.get("_source_sheet")}
-        payload = {"student_nos": student_nos, "student_sources": student_sources, "replace": bool(teaching_class_id)}
+        payload = {"student_nos": student_nos, "student_sources": student_sources,
+                   "replace": bool(teaching_class_id)}
         summary = {"row_total": len(rows), "student_total": len(student_nos)}
         return payload, issues, summary
 
@@ -395,7 +419,8 @@ class ImporterService:
                     _issue("unknown_student", f"学号 {no} 不存在于学生名单", field="学号", row=idx)
                 )
                 continue
-            by_no[no] = {"student_no": no, "enabled": enabled, "source_row": idx, "source_sheet": raw.get("_source_sheet")}
+            by_no[no] = {"student_no": no, "enabled": enabled, "source_row": idx,
+                         "source_sheet": raw.get("_source_sheet")}
         entries = list(by_no.values())
         payload = {"semester_id": semester_id, "rows": entries}
         summary = {
@@ -464,6 +489,9 @@ class ImporterService:
                     "weeks": list(weeks),
                     "classroom": classroom,
                     "teacher": teacher or None,
+                    "teacher_staff_no": pick(
+                        raw, "教师工号", "任课教师工号", "教工号", "teacher_staff_no"
+                    ) or None,
                 }
             )
         payload = {"semester_id": semester_id, "rows": entries}
@@ -588,6 +616,17 @@ class ImporterService:
 
         payload = prepared_payload if prepared_payload is not None else (batch.payload_json or {})
         self._session.execute(select(Semester.id).order_by(Semester.id).with_for_update()).all()
+        links = None
+        if "person_links" in (batch.payload_json or {}) and not payload.get("skip_person_links"):
+            from app.modules.importer.person_links import plan_links
+
+            links = payload.get("person_links")
+            if prepared_payload is None and plan_links(
+                self, batch.target, batch.payload_json, batch.semester_id
+            ) != links:
+                raise ConflictError(
+                    ErrorCode.VERSION_CONFLICT, "人员匹配或任职关系已变化，请重新读取资料核对"
+                )
         if payload.get("confirmation_skip"):
             created = {"unchanged": True}
         elif payload.get("import_type") and staff_adapter.is_staff_target(payload["import_type"]):
@@ -605,6 +644,10 @@ class ImporterService:
         else:
             created = self._apply_timetable(actor, batch, payload, request_id)
 
+        if links is not None and not payload.get("skip_person_links"):
+            from app.modules.importer.person_links import apply_links
+
+            created.update(apply_links(self, links, batch.semester_id, request_id))
         batch.status = ImportBatchStatus.CONFIRMED.value
         batch.summary_json = {**(batch.summary_json or {}), **created}
         self._audit(
@@ -665,7 +708,9 @@ class ImporterService:
             )
         before_count = len(self._academic.get_roster_students(tc.id))
         if payload.get("preserve_existing"):
-            ids = sorted(set(ids) | {student.id for student in self._academic.get_roster_students(tc.id)})
+            ids = sorted(
+                set(ids) | {student.id for student in self._academic.get_roster_students(tc.id)}
+            )
         record_roster_replacement(self._session, tc.id, ids, lifecycle.today)
         self._academic.set_roster(tc.id, ids)
         self._session.flush()
@@ -930,6 +975,7 @@ class ImporterService:
         for r_idx, row in enumerate(matrix[:15]):
             cur_sno, cur_name, cur_class, cur_college, cur_grade = -1, -1, -1, -1, -1
             cur_ht, cur_co = -1, -1
+            has_duty_number = False
             for c_idx, val in enumerate(row):
                 cell = _clean(val)
                 if cell in ("学号", "student_no", "studentno", "no"):
@@ -946,8 +992,12 @@ class ImporterService:
                     cur_ht = c_idx
                 elif cell in ("辅导员", "辅导员姓名", "counselor"):
                     cur_co = c_idx
+                elif cell in (
+                    "班主任工号", "辅导员工号", "head_teacher_staff_no", "counselor_staff_no"
+                ):
+                    has_duty_number = True
 
-            if cur_sno >= 0 or (cur_class >= 0 and (cur_ht >= 0 or cur_co >= 0)):
+            if cur_sno >= 0 or (cur_class >= 0 and (cur_ht >= 0 or cur_co >= 0 or has_duty_number)):
                 header_row_idx = r_idx
                 sno_col = cur_sno
                 name_col = cur_name
@@ -1051,6 +1101,7 @@ class ImporterService:
                 class_duties.append(
                     {
                         "class_name": cname,
+                        "source_row": r_idx + 1,
                         "college": college or None,
                         "grade_year": grade_year,
                         "head_teacher": ht or None,
@@ -1164,6 +1215,21 @@ class ImporterService:
             class_names.add(cd["class_name"])
 
         payload = {"students": students, "class_duties": class_duties}
+        # 原表可仅填工号；不要在学生规范化过程中丢失职责的唯一人员标识。
+        if header_row_idx >= 0:
+            headers = [_clean(cell) for cell in matrix[header_row_idx]]
+            for record in [*students, *class_duties]:
+                source_row = record.get("source_row")
+                if source_row is None:
+                    continue
+                cells = matrix[int(source_row) - 1]
+                for key, aliases in (
+                    ("head_teacher_staff_no", ("班主任工号", "head_teacher_staff_no")),
+                    ("counselor_staff_no", ("辅导员工号", "counselor_staff_no")),
+                ):
+                    index = next((i for i, header in enumerate(headers) if header in aliases), None)
+                    if index is not None and index < len(cells):
+                        record[key] = _clean(cells[index])
         summary = {
             "row_total": len(parsed_rows) + len(class_duties),
             "student_count": len(students),
@@ -1685,7 +1751,9 @@ class ImporterService:
                 groups_map[key] = []
             if sno not in groups_map[key]:
                 groups_map[key].append(sno)
-            group_sources.setdefault(key, {}).setdefault(sno, {"row": idx, "sheet": raw.get("_source_sheet")})
+            group_sources.setdefault(key, {}).setdefault(
+                sno, {"row": idx, "sheet": raw.get("_source_sheet")}
+            )
             unique_students.add(sno)
 
         groups = []

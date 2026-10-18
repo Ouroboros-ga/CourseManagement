@@ -18,7 +18,7 @@ export function useImportWizard() {
   let previousScope = scopeContext()
   const selection = () => JSON.stringify(selectedIds.value)
   const canUpload = computed(() => !!target.value && !!files.value.length && files.value.length <= 20 && !!session.workspaceCollegeId
-    && (['admin_roster', 'class_duty'].includes(target.value) || !!session.currentSemesterId)
+    && (['admin_roster', 'class_duty', 'faculty_staff', 'class_responsibility'].includes(target.value) || !!session.currentSemesterId)
     && (target.value !== 'roster' || !!teachingClassId.value))
   watch(context, () => {
     generation++; plan.value = null; result.value = null; drafts.value = []; selectedIds.value = []
@@ -46,9 +46,9 @@ export function useImportWizard() {
         if (file.size > 10 * 1024 * 1024) { uploadErrors.value.push(`${file.name}：超过 10 MiB`); continue }
         try {
           const options = {
-            semester_id: ['admin_roster', 'class_duty'].includes(target.value) ? undefined : session.currentSemesterId,
+            semester_id: ['admin_roster', 'class_duty', 'faculty_staff', 'class_responsibility'].includes(target.value) ? undefined : session.currentSemesterId,
             teaching_class_id: target.value === 'roster' ? teachingClassId.value : undefined,
-            course_type_id: courseTypeId.value || undefined,
+            course_type_id: ['timetable', 'grid_timetable'].includes(target.value) ? courseTypeId.value || undefined : undefined,
             replace: false
           }
           if (/\.zip$/i.test(file.name)) {

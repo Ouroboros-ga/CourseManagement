@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Path, Request, UploadFile
 from pydantic import Field
@@ -24,11 +24,51 @@ class ConfirmationRequest(ConfirmationSelection):
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class PersonLinkSelection(StrictModel):
+    kind: Literal["teaching", "responsibility"]
+    semester_id: Id | None = None
+
+
+class PersonLinkConfirmation(PersonLinkSelection):
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 router = APIRouter(
     prefix="/colleges/{cid}/imports/confirmation-set",
     tags=["import-confirmation"],
     dependencies=[Depends(require_campus_enabled), Depends(require_business_scoped_enabled)],
 )
+
+
+@router.post("/person-links/preview")
+def person_link_preview(
+    cid: Annotated[int, Path(gt=0, le=2**63 - 1)],
+    actor: CurrentUserDep,
+    db: Annotated[Session, Depends(get_db)],
+    body: PersonLinkSelection,
+    request: Request,
+):
+    from app.modules.importer.person_reconciliation import PersonLinkReconciliation
+
+    result = PersonLinkReconciliation(ScopedImporterService(db, actor, cid)).preview(
+        body.kind, int(body.semester_id) if body.semester_id else None)
+    return success(result, getattr(request.state, "request_id", None))
+
+
+@router.post("/person-links/confirm")
+def person_link_confirm(
+    cid: Annotated[int, Path(gt=0, le=2**63 - 1)],
+    actor: CurrentUserDep,
+    db: Annotated[Session, Depends(get_db)],
+    body: PersonLinkConfirmation,
+    request: Request,
+):
+    from app.modules.importer.person_reconciliation import PersonLinkReconciliation
+
+    result = PersonLinkReconciliation(ScopedImporterService(db, actor, cid)).confirm(
+        body.kind, int(body.semester_id) if body.semester_id else None,
+        body.revision, getattr(request.state, "request_id", None))
+    return success(result, getattr(request.state, "request_id", None))
 
 
 @router.post("/zip-preview")

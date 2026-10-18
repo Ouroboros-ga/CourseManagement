@@ -286,4 +286,12 @@ def changes_for(service, batch):
         payload["preserve_existing"] = True
     if changes and all(row["action"] == "UNCHANGED" for row in changes):
         payload["confirmation_skip"] = True
+    # 资料行全部相同也可能尚未建立人员关系；二者分别幂等，不能一起跳过。
+    for row in (batch.payload_json or {}).get("person_links", {}).get("links", []):
+        if row["kind"] == "responsibility":
+            key = (row["kind"], row.get("class_name"), row.get("duty"))
+        else:
+            key = (row["kind"], row["class_code"], row["course_code"], row["staff_id"])
+        change(row["action"], "person_relation", str(key), None,
+               {k: v for k, v in row.items() if k != "action"})
     return {"changes": changes, "issues": issues, "payload": payload}

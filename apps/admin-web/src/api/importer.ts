@@ -13,6 +13,19 @@ export interface ImportSetPlan {
 }
 export interface ImportSetResult { status: string; batch_ids: string[]; files: Array<{ id: string; filename: string; summary: Record<string, unknown> }> }
 const setRoot = (cid: string) => `/api/v1/colleges/${encodeURIComponent(cid)}/imports/confirmation-set`
+export type PersonLinkKind = 'teaching' | 'responsibility'
+export interface PersonLinkRow {
+  kind: PersonLinkKind; class_code?: string; course_code?: string; class_name?: string
+  duty?: string; name: string; staff_no?: string; staff_id?: string
+  action?: 'CREATE' | 'UNCHANGED'; message?: string
+  effective_from: string; effective_to: string | null
+}
+export interface PersonLinkPlan {
+  revision: string; summary: { person_links_create: number; person_links_existing: number; person_links_pending: number }
+  links: PersonLinkRow[]; pending: PersonLinkRow[]
+}
+export const previewPersonLinks = (cid: string, body: { kind: PersonLinkKind; semester_id?: string }) => directRequest<PersonLinkPlan>(`${setRoot(cid)}/person-links/preview`, { method: 'POST', body: JSON.stringify(body) })
+export const confirmPersonLinks = (cid: string, body: { kind: PersonLinkKind; semester_id?: string; revision: string }) => directRequest<{ person_links_created: number; person_links_pending: number }>(`${setRoot(cid)}/person-links/confirm`, { method: 'POST', body: JSON.stringify(body) })
 export const previewImportSet = (cid: string, ids: string[]) => directRequest<ImportSetPlan>(`${setRoot(cid)}/preview`, { method: 'POST', body: JSON.stringify({ batch_ids: ids }) })
 export const confirmImportSet = (cid: string, ids: string[], revision: string) => directRequest<ImportSetResult>(`${setRoot(cid)}/confirm`, { method: 'POST', body: JSON.stringify({ batch_ids: ids, revision }) })
 

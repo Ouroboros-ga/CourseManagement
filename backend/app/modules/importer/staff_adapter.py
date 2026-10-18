@@ -960,6 +960,11 @@ def parse_teaching_assignment(
                     )
                 )
                 continue
+            if teacher_text and teacher_text != st.name:
+                issues.append(_issue(
+                    "STAFF_NAME_MISMATCH", "教师工号与姓名不一致，请核对原表", row=row_num
+                ))
+                continue
             matched_staff_list.append(st)
         else:
             # 仅有教师文本：支持多教师拆分 (逗号、斜杠、顿号、空格)
@@ -971,12 +976,8 @@ def parse_teaching_assignment(
             has_error = False
             for tname in names:
                 cands = staff_by_name.get(tname, [])
-                # 优先当前学院，若无则全校
-                col_cands = [
-                    s for s in cands
-                    if s.college_id == college_id and s.status == "ACTIVE"
-                ]
-                act_cands = col_cands or [s for s in cands if s.status == "ACTIVE"]
+                # 不以本院优先掩盖全校同名；公共课可能由其他学院教师授课。
+                act_cands = [s for s in cands if s.status == "ACTIVE"]
                 if not act_cands:
                     issues.append(
                         _issue(

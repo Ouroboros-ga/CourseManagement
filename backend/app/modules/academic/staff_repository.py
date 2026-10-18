@@ -169,9 +169,17 @@ class StaffRepository:
 
     # ---- 关系 ----
     def _relations_in_college(self, model, college_id: int, **filters: Any) -> Select:
-        stmt = select(model).join(
-            FacultyStaff, model.staff_id == FacultyStaff.id
-        ).where(FacultyStaff.college_id == college_id)
+        stmt = select(model).join(FacultyStaff, model.staff_id == FacultyStaff.id)
+        if model is TeachingStaffAssignment:
+            # LOCAL 由课程学院管理，不能因教师在外院建档而隐藏/转移课程关系。
+            # SHARED 仍由原有明确授权的档案学院管理，不向其他学院扩大整班授权。
+            stmt = stmt.where(or_(
+                and_(model.anchor_type == "LOCAL", model.teaching_class_id.in_(
+                    select(TeachingClass.id).where(TeachingClass.college_id == college_id))),
+                and_(model.anchor_type == "SHARED", FacultyStaff.college_id == college_id),
+            ))
+        else:
+            stmt = stmt.where(FacultyStaff.college_id == college_id)
         for column, value in filters.items():
             if value is not None:
                 stmt = stmt.where(getattr(model, column) == value)

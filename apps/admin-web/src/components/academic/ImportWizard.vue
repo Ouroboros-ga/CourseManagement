@@ -17,6 +17,7 @@ const emit = defineEmits<{ saved: []; busy: [value: boolean] }>()
 const router = useRouter(), session = useSessionStore(), state = useImportWizard()
 const { target, teachingClassId, courseTypeId, files, drafts, plan, result, busy, error, uploadErrors, failuresExcluded, canUpload, canConfirm, upload, review, confirm, removeDraft, reset, resume } = state
 const options = computed(() => [
+  ...(session.hasPermission('staff.manage') ? [{ id: 'faculty_staff', label: '教职工档案（首次准备）' }, { id: 'class_responsibility', label: '班级责任关系（工号模板／明确交接）' }, { id: 'teaching_assignment', label: '授课关系补充表（特殊情况）' }] : []),
   ...(session.hasPermission('course_schedule.import') ? [{ id: 'grid_timetable', label: '教务系统导出的班级课表' }] : []),
   ...(session.hasPermission('student.manage') ? [{ id: 'admin_roster', label: '行政班与学生名单' }, { id: 'class_duty', label: '班主任与责任区辅导员' }, { id: 'roster', label: '教学班补充名单' }] : []),
   ...(session.hasPermission('volunteer.manage') ? [{ id: 'volunteer', label: '志愿者资格名单' }] : [])

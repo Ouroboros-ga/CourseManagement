@@ -1,6 +1,9 @@
 /** 导入资料的中文文案与人话化概要：资料准备首页、三步向导、最近导入列表共用。 */
 
 export const targetLabels: Record<string, string> = {
+  faculty_staff: '教职工档案',
+  class_responsibility: '班级责任关系',
+  teaching_assignment: '授课关系补充表',
   admin_roster: '行政班与学生名单',
   class_duty: '班主任与责任区辅导员',
   grid_timetable: '教务网格课表',
@@ -33,9 +36,11 @@ export function savedSummary(summary: Record<string, unknown>): string {
     qualification_updated: '更新资格',
     roster_after: '保存后名单人数',
     students_linked: '关联学生',
-    class_duties_count: '更新班级责任人'
+    class_duties_count: '更新班级责任人',
+    person_links_created: '已建立人员关联',
+    person_links_pending: '人员待关联'
   }
-  if (summary.unchanged) return '资料未变化，已跳过重复写入'
+  if (summary.unchanged && !summary.person_links_created && !summary.person_links_pending) return '资料未变化，已跳过重复写入'
   return (
     Object.entries(summary)
       .filter(([key]) => labels[key])
@@ -48,6 +53,8 @@ export function savedSummary(summary: Record<string, unknown>): string {
 export function previewSummary(target: string, summary: Record<string, unknown>): string {
   const num = (key: string) => Number(summary[key] || 0)
   switch (target) {
+    case 'faculty_staff':
+      return `识别到 ${num('row_total')} 名教职工，新增 ${num('create_count')} 名、修改 ${num('update_count')} 名`
     case 'admin_roster': {
       const classes = num('classes_count')
       const students = num('student_count')

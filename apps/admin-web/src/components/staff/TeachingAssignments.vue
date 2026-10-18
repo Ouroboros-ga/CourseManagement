@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../../stores/session'
 import { useWorkspaceRead } from '../../composables/useWorkspaceRead'
+import PersonLinkReview from './PersonLinkReview.vue'
 import {
   createTeachingAssignment,
   endTeachingAssignment,
@@ -165,20 +166,21 @@ async function submitEnd() {
 
 <template>
   <section aria-label="任课教师与授课关系">
-    <el-alert title="授课关系是明确的资源授权：本院档案 + 学期 + 教学班，有效期任选中。共享课程身份与批量任命请通过「资料准备」导入；姓名相同不等于授权。" type="info" :closable="false" />
+    <el-alert title="导入课表时会按工号或唯一姓名关联教职工。这里查看关联结果、补充已有资料的关联，或处理换教师等特殊情况；不需要逐个教学班重复设置。" type="info" :closable="false" />
+    <PersonLinkReview :college-id="collegeId" kind="teaching" @saved="void load()" />
     <div class="filters">
       <el-select v-model="teacherFilter" filterable clearable placeholder="按教师筛选" style="max-width: 240px">
         <el-option v-for="staff in staffOptions.items" :key="staff.id" :value="staff.id" :label="`${staff.staff_no} ${staff.name}`" />
       </el-select>
       <el-button :loading="busy" @click="void load()">刷新</el-button>
-      <el-button type="primary" :disabled="busy || !!error" @click="openCreate">建立授课任命</el-button>
+      <el-button :disabled="busy || !!error" @click="openCreate">手动补充授课关联</el-button>
     </div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="staffError" :title="staffError" type="warning" :closable="false" />
-    <el-table :data="rows || []" v-loading="busy" empty-text="当前学院暂无授课任命记录">
-      <el-table-column label="教师" min-width="160"><template #default="{ row }">{{ staffLabel(row.staff_id) }}</template></el-table-column>
+    <el-table :data="rows || []" v-loading="busy" empty-text="暂无授课关联，可先导入课表，或核对已有课表的教师关联">
+      <el-table-column label="教师" min-width="160"><template #default="{ row }">{{ row.staff_name ? `${row.staff_no} ${row.staff_name}` : staffLabel(row.staff_id) }}</template></el-table-column>
       <el-table-column label="学期" min-width="120"><template #default="{ row }">{{ semesterLabel(row.semester_id) }}</template></el-table-column>
-      <el-table-column label="锚点" min-width="120"><template #default="{ row }">{{ anchorText(row) }}</template></el-table-column>
+      <el-table-column label="关联范围" min-width="120"><template #default="{ row }">{{ anchorText(row) }}</template></el-table-column>
       <el-table-column label="教学班 / 共享身份" min-width="220"><template #default="{ row }">{{ targetText(row) }}</template></el-table-column>
       <el-table-column prop="effective_from" label="生效日" min-width="110" />
       <el-table-column label="截止日" min-width="110"><template #default="{ row }">{{ row.effective_to || '长期' }}</template></el-table-column>

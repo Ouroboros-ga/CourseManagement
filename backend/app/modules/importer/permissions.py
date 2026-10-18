@@ -68,6 +68,10 @@ VOLUNTEER_COLUMNS = [
 ]
 
 TIMETABLE_COLUMNS = [
+    TemplateColumn(
+        "teacher_staff_no", "教师工号",
+        ("教师工号", "任课教师工号", "教工号", "teacher_staff_no"), False,
+    ),
     TemplateColumn("class_code", "教学班码", ("教学班码", "教学班", "class_code"), True),
     TemplateColumn("course_code", "课程代码", ("课程代码", "课程编码", "course_code"), True),
     TemplateColumn("course_name", "课程名称", ("课程名称", "课程", "course_name"), False),
@@ -96,6 +100,10 @@ ADMIN_ROSTER_COLUMNS = [
 ]
 
 CLASS_DUTY_COLUMNS = [
+    TemplateColumn(
+        "head_teacher_staff_no", "班主任工号", ("班主任工号", "head_teacher_staff_no"), False
+    ),
+    TemplateColumn("counselor_staff_no", "辅导员工号", ("辅导员工号", "counselor_staff_no"), False),
     TemplateColumn(
         "class_name", "班级", ("班级", "班级名称", "行政班", "class_name", "class"), True
     ),

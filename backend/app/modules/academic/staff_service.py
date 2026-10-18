@@ -9,6 +9,7 @@
 from datetime import date, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -222,7 +223,16 @@ class StaffManagementService:
         rows = self.repo.list_teaching(
             self.college_id, staff_id=staff_id, teaching_class_id=teaching_class_id
         )
-        return [self._dto(row) for row in rows]
+        names = {
+            staff.id: staff for staff in self.db.scalars(
+                select(FacultyStaff).where(FacultyStaff.id.in_({r.staff_id for r in rows}))
+            )
+        }
+        return [
+            {**self._dto(row), "staff_no": names[row.staff_id].staff_no,
+             "staff_name": names[row.staff_id].name}
+            for row in rows
+        ]
 
     def _reject_teaching_overlap(
         self,
@@ -413,7 +423,7 @@ class StaffManagementService:
         if model is ClassStaffResponsibility:
             self.repo.lock_administrative_class(row.administrative_class_id)
         else:
-            self.repo.profile(self.college_id, row.staff_id, lock=True)
+            self.repo.lock_profile(row.staff_id)
         extending = row.effective_to is None or body.effective_to > row.effective_to
         before = self._dto(row)
         row.effective_to = body.effective_to

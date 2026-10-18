@@ -162,6 +162,9 @@ class ScopedImporterService(ImporterService):
         """Hash authorized source facts; never store names/rosters in a shared artifact."""
         db = self._session
         source = {"college": self.cid}
+        from app.modules.importer.person_links import source_facts
+
+        source["person_relations"] = source_facts(db, self.cid)
         # Current locking reads avoid an older REPEATABLE READ authentication snapshot.
         for model in (
             AdministrativeClass,

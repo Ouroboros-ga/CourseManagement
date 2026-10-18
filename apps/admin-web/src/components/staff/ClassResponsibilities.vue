@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../../stores/session'
 import { useWorkspaceRead } from '../../composables/useWorkspaceRead'
+import PersonLinkReview from './PersonLinkReview.vue'
 import {
   createResponsibility,
   endResponsibility,
@@ -189,7 +190,8 @@ async function submitHandover() {
 
 <template>
   <section aria-label="班级负责人">
-    <el-alert title="班主任与责任区辅导员按任职区间生效：同班同职责同一时段只有一位主要负责人；交接在同一事务内完成。姓名相同不会被自动授权。" type="info" :closable="false" />
+    <el-alert title="导入班级责任表时会按工号或唯一姓名关联教职工。已有不同负责人时，请使用交接；这里可核对旧资料中尚未建立的关联。" type="info" :closable="false" />
+    <PersonLinkReview :college-id="collegeId" kind="responsibility" @saved="void load()" />
     <div class="filters">
       <el-select v-model="staffFilter" filterable clearable placeholder="按教师筛选" style="max-width: 240px">
         <el-option v-for="staff in staffOptions" :key="staff.id" :value="staff.id" :label="`${staff.staff_no} ${staff.name}`" />
