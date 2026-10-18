@@ -116,3 +116,8 @@
 - 文件详情把阻断错误、其他核对提示、可稍后处理的人员关联分开。按课程与教师姓名展示关联原因，使用已有差异键关联课程名，不新增接口或改变姓名匹配规则；旧预览消息仍兼容。
 - 提取 ImportFileDetail 展示组件及纯展示格式化函数；来源只在来源位置列显示，内容隐藏重复source字段与内部人员ID。星期/周次/名单人数等用中文业务表达，仍可查看修改前内容；“无变化”说明不会重复新增。
 - 12项前端定向回归、Vue类型与生产构建通过；本地浏览器1365及390宽视口核对提示折叠、课程名、字段和冲突禁用；原两组成功/第三组阻断流程仍通过。Browser插件未提供，使用Chrome/Playwright和模拟API；非生产导入验收。未变更后端API、保存规则、数据或迁移。
+
+### 2026-10-18 19:52 预览优化Web发布
+
+- Web源码 `fbde6931614c6cab484047e094909a0d3e40a4ef` 已合入推送 dev-main，静态版本 `/opt/course-management/admin-web/releases/20261018-review-ui-fbde693161` 已发布；公网首页、入口资源及教务JS哈希、健康就绪通过。后端仍为 `/opt/course-management/releases/20261018-roster-fix-f86c285be6`，本次无后端代码差异、重启、数据库迁移或配置修改。
+- 保留上一Web `/opt/course-management/admin-web/releases/20261018-roster-fix-f86c285be6` 及旧assets供未刷新页面使用；失败自动回退。人工回退仅将admin-web/current原子切回上一目录，不需恢复数据库。证据 `/opt/course-management/incoming/20261018-review-ui-fbde693/DEPLOYED.json`。刷新浏览器后生效；没有代用户确认导入。
