@@ -143,3 +143,9 @@
 - 当前规则以用户新决定为准，替代前述辅助页差异阻断：识别为学校课堂考勤原表时，仅采用首个正式工作表（原文件Sheet1），其余工作表不参与名单、人员匹配或冲突判断，不把第二份名单中的独有学生补入。
 - 识别提示说明仅采用哪个工作表；草稿summary记录source_sheet和ignored_sheets。主表本身的学号/姓名、学院范围和在籍冲突校验继续有效，其他资料类型的多工作表阻断规则未放宽。
 - 原ZIP本地核对32份、1053名主表学生，解析错误为0，7条第二表独有记录未纳入。14项定向回归通过，含真实确认只落主表学生及其他多业务表仍阻断。未向生产导入学生数据。旧草稿仍保留原错误，须重新上传读取。
+
+### 2026-10-18 20:53（北京时间）Sheet1规则发布
+
+- 源码 `b36466fb3459f4c3d2e6e6eb633bc8f82cce1a00` 已合入推送dev-main并部署。后端 `/opt/course-management/releases/20261018-sheet1-b36466fb34`，Web `/opt/course-management/admin-web/releases/20261018-sheet1-b36466fb34`（静态资源未改）。候选启动、内外网ready、页面/教务JS哈希、接口鉴权及只读结构版本核对通过。
+- 无迁移、依赖、配置、开关或学生数据变更。备份 `/var/backups/course-management/20261018T125333Z.1DWFEA` 校验通过；上一版本后端/Web均为各自releases下的 `20261018-import-perf-ab3b2b4413`，失败自动回退两处current指针并重启。人工回退同理，无需覆盖数据库。
+- 证据 `/opt/course-management/incoming/20261018-sheet1-b36466f/{DEPLOYED,ONLINE_VERIFICATION}.json`。请刷新后重新添加ZIP读取新预览，旧辅助页差异错误不会自动从既有草稿删除；没有替用户确认正式导入。
