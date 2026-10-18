@@ -1262,6 +1262,10 @@ class ImporterService:
                     ErrorCode.VERSION_CONFLICT, "学生资料在预览后已变化，请重新上传，整批未应用"
                 )
             if current is not None:
+                if current.name != item["name"]:
+                    raise ConflictError(
+                        message="学号对应姓名与档案不一致，请先核对原表或明确修改学生档案"
+                    )
                 ac = (
                     self._academic.get_admin_class(current.administrative_class_id)
                     if current.administrative_class_id

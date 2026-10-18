@@ -150,6 +150,8 @@ def create_app() -> FastAPI:
     # Literal confirmation-set paths must precede /imports/{batch_id}/confirm.
     from app.modules.importer.confirmation_router import router as confirmation_router
     app.include_router(confirmation_router, prefix="/api/v1")
+    from app.modules.importer.intake_router import router as intake_router
+    app.include_router(intake_router, prefix="/api/v1")
     from app.modules.importer.scoped_router import router as scoped_importer_router
     app.include_router(scoped_importer_router, prefix="/api/v1")
 

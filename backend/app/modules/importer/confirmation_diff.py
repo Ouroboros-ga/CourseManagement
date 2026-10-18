@@ -95,6 +95,12 @@ def changes_for(service, batch):
                 )
             before = {"name": student.name} if student else None
             after = {"name": row["name"]}
+            if student and student.name != row["name"]:
+                issue(
+                    f"学号 {row['student_no']} 的姓名与现有档案不一致，请核对原表；"
+                    "确需更名请先在学生档案中明确修改，再重新读取预览",
+                    row.get("source_row"),
+                )
             change(
                 "CREATE" if student is None else "UNCHANGED" if before == after else "UPDATE",
                 "student",

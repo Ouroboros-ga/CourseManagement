@@ -16743,6 +16743,157 @@
         }
       }
     },
+    "/api/v1/colleges/{cid}/imports/intake/catalog": {
+      "get": {
+        "tags": [
+          "import-intake"
+        ],
+        "summary": "Catalog",
+        "operationId": "catalog_api_v1_colleges__cid__imports_intake_catalog_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/imports/intake/inspect": {
+      "post": {
+        "tags": [
+          "import-intake"
+        ],
+        "summary": "Inspect",
+        "operationId": "inspect_api_v1_colleges__cid__imports_intake_inspect_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_inspect_api_v1_colleges__cid__imports_intake_inspect_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/imports/intake/templates": {
+      "get": {
+        "tags": [
+          "import-intake"
+        ],
+        "summary": "Templates",
+        "operationId": "templates_api_v1_colleges__cid__imports_intake_templates_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/colleges/{cid}/import-templates/{target}": {
       "get": {
         "tags": [
@@ -29255,6 +29406,20 @@
         ],
         "title": "Body_create_import_api_v1_imports_post"
       },
+      "Body_inspect_api_v1_colleges__cid__imports_intake_inspect_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_inspect_api_v1_colleges__cid__imports_intake_inspect_post"
+      },
       "Body_preview_file_api_v1_academic_student_data_preview_file_post": {
         "properties": {
           "college_id": {
@@ -29347,6 +29512,18 @@
               }
             ],
             "title": "Course Type Id"
+          },
+          "members": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 12000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Members"
           }
         },
         "type": "object",

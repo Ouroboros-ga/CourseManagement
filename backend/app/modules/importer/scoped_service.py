@@ -79,6 +79,23 @@ class ScopedImporterService(ImporterService):
         self.actor, self.cid = actor, cid
         self._repo = CollegeBatchRepository(db, self)
 
+    def _parse_admin_roster(self, content, filename):
+        from app.modules.organization.models import College
+
+        payload, issues, summary = super()._parse_admin_roster(content, filename)
+        college_name = self._session.scalar(select(College.name).where(College.id == self.cid))
+        for row in [*payload.get("students", []), *payload.get("class_duties", [])]:
+            if row.get("college") and row["college"] != college_name:
+                issues.append({
+                    "code": "COLLEGE_MISMATCH", "severity": "error", "field": "college",
+                    "row": row.get("source_row"),
+                    "message": "名单学院与当前工作区不一致，请核对原表，不允许通过导入转移学院",
+                })
+            else:
+                # 模板学院列选填；显式工作区提供归属，不把空文本写成外院资料。
+                row["college"] = college_name
+        return payload, issues, summary
+
     def grid_slot_mapping(self, semester_id):
         from app.core.config import get_settings
 

@@ -12,7 +12,7 @@ from app.core.exceptions import AppError, ErrorCode
 MAX_FILE = 10 * 1024 * 1024
 
 
-def expand_zip(content: bytes) -> list[tuple[str, bytes]]:
+def expand_zip(content: bytes, *, allow_template_notes=False) -> list[tuple[str, bytes]]:
     def invalid(message: str):
         raise AppError(ErrorCode.VALIDATION_ERROR, message, 422)
 
@@ -35,6 +35,8 @@ def expand_zip(content: bytes) -> list[tuple[str, bytes]]:
                     invalid("请使用未加密且不包含链接的 ZIP 压缩包")
                 if info.is_dir() or "__MACOSX" in path.parts or path.name.startswith("."):
                     continue
+                if allow_template_notes and str(path) == "导入说明.txt":
+                    continue  # 平台模板包说明，非业务文件；其他非表格仍然拒绝。
                 if path.suffix.lower() not in {".xlsx", ".xls", ".csv"}:
                     invalid(f"压缩包中的“{path.name}”不是表格，请移除后重试（不支持嵌套压缩包）")
                 key = unicodedata.normalize("NFKC", str(path)).casefold()
@@ -68,10 +70,19 @@ def preview_zip(
     teaching_class_id=None,
     course_type_id=None,
     request_id=None,
+    members=None,
 ):
     service._require_composite(actor.id, target)
+    expanded = expand_zip(content, allow_template_notes=members is not None)
+    if members is not None:
+        if (not isinstance(members, list) or not 1 <= len(members) <= 20
+                or any(not isinstance(name, str) for name in members)
+                or len(set(members)) != len(members)
+                or not set(members).issubset({name for name, _ in expanded})):
+            raise AppError(ErrorCode.VALIDATION_ERROR, "压缩包选定文件不合法，请重新读取", 422)
+        expanded = [(name, data) for name, data in expanded if name in members]
     drafts, errors = [], []
-    for name, data in expand_zip(content):
+    for name, data in expanded:
         try:
             draft = service.create_preview(
                 actor,

@@ -82,9 +82,19 @@ async def zip_preview(
     semester_id: Annotated[int | None, Form()] = None,
     teaching_class_id: Annotated[int | None, Form()] = None,
     course_type_id: Annotated[int | None, Form()] = None,
+    members: Annotated[str | None, Form(max_length=12000)] = None,
 ):
+    import json
+
+    from app.core.exceptions import AppError, ErrorCode
     from app.modules.importer.zip_preview import MAX_FILE, preview_zip
 
+    try:
+        selected = json.loads(members) if members is not None else None
+    except ValueError as exc:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "压缩包文件选择格式错误", 422) from exc
+    if members is not None and not isinstance(selected, list):
+        raise AppError(ErrorCode.VALIDATION_ERROR, "压缩包文件选择须为列表", 422)
     result = preview_zip(
         ScopedImporterService(db, actor, cid),
         actor,
@@ -94,6 +104,7 @@ async def zip_preview(
         teaching_class_id=teaching_class_id,
         course_type_id=course_type_id,
         request_id=getattr(request.state, "request_id", None),
+        members=selected,
     )
     return success(result, getattr(request.state, "request_id", None))
 

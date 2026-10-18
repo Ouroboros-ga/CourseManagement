@@ -563,16 +563,15 @@ def parse_class_responsibility(
     ac_by_name = {ac.class_name: ac for ac in all_acs}
     ac_by_code = {ac.class_code: ac for ac in all_acs}
 
-    # 读取当前学院所有有效档案供姓名/工号匹配
+    # 姓名消歧须看同校档案；工号任命仍限于当前学院，不以本院优先掩盖同名。
     all_staff = list(
         db.scalars(
             select(FacultyStaff).where(
                 FacultyStaff.school_id == school_id,
-                FacultyStaff.college_id == college_id,
             )
         )
     )
-    staff_by_no = {s.staff_no: s for s in all_staff}
+    staff_by_no = {s.staff_no: s for s in all_staff if s.college_id == college_id}
     staff_by_name: dict[str, list[FacultyStaff]] = {}
     for s in all_staff:
         staff_by_name.setdefault(s.name, []).append(s)
@@ -710,13 +709,20 @@ def parse_class_responsibility(
                     issues.append(
                         _issue(
                             "STAFF_NAME_AMBIGUOUS",
-                            f"学院存在多名同名为 '{staff_name}' 的教职工，"
+                            f"同校存在多名同名为 '{staff_name}' 的教职工，"
                             "必须提供明确工号以确认任命",
                             row=row_num,
                         )
                     )
                     continue
                 matched_staff = active_candidates[0]
+                if matched_staff.college_id != college_id:
+                    issues.append(_issue(
+                        "STAFF_NOT_FOUND",
+                        "该人员不属于本学院，请通过明确授权的责任关系维护入口处理",
+                        row=row_num,
+                    ))
+                    continue
 
             # 查出与该区间重叠的该班职责记录（基线）
             key = f"{ac.class_name}/{duty}"
@@ -1173,6 +1179,11 @@ def changes_for_staff(service: Any, batch: ImportBatch) -> dict[str, Any]:
                 )
             )
             base = baseline.get(sno)
+            if cur is not None and cur.name != r["name"]:
+                issue(
+                    f"工号 {sno} 的姓名与现有档案不一致，请先核对原表或在教职工档案中明确更名",
+                    r.get("source_row"),
+                )
             if (base is None and cur is not None) or (
                 base is not None
                 and (cur is None or cur.lock_version != base["lock_version"])
@@ -1395,6 +1406,10 @@ def apply_faculty_staff(
             db.add(new_staff)
             created += 1
         else:
+            if existing.name != r["name"]:
+                raise ConflictError(
+                    message="工号对应姓名与档案不一致，请先核对原表或明确修改教职工档案"
+                )
             changed = False
             if existing.name != r["name"]:
                 existing.name = r["name"]

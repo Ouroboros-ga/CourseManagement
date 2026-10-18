@@ -759,11 +759,23 @@ CHECK、区间 CHECK、外键）一律映射为 409，不返回 500。事实、�
 `MULTIPLE_TEACHING_OVERLAP`/`ANCHOR_OVERLAP`，确认阶段 409；补录区间只更新与之重叠的那条任命，
 不影响不重叠的历史记录。整批在确认集合的单一提交点落库，任一行失败全部回滚，重试不重复。
 
-## 2026-10-18 导入 ZIP 预览（待部署）
+## 2026-10-18 导入 ZIP 预览（原接口随 bed04b8 发布，members 增量未发布）
 
 `POST /api/v1/colleges/{cid}/imports/confirmation-set/zip-preview`：multipart 上传 `file`、`target`，可选 `semester_id`、`teaching_class_id`、`course_type_id`。与原学院导入相同的功能/范围鉴权，仅创建成员预览，不写正式资料。返回 `files`（逐成员预览）、`errors`（filename/message）、`business_data_applied=false`。成功成员仍须经现有集合 preview 与携带 revision 的 confirm；前端必须让用户明确处理/排除失败成员，不能静默确认成功子集。
 
 限制：ZIP 10 MiB、20 个表格、每成员 10 MiB、总展开 50 MiB、目录项 200。接受 xls/xlsx/csv，拒绝不安全或重复路径、加密、链接、嵌套归档及其他文件。格式/范围不合规返回现有 422/权限错误；详细行为见 development/IMPORT_FLOW_SIMPLIFICATION_20261018.md。该接口开发完成不等于生产可用。
+
+### 2026-10-18 统一资料入口识别与模板（本地实现，未发布）
+
+以下接口属于当前本地源码契约，尚未部署。共同受学院配置及正式业务隔离开关保护，并要求 `import.execute`；不得据此推断生产已开放。
+
+- `GET /api/v1/colleges/{cid}/imports/intake/catalog` 返回 `{types, max_files:20, max_file_bytes:10485760}`。`types` 仅列出当前操作者可管理的资料类型，每项含 `target`、`label`、`required`、`semester_required` 和 `manage_permission`。类型包括行政班与学生名单、教职工档案、班级责任关系、标准课表、教务网格课表、志愿者学期资格底册、教学班补充名单、选修与分层课补充资料；其中 `timetable` 与 `grid_timetable` 是两种课表来源，用户按实际文件选择。权限不足的类型不返回。`max_files` 是单次确认集合上限；单文件上限为 10 MiB。
+- `POST /api/v1/colleges/{cid}/imports/intake/inspect` 使用 multipart `file`，接受一个表格或混合 ZIP。响应 `data={files:[{filename,target,blocked,message,archive_member}],business_data_applied:false}`；不会建立导入草稿或写业务资料，不返回人员数据行。ZIP 内每个成员分别识别；未知类型的 `target` 为 `null`，可由用户选择后进入正式预览，文件内容仍由原导入解析器校验。单文件最大 10 MiB；ZIP 沿用 ZIP 预览的 10 MiB 压缩包、20 个表格、单成员 10 MiB、展开合计 50 MiB、目录项 200 及路径/格式安全限制。超过文件解析界限（20000 行或 256 列）、不可读文件及多于一个有内容工作表的表格会标为 `blocked`，不得静默忽略其他工作表，须拆分文件后重传。
+- `GET /api/v1/colleges/{cid}/imports/intake/templates` 返回 ZIP 标准模板包，仅包含当前操作者对其目标具备管理权限的类型。响应为 `application/zip`；生成模板不创建导入预览或写业务资料。
+
+混合 ZIP 的识别仅帮助分组，正式写入仍按资料类型分别调用现有预览、冲突核对和确认流程，不形成跨类型事务。调用 `POST /api/v1/colleges/{cid}/imports/confirmation-set/zip-preview` 时可额外传 multipart `members`，值为 JSON 字符串数组（如 `["教师.xlsx"]`），精确选择 ZIP 中要处理的同类型成员；省略 `members` 保持旧的全成员行为。成员选择不允许跨类型合并成一个确认集合。
+
+人员身份及冲突处理沿用本地实现规则：已有工号/学号关联到的人员若与新资料姓名不符，确认集合阻断保存；用户须先到对应学生或教职工档案核对并明确更名，再重传并重新核对。责任表仅凭姓名消歧时检查同校有效档案，不能以本院同名优先掩盖外院同名；只用姓名且结果未知或重名时阻断责任授权。课表中只有教师姓名且待关联时，保留问题详情但不阻断课表资料保存。教师档案、授课关系及班级责任变更继续使用现有维护与交接入口；导入不扩大本人关系授权或跨院授课授权。Web 应保留逐项问题详情及已有档案、授课、责任关系处理入口，修正后重新上传或重新核对。
 
 ### 2026-10-18：本人教职工学院名称
 
