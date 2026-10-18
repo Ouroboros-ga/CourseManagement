@@ -2,7 +2,7 @@
 
 # API 路由索引
 
-2026-10-18，依据当前 `app.main` 注册的 FastAPI OpenAPI 生成：329 个路径、390 个操作，含教职工档案/绑定/导入、教工本人查课记录与认定历史、责任区异议一次审核。实际部署及启用状态见 [当前实施状态](development/IMPLEMENTATION_STATUS.md)。业务边界见 [API 契约](API_CONTRACT.md)。
+2026-10-18，依据当前 `app.main` 注册的 FastAPI OpenAPI 生成：330 个路径、391 个操作，含教职工档案/绑定/导入、教工本人查课记录与认定历史、本人正式课次日历、责任区异议一次审核。实际部署及启用状态见 [当前实施状态](development/IMPLEMENTATION_STATUS.md)。业务边界见 [API 契约](API_CONTRACT.md)。
 
 | 方法 | 路径 | 标签 |
 | --- | --- | --- |
@@ -352,6 +352,7 @@
 | GET | `/api/v1/me/inspection-records` | staff-records |
 | GET | `/api/v1/me/inspection-records/{task_id}` | staff-records |
 | GET | `/api/v1/me/inspection-records/{task_id}/attendance` | staff-records |
+| GET | `/api/v1/me/teaching-occurrences` | staff-teaching |
 | GET | `/api/v1/me/teaching-classes/{teaching_class_id}/occurrences/{occurrence_key}/location` | staff-teaching |
 | PATCH | `/api/v1/me/teaching-classes/{teaching_class_id}/occurrences/{occurrence_key}/location` | staff-teaching |
 | POST | `/api/v1/files` | file |
@@ -363,7 +364,7 @@
 | GET | `/api/v1/attendance/{record_id}/versions` | attendance |
 | POST | `/api/v1/attendance/{record_id}/corrections` | attendance |
 | POST | `/api/v1/me/teaching-attendance/{record_id}/corrections` | attendance |
-| GET | `/api/v1/me/teaching-attendance/{record_id}/versions` | attendance |
+| GET | `/api/v1/me/attendance-records/{record_id}/versions` | attendance |
 | POST | `/api/v1/attendance/{record_id}/objections` | objection |
 | GET | `/api/v1/objections` | objection |
 | GET | `/api/v1/objections/{objection_id}` | objection |

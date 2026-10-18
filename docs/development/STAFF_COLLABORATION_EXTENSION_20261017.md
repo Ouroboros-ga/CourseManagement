@@ -158,9 +158,10 @@
 | 教职工绑定码与核销 | `POST /staff/{staff_id}/binding-tokens`、`POST /me/staff-binding` | 管理员发行；已认证微信身份核销，单次原子消费 |
 | 任课及班级责任管理 | `/colleges/{college_id}/teaching-staff-assignments`、`/colleges/{college_id}/class-staff-responsibilities` | 核对学院、教学班/行政班、人员、生效区间及版本 |
 | 本人职责与课程 | `GET /me/staff-profile`、`GET /me/teaching-classes` | **未实施**。可用视图与身份模式由 `GET /me` 的 `app_context` 返回，本人课程与职责范围由 `/me/inspection-records*` 的授权谓词承担，不再另建两份本人列表 |
-| 指定课次换教室 | `PATCH /me/teaching-classes/{id}/occurrences/{occurrence_key}/location` | 日期/课次、地点、版本；返回受影响任务与当前地点版本 |
-| 教工查课卡片与明细 | `GET /me/inspection-records`、`GET /me/inspection-records/{task_id}`、`GET /me/inspection-records/{task_id}/attendance` | `view=teaching/responsible` 显式收窄；卡片按任务，子项按本人可见学生过滤 |
-| 教师直接更正 | `POST /me/teaching-attendance/{id}/corrections`、`GET /me/teaching-attendance/{id}/versions` | 逐记录授课授权；更正带 `current_version`、目标类型、可选备注；`versions` 与卡片 `view_history` 动作配套，只读不加行锁 |
+| 指定课次换教室 | `GET/PATCH /me/teaching-classes/{id}/occurrences/{occurrence_key}/location` | 日期/课次、地点、**必传**的所见 `revision`（省略 422）；返回受影响任务与当前地点版本 |
+| 本人正式课次日历 | `GET /me/teaching-occurrences?date_from=&date_to=` | 正式课表 + 校历逐日解析，未抽查的课同样返回并可改地点；停课日不出现，调补课可定位；区间 ≤31 天 |
+| 教工查课卡片与明细 | `GET /me/inspection-records`、`GET /me/inspection-records/{task_id}`、`GET /me/inspection-records/{task_id}/attendance` | `view=teaching/responsible` 显式收窄；卡片按任务，子项按本人可见学生过滤，授课视图逐学生按名单冻结归属再收窄 |
+| 教师直接更正 | `POST /me/teaching-attendance/{id}/corrections`、`GET /me/attendance-records/{id}/versions?view=…` | 逐记录授课授权；更正带 `current_version`、目标类型、可选备注；`versions` 与卡片 `view_history` 动作配套，两种视图各自按自身谓词，只读不加行锁 |
 | 责任班级与同范围统计 | `GET /me/inspection-records/summary`、`GET /me/inspection-records/export` | 有效责任关系与可见范围交集；统计/导出必须与列表使用同一过滤谓词。建议中的 `GET /me/responsible-classes` **未实施**，责任班级直接由 `view=responsible` 的卡片与汇总表达 |
 | 责任范围异议 | `GET /me/responsible-objections`、`POST /me/responsible-objections/{id}/review` | 一次审核；同时检查班级关系、任务负责学院和当前版本 |
 
@@ -192,15 +193,17 @@ MySQL 验收，更不表示已部署；未勾选项即本轮未闭环，具体�
 
 - [x] 在 attendance 提取/复用可接受明确资源授权的更正事务，不从新入口调用绕过守卫的全局管理员路径。
 - [x] 实现本人授课列表、查课记录、统计和导出；跨院记录保留任务归属。
-- [x] 教工卡片、子记录、详情、统计、导出共用范围查询；授课日历使用完整正式课次，不能拿“允许抽查的课次集合”代替全部授课。
-- [x] 实现指定课次地点变更及未完成任务目的地更新，保留原地点和变更历史。
+- [x] 教工卡片、子记录、详情、统计、导出共用范围查询；授课日历使用完整正式课次，不能拿“允许抽查的课次集合”代替全部授课。2026-10-18 审查 F4 补上 `GET /me/teaching-occurrences` 与管理端“近期正式课次”列表后此项才真正闭环。
+- [x] 实现指定课次地点变更及未完成任务目的地更新，保留原地点和变更历史。课次键解析复用规划核心的校历/学院作息规则：调补课能定位，停课日不伪造课次（F4）。
+- [x] 合班任务逐学生按名单快照冻结的教学班归属判定可否更正，无归属记录的历史名单标记「授课归属待核对」而不是按当前选课猜历史（F1，迁移 `f26a1017s005`）。
 - [x] Web 完成我的授课、教室修改、更正及更正历史。
 
 定向验收：非本人课程拒绝；跨院教师只见授课记录；重复/过期更正冲突；待处理异议不被自动结案；已完成任务地点不变；未查课不算缺勤。只对实际新增并发写入补独立 MySQL 行为检查。
 
-仍未闭环：教师更正与换教室的浏览器交互未验收；同一课次并发生成任务与改地点的真实 MySQL 竞争未测。
-本轮修复了两处实现缺陷——地点写入缺少事务提交（写了不落库）、读取入口对账号/档案持 `FOR UPDATE`
-行锁——并把 409 后的表单改绑到刷新后的记录，防止沿用旧版本号反复冲突。
+仍未闭环：教师更正与换教室（含新增的正式课次列表）的浏览器交互未验收；同一课次并发生成任务与改地点、
+名单归属冻结写入的真实 MySQL 竞争未测。本轮修复了两处实现缺陷——地点写入缺少事务提交（写了不落库）、
+读取入口对账号/档案持 `FOR UPDATE` 行锁——并把 409 后的表单改绑到刷新后的记录，防止沿用旧版本号反复
+冲突。审查 F5 取消 `revision` 的默认值，省略即 422，不保留“不传就跳过乐观校验”的分支。
 
 ### C. 班级责任区与一次审核
 

@@ -12,6 +12,7 @@
 | `backend/app/modules/identity/staff_scope.py` | 本人授课和责任班级的可组合 SQL EXISTS 过滤谓词 |
 | `backend/app/models.py` | ORM 聚合入口注册 |
 | `backend/migrations/versions/f26a1017s001_staff_foundation.py` | 基于 `f26a1017c001` 新增三表，不回填授权 |
+| `backend/migrations/versions/f26a1017s002…s005` | 同批后续任务追加：绑定凭证摘要、导入 `target` 放宽、课次地点覆盖层与只追加变更链、任务名单的教学班归属冻结表（F1） |
 | `backend/tests/unit/test_staff_scope.py`、`test_staff_migration.py` | 独立内存库边界与迁移对齐检查 |
 
 档案用学校内唯一的字符串工号，保留前导零；关联账号唯一可空。授课关系显式 `anchor_type=LOCAL/SHARED`，`teaching_class_id` 与 `academic_offering_id` 依锚点类型二选一，数据库拒绝空锚点或双锚点。关系区间统一为半开 `[effective_from,effective_to)`，结束日不再有效。
@@ -24,15 +25,18 @@
 
 ```python
 teaching_class_condition(user_id: int, *, occurrence_on, as_of: date)
+teaching_class_covers_range(user_id: int, *, date_from, date_to, as_of: date)
 responsible_class_condition(
     user_id: int, *, administrative_class_id, as_of: date,
     review_college_id=None,
 )
 ```
 
-两个方法返回 SQL 表达式，不执行请求、提交事务、缓存权限或返回全院 ID 列表。`user_id` 必须来自有效服务端会话；`as_of` 必须是服务端 `business_today()`，不能取客户端日期。`occurrence_on` 可以是服务端解析的日期或外层查询日期列。调用方在查询中先加谓词，再计数、分页和导出。
+这些函数返回 SQL 表达式，不执行请求、提交事务、缓存权限或返回全院 ID 列表。`user_id` 必须来自有效服务端会话；`as_of` 必须是服务端 `business_today()`，不能取客户端日期。`occurrence_on` 可以是服务端解析的日期或外层查询日期列。调用方在查询中先加谓词，再计数、分页和导出。
 
 授课谓词的外层实体是 `TeachingClass`。LOCAL 只匹配指定本地班；SHARED 只通过已确认的 `TeachingClass.academic_offering_id` 扩展，并核对共享身份、教师学院及目标学院的学校和学期。课程名、教师姓名、教室都不参与授权匹配。账号、档案、学院、教学班均须有效；关系同时覆盖当前日和该课次日。
+
+`teaching_class_covers_range` 与逐日谓词共用同一套锚点、学院与学期判定，只把“覆盖某一天”换成“与区间相交”，供本人正式课次日历先收窄教学班；日历随后**逐日**再用 `teaching_class_condition` 过滤，因此列表里能出现的课次必定能被 PATCH 修改，任命区间之外的课次不会因为当前仍在任而混入。两处必须是同一实现，不允许出现第二套区间算法。
 
 责任谓词以**任务当时的名单快照行政班**为输入，核对当前有效责任关系及同院行政班。`review_college_id` 省略时仅表达只读班级范围；审核必须传任务真实负责学院并在写服务重新校验。不要将 `None` 当成允许审核外院记录。材料权限另外按文件所属事实检查。
 
@@ -90,7 +94,11 @@ Web 的请求上下文含账号、模式、工作视图、学期、相关筛选�
 
 ## 5. 实施状态与验证证据
 
-F0 已实现；T01—T07 未执行。现有 README、docs/README 和未跟踪功能说明由其他任务维护，本次不覆盖。原始需求及配套文档已原样复制到当前工作区供交接；其中旧基线视为历史记录。
+F0 已实现；T01—T07 已在本地 `dev-main` 实现并通过离线回归，`alembic heads` 现为唯一 `f26a1017s005`，
+2026-10-18 的代码审查增量（F1 逐学生授课归属、F2 面板竞态与分页、F3 审核版本口径、F4 正式课次日历与
+调补课解析、F5 `revision` 必传、F6 认定历史入口）也已落地。当前实现、验证与未验证边界以
+[实施状态](IMPLEMENTATION_STATUS.md) 的 2026-10-18 小节为准，本节以下条目保留 F0 当时的记录语境。
+现有 README、docs/README 和未跟踪功能说明由其他任务维护，本次不覆盖。原始需求及配套文档已原样复制到当前工作区供交接；其中旧基线视为历史记录。
 
 - 新授权/迁移及既有共享教学班定向回归：9 passed，2 条既有 Pydantic `json_encoders` 弃用告警。
 - 新模型、范围谓词、新测试及迁移 Ruff：通过。两个新业务源文件 mypy：通过。

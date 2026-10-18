@@ -678,17 +678,20 @@ CHECK、区间 CHECK、外键）一律映射为 409，不返回 500。事实、�
 | 进入教职工身份 | `POST /api/v1/me/staff-binding` | body `staff_no` + `binding_code`。一次性原子兑换：已用/过期 409，工号不匹配只累计失败次数并 422，已关联账号的档案不能被抢绑。姓名与手机号不作为认领依据 |
 | 入口能力摘要 | `GET /api/v1/me` | 响应含 `app_context`：`modes`、`default_mode`、`administrator` 与 `staff.views.teaching/responsible`。仅用于显示入口，不构成授权 |
 | 本人查课卡片 | `GET /api/v1/me/inspection-records?view=teaching\|responsible` | 可选 `semester_id`、`inspection_date`、`date_from`、`date_to`、`teaching_class_id`、`administrative_class_id`、`responsible_college_id`、`course_name`、`page`、`page_size`（≤200）。SQL 先授权后分页 |
-| 卡片详情与明细 | 同前缀 `/{task_id}`、`/{task_id}/attendance` | `view` 必填并参与授权判定；明细只返回有权范围内的学生，责任视图不泄露同任务其他学生。无正式考勤时 `counts=null`，未查课不计缺勤 |
+| 卡片详情与明细 | 同前缀 `/{task_id}`、`/{task_id}/attendance` | `view` 必填并参与授权判定；明细只返回有权范围内的学生，责任视图不泄露同任务其他学生。授课视图逐学生按**名单快照冻结的教学班归属**（`task_roster_member_class`）判定可否更正：合班任务里只属于他人教学班的学生不出现更正按钮，名单版本没有归属记录的历史数据标记「授课归属待核对」并禁止写入，改由教学班管理员核实。无正式考勤时 `counts=null`，未查课不计缺勤 |
 | 汇总与导出 | 同前缀 `/summary`、`/export` | `/summary` 按学院与整体分列，跨学院任务不合并；`/export` 产出 xlsx，`Content-Disposition` 用 `filename*=UTF-8''`，与明细共用同一谓词 |
-| 本人认定更正 | `POST /api/v1/me/teaching-attendance/{record_id}/corrections` | body `attendance_type`、`current_version`（所见版本）、可选 `reason`。逐记录核对有效授课关系后复用管理员同一更正事务：追加 `CORRECTION` 版本、推进 `current_version`、更新报表源修订（指向原任务负责学院数据域）。版本不符 409，不覆盖他人认定；**不触碰异议状态**，已发起的异议继续待责任学院审核 |
-| 本人认定历史 | `GET /api/v1/me/teaching-attendance/{record_id}/versions` | 与卡片 `allowed_actions` 的 `view_history` 配套；只读入口不持 `FOR UPDATE`，先核对本人当前授课关系覆盖该任务，越界与不存在统一 404；复用 `assemble_versions`，不另建投影 |
-| 指定课次换教室 | `GET/PATCH /api/v1/me/teaching-classes/{teaching_class_id}/occurrences/{occurrence_key}/location` | PATCH body `location`（`null` 表示恢复课表原地点）、`revision`（所见地点版本）、可选 `reason`。只联动该真实课次尚未完成的任务，已完成/已取消/已形成考勤的任务保留现场原地点；GET 不加行锁。并发写冲突回滚后最多重试三次，仍冲突 409 |
+| 本人认定更正 | `POST /api/v1/me/teaching-attendance/{record_id}/corrections` | body `attendance_type`、`current_version`（所见版本）、可选 `reason`。逐记录核对有效授课关系与该生的教学班归属后复用管理员同一更正事务：追加 `CORRECTION` 版本、推进 `current_version`、更新报表源修订（指向原任务负责学院数据域）。版本不符 409，不覆盖他人认定；**不触碰异议状态**，已发起的异议继续待责任学院审核 |
+| 本人认定历史 | `GET /api/v1/me/attendance-records/{record_id}/versions?view=teaching\|responsible` | 与卡片 `allowed_actions` 的 `view_history` 配套；`view` 必填，两种工作视图用各自谓词，越界与不存在统一 404。只读入口不持 `FOR UPDATE`；复用 `assemble_versions`，不另建投影 |
+| 本人正式课次日历 | `GET /api/v1/me/teaching-occurrences` | 查询 `date_from`、`date_to`（区间必填且 ≤31 天，倒序或超长 422）、可选 `teaching_class_id`、`page`、`page_size`（≤200）。按正式课表 + 校历生成课次，**与是否被抽到查课无关**：未生成任务的课照样返回并可改地点，停课日不出现，调补课按规划核心同一解析定位；已确认共享身份的同一真实课次跨学院视图合并成一条。逐日只列该日有效授课关系覆盖的班，任命区间外的课次不因当前在任而列出 |
+| 指定课次换教室 | `GET/PATCH /api/v1/me/teaching-classes/{teaching_class_id}/occurrences/{occurrence_key}/location` | PATCH body `location`（`null` 表示恢复课表原地点）、`revision`（**必传**的所见地点版本，省略即 422，不给跳过乐观校验留后门）、可选 `reason`。只联动该真实课次尚未完成的任务，已完成/已取消/已形成考勤的任务保留现场原地点；GET 不加行锁。并发写冲突回滚后最多重试三次，仍冲突 409 |
 | 责任区异议与一次审核 | `GET /api/v1/me/responsible-objections`、`GET …/{objection_id}`、`POST …/{objection_id}/review` | 列表/详情只聚合本人有效责任关系覆盖的学生；逐条返回 `can_review` 与 `review_block_reason`。审核复用管理员终审同一条状态机（`decision/final_type/comment/current_version`），锁序为学院锚点→考勤→异议；不在本人范围统一 404 防枚举，任务确属外院负责 403 要求由该学院审核，版本过期或已结案 409 |
 
 审核改判所需的考勤版本以**审核时**的版本为准：教师更正等合法写入推进版本后，责任学院按刷新后的
 `current_version` 重新提交即可结案，不再要求考勤版本等于异议发起时的 `base_attendance_version`
-（旧规则会让异议在被更正后永久无法审核，而学生有一条未完成异议时不能再次发起）。发起版本与本次
-落差记入审计的 `attendance_changed_since_filing` 与 `base_attendance_version`，版本链完整保留。
+（旧规则会让异议在被更正后永久无法审核，而学生有一条未完成异议时不能再次发起）。**通过和驳回都必须**
+提交所见的 `current_version`：版本不一致时在锁内、写库前返回 409 并说明当前认定与版本，驳回同样是
+对事实的确认，不能凭旧页面结案。发起版本与本次落差记入审计的 `attendance_changed_since_filing` 与
+`base_attendance_version`，版本链完整保留。
 
 材料访问（现场照片、异议证明）在文件域按逐文件事实判定：任课教师限本人授权课次，班主任/辅导员
 限本院任务且名单快照中存在本人责任班学生；跨院只读汇总不隐含材料权限。撤权或档案停用后下一次

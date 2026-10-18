@@ -23092,6 +23092,103 @@
         }
       }
     },
+    "/api/v1/me/teaching-occurrences": {
+      "get": {
+        "tags": [
+          "staff-teaching"
+        ],
+        "summary": "List My Teaching Occurrences",
+        "operationId": "list_my_teaching_occurrences_api_v1_me_teaching_occurrences_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Date From"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Date To"
+            }
+          },
+          {
+            "name": "teaching_class_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Teaching Class Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/teaching-classes/{teaching_class_id}/occurrences/{occurrence_key}/location": {
       "get": {
         "tags": [
@@ -23848,14 +23945,14 @@
         }
       }
     },
-    "/api/v1/me/teaching-attendance/{record_id}/versions": {
+    "/api/v1/me/attendance-records/{record_id}/versions": {
       "get": {
         "tags": [
           "attendance"
         ],
-        "summary": "Staff List Teaching Attendance Versions",
-        "description": "本人授课记录的认定历史；范围逐请求按有效授课关系复核，不使用全院读取权限。",
-        "operationId": "staff_list_teaching_attendance_versions_api_v1_me_teaching_attendance__record_id__versions_get",
+        "summary": "Staff List Attendance Versions",
+        "description": "本人可见考勤记录的认定历史。\n\n两种工作视图的明细都会给出 ``view_history`` 动作，因此历史也必须两种视图都可用：\n授课按有效授课关系判定，责任按该生在任务名单快照中的行政班是否由本人负责判定。\n范围逐请求复核，不使用全院 ``attendance.read``，也不给纯辅导员补全院读取权限。",
+        "operationId": "staff_list_attendance_versions_api_v1_me_attendance_records__record_id__versions_get",
         "security": [
           {
             "HTTPBearer": []
@@ -23870,6 +23967,21 @@
               "type": "integer",
               "title": "Record Id"
             }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "teaching",
+                "responsible"
+              ],
+              "type": "string",
+              "description": "工作视图：teaching 或 responsible",
+              "title": "View"
+            },
+            "description": "工作视图：teaching 或 responsible"
           }
         ],
         "responses": {
@@ -23880,7 +23992,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Staff List Teaching Attendance Versions Api V1 Me Teaching Attendance  Record Id  Versions Get"
+                  "title": "Response Staff List Attendance Versions Api V1 Me Attendance Records  Record Id  Versions Get"
                 }
               }
             }
@@ -32484,16 +32596,9 @@
             "title": "Location"
           },
           "revision": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 9.223372036854776e+18,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "integer",
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
             "title": "Revision"
           },
           "reason": {
@@ -32511,8 +32616,11 @@
         },
         "additionalProperties": false,
         "type": "object",
+        "required": [
+          "revision"
+        ],
         "title": "OccurrenceLocationRequest",
-        "description": "教师指定课次换教室请求。\n\nlocation 为空/null 表示恢复原始课表地点；revision 是客户端所见的当前覆盖版本，\n未曾覆盖（revision=0）也传 0 以参与过期判断，不传则跳过乐观校验。"
+        "description": "教师指定课次换教室请求。\n\nlocation 为空/null 表示恢复原始课表地点；revision 是客户端所见的当前覆盖版本，\n**必传**（从未覆盖传 0）。省略即跳过乐观校验，等于允许旧页面静默覆盖他人已保存\n的安排，因此不提供“不传就不检查”的分支；对同一课次的并发变更一律由版本比较拦下。"
       },
       "OfferingLink": {
         "properties": {

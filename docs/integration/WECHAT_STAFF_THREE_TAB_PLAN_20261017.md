@@ -65,8 +65,12 @@
 `GET /me/teaching-classes`、`GET /me/teaching-classes/{id}/occurrences`、`GET /me/responsible-classes`
 未实施：可用视图与身份模式在 `GET /me` 的 `app_context` 返回，本人课次与责任范围由
 `GET /me/inspection-records*` 的授权谓词按任务卡片表达，小程序如确需按教学班聚合，等真实端侧诉求
-出现后再补，不预先建第二套列表。已实现但未列在本表的一条：`GET /me/teaching-attendance/{record_id}/versions`，
-返回某条考勤的认定历史（版本、认定、来源、时间、备注），与卡片明细的 `view_history` 动作配套。
+出现后再补，不预先建第二套列表。已实现但未列在本表的两条：
+`GET /me/attendance-records/{record_id}/versions?view=teaching|responsible` 返回某条考勤的认定历史
+（版本、认定、来源、时间、备注），与卡片明细的 `view_history` 动作配套；
+`GET /me/teaching-occurrences?date_from=&date_to=` 返回本人正式课次日历，与是否被抽到查课无关，
+端侧“给某一节课换教室”应以它而不是查课卡片为数据源（`GET /me/teaching-classes/{id}/occurrences`
+的未实施部分由这条区间查询承担）。
 
 | 产品动作 | 拟定接口 | 关键参数/响应 |
 | --- | --- | --- |

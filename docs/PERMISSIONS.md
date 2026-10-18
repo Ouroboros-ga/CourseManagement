@@ -1318,7 +1318,7 @@ read 与 manage 分别配置，Web 维护还需相应 read 能力。当前授权
 
 | 视图 | 范围 |
 | --- | --- |
-| 授课（`view=teaching`） | `LOCAL` 只命中该本地教学班；`SHARED` 只通过教学班上已确认的共享身份扩展，并要求学校与学期一致。课程名、教师姓名、教室不参与授权 |
+| 授课（`view=teaching`） | `LOCAL` 只命中该本地教学班；`SHARED` 只通过教学班上已确认的共享身份扩展，并要求学校与学期一致。课程名、教师姓名、教室不参与授权。任务含多个来源教学班时，逐学生按名单快照冻结的教学班归属筛选，只显示确实属于本人所教教学班的学生 |
 | 责任班级（`view=responsible`） | 只统计本人有效责任关系覆盖的行政班；学生子集取任务名单快照中的行政班，不使用学生当前班级，也不泄露同任务其他学生 |
 
 尚未形成正式考勤的课次返回 `counts=null`，未查课不计为缺勤；跨学院任务分别展示与统计，不合并
@@ -1334,10 +1334,11 @@ read 与 manage 分别配置，Web 维护还需相应 read 能力。当前授权
 
 | 入口 | 判定 | 边界 |
 | --- | --- | --- |
-| `POST /me/teaching-attendance/{record_id}/corrections` | 该记录的当前有效**授课**关系覆盖其任务，与 `view=teaching` 同一谓词 | 不要求 `attendance.correct`；跨院授课只放开那门课，不解锁该学院其他资料。`current_version` 不符 409，绝不覆盖他人新认定；追加 `CORRECTION` 版本、更新的是原任务负责学院的报表源修订。**不结案任何异议**，已发起的异议继续由责任学院审核 |
-| `GET /me/teaching-attendance/{record_id}/versions` | 同上授课谓词，逐请求重算 | 只读入口不加 `FOR UPDATE` 行锁；越界与不存在统一 404。卡片 `allowed_actions` 里的 `view_history` 只是显示提示，不是授权令牌 |
-| `GET/PATCH /me/teaching-classes/{id}/occurrences/{occurrence_key}/location` | 该教学班的授课关系当前有效（`LOCAL` 锚点即该班，`SHARED` 需已确认共享身份） | 只联动该真实课次尚未完成的任务；已完成、已取消、已形成考勤的任务保留现场原地点，历史快照不改写。PATCH 带所见 `revision`，冲突 409 |
-| `POST /me/responsible-objections/{objection_id}/review` | 本人有效责任关系覆盖名单快照中的该生班级，**且**任务由本人档案所属学院负责 | 不要求 `objection.final_review`，学院全局审核权限与责任区审核互不派生。外院任务在列表里 `can_review=false`，复制请求调用得到 403（要求由该学院审核）；不在本人责任范围得到 404 防枚举。改判以**审核时**的考勤版本起版，被他人推进后未刷新即 409 |
+| `POST /me/teaching-attendance/{record_id}/corrections` | 该记录的当前有效**授课**关系覆盖其任务，与 `view=teaching` 同一谓词；合班任务再逐学生核对名单快照冻结的教学班归属（`task_roster_member_class`） | 不要求 `attendance.correct`；跨院授课只放开那门课，不解锁该学院其他资料。该生只属于他人教学班时不在可更正集合内；快照没有归属记录的历史名单返回「授课归属待核对」并拒绝写入，交由教学班管理员核实来源，绝不按当前选课猜历史。`current_version` 不符 409，绝不覆盖他人新认定；追加 `CORRECTION` 版本、更新的是原任务负责学院的报表源修订。**不结案任何异议**，已发起的异议继续由责任学院审核 |
+| `GET /me/attendance-records/{record_id}/versions?view=…` | `view=teaching` 用授课谓词、`view=responsible` 用责任谓词，逐请求重算；`view` 缺失或非法 422 | 只读入口不加 `FOR UPDATE` 行锁；越界与不存在统一 404。卡片 `allowed_actions` 里的 `view_history` 只是显示提示，不是授权令牌，两种视图的历史入口都必须可用 |
+| `GET /me/teaching-occurrences` | 逐日按该日有效授课关系过滤教学班；区间 ≤31 天 | 列出的是**正式课表 + 校历**产生的课次，与是否被抽到查课无关，未生成任务的课同样可定位、可改地点；停课日不列出，调补课按规划核心同一解析列出。任命区间之外的课次不因当前在任而列出，非本人教学班不出现（空结果，不泄露存在性） |
+| `GET/PATCH /me/teaching-classes/{id}/occurrences/{occurrence_key}/location` | 该教学班的授课关系当前有效（`LOCAL` 锚点即该班，`SHARED` 需已确认共享身份） | 只联动该真实课次尚未完成的任务；已完成、已取消、已形成考勤的任务保留现场原地点，历史快照不改写。PATCH **必须**带所见 `revision`（省略即 422，不保留跳过乐观校验的分支），冲突 409 |
+| `POST /me/responsible-objections/{objection_id}/review` | 本人有效责任关系覆盖名单快照中的该生班级，**且**任务由本人档案所属学院负责 | 不要求 `objection.final_review`，学院全局审核权限与责任区审核互不派生。外院任务在列表里 `can_review=false`，复制请求调用得到 403（要求由该学院审核）；不在本人责任范围得到 404 防枚举。改判以**审核时**的考勤版本起版，**通过与驳回都**要求所见版本一致，被他人推进后未刷新即 409 |
 
 责任区一次审核与管理员终审复用同一条状态机和同一套版本链、审计、报表源修订（`objection/staff_service.py`
 继承 `ObjectionService.apply_final_review`），只是范围谓词不同，不存在第二套审批。职责结束、换届交接、
