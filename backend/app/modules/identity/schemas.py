@@ -74,6 +74,7 @@ class StaffAppSummary(BaseModel):
     staff_no: str
     name: str
     college_id: str
+    college_name: str = Field(description="本人教职工档案所属学院的当前名称，仅供展示")
     views: StaffWorkViews = StaffWorkViews()
 
 

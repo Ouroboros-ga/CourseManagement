@@ -35403,6 +35403,11 @@
             "type": "string",
             "title": "College Id"
           },
+          "college_name": {
+            "type": "string",
+            "title": "College Name",
+            "description": "本人教职工档案所属学院的当前名称，仅供展示"
+          },
           "views": {
             "$ref": "#/components/schemas/StaffWorkViews",
             "default": {
@@ -35416,7 +35421,8 @@
           "staff_id",
           "staff_no",
           "name",
-          "college_id"
+          "college_id",
+          "college_name"
         ],
         "title": "StaffAppSummary"
       },

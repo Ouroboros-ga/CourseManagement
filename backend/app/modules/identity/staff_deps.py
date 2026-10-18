@@ -112,6 +112,7 @@ def resolve_app_context(db: Session, user: CurrentUser) -> dict[str, Any]:
             "staff_no": profile.staff_no,
             "name": profile.name,
             "college_id": str(profile.college_id),
+            "college_name": db.scalar(select(College.name).where(College.id == profile.college_id)),
             "views": {
                 "teaching": _has_active_relation(db, TeachingStaffAssignment, profile.id, day),
                 "responsible": _has_active_relation(db, ClassStaffResponsibility, profile.id, day),
