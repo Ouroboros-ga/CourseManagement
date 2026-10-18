@@ -4,7 +4,7 @@ import io
 import stat
 import unicodedata
 import zipfile
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from pathlib import PurePosixPath
 
 from app.core.exceptions import AppError, ErrorCode
@@ -106,21 +106,23 @@ def preview_zip(
             ErrorCode.VALIDATION_ERROR, "请从统一导入入口分批核对，每批最多 100 个文件", 422
         )
     drafts, errors = [], []
-    for name, data in expanded:
-        try:
-            draft = service.create_preview(
-                actor,
-                target=target,
-                content=data,
-                semester_id=semester_id,
-                teaching_class_id=teaching_class_id,
-                course_type_id=course_type_id,
-                filename=name,
-                replace=False,
-                request_id=request_id,
-            )
-            drafts.append({**draft.model_dump(mode="json"), "filename": name})
-        except AppError as exc:
-            service._session.rollback()
-            errors.append({"filename": name, "message": str(exc.message)})
+    snapshot = getattr(service, "draft_source_snapshot", nullcontext)
+    with snapshot():
+        for name, data in expanded:
+            try:
+                draft = service.create_preview(
+                    actor,
+                    target=target,
+                    content=data,
+                    semester_id=semester_id,
+                    teaching_class_id=teaching_class_id,
+                    course_type_id=course_type_id,
+                    filename=name,
+                    replace=False,
+                    request_id=request_id,
+                )
+                drafts.append({**draft.model_dump(mode="json"), "filename": name})
+            except AppError as exc:
+                service._session.rollback()
+                errors.append({"filename": name, "message": str(exc.message)})
     return {"files": drafts, "errors": errors, "business_data_applied": False}

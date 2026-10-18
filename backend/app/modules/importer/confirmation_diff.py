@@ -77,8 +77,13 @@ def changes_for(service, batch):
             )
     elif batch.target == "admin_roster":
         classes = list(db.scalars(select(AdministrativeClass)))
+        students = {
+            student.student_no: student for student in academic.get_students_by_nos(
+                [row["student_no"] for row in payload.get("students", [])]
+            )
+        }
         for row in payload.get("students", []):
-            student = academic.get_student_by_no(row["student_no"])
+            student = students.get(row["student_no"])
             ac = next(
                 (
                     c

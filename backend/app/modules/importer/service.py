@@ -264,8 +264,13 @@ class ImporterService:
 
         if target == ImportTarget.ADMIN_ROSTER.value:
             payload["student_baseline"] = {}
+            existing_students = {
+                student.student_no: student for student in self._academic.get_students_by_nos(
+                    [item["student_no"] for item in payload.get("students", [])]
+                )
+            }
             for item in payload.get("students", []):
-                student = self._academic.get_student_by_no(item["student_no"])
+                student = existing_students.get(item["student_no"])
                 payload["student_baseline"][item["student_no"]] = (
                     {"id": str(student.id), "version": student.lock_version} if student else None
                 )

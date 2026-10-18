@@ -196,6 +196,16 @@ class AcademicRepository:
             self._session.execute(select(Student).where(Student.id.in_(ids))).scalars().all()
         )
 
+    def get_students_by_nos(self, numbers: Sequence[str]) -> list[Student]:
+        """按学号批量读取，仍由当前Session的学院范围守卫过滤。"""
+        unique = list(dict.fromkeys(numbers))
+        result: list[Student] = []
+        for offset in range(0, len(unique), 500):
+            result.extend(self._session.scalars(
+                select(Student).where(Student.student_no.in_(unique[offset:offset + 500]))
+            ).all())
+        return result
+
     def list_students(
         self,
         params: PageParams,

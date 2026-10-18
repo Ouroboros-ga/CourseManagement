@@ -6,6 +6,8 @@ No global Session filtering or implicit primary-college fallback is introduced.
 
 import hashlib
 import json
+import re
+import unicodedata
 from contextlib import contextmanager
 from datetime import timedelta
 
@@ -53,7 +55,10 @@ class CollegeBatchRepository(ImporterRepository):
         batch.college_id = self.service.cid
         batch.payload_json = {
             **batch.payload_json,
-            "workspace_source_revision": self.service.source_revision(),
+            "workspace_source_revision": (
+                getattr(self.service, "_draft_source_revision", None)
+                or self.service.source_revision()
+            ),
         }
         return super().add(batch)
 
@@ -83,18 +88,48 @@ class ScopedImporterService(ImporterService):
         from app.modules.organization.models import College
 
         payload, issues, summary = super()._parse_admin_roster(content, filename)
-        college_name = self._session.scalar(select(College.name).where(College.id == self.cid))
+        school = select(College.school_id).where(College.id == self.cid).scalar_subquery()
+        colleges = self._session.execute(
+            select(College.id, College.name).where(College.school_id == school)
+        ).all()
+        college_name = next(name for cid, name in colleges if cid == self.cid)
+
+        def normalized(name):
+            return re.sub(r"\s+", "", unicodedata.normalize("NFKC", name))
+
+        # 仅接受正式全名或去除末尾括注后的唯一名称，不按包含关系猜测归属。
+        names: dict[str, set[int]] = {}
+        for cid, name in colleges:
+            full = normalized(name)
+            for key in (full, re.sub(r"\([^()]*\)$", "", full)):
+                names.setdefault(key, set()).add(cid)
         for row in [*payload.get("students", []), *payload.get("class_duties", [])]:
-            if row.get("college") and row["college"] != college_name:
+            if row.get("college") and names.get(normalized(row["college"])) != {self.cid}:
                 issues.append({
-                    "code": "COLLEGE_MISMATCH", "severity": "error", "field": "college",
+                    "code": "COLLEGE_MISMATCH", "severity": "error", "field": "学院",
                     "row": row.get("source_row"),
-                    "message": "名单学院与当前工作区不一致，请核对原表，不允许通过导入转移学院",
+                    "message": f"原表学院“{row['college']}”不能唯一对应当前工作区“{college_name}”，"
+                               "请核对名称；不允许通过导入转移学院",
                 })
             else:
                 # 模板学院列选填；显式工作区提供归属，不把空文本写成外院资料。
                 row["college"] = college_name
         return payload, issues, summary
+
+    @contextmanager
+    def draft_source_snapshot(self):
+        """ZIP内的草稿共用起始指纹；正式预览/确认始终重新读取来源。
+
+        草稿期间即使其他请求改动正式资料，后续确认也会因指纹不符被拒绝，
+        不把此快照当成可跨请求或跨确认复用的缓存。
+        """
+        with self.operation("import.execute"):
+            previous = getattr(self, "_draft_source_revision", None)
+            self._draft_source_revision = previous or self.source_revision()
+            try:
+                yield
+            finally:
+                self._draft_source_revision = previous
 
     def grid_slot_mapping(self, semester_id):
         from app.core.config import get_settings
