@@ -1,4 +1,4 @@
-/** 教职工本人工作视图接口：查课卡片、明细、汇总、导出、课次教室、考勤更正与责任区异议。
+/** 教职工本人工作视图接口：查课卡片、明细、汇总、导出、正式课次与课次教室、考勤更正与责任区异议。
  *
  * 全部走 `/api/v1/me/**`，不依赖学院选择器，也不使用全院权限；
  * 服务端按有效任职关系逐请求判定，前端只按响应里的 `allowed_actions` 与 `can_review` 显示动作。
@@ -168,10 +168,54 @@ export function getOccurrenceLocation(teachingClassId: string, occurrenceKey: st
   )
 }
 
+export interface StaffTeachingOccurrence {
+  occurrence_key: string
+  teaching_class_id: string
+  semester_id: string
+  inspection_date: string
+  weekday: number
+  start_period: number
+  end_period: number
+  course_names: string[]
+  class_names: string[]
+  base_location?: string | null
+  current_location?: string | null
+  overridden: boolean
+  revision: number
+  task_ids: string[]
+}
+
+export interface StaffTeachingOccurrencePage {
+  items: StaffTeachingOccurrence[]
+  total: number
+  page: number
+  page_size: number
+  date_from: string
+  date_to: string
+  scope_description: string
+}
+
+/** 本人正式课次日历：查课卡片只覆盖被抽到的课，换教室不以“先被抽查”为前提。 */
+export function listTeachingOccurrences(
+  dateFrom: string,
+  dateTo: string,
+  page = 1,
+  pageSize = 20,
+  teachingClassId?: string
+) {
+  return request<StaffTeachingOccurrencePage>(
+    `/api/v1/me/teaching-occurrences${search({
+      date_from: dateFrom, date_to: dateTo, page, page_size: pageSize,
+      teaching_class_id: teachingClassId
+    })}`
+  )
+}
+
 export function changeOccurrenceLocation(
   teachingClassId: string,
   occurrenceKey: string,
-  body: { location: string | null; revision?: number | null; reason?: string | null }
+  // revision 必传：后端契约取消了“不传即跳过版本校验”的分支。
+  body: { location: string | null; revision: number; reason?: string | null }
 ) {
   return request<StaffOccurrenceLocation>(
     `/api/v1/me/teaching-classes/${encodeURIComponent(teachingClassId)}/occurrences/${encodeURIComponent(occurrenceKey)}/location`,
@@ -211,9 +255,10 @@ export interface AttendanceVersion {
 }
 
 /** 卡片允许 view_history 就必须有对应的本人历史入口，不能只过滤列表。 */
-export function listTeachingAttendanceVersions(recordId: string) {
+export function listAttendanceRecordVersions(recordId: string, view: StaffView) {
+  // 两种工作视图的明细都会给出 view_history，历史入口因此必须带视图，由服务端按同一谓词判定。
   return request<AttendanceVersion[]>(
-    `/api/v1/me/teaching-attendance/${encodeURIComponent(recordId)}/versions`
+    `/api/v1/me/attendance-records/${encodeURIComponent(recordId)}/versions?view=${view}`
   )
 }
 

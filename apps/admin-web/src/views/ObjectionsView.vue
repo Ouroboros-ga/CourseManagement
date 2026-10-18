@@ -42,6 +42,8 @@ const reviewability = ref<Record<string, { can_review: boolean; review_block_rea
 // 审核表单
 const finalDecision = ref<'LEAVE' | 'NORMAL' | 'LATE' | 'ABSENT' | 'REJECTED'>('LEAVE')
 const finalReasonNote = ref('')
+// 409 后保留审核人的选择与备注，只把“决定所依据的事实已变化”说清楚，等其重新确认。
+const reviewNotice = ref('')
 
 const typeMap: Record<string, string> = {
   NORMAL: '正常出勤',
@@ -171,10 +173,13 @@ const activeAttendance = computed<AttendanceRecord | null>(() => {
   return attendanceMap.value[obj.attendance_record_id] || null
 })
 
-// 默认预设期望改判类型
+// 默认预设期望改判类型。只按“选中的是哪一条异议”触发：同一条记录在 409 后重取时
+// 不能把审核人刚填的判定和备注清空，否则冲突等于让他从头再填一遍。
 watch(
-  () => activeObjection.value,
-  obj => {
+  () => `${activeObjection.value?.id ?? ''}|${activeObjection.value?.final_status ?? ''}`,
+  () => {
+    const obj = activeObjection.value
+    reviewNotice.value = ''
     if (obj) {
       if (obj.final_status === 'PENDING') {
         finalDecision.value = obj.desired_type || 'LEAVE'
@@ -188,6 +193,14 @@ watch(
   },
   { immediate: true }
 )
+
+/** 决定所依据的事实是否在申诉之后被改过：只有真变了才提示，不让正常审核多走一轮。 */
+const changedSinceFiling = computed(() => {
+  const att = activeAttendance.value
+  const obj = activeObjection.value
+  if (!att || !obj) return false
+  return att.current_version !== obj.base_attendance_version
+})
 
 // 审核提交
 function reviewerAccount(obj: ObjectionItem): string {
@@ -232,12 +245,13 @@ async function handleFinalReview() {
   }
 
   submitLoading.value = true
+  reviewNotice.value = ''
   try {
     if (props.selfScope) await reviewResponsibleObjection(objection.id, payload)
     else await finalReviewObjection(objection.id, payload)
 
     if (isReject) {
-      ElMessage.warning(`审核已驳回申诉，维持原考勤判定。`)
+      ElMessage.warning('审核已驳回申诉，维持当前考勤认定。')
     } else {
       ElMessage.success(`审核通过，考勤认定为【${typeMap[targetType || ''] || targetType}】。`)
     }
@@ -257,6 +271,10 @@ async function handleFinalReview() {
     // 版本冲突（409）：不覆盖他人新认定，立刻重取当前版本供重新核对。
     if (err && typeof err === 'object' && (err as { status?: unknown }).status === 409) {
       await fetchObjections()
+      const stillListed = objections.value.some(row => row.id === objection.id)
+      reviewNotice.value = stillListed
+        ? `${msg}（已保留你的判定与备注，按刷新后的事实重新确认后再次提交即可）`
+        : `${msg}；该异议已不在待处理列表，可能已由他人完成审核，请核对处理结果后再决定是否重新受理。`
     }
   } finally {
     submitLoading.value = false
@@ -561,6 +579,10 @@ const decisionOptions: DecisionOption[] = [
             <div class="f-bad font-mono">
               当前判定：{{ typeMap[activeAttendance?.effective_type || ''] || activeAttendance?.effective_type || '-' }} · v{{ activeAttendance?.current_version || activeObjection.base_attendance_version }}
             </div>
+            <div v-if="changedSinceFiling" class="f-changed">
+              发起异议时是 v{{ activeObjection.base_attendance_version }}，现在已是
+              v{{ activeAttendance?.current_version }}：认定在申诉期间被改过，请核对下面的流转时间线与认定历史后再作决定。
+            </div>
             <div class="f-meta cell-sub font-mono">
               考勤记录 ID: {{ activeObjection.attendance_record_id }}
             </div>
@@ -641,6 +663,7 @@ const decisionOptions: DecisionOption[] = [
 
           <!-- 若未审核，展示操作控件 -->
           <div v-else-if="canReviewActive">
+            <p v-if="reviewNotice" class="review-notice">{{ reviewNotice }}</p>
             <div class="d-caption">
               <span class="d-rlabel">审核判定</span>
               <span class="d-wish-tip">
@@ -931,6 +954,22 @@ const decisionOptions: DecisionOption[] = [
 .ok-label { color: var(--green); }
 .f-main { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
 .f-bad { font-size: 12px; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+.f-changed {
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--accent);
+  background: rgba(220, 38, 38, 0.06);
+}
+.review-notice {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  background: rgba(220, 38, 38, 0.06);
+}
 .f-reason { font-size: 12px; color: var(--ink-soft); line-height: 1.5; margin-bottom: 10px; font-style: italic; }
 
 /* ---------- 证明材料缩略图 ---------- */
