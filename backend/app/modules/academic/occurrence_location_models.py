@@ -3,7 +3,8 @@
 地点覆盖按稳定课次键（``s:{shared_meeting_key 或 schedule.id}|{日期}``）单独持久化，
 不改写正式课表的原始导入来源；地点修订号独立于任务 lock_version 命名。变更链只追加
 不重写：已完成任务的原始快照与历史报表不受影响。表结构在迁移
-``f26a1017s004_occurrence_location`` 中建立（原规划名 s003 已被教职工导入目标迁移占用）。
+``f26a1017s004_occurrence_location`` 中建立（原规划名 s003 已被教职工导入目标迁移占用），
+``f26a1018s006_location_timestamps`` 补齐覆盖行的时间元数据。
 """
 
 from datetime import date, datetime
