@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import and_, false, func, not_, or_, select
+from sqlalchemy import and_, case, false, func, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams
@@ -45,6 +45,7 @@ from app.modules.inspection.staff_record_schemas import (
     StaffStudentAttendanceItem,
     ViewLiteral,
 )
+from app.modules.inspection.staff_record_scope import teaching_student_condition
 from app.modules.organization.models import College
 from app.modules.report.staff_export import build_staff_export_excel
 
@@ -105,7 +106,7 @@ def teaching_membership_conditions(user_id: int, covered: set[int]):
 
 
 class TeachingScope:
-    """跨任务批量判定授课归属：统计与导出用，避免逐任务重复查询。"""
+    """历史批量归属辅助；生产统计和导出已使用 teaching_student_condition。"""
 
     def __init__(self, session, tasks, user_id: int, as_of: date) -> None:
         self.whole: set[int] = set()
@@ -329,76 +330,77 @@ class StaffRecordQueryService:
             stmt = stmt.where(InspectionTask.course_name_snapshot.ilike(f"%{course_name}%"))
         return stmt
 
-    def _calculate_task_counts(
-        self, task: InspectionTask, view: ViewLiteral, as_of: date
-    ) -> tuple[str, AttendanceCounts | None]:
-        if task.canceled_at is not None:
-            return "CANCELED", None
-
-        has_attendance = self.session.scalar(
-            select(AttendanceRecord.id).where(AttendanceRecord.task_id == task.id).limit(1)
-        )
-        if has_attendance is None:
-            has_pending = self.session.scalar(
-                select(InspectionSubmission.id)
-                .where(
-                    InspectionSubmission.task_id == task.id,
-                    InspectionSubmission.review_status == "PENDING",
-                )
-                .limit(1)
-            )
-            state = "PENDING_REVIEW" if has_pending is not None else "PENDING_SUBMISSION"
-            return state, None
-
-        state = "RECORDED"
+    def _attendance_query(self, view: ViewLiteral, as_of: date):
+        """先在 SQL 中限定当前名单及本人学生，再供人数、汇总和导出选择列。"""
         stmt = (
-            select(AttendanceRecord.effective_type, func.count())
-            .where(AttendanceRecord.task_id == task.id)
-        )
-        if view == "responsible":
-            stmt = stmt.join(
+            select(AttendanceRecord)
+            .join(InspectionTask, InspectionTask.id == AttendanceRecord.task_id)
+            .join(
                 TaskRosterMember,
                 and_(
                     TaskRosterMember.task_id == AttendanceRecord.task_id,
                     TaskRosterMember.student_id == AttendanceRecord.student_id,
-                    TaskRosterMember.roster_version == task.roster_version,
+                    TaskRosterMember.roster_version == InspectionTask.roster_version,
                 ),
-            ).where(
-                responsible_class_condition(
-                    self.actor.id,
-                    administrative_class_id=TaskRosterMember.administrative_class_id_snapshot,
-                    as_of=as_of,
-                )
             )
-        else:
-            # 授课视图的人数与明细/写入同一口径：合班任务不把别人班的学生算进本人应到。
-            sources, covered = covered_source_classes(self.session, task, self.actor.id, as_of)
-            if not (len(sources) == 1 and sources[0] in covered):
-                visible, _ = teaching_membership_conditions(self.actor.id, covered)
-                stmt = stmt.join(
-                    TaskRosterMember,
-                    and_(
-                        TaskRosterMember.task_id == AttendanceRecord.task_id,
-                        TaskRosterMember.student_id == AttendanceRecord.student_id,
-                        TaskRosterMember.roster_version == task.roster_version,
-                    ),
-                ).where(visible)
-        stmt = stmt.group_by(AttendanceRecord.effective_type)
-        rows = self.session.execute(stmt).all()
-        by_type = {t: c for t, c in rows}
-        counts = AttendanceCounts(
-            total=sum(by_type.values()),
-            NORMAL=by_type.get("NORMAL", 0),
-            LEAVE=by_type.get("LEAVE", 0),
-            LATE=by_type.get("LATE", 0),
-            ABSENT=by_type.get("ABSENT", 0),
         )
-        return state, counts
+        if view == "responsible":
+            return stmt.where(responsible_class_condition(
+                self.actor.id,
+                administrative_class_id=TaskRosterMember.administrative_class_id_snapshot,
+                as_of=as_of,
+            ))
+        return stmt.where(teaching_student_condition(self.actor.id, as_of))
+
+    @staticmethod
+    def _counts(by_type: dict[str, int]) -> AttendanceCounts:
+        return AttendanceCounts(
+            total=sum(by_type.values()),
+            NORMAL=by_type.get("NORMAL", 0), LEAVE=by_type.get("LEAVE", 0),
+            LATE=by_type.get("LATE", 0), ABSENT=by_type.get("ABSENT", 0),
+        )
+
+    def _batch_task_counts(
+        self, tasks: list[InspectionTask], view: ViewLiteral, as_of: date
+    ) -> dict[int, tuple[str, AttendanceCounts | None]]:
+        task_ids = [task.id for task in tasks if task.canceled_at is None]
+        recorded: set[int] = set()
+        pending: set[int] = set()
+        by_task: dict[int, dict[str, int]] = {}
+        if task_ids:
+            recorded = set(self.session.scalars(
+                select(AttendanceRecord.task_id)
+                .where(AttendanceRecord.task_id.in_(task_ids)).distinct()
+            ))
+            pending = set(self.session.scalars(
+                select(InspectionSubmission.task_id).where(
+                    InspectionSubmission.task_id.in_(task_ids),
+                    InspectionSubmission.review_status == "PENDING",
+                ).distinct()
+            ))
+            stmt = self._attendance_query(view, as_of).with_only_columns(
+                AttendanceRecord.task_id, AttendanceRecord.effective_type, func.count()
+            ).where(AttendanceRecord.task_id.in_(task_ids)).group_by(
+                AttendanceRecord.task_id, AttendanceRecord.effective_type
+            )
+            for task_id, kind, count in self.session.execute(stmt):
+                by_task.setdefault(task_id, {})[kind] = count
+        result: dict[int, tuple[str, AttendanceCounts | None]] = {}
+        for task in tasks:
+            if task.canceled_at is not None:
+                result[task.id] = ("CANCELED", None)
+            elif task.id in recorded:
+                result[task.id] = ("RECORDED", self._counts(by_task.get(task.id, {})))
+            else:
+                state = "PENDING_REVIEW" if task.id in pending else "PENDING_SUBMISSION"
+                result[task.id] = (state, None)
+        return result
 
     def _build_card(
-        self, task: InspectionTask, view: ViewLiteral, as_of: date, colleges: dict[int, College]
+        self, task: InspectionTask, view: ViewLiteral, colleges: dict[int, College],
+        result: tuple[str, AttendanceCounts | None],
     ) -> StaffInspectionRecordCard:
-        state, counts = self._calculate_task_counts(task, view, as_of)
+        state, counts = result
         col = colleges.get(task.college_id) if task.college_id is not None else None
         college_brief = CollegeBrief(
             id=str(task.college_id or 0), name=col.name if col else "未知学院"
@@ -458,7 +460,8 @@ class StaffRecordQueryService:
         col_rows = self.session.scalars(select(College).where(College.id.in_(col_ids))).all()
         colleges = {c.id: c for c in col_rows}
 
-        cards = [self._build_card(t, view, as_of, colleges) for t in tasks]
+        counts = self._batch_task_counts(tasks, view, as_of)
+        cards = [self._build_card(t, view, colleges, counts[t.id]) for t in tasks]
         return cards, int(total)
 
     def get_card(self, task_id: int, view: ViewLiteral) -> StaffInspectionRecordCard:
@@ -474,7 +477,8 @@ class StaffRecordQueryService:
 
         col = self.session.get(College, task.college_id)
         colleges = {col.id: col} if col else {}
-        return self._build_card(task, view, as_of, colleges)
+        counts = self._batch_task_counts([task], view, as_of)
+        return self._build_card(task, view, colleges, counts[task.id])
 
     def list_attendance(
         self,
@@ -494,32 +498,11 @@ class StaffRecordQueryService:
         if task is None:
             raise NotFoundError("查课记录不存在或无权访问")
 
-        stmt = (
-            select(AttendanceRecord, TaskRosterMember)
-            .join(
-                TaskRosterMember,
-                and_(
-                    TaskRosterMember.task_id == AttendanceRecord.task_id,
-                    TaskRosterMember.student_id == AttendanceRecord.student_id,
-                    TaskRosterMember.roster_version == task.roster_version,
-                ),
-            )
-            .where(AttendanceRecord.task_id == task_id)
-        )
+        stmt = self._attendance_query(view, as_of).with_only_columns(
+            AttendanceRecord, TaskRosterMember
+        ).where(AttendanceRecord.task_id == task_id)
         sources, covered = covered_source_classes(self.session, task, self.actor.id, as_of)
         whole_class = len(sources) == 1 and sources[0] in covered
-        if view == "responsible":
-            stmt = stmt.where(
-                responsible_class_condition(
-                    self.actor.id,
-                    administrative_class_id=TaskRosterMember.administrative_class_id_snapshot,
-                    as_of=as_of,
-                )
-            )
-        elif not whole_class:
-            # 合班任务只返回属于本人授课班级的学生；来源不明的保留但不可更正。
-            visible, _correctable = teaching_membership_conditions(self.actor.id, covered)
-            stmt = stmt.where(visible)
         if effective_type is not None:
             stmt = stmt.where(AttendanceRecord.effective_type == effective_type)
 
@@ -597,228 +580,97 @@ class StaffRecordQueryService:
     ) -> StaffInspectionSummaryResponse:
         self._assert_staff()
         as_of = business_today()
-        task_stmt = self._build_task_query(view, as_of, **filters)
-        tasks = list(self.session.scalars(task_stmt).all())
-        task_count = len(tasks)
-        if task_count == 0:
-            scope_desc = "本人授课记录" if view == "teaching" else "仅统计负责班级"
-            return StaffInspectionSummaryResponse(
-                view=view,
-                scope_description=scope_desc,
-                task_count=0,
-                recorded_task_count=0,
-                unrecorded_task_count=0,
-                student_counts=AttendanceCounts(),
-                college_summaries=[],
+        task_query = self._build_task_query(view, as_of, **filters)
+        task_ids = task_query.with_only_columns(InspectionTask.id)
+        recorded = select(AttendanceRecord.id).where(
+            AttendanceRecord.task_id == InspectionTask.id
+        ).correlate(InspectionTask).exists()
+        task_totals = self.session.execute(
+            task_query.with_only_columns(
+                InspectionTask.college_id, func.count(),
+                func.sum(case((recorded, 1), else_=0)),
+            ).group_by(InspectionTask.college_id)
+        ).all()
+        col_ids = [cid for cid, _, _ in task_totals]
+        colleges = {cid: name for cid, name in self.session.execute(
+            select(College.id, College.name).where(College.id.in_(col_ids))
+        )} if col_ids else {}
+        overall: dict[str, int] = {}
+        by_college: dict[int, dict[str, int]] = {}
+        if task_totals:
+            stmt = self._attendance_query(view, as_of).with_only_columns(
+                InspectionTask.college_id, AttendanceRecord.effective_type, func.count()
+            ).where(AttendanceRecord.task_id.in_(task_ids)).group_by(
+                InspectionTask.college_id, AttendanceRecord.effective_type
             )
-
-        task_ids = [t.id for t in tasks]
-        col_ids = {t.college_id for t in tasks}
-        col_rows = self.session.scalars(select(College).where(College.id.in_(col_ids))).all()
-        col_name_map = {c.id: c.name for c in col_rows}
-
-        # 统计有考勤任务与无考勤任务
-        recorded_task_ids = set(
-            self.session.scalars(
-                select(AttendanceRecord.task_id)
-                .where(AttendanceRecord.task_id.in_(task_ids))
-                .distinct()
-            ).all()
-        )
-        recorded_task_count = len(recorded_task_ids)
-        unrecorded_task_count = task_count - recorded_task_count
-
-        # 统计学生考勤。责任视图按名单快照班级在 SQL 内收窄；授课视图逐学生判定归属，
-        # 与明细、导出、写入同一口径（合班任务不把别人班的学生算进本人）。
-        overall_types: dict[str, int] = {}
-        college_types: dict[int, dict[str, int]] = {}
-        if view == "responsible":
-            base_att_stmt = (
-                select(
-                    InspectionTask.college_id,
-                    AttendanceRecord.effective_type,
-                    func.count(),
-                )
-                .join(InspectionTask, InspectionTask.id == AttendanceRecord.task_id)
-                .join(
-                    TaskRosterMember,
-                    and_(
-                        TaskRosterMember.task_id == AttendanceRecord.task_id,
-                        TaskRosterMember.student_id == AttendanceRecord.student_id,
-                        TaskRosterMember.roster_version == InspectionTask.roster_version,
-                    ),
-                )
-                .where(
-                    AttendanceRecord.task_id.in_(task_ids),
-                    responsible_class_condition(
-                        self.actor.id,
-                        administrative_class_id=TaskRosterMember.administrative_class_id_snapshot,
-                        as_of=as_of,
-                    ),
-                )
-                .group_by(InspectionTask.college_id, AttendanceRecord.effective_type)
-            )
-            for cid, etype, count in self.session.execute(base_att_stmt).all():
-                overall_types[etype] = overall_types.get(etype, 0) + count
-                bucket = college_types.setdefault(cid, {})
-                bucket[etype] = bucket.get(etype, 0) + count
-        else:
-            scope = TeachingScope(self.session, tasks, self.actor.id, as_of)
-            detail_rows = self.session.execute(
-                select(
-                    InspectionTask.college_id,
-                    AttendanceRecord.effective_type,
-                    AttendanceRecord.task_id,
-                    AttendanceRecord.student_id,
-                )
-                .join(InspectionTask, InspectionTask.id == AttendanceRecord.task_id)
-                .where(AttendanceRecord.task_id.in_(task_ids))
-            ).all()
-            for cid, etype, task_id, student_id in detail_rows:
-                if not scope.visible(task_id, student_id):
-                    continue
-                overall_types[etype] = overall_types.get(etype, 0) + 1
-                bucket = college_types.setdefault(cid, {})
-                bucket[etype] = bucket.get(etype, 0) + 1
-
-        overall_counts = AttendanceCounts(
-            total=sum(overall_types.values()),
-            NORMAL=overall_types.get("NORMAL", 0),
-            LEAVE=overall_types.get("LEAVE", 0),
-            LATE=overall_types.get("LATE", 0),
-            ABSENT=overall_types.get("ABSENT", 0),
-        )
-
-        # 统计各学院任务数
-        task_count_by_col: dict[int, int] = {}
-        for t in tasks:
-            task_count_by_col[t.college_id] = task_count_by_col.get(t.college_id, 0) + 1
-
-        college_summaries: list[StaffCollegeSummary] = []
-        for cid, c_task_count in task_count_by_col.items():
-            c_by_type = college_types.get(cid, {})
-            c_counts = AttendanceCounts(
-                total=sum(c_by_type.values()),
-                NORMAL=c_by_type.get("NORMAL", 0),
-                LEAVE=c_by_type.get("LEAVE", 0),
-                LATE=c_by_type.get("LATE", 0),
-                ABSENT=c_by_type.get("ABSENT", 0),
-            )
-            college_summaries.append(
-                StaffCollegeSummary(
-                    college_id=str(cid),
-                    college_name=col_name_map.get(cid, "未知学院"),
-                    task_count=c_task_count,
-                    student_counts=c_counts,
-                )
-            )
-
-        scope_desc = "本人授课记录" if view == "teaching" else "仅统计负责班级"
+            for cid, kind, count in self.session.execute(stmt):
+                overall[kind] = overall.get(kind, 0) + count
+                by_college.setdefault(cid, {})[kind] = count
+        task_count = sum(count for _, count, _ in task_totals)
+        recorded_count = sum(int(count or 0) for _, _, count in task_totals)
         return StaffInspectionSummaryResponse(
             view=view,
-            scope_description=scope_desc,
-            task_count=task_count,
-            recorded_task_count=recorded_task_count,
-            unrecorded_task_count=unrecorded_task_count,
-            student_counts=overall_counts,
-            college_summaries=college_summaries,
+            scope_description="本人授课记录" if view == "teaching" else "仅统计负责班级",
+            task_count=task_count, recorded_task_count=recorded_count,
+            unrecorded_task_count=task_count - recorded_count,
+            student_counts=self._counts(overall),
+            college_summaries=[StaffCollegeSummary(
+                college_id=str(cid), college_name=colleges.get(cid, "未知学院"),
+                task_count=count, student_counts=self._counts(by_college.get(cid, {})),
+            ) for cid, count, _ in task_totals],
         )
 
     def export_excel(self, view: ViewLiteral, **filters: Any) -> tuple[bytes, str]:
         self._assert_staff()
         as_of = business_today()
-        task_stmt = self._build_task_query(view, as_of, **filters)
-        tasks = list(
-            self.session.scalars(
-                task_stmt.order_by(InspectionTask.inspection_date.asc(), InspectionTask.id.asc())
-            ).all()
+        task_ids = self._build_task_query(view, as_of, **filters).with_only_columns(
+            InspectionTask.id
         )
-        task_map = {t.id: t for t in tasks}
-
-        if not tasks:
-            export_bytes = build_staff_export_excel([])
-            return export_bytes, f"查课记录_{view}_{as_of.isoformat()}.xlsx"
-
-        task_ids = list(task_map.keys())
-        col_ids = {t.college_id for t in tasks}
-        sem_ids = {t.semester_id for t in tasks}
-        colleges = {
-            c.id: c.name
-            for c in self.session.scalars(select(College).where(College.id.in_(col_ids))).all()
-        }
-        semesters = {
-            s.id: s.name
-            for s in self.session.scalars(select(Semester).where(Semester.id.in_(sem_ids))).all()
-        }
-
-        att_stmt = (
-            select(AttendanceRecord, TaskRosterMember)
-            .join(
-                TaskRosterMember,
-                and_(
-                    TaskRosterMember.task_id == AttendanceRecord.task_id,
-                    TaskRosterMember.student_id == AttendanceRecord.student_id,
-                ),
-            )
-            .where(AttendanceRecord.task_id.in_(task_ids))
-        )
-        if view == "responsible":
-            att_stmt = att_stmt.where(
-                responsible_class_condition(
-                    self.actor.id,
-                    administrative_class_id=TaskRosterMember.administrative_class_id_snapshot,
-                    as_of=as_of,
-                )
-            )
-        att_rows = self.session.execute(
-            att_stmt.order_by(AttendanceRecord.task_id.asc(), TaskRosterMember.student_no.asc())
-        ).all()
-
-        # 导出行与页面明细、人数、写入同一口径：合班任务不把非本人授课的学生写进老师的表。
-        export_scope = (
-            TeachingScope(self.session, tasks, self.actor.id, as_of)
-            if view == "teaching"
-            else None
+        stmt = self._attendance_query(view, as_of).join(
+            Semester, Semester.id == InspectionTask.semester_id
+        ).outerjoin(College, College.id == InspectionTask.college_id).with_only_columns(
+            Semester.name.label("semester_name"), College.name.label("college_name"),
+            InspectionTask.class_name_snapshot.label("task_class_name"),
+            TaskRosterMember.class_name_snapshot.label("class_snapshot"),
+            InspectionTask.inspection_date, InspectionTask.course_name_snapshot,
+            InspectionTask.start_period, InspectionTask.end_period,
+            InspectionTask.classroom_snapshot, TaskRosterMember.student_no,
+            TaskRosterMember.name.label("student_name"),
+            AttendanceRecord.effective_type, AttendanceRecord.current_version,
+        ).where(AttendanceRecord.task_id.in_(task_ids)).order_by(
+            InspectionTask.inspection_date.asc(), InspectionTask.id.asc(),
+            TaskRosterMember.student_no.asc(), AttendanceRecord.id.asc(),
         )
 
-        export_time_str = as_of.isoformat()
-        view_label = "本人授课" if view == "teaching" else "责任班级"
+        def rows():
+            # 分批读取标量，不把任务、名单与考勤 ORM 对象全部装入会话或列表。
+            result = self.session.execute(stmt.execution_options(yield_per=500))
+            try:
+                for item in result.mappings():
+                    class_name = item["task_class_name"] or (
+                        item["class_snapshot"] if view == "responsible" else ""
+                    )
+                    yield {
+                        "semester_name": item["semester_name"],
+                        "view_label": "本人授课" if view == "teaching" else "责任班级",
+                        "class_name": class_name or "",
+                        "college_name": item["college_name"] or "",
+                        "inspection_date": item["inspection_date"].isoformat(),
+                        "course_name": item["course_name_snapshot"] or "",
+                        "period_desc": f"第{item['start_period']}-{item['end_period']}节",
+                        "classroom": item["classroom_snapshot"] or "",
+                        "student_no": item["student_no"],
+                        "student_name": item["student_name"],
+                        "class_snapshot": item["class_snapshot"] or "",
+                        "effective_type": item["effective_type"],
+                        "current_version": item["current_version"],
+                        "export_time": as_of.isoformat(),
+                    }
+            finally:
+                result.close()
 
-        rows_data = []
-        for rec, mem in att_rows:
-            t = task_map.get(rec.task_id)
-            if t is None or mem.roster_version != t.roster_version:
-                continue
-            if export_scope is not None and not export_scope.visible(rec.task_id, rec.student_id):
-                continue
-            period_desc = f"第{t.start_period}-{t.end_period}节"
-            class_name = (
-                t.class_name_snapshot or mem.class_name_snapshot or ""
-                if view == "responsible"
-                else t.class_name_snapshot or ""
-            )
-            rows_data.append(
-                {
-                    "semester_name": semesters.get(t.semester_id, ""),
-                    "view_label": view_label,
-                    "class_name": class_name,
-                    "college_name": colleges.get(t.college_id, ""),
-                    "inspection_date": t.inspection_date.isoformat(),
-                    "course_name": t.course_name_snapshot or "",
-                    "period_desc": period_desc,
-                    "classroom": t.classroom_snapshot or "",
-                    "student_no": mem.student_no,
-                    "student_name": mem.name,
-                    "class_snapshot": mem.class_name_snapshot or "",
-                    "effective_type": rec.effective_type,
-                    "current_version": rec.current_version,
-                    "export_time": export_time_str,
-                }
-            )
-
-        export_bytes = build_staff_export_excel(rows_data)
-        filename = f"查课记录_{view}_{as_of.isoformat()}.xlsx"
-        return export_bytes, filename
+        data = build_staff_export_excel(rows())
+        return data, f"查课记录_{view}_{as_of.isoformat()}.xlsx"
 
 
 __all__ = ["StaffRecordQueryService"]

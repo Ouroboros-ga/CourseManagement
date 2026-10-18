@@ -95,7 +95,10 @@ class CurrentUserResponse(BaseModel):
     status: str
     roles: list[str]
     permissions: list[str]
-    binding_required: bool = False
+    binding_required: bool = Field(
+        default=False,
+        description="旧学生受限态标志；教职工身份及入口应读取 app_context，不据此强制绑定学号",
+    )
     app_context: AppContext | None = None
 
     @classmethod
@@ -121,6 +124,11 @@ class CurrentUserResponse(BaseModel):
             binding_required=pre_binding,
             app_context=AppContext.model_validate(app_context) if app_context is not None else None,
         )
+
+
+class CurrentUserEnvelope(BaseModel):
+    data: CurrentUserResponse
+    requestId: str | None = None
 
 
 class StudentBindingRequest(BaseModel):
@@ -242,15 +250,17 @@ class WechatLoginRequest(BaseModel):
 class WechatLoginResult(BaseModel):
     """微信登录结果。
 
-    小程序等原生客户端无 Cookie 语义，refresh 随体返回；need_binding=True 时
-    前端应跳转绑定页。绝不包含 session_key / appid / secret 等敏感字段。
+    小程序等原生客户端无 Cookie 语义，refresh 随体返回；need_binding 保留旧学生
+    语义，登录后以 /me.app_context 确认实际身份。绝不包含 session_key 等敏感字段。
     """
 
     access_token: str
     token_type: str = "bearer"
     expires_in: int
     refresh_token: str
-    need_binding: bool
+    need_binding: bool = Field(
+        description="兼容旧学生绑定流程；登录后读取 /me.app_context 确认实际可用身份"
+    )
 
 
 class BindingTokenIssueRequest(BaseModel):

@@ -27,6 +27,7 @@ from app.modules.identity.schemas import (
     BindingTokenIssueRequest,
     BindingTokenIssueResult,
     BindingTokenRevokeRequest,
+    CurrentUserEnvelope,
     CurrentUserResponse,
     OptionalPermissionResult,
     OptionalPermissionTargetsResponse,
@@ -138,7 +139,7 @@ def wechat_login(
 
     code 换取身份 → 定位/自动建号 → 签发 WECHAT 会话。小程序无 Cookie 语义，
     refresh 随 JSON 体返回。响应绝不含 appid/secret/session_key。
-    need_binding=True 表示新会话处于 PRE_BINDING 受限态，前端应引导绑定学生。
+    need_binding 保留旧学生受限态语义；可用业务身份由登录后的 /me.app_context 确认。
     """
     pair, need_binding = service.login_wechat(body.code)
     result = WechatLoginResult(
@@ -191,7 +192,7 @@ def logout(
     return response
 
 
-@router.get("/me")
+@router.get("/me", response_model=CurrentUserEnvelope)
 def me(
     user: CurrentUserDep,
     request: Request,

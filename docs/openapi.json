@@ -123,7 +123,7 @@
           "auth"
         ],
         "summary": "Wechat Login",
-        "description": "微信登录（P2，原生小程序链路）。\n\ncode 换取身份 → 定位/自动建号 → 签发 WECHAT 会话。小程序无 Cookie 语义，\nrefresh 随 JSON 体返回。响应绝不含 appid/secret/session_key。\nneed_binding=True 表示新会话处于 PRE_BINDING 受限态，前端应引导绑定学生。",
+        "description": "微信登录（P2，原生小程序链路）。\n\ncode 换取身份 → 定位/自动建号 → 签发 WECHAT 会话。小程序无 Cookie 语义，\nrefresh 随 JSON 体返回。响应绝不含 appid/secret/session_key。\nneed_binding 保留旧学生受限态语义；可用业务身份由登录后的 /me.app_context 确认。",
         "operationId": "wechat_login_api_v1_auth_wechat_login_post",
         "requestBody": {
           "content": {
@@ -245,9 +245,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Me Api V1 Me Get"
+                  "$ref": "#/components/schemas/CurrentUserEnvelope"
                 }
               }
             }
@@ -27764,6 +27762,47 @@
         ],
         "title": "AdministratorAccountUpdate"
       },
+      "AppContext": {
+        "properties": {
+          "modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Modes",
+            "default": []
+          },
+          "default_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Mode"
+          },
+          "administrator": {
+            "type": "boolean",
+            "title": "Administrator",
+            "default": false
+          },
+          "staff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StaffAppSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "AppContext",
+        "description": "`/me` 增量：呈现模式与本人工作视图摘要，权限仍按逐请求计算。"
+      },
       "ArchiveConfirm": {
         "properties": {
           "reason": {
@@ -29842,6 +29881,96 @@
         },
         "type": "object",
         "title": "CourseUpdateRequest"
+      },
+      "CurrentUserEnvelope": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CurrentUserResponse"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "CurrentUserEnvelope"
+      },
+      "CurrentUserResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Permissions"
+          },
+          "binding_required": {
+            "type": "boolean",
+            "title": "Binding Required",
+            "description": "旧学生受限态标志；教职工身份及入口应读取 app_context，不据此强制绑定学号",
+            "default": false
+          },
+          "app_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "display_name",
+          "status",
+          "roles",
+          "permissions"
+        ],
+        "title": "CurrentUserResponse"
       },
       "DeadlineDayUpdateRequest": {
         "properties": {
@@ -34967,6 +35096,41 @@
         ],
         "title": "SourceEntry"
       },
+      "StaffAppSummary": {
+        "properties": {
+          "staff_id": {
+            "type": "string",
+            "title": "Staff Id"
+          },
+          "staff_no": {
+            "type": "string",
+            "title": "Staff No"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "college_id": {
+            "type": "string",
+            "title": "College Id"
+          },
+          "views": {
+            "$ref": "#/components/schemas/StaffWorkViews",
+            "default": {
+              "teaching": false,
+              "responsible": false
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "staff_id",
+          "staff_no",
+          "name",
+          "college_id"
+        ],
+        "title": "StaffAppSummary"
+      },
       "StaffBindingRequest": {
         "properties": {
           "staff_no": {
@@ -35114,6 +35278,23 @@
           "lock_version"
         ],
         "title": "StaffUpdate"
+      },
+      "StaffWorkViews": {
+        "properties": {
+          "teaching": {
+            "type": "boolean",
+            "title": "Teaching",
+            "default": false
+          },
+          "responsible": {
+            "type": "boolean",
+            "title": "Responsible",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "StaffWorkViews",
+        "description": "本人当前有效职责视图；不代表任何写入授权。"
       },
       "StudentBatchDeleteRequest": {
         "properties": {

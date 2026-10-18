@@ -146,9 +146,14 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 
 ### 3.5 `GET /me` — 当前身份（需访问令牌）
 
-成功 `200`：`data = {id, username|null, display_name, status, roles[], permissions[], binding_required}`。
+成功 `200`：`data = {id, username|null, display_name, status, roles[], permissions[], binding_required, app_context}`，外层仍为 `{data, requestId}`；OpenAPI 明确公开该响应模型。
 `binding_required=true` 即 PRE_BINDING 受限态（`student_id` 为空且无任何角色）。Web 管理员即使无 `student_id`，因持有角色而不进入该态。
+`need_binding` / `binding_required` 均保留旧学生流程语义，不能单独用来判断教职工是否需要绑定学号。实际可用身份读取 `/me.app_context`：`modes` 为 `student` / `staff` 的可用集合，`default_mode` 为默认模式或 `null`，`administrator` 为管理身份摘要，`staff` 为有效教职工档案及 `views.teaching` / `views.responsible` 摘要。无任课或责任区的有效教职工仍有 `staff` 模式；摘要不授予资源读写权限。
 `permissions` 为「角色权限 ∪ 两项个人可选授权」的实时并集，每次现取不缓存。
+
+#### 教职工绑定兼容与可靠性
+
+`POST /me/staff-binding` 继续使用 `{staff_no, binding_code}`，不新建第二个账号或授予管理角色。不同档案可出现相同短码，核销结合工号定位，持锁后复核；同档案签发避免复用历史短码，有限重试失败返回 `409 STATE_CONFLICT`。历史已失效的重复码不遮蔽唯一有效码；仍有多个有效匹配时返回 `422 VALIDATION_ERROR`，不任取一条。原有不同短码的有效期和多码语义不变。核销采用账号→档案→凭证锁序，签发和作废也先锁档案再锁凭证。
 
 ### 3.6 `POST /me/student-binding` — 本人绑定学生（PRE_BINDING）
 

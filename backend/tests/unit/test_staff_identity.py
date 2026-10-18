@@ -344,3 +344,102 @@ def test_staff_binding_migration_matches_the_model():
             binding["downgrade"]()
             assert set(inspect(db).get_table_names()) == before | foundation_tables
     engine.dispose()
+
+
+def test_duplicate_codes_on_different_profiles_are_scoped_by_staff_number(staff_env, monkeypatch):
+    monkeypatch.setattr(
+        "app.modules.identity.staff_binding.generate_friendly_binding_code", lambda _: "ABC234"
+    )
+    first = create_staff(staff_env, "00001")
+    second = create_staff(staff_env, "00002")
+    for profile in (first, second):
+        binding(staff_env).issue_token(actor=staff_env["admin"], staff_id=int(profile["id"]))
+    result = binding(staff_env).redeem(
+        user_id=3, staff_no="00002", binding_code="ABC234"
+    )
+    assert result["staff_id"] == second["id"]
+    assert staff_env["db"].get(FacultyStaff, int(first["id"])).user_id is None
+
+
+def test_issue_retries_a_code_already_used_by_the_same_profile(staff_env, monkeypatch):
+    profile = create_staff(staff_env, "00001")
+    codes = iter(["ABC234", "ABC234", "XYZ789"])
+    monkeypatch.setattr(
+        "app.modules.identity.staff_binding.generate_friendly_binding_code", lambda _: next(codes)
+    )
+    svc = binding(staff_env)
+    first_id, _, _ = svc.issue_token(actor=staff_env["admin"], staff_id=int(profile["id"]))
+    svc.revoke_token(actor=staff_env["admin"], token_id=first_id)
+    _, code, _ = svc.issue_token(actor=staff_env["admin"], staff_id=int(profile["id"]))
+    assert code == "XYZ789"
+    assert svc.redeem(user_id=3, staff_no="00001", binding_code=code)["user_id"] == "3"
+
+
+def test_legacy_expired_duplicate_does_not_hide_a_valid_code(staff_env):
+    profile = create_staff(staff_env, "00001")
+    db = staff_env["db"]
+    db.add_all([
+        StaffBindingToken(
+            staff_id=int(profile["id"]), token_hash=hash_token("ABC234"),
+            status=status, expires_at=utcnow() + timedelta(minutes=minutes),
+        ) for status, minutes in [("EXPIRED", -1), ("UNUSED", 10)]
+    ])
+    db.commit()
+    assert binding(staff_env).redeem(
+        user_id=3, staff_no="00001", binding_code="ABC234"
+    )["staff_id"] == profile["id"]
+
+
+def test_ambiguous_legacy_active_codes_are_rejected_without_guessing(staff_env):
+    profile = create_staff(staff_env, "00001")
+    db = staff_env["db"]
+    for _ in range(2):
+        db.add(StaffBindingToken(
+            staff_id=int(profile["id"]), token_hash=hash_token("ABC234"), status="UNUSED",
+            expires_at=utcnow() + timedelta(minutes=10),
+        ))
+    db.commit()
+    with pytest.raises(AppError) as exc:
+        binding(staff_env).redeem(user_id=3, staff_no="00001", binding_code="ABC234")
+    assert exc.value.http_status == 422
+    assert db.get(FacultyStaff, int(profile["id"])).user_id is None
+
+
+def test_me_openapi_describes_the_existing_identity_context():
+    from app.main import create_app
+
+    schema = create_app().openapi()
+    response = schema["paths"]["/api/v1/me"]["get"]["responses"]["200"]["content"]
+    ref = response["application/json"]["schema"]["$ref"].rsplit("/", 1)[1]
+    envelope = schema["components"]["schemas"][ref]
+    assert "data" in envelope["properties"]
+    assert "app_context" in schema["components"]["schemas"]["CurrentUserResponse"]["properties"]
+
+
+@pytest.mark.parametrize("actor_key,bind_profile,modes", [
+    ("plain", False, []), ("plain", True, ["staff"]),
+    ("student_staff", False, ["student"]), ("student_staff", True, ["student", "staff"]),
+    ("admin", False, []), ("admin", True, ["staff"]),
+])
+def test_me_response_model_preserves_identity_combinations(
+    staff_env, actor_key, bind_profile, modes
+):
+    from app.core.database import get_db
+    from app.main import create_app
+    from app.modules.identity.deps import get_current_user
+    from fastapi.testclient import TestClient
+
+    actor = staff_env[actor_key]
+    if bind_profile:
+        profile = create_staff(staff_env, "001234")
+        bind(staff_env, profile, staff_env["db"].get(UserAccount, actor.id))
+    app = create_app()
+    app.dependency_overrides[get_current_user] = lambda: actor
+    app.dependency_overrides[get_db] = lambda: staff_env["db"]
+    with TestClient(app) as client:
+        response = client.get("/api/v1/me")
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["app_context"]["modes"] == modes
+    assert data["binding_required"] == actor.pre_binding
+    assert data["roles"] == actor.roles

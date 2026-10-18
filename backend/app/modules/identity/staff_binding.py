@@ -76,7 +76,20 @@ class StaffBindingService:
         row = self._profile(staff_id)
         if row.status != "ACTIVE":
             raise ConflictError(message="档案已停用，不能签发绑定码")
-        code = generate_friendly_binding_code(6)
+        # 档案行锁使同档案签发串行。不同档案可用相同短码，但同档案的历史码不复用，
+        # 避免旧短信/截图重新变成有效凭证；不作废其他仍有效的已签发码。
+        for _ in range(8):
+            code = generate_friendly_binding_code(6)
+            duplicate = self._session.scalar(
+                select(StaffBindingToken.id).where(
+                    StaffBindingToken.staff_id == row.id,
+                    StaffBindingToken.token_hash == hash_token(code),
+                ).limit(1)
+            )
+            if duplicate is None:
+                break
+        else:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "绑定码生成冲突，请重试签发")
         expires_at = utcnow() + timedelta(minutes=self._settings.binding_token_valid_minutes)
         token = StaffBindingToken(
             staff_id=row.id,
@@ -109,10 +122,17 @@ class StaffBindingService:
     ) -> int:
         """作废未使用的绑定码；已核销 409，已作废幂等。"""
         self._require_workspace(actor)
-        token = self._session.execute(
-            select(StaffBindingToken)
+        staff_id = self._session.scalar(
+            select(StaffBindingToken.staff_id)
             .join(FacultyStaff, FacultyStaff.id == StaffBindingToken.staff_id)
             .where(StaffBindingToken.id == token_id, FacultyStaff.college_id == self._college_id)
+        )
+        if staff_id is None:
+            raise NotFoundError("绑定码不存在或不在本院工作区")
+        self._profile(staff_id)
+        token = self._session.execute(
+            select(StaffBindingToken)
+            .where(StaffBindingToken.id == token_id, StaffBindingToken.staff_id == staff_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
@@ -169,9 +189,44 @@ class StaffBindingService:
         if bound is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "该账号已关联教职工档案，请走管理端换绑")
 
+        # 首次读取仅定位候选，不持凭证锁；随后固定按账号→档案→凭证锁定并重新核验。
+        # 历史重复凭证必须排除已失效项；剩余仍有歧义时拒绝，不任取一条关联。
+        digest = hash_token(binding_code)
+        now = utcnow()
+        candidates = self._session.execute(
+            select(
+                StaffBindingToken.id, StaffBindingToken.staff_id, FacultyStaff.staff_no,
+                StaffBindingToken.status, StaffBindingToken.expires_at, StaffBindingToken.used_at,
+            )
+            .join(FacultyStaff, FacultyStaff.id == StaffBindingToken.staff_id)
+            .where(StaffBindingToken.token_hash == digest)
+        ).all()
+        matching = [row for row in candidates if row.staff_no == staff_no]
+        live = [row for row in matching if (
+            row.status == BindingTokenStatus.UNUSED.value
+            and row.used_at is None and row.expires_at > now
+        )]
+        choices = live or matching or candidates
+        if len(choices) != 1:
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR, "绑定码无效或无法唯一确认档案", http_status=422
+            )
+        candidate = choices[0]
+        profile = self._session.execute(
+            select(FacultyStaff)
+            .where(FacultyStaff.id == candidate.staff_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if profile is None:
+            raise NotFoundError("教职工档案不存在")
         token = self._session.execute(
             select(StaffBindingToken)
-            .where(StaffBindingToken.token_hash == hash_token(binding_code))
+            .where(
+                StaffBindingToken.id == candidate.id,
+                StaffBindingToken.staff_id == profile.id,
+                StaffBindingToken.token_hash == digest,
+            )
             .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
@@ -186,14 +241,6 @@ class StaffBindingService:
             self._session.commit()
             raise ConflictError(ErrorCode.STATE_CONFLICT, "绑定码已过期")
 
-        profile = self._session.execute(
-            select(FacultyStaff)
-            .where(FacultyStaff.id == token.staff_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        ).scalar_one_or_none()
-        if profile is None:
-            raise NotFoundError("教职工档案不存在")
         if profile.staff_no != staff_no:
             # 不匹配按无效处理并计数，不泄露该码对应哪位教职工。
             token.failed_attempts += 1

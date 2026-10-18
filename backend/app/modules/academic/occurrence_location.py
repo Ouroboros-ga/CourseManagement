@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass
@@ -23,9 +24,10 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.config import get_settings
 from app.core.exceptions import (
@@ -597,31 +599,17 @@ class OccurrenceLocationService:
                         if teaching.class_name and teaching.class_name not in entry["class_names"]:
                             entry["class_names"].append(teaching.class_name)
 
-        # 已有任务只作为“这节课已被抽到”的线索，不决定这节课能不能改地点。
-        tasks = list(
-            self.db.scalars(
-                select(InspectionTask).where(
-                    InspectionTask.semester_id.in_(sem_ids),
-                    InspectionTask.inspection_date >= date_from,
-                    InspectionTask.inspection_date <= date_to,
-                    InspectionTask.canceled_at.is_(None),
-                )
-            )
-        )
-        for task in tasks:
-            for key in task_occurrences(self.db, task):
-                hit = collected.get(key)
-                if hit is not None and task.id not in hit["task_ids"]:
-                    hit["task_ids"].append(task.id)
-
-        saved = load_course_overrides(self.db, set(collected), only_effective=False)
         ordered = sorted(
             collected.items(),
             key=lambda item: (item[1]["date"], item[1]["start_period"], item[0]),
         )
         total = len(ordered)
+        selected = ordered[(page - 1) * page_size : page * page_size]
+        page_keys = {key for key, _ in selected}
+        task_ids = self._calendar_task_ids(sem_ids, date_from, date_to, page_keys)
+        saved = load_course_overrides(self.db, page_keys, only_effective=False)
         items: list[StaffTeachingOccurrence] = []
-        for key, entry in ordered[(page - 1) * page_size : page * page_size]:
+        for key, entry in selected:
             row = saved.get(key)
             current = entry["base_location"]
             if row is not None and row.location is not None:
@@ -629,8 +617,7 @@ class OccurrenceLocationService:
             items.append(
                 StaffTeachingOccurrence(
                     occurrence_key=key,
-                    # 共享课次的两个学院视图在这里合成一条；展示的地点与这个班的 PATCH
-                    # 视图保持一致，其余来源班列在 class_names 里。
+                    # 共享课次仍合成一行；任务匹配只限于本页真实课次键。
                     teaching_class_id=str(min(entry["class_ids"])),
                     semester_id=str(entry["semester_id"]),
                     inspection_date=entry["date"].isoformat(),
@@ -643,7 +630,7 @@ class OccurrenceLocationService:
                     current_location=current,
                     overridden=bool(row is not None and row.location is not None),
                     revision=row.revision if row else 0,
-                    task_ids=[str(t) for t in entry["task_ids"]],
+                    task_ids=[str(t) for t in task_ids.get(key, [])],
                 )
             )
         return StaffTeachingOccurrencePage(
@@ -655,6 +642,68 @@ class OccurrenceLocationService:
             date_to=date_to.isoformat(),
             scope_description=scope_note,
         )
+
+    def _calendar_task_ids(
+        self, semester_ids: set[int], date_from: date, date_to: date, keys: set[str]
+    ) -> dict[str, list[int]]:
+        """本页课次的任务线索；快照精确匹配，旧来源一次批量回退而非逐任务查询。"""
+        if not keys:
+            return {}
+        snapshot = InspectionTask.occurrence_keys_snapshot
+        snapshot_hit: ColumnElement[bool]
+        if self.db.get_bind().dialect.name == "sqlite":
+            values = func.json_each(snapshot).table_valued("value").alias("occurrence_value")
+            snapshot_hit = select(values.c.value).where(values.c.value.in_(keys)).exists()
+            empty_snapshot = or_(snapshot.is_(None), func.json_array_length(snapshot) == 0)
+        else:
+            snapshot_hit = func.json_overlaps(snapshot, json.dumps(sorted(keys))) == 1
+            # JSON 列的 Python None 可能保存为 JSON null；MySQL JSON_LENGTH(null)=1，
+            # 不能只检查 SQL NULL 或空数组，否则升级前的任务会丢失历史来源回退。
+            empty_snapshot = or_(
+                snapshot.is_(None), func.json_type(snapshot) == "NULL",
+                func.json_length(snapshot) == 0,
+            )
+        legacy_ids = {
+            number for key in keys
+            if key[2:].partition("|")[0].isdigit()
+            if 0 < (number := int(key[2:].partition("|")[0])) < _INT_BOUND
+        }
+        source_hit = select(TaskScheduleSource.task_id).where(
+            TaskScheduleSource.task_id == InspectionTask.id,
+            TaskScheduleSource.course_schedule_id.in_(legacy_ids),
+        ).exists()
+        legacy_hit = and_(empty_snapshot, or_(
+            InspectionTask.course_schedule_id.in_(legacy_ids), source_hit,
+        )) if legacy_ids else false()
+        tasks = list(
+            self.db.scalars(
+                select(InspectionTask).where(
+                    InspectionTask.semester_id.in_(semester_ids),
+                    InspectionTask.inspection_date >= date_from,
+                    InspectionTask.inspection_date <= date_to,
+                    InspectionTask.canceled_at.is_(None),
+                    or_(snapshot_hit, legacy_hit),
+                ).order_by(InspectionTask.id)
+            )
+        )
+        legacy = [t.id for t in tasks if not t.occurrence_keys_snapshot]
+        sources: dict[int, set[int]] = defaultdict(set)
+        if legacy:
+            for task_id, schedule_id in self.db.execute(select(
+                TaskScheduleSource.task_id, TaskScheduleSource.course_schedule_id
+            ).where(TaskScheduleSource.task_id.in_(legacy))):
+                sources[task_id].add(schedule_id)
+        result: dict[str, list[int]] = defaultdict(list)
+        for task in tasks:
+            occurrences = task.occurrence_keys_snapshot
+            if not occurrences:
+                ids = sources[task.id]
+                if task.course_schedule_id:
+                    ids.add(task.course_schedule_id)
+                occurrences = [f"s:{sid}|{task.inspection_date.isoformat()}" for sid in ids]
+            for key in set(occurrences) & keys:
+                result[key].append(task.id)
+        return result
 
     # -- 写（PATCH） ------------------------------------------------------------ #
     def change_location(
