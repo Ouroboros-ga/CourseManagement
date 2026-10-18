@@ -16,11 +16,13 @@ depends_on = None
 
 
 def upgrade():
+    # MySQL requires the default precision to match DATETIME(3).
+    now = "CURRENT_TIMESTAMP(3)" if op.get_bind().dialect.name == "mysql" else "CURRENT_TIMESTAMP"
     with op.batch_alter_table("occurrence_location_override") as batch:
         for name in ("created_at", "updated_at"):
             batch.add_column(sa.Column(
                 name, sa.DateTime().with_variant(mysql.DATETIME(fsp=3), "mysql"),
-                nullable=False, server_default=sa.text("CURRENT_TIMESTAMP"),
+                nullable=False, server_default=sa.text(now),
             ))
     # Defaults only populate pre-existing rows; application UTC timestamps remain authoritative.
     with op.batch_alter_table("occurrence_location_override") as batch:
