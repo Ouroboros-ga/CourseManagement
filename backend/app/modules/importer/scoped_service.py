@@ -6,8 +6,6 @@ No global Session filtering or implicit primary-college fallback is introduced.
 
 import hashlib
 import json
-import re
-import unicodedata
 from contextlib import contextmanager
 from datetime import timedelta
 
@@ -85,26 +83,12 @@ class ScopedImporterService(ImporterService):
         self._repo = CollegeBatchRepository(db, self)
 
     def _parse_admin_roster(self, content, filename):
-        from app.modules.organization.models import College
+        from app.modules.importer.college_names import college_name_keys, normalize_college_name
 
         payload, issues, summary = super()._parse_admin_roster(content, filename)
-        school = select(College.school_id).where(College.id == self.cid).scalar_subquery()
-        colleges = self._session.execute(
-            select(College.id, College.name).where(College.school_id == school)
-        ).all()
-        college_name = next(name for cid, name in colleges if cid == self.cid)
-
-        def normalized(name):
-            return re.sub(r"\s+", "", unicodedata.normalize("NFKC", name))
-
-        # 仅接受正式全名或去除末尾括注后的唯一名称，不按包含关系猜测归属。
-        names: dict[str, set[int]] = {}
-        for cid, name in colleges:
-            full = normalized(name)
-            for key in (full, re.sub(r"\([^()]*\)$", "", full)):
-                names.setdefault(key, set()).add(cid)
+        college_name, accepted_names = college_name_keys(self._session, self.cid)
         for row in [*payload.get("students", []), *payload.get("class_duties", [])]:
-            if row.get("college") and names.get(normalized(row["college"])) != {self.cid}:
+            if row.get("college") and normalize_college_name(row["college"]) not in accepted_names:
                 issues.append({
                     "code": "COLLEGE_MISMATCH", "severity": "error", "field": "学院",
                     "row": row.get("source_row"),

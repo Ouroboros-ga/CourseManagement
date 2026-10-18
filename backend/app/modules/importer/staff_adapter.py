@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.common.parsing.xlsx_tabular import _clean, pick, read_tabular_rows
+from app.common.parsing.xlsx_tabular import _clean, pick, read_any_matrix, read_tabular_rows
 from app.core.exceptions import AppError, ConflictError, ErrorCode, NotFoundError
 from app.modules.academic.models import AdministrativeClass, Semester, TeachingClass
 from app.modules.academic.staff_models import (
@@ -541,7 +541,10 @@ def parse_class_responsibility(
 ) -> tuple[dict, list[dict], dict]:
     issues: list[dict] = []
     try:
-        raw_rows = read_tabular_rows(content, include_source=True)
+        from app.modules.importer.responsibility_format import responsibility_header_row
+
+        header = responsibility_header_row(read_any_matrix(content))
+        raw_rows = read_tabular_rows(content, header_row=header or 1, include_source=True)
     except Exception as exc:
         return (
             {"duties": [], "responsibility_baseline": {}, "import_type": "class_responsibility"},
@@ -550,6 +553,11 @@ def parse_class_responsibility(
         )
 
     school_id = _college(db, college_id).school_id
+    from app.common.parsing.grid import normalize_class_name
+    from app.modules.importer.college_names import college_name_keys, normalize_college_name
+
+    official_college, accepted_names = college_name_keys(db, college_id)
+    seen_duties: dict[tuple, list[dict]] = {}
     today = business_today()
 
     parsed_duties: list[dict] = []
@@ -599,6 +607,21 @@ def parse_class_responsibility(
             continue
 
         ac = ac_by_name.get(class_text) or ac_by_code.get(class_text)
+        raw_college = _clean(pick(raw, "学院", "所属学院", "college"))
+        if raw_college and normalize_college_name(raw_college) not in accepted_names:
+            issues.append(_issue("COLLEGE_MISMATCH",
+                f"原表学院“{raw_college}”不能唯一对应当前工作区“{official_college}”",
+                field="学院", row=row_num))
+            continue
+        if ac is None:
+            candidates = [item for item in all_acs if
+                          normalize_class_name(item.class_name) == normalize_class_name(class_text)]
+            if len(candidates) > 1:
+                issues.append(_issue(
+                    "CLASS_AMBIGUOUS", "班级简称对应多个行政班，请填写准确班级代码",
+                    field="班级", row=row_num))
+                continue
+            ac = candidates[0] if candidates else None
         if ac is None:
             issues.append(
                 _issue(
@@ -723,6 +746,25 @@ def parse_class_responsibility(
                         row=row_num,
                     ))
                     continue
+
+            responsibility_key = (ac.id, duty)
+            previous_rows = seen_duties.setdefault(responsibility_key, [])
+            overlapping = next((item for item in previous_rows if
+                effective_from < (item["end"] or date.max)
+                and item["start"] < (effective_to or date.max)), None)
+            if overlapping:
+                identical = (overlapping["staff"] == matched_staff.id
+                             and overlapping["start"] == effective_from
+                             and overlapping["end"] == effective_to)
+                duplicate_note = "重复，已跳过" if identical else "人员或生效区间冲突，请核对"
+                issues.append(_issue(
+                    "DUPLICATE_RESPONSIBILITY",
+                    f"{ac.class_name}的{'班主任' if duty == 'HEAD_TEACHER' else '辅导员'}"
+                    f"与第{overlapping['row']}行{duplicate_note}",
+                    row=row_num, severity="warning" if identical else "error"))
+                continue
+            previous_rows.append({"staff": matched_staff.id, "start": effective_from,
+                                  "end": effective_to, "row": row_num})
 
             # 查出与该区间重叠的该班职责记录（基线）
             key = f"{ac.class_name}/{duty}"

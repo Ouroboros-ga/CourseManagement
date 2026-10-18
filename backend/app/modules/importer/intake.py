@@ -29,6 +29,11 @@ def _inspect(content: bytes, name: str) -> dict:
             if attendance
             else (detect_target([str(v) for v in matrix[0]], name) if matrix else None)
         )
+        if target is None:
+            from app.modules.importer.responsibility_format import responsibility_header_row
+
+            if responsibility_header_row(matrix) is not None:
+                target = "class_responsibility"
         if attendance and attendance["ignored_sheets"]:
             result["message"] = (
                 f"仅采用工作表 {attendance['source_sheet']} 的名单，其余工作表不导入"

@@ -149,3 +149,10 @@
 - 源码 `b36466fb3459f4c3d2e6e6eb633bc8f82cce1a00` 已合入推送dev-main并部署。后端 `/opt/course-management/releases/20261018-sheet1-b36466fb34`，Web `/opt/course-management/admin-web/releases/20261018-sheet1-b36466fb34`（静态资源未改）。候选启动、内外网ready、页面/教务JS哈希、接口鉴权及只读结构版本核对通过。
 - 无迁移、依赖、配置、开关或学生数据变更。备份 `/var/backups/course-management/20261018T125333Z.1DWFEA` 校验通过；上一版本后端/Web均为各自releases下的 `20261018-import-perf-ab3b2b4413`，失败自动回退两处current指针并重启。人工回退同理，无需覆盖数据库。
 - 证据 `/opt/course-management/incoming/20261018-sheet1-b36466f/{DEPLOYED,ONLINE_VERIFICATION}.json`。请刷新后重新添加ZIP读取新预览，旧辅助页差异错误不会自动从既有草稿删除；没有替用户确认正式导入。
+
+### 2026-10-18 学校责任区原表解析
+
+- 工程契约见[责任区原表导入](CLASS_RESPONSIBILITY_IMPORT.md)。照片已转录39行Excel，仅存会话忽略目录供用户下载校对，未提交真实名单到Git。
+- 统一入口定位标题下的责任表表头，识别为class_responsibility；共用学院唯一名称规则，准确班级优先、已有简称唯一时关联，按工号或同校唯一姓名解析已有档案ID。重名、工号不符、外院/停用/缺档案维持阻断。
+- 新增同文件同班职责重叠核对：完全相同重复行提示跳过，人员或区间冲突明确阻断。照片机电2501的两行没有猜测覆盖；真实数据导入仍由用户核对确认。
+- 两组相关回归23和15项通过，去重34项，含原表/授课与责任导入、学院名、目录识别、真实HTTP及隔离SQLite确认；定向Ruff通过。实际交付文件识别class_responsibility，表头第4行、39数据行，来源5—43行。无迁移、依赖或前端页面改动。
