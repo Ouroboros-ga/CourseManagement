@@ -131,6 +131,7 @@ class TeachingScope:
         for task_id, class_id in session.execute(
             select(TaskScheduleSource.task_id, TaskScheduleSource.teaching_class_id)
             .join(InspectionTask, InspectionTask.id == TaskScheduleSource.task_id)
+            .join(TeachingClass, TeachingClass.id == TaskScheduleSource.teaching_class_id)
             .where(
                 TaskScheduleSource.task_id.in_(task_ids),
                 teaching_class_condition(
@@ -157,7 +158,12 @@ class TeachingScope:
                 TaskRosterMemberClass.task_id,
                 TaskRosterMemberClass.student_id,
                 TaskRosterMemberClass.teaching_class_id,
-            ).where(TaskRosterMemberClass.task_id.in_(task_ids))
+            )
+            .join(InspectionTask, InspectionTask.id == TaskRosterMemberClass.task_id)
+            .where(
+                TaskRosterMemberClass.task_id.in_(task_ids),
+                TaskRosterMemberClass.roster_version == InspectionTask.roster_version,
+            )
         ):
             self.prov.setdefault((task_id, student_id), set()).add(class_id)
         for task_id, classes in sources.items():

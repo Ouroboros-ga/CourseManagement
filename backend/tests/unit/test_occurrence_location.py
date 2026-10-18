@@ -204,7 +204,8 @@ def make_task(db, *, key, snapshot=None, canceled=False, semester_id=1,
 def test_change_updates_override_chain_revision_and_unfinished_destination(db):
     add_relation(db)
     first = make_task(db, key="PA", snapshot=[KEY], with_source=True)
-    second = make_task(db, key="FA", snapshot=[KEY, "s:9|2026-10-07"], with_source=True)
+    # 两条任务引用同一真实课次可联动；含独立课次的任务另有原子拒绝回归。
+    second = make_task(db, key="FA", snapshot=[KEY], with_source=True)
     summary = service(db).change_location(
         staff_ref(db), 1, KEY, occurrence_request(revision=0, reason="换教室"), "REQ-1"
     )
@@ -404,7 +405,7 @@ def test_plan_generation_consumes_override_and_selection_summary(db):
         course_schedule_id=1, teaching_class_id=1, administrative_class_id=None,
         course_name_snapshot="数学", class_name_snapshot="数学一班",
         classroom_snapshot="A101", require_photo_snapshot=False,
-        occurrence_keys=[KEY, "s:9|2026-10-08"],
+        occurrence_keys=[KEY],
     )
     summary = service(db).change_location(staff_ref(db), 1, KEY, occurrence_request(), None)
     assert summary.revision == 1

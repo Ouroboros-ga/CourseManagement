@@ -173,9 +173,9 @@ def load_course_overrides(
 
 
 def apply_course_plan_overrides(db: Session, items) -> None:
-    """把已保存的覆盖应用到课程计划条目；任何正式生成路径（含选择式）都必须经过此函数。
+    """给已按真实课次划分的条目应用覆盖；完整生成器在合班前解析有效地点。
 
-    早晚自习计划没有课次键，天然不受影响；同一合并课次有多个键时按键序取第一个。
+    早晚自习计划没有课次键，天然不受影响；不能挑一个覆盖移动多个独立课次。
     """
     entries = load_course_overrides(
         db, {key for item in items for key in getattr(item, "occurrence_keys", []) or []}
@@ -186,6 +186,10 @@ def apply_course_plan_overrides(db: Session, items) -> None:
         for key in sorted(getattr(item, "occurrence_keys", []) or []):
             row = entries.get(key)
             if row is not None and row.location is not None:
+                if len(set(item.occurrence_keys)) > 1 and row.location != item.classroom_snapshot:
+                    raise ConflictError(
+                        ErrorCode.STATE_CONFLICT, "独立课次须先按有效地点分组，再应用地点覆盖"
+                    )
                 item.classroom_snapshot = row.location
                 break
 
@@ -778,9 +782,20 @@ class OccurrenceLocationService:
         affected = self._collect_updatable_tasks(semester.id, day, occurrence_key, lock=True)
         affected_ids: list[str] = []
         for task in affected:
-            task.classroom_snapshot = (
+            destination = (
                 target if target is not None else self._task_base_location(task)
             )
+            if (
+                destination != task.classroom_snapshot
+                and set(task_occurrences(self.db, task)) - {occurrence_key}
+            ):
+                # 现有任务只有一个目的地，不能替独立课次改地点，也不能静默撤销受派。
+                # 外层事务回滚覆盖、版本和审计；管理员先拆分任务后可重新保存。
+                raise ConflictError(
+                    ErrorCode.STATE_CONFLICT,
+                    f"任务 {task.id} 合并了其他独立课次，请管理员先拆分查课安排，再修改教室",
+                )
+            task.classroom_snapshot = destination
             affected_ids.append(str(task.id))
         self.db.flush()
         self.db.add(

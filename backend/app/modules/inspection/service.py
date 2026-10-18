@@ -56,7 +56,7 @@ from app.modules.academic.models import (
     TeachingClassStudent,
     VolunteerQualification,
 )
-from app.modules.academic.occurrence_location import apply_course_plan_overrides
+from app.modules.academic.occurrence_location import load_course_overrides
 from app.modules.academic.repository import AcademicRepository
 from app.modules.attendance.models import (
     AttendanceRecord,
@@ -1324,10 +1324,20 @@ class InspectionService:
                 day_schedules.append(s)
 
             dated_rosters = roster_index.at(date_key)
+            # 地点是合班条件：先应用每个真实课次的覆盖，再合并名单与目的地。
+            # 合并之后挑一个覆盖，会把恰好同堂的另一个独立班也带去新教室。
+            locations = load_course_overrides(
+                self._session, {schedule_occurrence(s, date_key) for s in day_schedules}
+            )
+            effective_rooms = {
+                s.id: locations[schedule_occurrence(s, date_key)].location
+                if schedule_occurrence(s, date_key) in locations else s.classroom
+                for s in day_schedules
+            }
             groups: dict[tuple, list[CourseSchedule]] = {}
             for s in day_schedules:
                 grp_key: tuple
-                norm_room = re.sub(r"\s+", "", (s.classroom or "")).upper()
+                norm_room = re.sub(r"\s+", "", (effective_rooms[s.id] or "")).upper()
                 cname = tc_course_name.get(s.teaching_class_id) or ""
                 norm_course = re.sub(r"\s+", "", cname).upper()
                 if norm_room:
@@ -1397,6 +1407,13 @@ class InspectionService:
 
                 if len(sched_list) > 1:
                     norm_room, norm_course = grp_key[2], grp_key[3]
+                    base_rooms = {re.sub(r"\s+", "", (s.classroom or "")).upper()
+                                  for s in sched_list}
+                    if len(base_rooms) == 1 and len({
+                        schedule_occurrence(s, date_key) for s in sched_list
+                    }) == 1:
+                        # 整堂共享课换地点不改变任务身份，避免再次生成出重复受派。
+                        norm_room = next(iter(base_rooms))
                     target_identity = f"{norm_room}:{norm_course}"
                     if get_settings().campus_business_scoped_enabled:
                         target_identity += f":college:{tc_colleges[rep_s.teaching_class_id]}:type:{tc_types[rep_s.teaching_class_id]}"
@@ -1438,7 +1455,7 @@ class InspectionService:
                     administrative_class_id=None,
                     course_name_snapshot=tc_course_name.get(rep_s.teaching_class_id),
                     class_name_snapshot=display_class_name,
-                    classroom_snapshot=rep_s.classroom,
+                    classroom_snapshot=effective_rooms[rep_s.id],
                     teacher_name_snapshot=rep_teacher,
                     require_photo_snapshot=body.require_photo,
                     student_ids=[st.id for st in merged_students],
@@ -1449,9 +1466,6 @@ class InspectionService:
                     occurrence_keys=sorted({schedule_occurrence(s, date_key) for s in sched_list}),
                 )
         item_list = list(items.values())
-        # 教学班教师保存的真实课次地点覆盖只影响本次计划目的地快照；
-        # 未曾保存或已恢复原始地点（location=None）时保持课表原地点。
-        apply_course_plan_overrides(self._session, item_list)
         return self._attach_rosters(item_list)
 
     def _build_study_plan_core(
