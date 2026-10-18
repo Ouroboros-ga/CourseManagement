@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.common.responses import success
 from app.core.database import get_db
-from app.modules.academic.time_router import require_scheduling_enabled
+from app.modules.attendance.scoped_router import require_business_scoped_enabled
 from app.modules.identity.deps import CurrentUserDep
 from app.modules.organization.router import require_campus_enabled
 from app.modules.volunteer.member_batch import (
@@ -26,7 +26,7 @@ from app.modules.volunteer.unavailability_service import (
 router = APIRouter(
     prefix="/colleges/{cid}/groups/{gid}",
     tags=["group-members"],
-    dependencies=[Depends(require_campus_enabled), Depends(require_scheduling_enabled)],
+    dependencies=[Depends(require_campus_enabled), Depends(require_business_scoped_enabled)],
 )
 Db = Annotated[Session, Depends(get_db)]
 ResourceId = Annotated[int, Path(gt=0, le=2**63 - 1)]

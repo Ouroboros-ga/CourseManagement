@@ -24,19 +24,20 @@ const tab = usePageTabs(() => tabs.value.map(row => row.id))
       <Transition name="tab-fade" mode="out-in">
         <VolunteersView v-if="tab === 'qualifications'" key="qualifications" mode="qualifications" />
         <CampusWorkspace v-else key="workspace" v-slot="scope">
-          <PermissionSources v-if="session.campusRuntime?.business_scoped && session.campusRuntime?.scheduling" :college-id="scope.collegeId" />
+          <PermissionSources v-if="session.campusRuntime?.business_scoped" :college-id="scope.collegeId" />
           <Transition name="tab-fade" mode="out-in">
             <div v-if="tab === 'groups'" key="groups">
               <p class="org-note">这里维护跨学期的组织默认规则。已完成学期准备的学期使用独立确认的规则；修改默认规则不会覆盖已准备学期或已有任务。</p>
               <GroupManager :college-id="scope.collegeId" :rows="scope.groups" :types="scope.types" :user-id="scope.userId" :can-manage="scope.can('volunteer.group.manage')" :can-publish="scope.can('volunteer.config.publish')" @changed="scope.reload" />
             </div>
             <div v-else-if="tab === 'members'" key="members">
-              <GroupOperations v-if="session.campusRuntime?.business_scoped && session.campusRuntime?.scheduling" mode="members" :college-id="scope.collegeId" :groups="scope.groups" :capabilities="scope.college.capabilities" :is-super="scope.isSuper" />
+              <el-alert v-if="!session.campusRuntime?.scheduling" title="当前可维护组成员、支援和请假；组织自动排班尚未启用，成员维护不会自动下发任务。" type="info" :closable="false" />
+              <GroupOperations v-if="session.campusRuntime?.business_scoped" mode="members" :college-id="scope.collegeId" :groups="scope.groups" :capabilities="scope.college.capabilities" :is-super="scope.isSuper" />
               <el-alert v-else title="组织成员业务尚未启用，组织与规则配置、已有学期资格仍可按权限维护。" type="info" :closable="false" />
             </div>
             <div v-else-if="tab === 'preparation'" key="preparation">
-              <GroupSemesterPreparation v-if="session.currentSemester?.status === 'ACTIVE' && session.campusRuntime?.business_scoped && session.campusRuntime?.scheduling" :college-id="scope.collegeId" :groups="scope.groups" :types="scope.types" />
-              <el-alert v-else title="请选择已开放的目标学期，且先完成组织业务启用；归档学期不进行准备写入。" type="info" :closable="false" />
+              <GroupSemesterPreparation v-if="session.currentSemester?.status === 'ACTIVE' && session.campusRuntime?.business_scoped" :college-id="scope.collegeId" :groups="scope.groups" :types="scope.types" />
+              <el-alert v-else title="请选择已开放的目标学期；学院正式业务需已启用，归档学期不进行准备写入。" type="info" :closable="false" />
             </div>
           </Transition>
         </CampusWorkspace>

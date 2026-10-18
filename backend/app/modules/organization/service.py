@@ -139,7 +139,7 @@ class CampusService:
 
     def _resource(self, model, cid, rid):
         row = self.repo.resource(model, cid, rid)
-        if row is None:
+        if row is None or getattr(row, "deleted_at", None) is not None:
             raise NotFoundError()
         return row
 
@@ -380,13 +380,14 @@ class CampusService:
         row = self._resource(model, cid, rid)
         return future_impact(self.db, cid, kind, row.id, row.lock_version, resource_scope=scope)
 
-    def list_types(self, actor, cid):
+    def list_types(self, actor, cid, deleted_only=False):
         self._authorize(actor, cid, "academic.course_type.read")
         return [
             self._dto(row)
             for row in sorted(
                 self.repo.rows(CourseType, cid), key=lambda row: (row.sort_order, row.id)
             )
+            if (row.deleted_at is not None) == deleted_only
         ]
 
     @atomic_write
@@ -421,7 +422,20 @@ class CampusService:
         return self._commit(actor, "campus.type.update", row, before)
 
     @atomic_write
-    def delete_type(self, actor, cid, rid, version):
+    def delete_type(self, actor, cid, rid, version, deletion_revision=None):
+        from app.modules.organization.resource_deletion import delete_resource
+        return delete_resource(self, actor, cid, "course_type", rid, version, deletion_revision)
+
+    def deletion_preview(self, actor, cid, kind, rid):
+        from app.modules.organization.resource_deletion import preview
+        return preview(self, actor, cid, kind, rid)[2]
+
+    @atomic_write
+    def restore_deleted(self, actor, cid, kind, rid, version, name=None):
+        from app.modules.organization.resource_deletion import restore
+        return restore(self, actor, cid, kind, rid, version, name)
+
+    def _legacy_delete_type(self, actor, cid, rid, version):
         college = self._authorize(actor, cid, "academic.course_type.manage", write=True)
         row = self._resource(CourseType, cid, rid)
         self._version(row, version)
@@ -441,10 +455,11 @@ class CampusService:
         college.configuration_revision += 1
         self._commit(actor, "campus.type.delete", None, before, resource_id=str(rid))
 
-    def list_groups(self, actor, cid):
+    def list_groups(self, actor, cid, deleted_only=False):
         from app.modules.identity.resource_scope import resolve_scope
         scope = resolve_scope(self.db, actor, cid, "volunteer.group.read")
         query = select(VolunteerGroup).where(VolunteerGroup.college_id == cid).order_by(VolunteerGroup.id)
+        query = query.where(VolunteerGroup.deleted_at.is_not(None) if deleted_only else VolunteerGroup.deleted_at.is_(None))
         if not scope.unrestricted:
             ids = {int(value) for clause in scope.constraints if clause["kind"] == "GROUPS" for value in clause["ids"]}
             query = query.where(VolunteerGroup.id.in_(ids))
@@ -611,13 +626,17 @@ class CampusService:
         return self._commit(actor, "campus.group.publish", row, before)
 
     @atomic_write
-    def delete_group(self, actor, cid, rid, version):
+    def delete_group(self, actor, cid, rid, version, deletion_revision=None):
+        from app.modules.organization.resource_deletion import delete_resource
+        return delete_resource(self, actor, cid, "group", rid, version, deletion_revision)
+
+    def _legacy_delete_group(self, actor, cid, rid, version):
         college = self._authorize(actor, cid, "volunteer.group.manage", write=True)
         row = self._resource(VolunteerGroup, cid, rid)
         self._version(row, version)
-        if row.config_version:
-            raise ConflictError(message="组已有发布历史，只能停用")
         before = self._dto(row)
+        from app.modules.organization.deletion import remove_unused_group_configuration
+        remove_unused_group_configuration(self.db, row)
         self.db.delete(row)
         college.configuration_revision += 1
         self._commit(

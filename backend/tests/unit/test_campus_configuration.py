@@ -252,8 +252,10 @@ def test_conflict_rule_matches_own_course_and_specific_override():
     assert course_conflict_effect(11, 101, "BLOCK", {10: "ALLOW"}, {}) == "BLOCK"
 
 
-def test_delete_group_retains_published_configuration(campus):
-    service, _, admin, _, a, _ = campus
+def test_delete_unused_group_records_configuration_in_audit(campus):
+    from app.modules.audit.models import AuditLog
+
+    service, db, admin, _, a, _ = campus
     group = service.create_group(
         admin, int(a["id"]), {"name": "草稿", "owner_user_id": str(admin.id)}
     )
@@ -269,8 +271,9 @@ def test_delete_group_retains_published_configuration(campus):
         int(group["id"]),
         {"lock_version": group["lock_version"], "course_type_ids": [kind["id"]]},
     )
-    with pytest.raises(ConflictError):
-        service.delete_group(admin, int(a["id"]), int(group["id"]), group["lock_version"])
+    service.delete_group(admin, int(a["id"]), int(group["id"]), group["lock_version"])
+    audit = db.scalar(select(AuditLog).where(AuditLog.action == "campus.group.delete").order_by(AuditLog.id.desc()))
+    assert audit.before_json["configuration"]["course_type_ids"] == [kind["id"]]
 
 
 def test_explicit_null_name_is_not_silently_ignored(campus):

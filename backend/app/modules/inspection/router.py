@@ -27,6 +27,7 @@ from app.modules.inspection.schemas import (
     ChangeRequestCreateRequest,
     ChangeRequestReviewRequest,
     CourseOccurrenceScope,
+    CourseTypeId,
     DeadlineDayUpdateRequest,
     DeadlineSettleRequest,
     ExpectedCountUpdateRequest,
@@ -40,6 +41,8 @@ from app.modules.inspection.schemas import (
     SubmissionReviewRequest,
     TaskBatchDeleteRequest,
     TaskCancelRequest,
+    TaskDeletionSelection,
+    DeletedTaskRestore,
 )
 from app.modules.inspection.service import InspectionService
 
@@ -134,6 +137,7 @@ def get_course_occurrences(
     page_size: Annotated[int, Query(ge=1, le=1000)] = 200,
     require_photo: bool = False,
     execution_group_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
+    course_type_id: Annotated[CourseTypeId | None, Query()] = None,
 ) -> dict[str, object]:
     from sqlalchemy import select
 
@@ -148,7 +152,8 @@ def get_course_occurrences(
     service._require(actor.id, PermissionCode.INSPECTION_GENERATE.value)
     from app.modules.inspection.execution_group import prepare
     from types import SimpleNamespace
-    prepare(service, actor, SimpleNamespace(inspection_type="COURSE", execution_group_id=execution_group_id))
+    prepare(service, actor, SimpleNamespace(inspection_type="COURSE", execution_group_id=execution_group_id,
+                                           semester_id=semester_id))
     semester = service._get_active_semester_read(semester_id)
 
     if administrative_class_id is not None:
@@ -217,6 +222,7 @@ def get_course_occurrences(
         date_to=date_to,
         teaching_class_ids=resolved_tc_ids,
         require_photo=require_photo,
+        course_type_id=course_type_id,
     )
     return success(
         list_occurrences(service, semester, scope, page=page, page_size=page_size),
@@ -236,7 +242,8 @@ def smart_sample_course_occurrences(
     service._require(actor.id, PermissionCode.INSPECTION_GENERATE.value)
     from types import SimpleNamespace
     from app.modules.inspection.execution_group import prepare
-    prepare(service, actor, SimpleNamespace(inspection_type="COURSE", execution_group_id=body.execution_group_id))
+    prepare(service, actor, SimpleNamespace(inspection_type="COURSE", execution_group_id=body.execution_group_id,
+                                           semester_id=body.semester_id))
     semester = service._get_active_semester_read(body.semester_id)
     result = smart_sample_occurrences(service, semester, body)
     return success(result, _rid(request))
@@ -307,6 +314,7 @@ def list_inspection_tasks(
     administrative_class_id: Annotated[int | None, Query(ge=1)] = None,
     include_canceled: Annotated[bool, Query()] = True,
     needs_attention: Annotated[str | None, Query(pattern="^(unassigned|roster)$")] = None,
+    deleted_only: bool = False,
 ) -> dict[str, object]:
     return success(
         service.list_tasks(
@@ -320,6 +328,7 @@ def list_inspection_tasks(
             administrative_class_id=administrative_class_id,
             include_canceled=include_canceled,
             needs_attention=needs_attention,
+            deleted_only=deleted_only,
         ),
         _rid(request),
     )
@@ -464,6 +473,18 @@ def cancel_inspection_task(
 
 
 # ---- 删除任务（单个删除与批量删除，inspection.generate）----
+@router.post("/inspection-tasks/deletion-preview")
+def task_deletion_preview(body: TaskDeletionSelection, actor: InspectionGenerateDep,
+                          service: ServiceDep, request: Request):
+    return success(service.deletion_preview(actor, body.task_ids), _rid(request))
+
+
+@router.post("/inspection-tasks/{task_id}/restore-deleted")
+def restore_deleted_task(task_id: int, body: DeletedTaskRestore, actor: InspectionGenerateDep,
+                         service: ServiceDep, request: Request):
+    return success(service.restore_deleted_task(actor, task_id, body.lock_version), _rid(request))
+
+
 @router.delete("/inspection-tasks/{task_id}")
 def delete_inspection_task(
     task_id: int,
@@ -472,11 +493,13 @@ def delete_inspection_task(
     request: Request,
     reason: Annotated[str | None, Query(max_length=512)] = None,
     force: Annotated[bool, Query()] = False,
+    deletion_revision: Annotated[str | None, Query(pattern=r"^[a-f0-9]{64}$")] = None,
 ) -> dict[str, object]:
     deleted = service.delete_tasks(
-        actor, [task_id], reason=reason, force=force, request_id=_rid(request)
+        actor, [task_id], reason=reason, force=force, request_id=_rid(request), deletion_revision=deletion_revision
     )
-    return success({"deleted": len(deleted) > 0, "task_id": str(task_id)}, _rid(request))
+    return success({"deleted": len(deleted) > 0, "task_id": str(task_id),
+                    **getattr(service, "_last_deletion_result", {})}, _rid(request))
 
 
 @router.post("/inspection-tasks/batch-delete")
@@ -487,10 +510,12 @@ def batch_delete_inspection_tasks(
     request: Request,
 ) -> dict[str, object]:
     deleted_ids = service.delete_tasks(
-        actor, body.task_ids, reason=body.reason, force=body.force, request_id=_rid(request)
+        actor, body.task_ids, reason=body.reason, force=body.force, request_id=_rid(request),
+        deletion_revision=body.deletion_revision
     )
     return success(
-        {"deleted_count": len(deleted_ids), "deleted_ids": [str(x) for x in deleted_ids]},
+        {"deleted_count": len(deleted_ids), "deleted_ids": [str(x) for x in deleted_ids],
+         **getattr(service, "_last_deletion_result", {})},
         _rid(request),
     )
 

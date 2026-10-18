@@ -113,6 +113,8 @@ class ScopedAcademicService:
         return result
 
     def list_rows(self, kind: str, params: PageParams, **filters):
+        if filters.get("is_volunteer") is not None and (kind != "students" or filters.get("semester_id") is None):
+            raise AppError(ErrorCode.VALIDATION_ERROR, "志愿者筛选须指定学生列表及学期", 422)
         if filters.get("as_of") is not None and kind != "students":
             raise AppError(ErrorCode.VALIDATION_ERROR, "日期学籍筛选仅适用于学生列表", 422)
         try:

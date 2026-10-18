@@ -3,7 +3,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from app.common.responses import success
-from app.modules.academic.time_router import Db, ResourceId, require_scheduling_enabled
+from app.modules.academic.time_router import Db, ResourceId
+from app.modules.attendance.scoped_router import require_business_scoped_enabled
 from app.modules.identity.deps import CurrentUserDep
 from app.modules.organization.router import require_campus_enabled
 from app.modules.volunteer.handover import (
@@ -21,7 +22,7 @@ from app.modules.volunteer.preparation import (
 router = APIRouter(
     prefix="/colleges/{cid}",
     tags=["organization-management"],
-    dependencies=[Depends(require_campus_enabled), Depends(require_scheduling_enabled)],
+    dependencies=[Depends(require_campus_enabled), Depends(require_business_scoped_enabled)],
 )
 
 

@@ -8,7 +8,7 @@ import { identityContext } from '../../utils/contextEpoch'
 const props = defineProps<{ collegeId: string }>()
 const session = useSessionStore()
 const key = computed(() => `${identityContext(session.currentUser)}:${props.collegeId}:${session.workspace?.authorization_revision}`)
-const { data, error } = useWorkspaceRead(() => key.value, () => !!props.collegeId && !!session.campusRuntime?.scheduling, () => myPermissionSources(props.collegeId))
+const { data, error } = useWorkspaceRead(() => key.value, () => !!props.collegeId && !!session.campusRuntime?.business_scoped, () => myPermissionSources(props.collegeId))
 const labels: Record<string, string> = { FIXED_IDENTITY: '当前正式身份', GROUP_OWNER: '组织负责人专属授权', EXPLICIT_GRANT: '独立额外授权' }
 </script>
 <template>

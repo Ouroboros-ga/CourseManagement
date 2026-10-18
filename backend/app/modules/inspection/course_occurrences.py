@@ -41,15 +41,23 @@ def build_scope(
     scope: CourseOccurrenceScope,
 ) -> tuple[list[PlanItem], str]:
     """摘要覆盖整个查询范围，不含分页和任务受派状态，重复生成仍然幂等。"""
-    body = InspectionGenerateRequest(
-        semester_id=semester.id,
-        inspection_type="COURSE",
-        date_from=scope.date_from,
-        date_to=scope.date_to,
-        teaching_class_ids=sorted(set(scope.teaching_class_ids)),
-        require_photo=scope.require_photo,
-    )
-    items = service._build_course_plan_core(semester, body)
+    from app.modules.academic.models import TeachingClass
+
+    teaching_ids = scope.teaching_class_ids
+    if scope.course_type_id is not None:
+        teaching_ids = list(service._session.scalars(select(TeachingClass.id).where(
+            TeachingClass.id.in_(teaching_ids), TeachingClass.course_type_id == int(scope.course_type_id))))
+    items = []
+    if teaching_ids:
+        body = InspectionGenerateRequest(
+            semester_id=semester.id,
+            inspection_type="COURSE",
+            date_from=scope.date_from,
+            date_to=scope.date_to,
+            teaching_class_ids=sorted(set(teaching_ids)),
+            require_photo=scope.require_photo,
+        )
+        items = service._build_course_plan_core(semester, body)
     from app.modules.inspection.execution_group import validate
     items = validate(service, items, strict=False)
     service._check_scale(len(items))
@@ -72,6 +80,8 @@ def build_scope(
         },
         "periods": sorted((p.period_no, str(p.start_time), str(p.end_time)) for p in periods),
         "occurrence_locations": occurrence_location_terms(service, items),
+        "classifications": sorted((row.id, row.course_type_id, row.classification_revision)
+            for row in service._session.scalars(select(TeachingClass).where(TeachingClass.id.in_(teaching_ids)))),
         "items": [
             [
                 i.task_key,
@@ -160,7 +170,7 @@ def list_occurrences(
     result = []
     for item in selected:
         existing = views.get(item.task_key)
-        canceled = existing is not None and existing.status == "已取消"
+        canceled = existing is not None and (existing.status == "已取消" or existing.deleted_at is not None)
         result.append(
             {
                 "course_schedule_id": str(item.course_schedule_id),
@@ -178,7 +188,7 @@ def list_occurrences(
                 "existing_task_id": existing.id if existing else None,
                 "existing_task_status": existing.status if existing else None,
                 "selectable": not canceled,
-                "disabled_reason": "已取消，请使用显式恢复" if canceled else None,
+                "disabled_reason": "已取消或从日常管理删除，请使用显式恢复" if canceled else None,
             }
         )
     return {
@@ -280,6 +290,11 @@ def smart_sample_occurrences(
             "items": [],
         }
 
+    if body.course_type_id is not None:
+        tcs = [row for row in tcs if row.course_type_id == int(body.course_type_id)]
+    if not tcs:
+        return {"semester_id": semester.id, "week_no": body.week_no, "total_candidates": 0,
+                "sampled_count": 0, "occurrences": [], "items": []}
     gen_req = InspectionGenerateRequest(
         semester_id=semester.id,
         inspection_type="COURSE",

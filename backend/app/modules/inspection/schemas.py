@@ -11,13 +11,22 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, computed_field, model_validator
 
 from app.modules.academic.schemas import IdStr, OptIdStr
 
 InspectionTypeLiteral = Literal["COURSE", "MORNING_STUDY", "EVENING_STUDY"]
+
+
+def _course_type_id(value: str) -> str:
+    if not 0 < int(value) < 2**63:
+        raise ValueError("课程类型标识超出 BIGINT 范围")
+    return value
+
+
+CourseTypeId = Annotated[str, Field(pattern=r"^[1-9][0-9]{0,18}$"), AfterValidator(_course_type_id)]
 
 
 # --------------------------------------------------------------------------- #
@@ -33,6 +42,7 @@ class CourseOccurrenceScope(BaseModel):
     date_to: date
     teaching_class_ids: list[int] = Field(default_factory=list, max_length=2000)
     require_photo: bool = False
+    course_type_id: CourseTypeId | None = None
 
     @model_validator(mode="after")
     def validate_range(self) -> CourseOccurrenceScope:
@@ -147,6 +157,7 @@ class DeadlineAssessmentBrief(BaseModel):
 
 
 class InspectionTaskResponse(BaseModel):
+    deleted_at: datetime | None = None
     operation_warning_codes: list[str] = Field(default_factory=list)
     id: IdStr
     task_key: str
@@ -285,6 +296,15 @@ class TaskBatchDeleteRequest(BaseModel):
     task_ids: list[int] = Field(min_length=1, max_length=500)
     reason: str | None = Field(default=None, max_length=512)
     force: bool = Field(default=False)
+    deletion_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class TaskDeletionSelection(BaseModel):
+    task_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class DeletedTaskRestore(BaseModel):
+    lock_version: int = Field(ge=0)
 
 
 class TaskBatchDeleteResponse(BaseModel):
@@ -657,6 +677,7 @@ class ClassQuotaConfig(BaseModel):
 
 class SmartSampleRequest(BaseModel):
     execution_group_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,18}$")
+    course_type_id: CourseTypeId | None = None
     """POST /inspection-course-occurrences/smart-sample 请求体：智能推荐下发课次。"""
 
     semester_id: int = Field(ge=1)

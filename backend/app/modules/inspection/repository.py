@@ -97,6 +97,9 @@ class InspectionRepository:
         stmt = _for_update(self.scoped_tasks().where(InspectionTask.id == task_id))
         task = self._session.execute(stmt).scalar_one_or_none()
         if task is not None:
+            if task.deleted_at is not None:
+                from app.core.exceptions import ConflictError
+                raise ConflictError(message="任务已从日常管理删除，请先恢复后再修改任务")
             from app.modules.academic.archive import require_open_task
             require_open_task(self._session, task.id)
         return task
@@ -139,6 +142,8 @@ class InspectionRepository:
         administrative_class_id: int | None = None,
         include_canceled: bool = True,
         needs_attention: str | None = None,
+        deleted_only: bool = False,
+        include_deleted: bool = False,
     ) -> tuple[list[InspectionTask], int]:
         """按数据范围谓词 + 可选业务过滤列出任务。
 
@@ -147,6 +152,8 @@ class InspectionRepository:
         保证列表 / 详情 / 计数共用同一可见性谓词（技术方案 / PERMISSIONS.md 7）。
         """
         stmt = scope_filter if scope_filter is not None else select(InspectionTask)
+        if not include_deleted:
+            stmt = stmt.where(InspectionTask.deleted_at.is_not(None) if deleted_only else InspectionTask.deleted_at.is_(None))
         if semester_id is not None:
             stmt = stmt.where(InspectionTask.semester_id == semester_id)
         if inspection_date is not None:
@@ -529,6 +536,7 @@ class InspectionRepository:
             .outerjoin(TaskDeadlineAssessment, TaskDeadlineAssessment.task_id == InspectionTask.id)
             .where(
                 InspectionTask.semester_id == semester_id,
+                InspectionTask.deleted_at.is_(None),
                 TaskDeadlineAssessment.id.is_(None),
             )
         )

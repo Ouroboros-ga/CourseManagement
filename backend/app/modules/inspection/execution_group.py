@@ -15,6 +15,8 @@ def prepare(service, actor, body):
     service._generation_group = None
     service._generation_scope = None
     if not get_settings().campus_scheduling_enabled:
+        if getattr(body, "execution_group_id", None):
+            raise ConflictError(message="组织排班尚未启用，不能忽略执行组退回旧排班池")
         return
     if body.inspection_type != "COURSE" or not body.execution_group_id:
         raise ConflictError(message="组织模式生成须选择执行组；早晚自习请使用统一正式课程")

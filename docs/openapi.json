@@ -2546,6 +2546,16 @@
               "exclusiveMinimum": 0,
               "title": "Cid"
             }
+          },
+          {
+            "name": "deleted_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Deleted Only"
+            }
           }
         ],
         "responses": {
@@ -2732,7 +2742,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Versioned"
+                "$ref": "#/components/schemas/DeletionConfirm"
               }
             }
           }
@@ -2839,6 +2849,16 @@
               "maximum": 9223372036854775807,
               "exclusiveMinimum": 0,
               "title": "Cid"
+            }
+          },
+          {
+            "name": "deleted_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Deleted Only"
             }
           }
         ],
@@ -3026,7 +3046,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Versioned"
+                "$ref": "#/components/schemas/DeletionConfirm"
               }
             }
           }
@@ -3089,6 +3109,258 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/groups/{rid}/deletion-impact": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Group Deletion Impact",
+        "operationId": "group_deletion_impact_api_v1_colleges__cid__groups__rid__deletion_impact_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/course-types/{rid}/deletion-impact": {
+      "get": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Type Deletion Impact",
+        "operationId": "type_deletion_impact_api_v1_colleges__cid__course_types__rid__deletion_impact_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/groups/{rid}/restore-deleted": {
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Restore Group",
+        "operationId": "restore_group_api_v1_colleges__cid__groups__rid__restore_deleted_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeletedRestore"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/course-types/{rid}/restore-deleted": {
+      "post": {
+        "tags": [
+          "campus-configuration"
+        ],
+        "summary": "Restore Type",
+        "operationId": "restore_type_api_v1_colleges__cid__course_types__rid__restore_deleted_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Rid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeletedRestore"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -7549,6 +7821,22 @@
               "title": "As Of"
             },
             "description": "学生学籍在指定日期的归属；无历史事实不推断"
+          },
+          {
+            "name": "is_volunteer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Volunteer"
+            }
           },
           {
             "name": "page",
@@ -17520,6 +17808,23 @@
               ],
               "title": "Execution Group Id"
             }
+          },
+          {
+            "name": "course_type_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,18}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Course Type Id"
+            }
           }
         ],
         "responses": {
@@ -17972,6 +18277,16 @@
             }
           },
           {
+            "name": "deleted_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Deleted Only"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -18119,6 +18434,23 @@
               "type": "boolean",
               "default": false,
               "title": "Force"
+            }
+          },
+          {
+            "name": "deletion_revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Deletion Revision"
             }
           }
         ],
@@ -18878,6 +19210,105 @@
                   "additionalProperties": true,
                   "title": "Response Cancel Inspection Task Api V1 Inspection Tasks  Task Id  Cancel Post"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inspection-tasks/deletion-preview": {
+      "post": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Task Deletion Preview",
+        "operationId": "task_deletion_preview_api_v1_inspection_tasks_deletion_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskDeletionSelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/inspection-tasks/{task_id}/restore-deleted": {
+      "post": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Restore Deleted Task",
+        "operationId": "restore_deleted_task_api_v1_inspection_tasks__task_id__restore_deleted_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeletedTaskRestore"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -20100,6 +20531,23 @@
               ],
               "title": "Execution Group Id"
             }
+          },
+          {
+            "name": "course_type_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,18}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Course Type Id"
+            }
           }
         ],
         "responses": {
@@ -20536,6 +20984,16 @@
             }
           },
           {
+            "name": "deleted_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Deleted Only"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -20705,6 +21163,23 @@
               "type": "boolean",
               "default": false,
               "title": "Force"
+            }
+          },
+          {
+            "name": "deletion_revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Deletion Revision"
             }
           }
         ],
@@ -21505,6 +21980,129 @@
                   "additionalProperties": true,
                   "title": "Response College Cancel Inspection Task Inspection Tasks  Task Id  Cancel Post"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/inspection-tasks/deletion-preview": {
+      "post": {
+        "tags": [
+          "college-inspection"
+        ],
+        "summary": "College Task Deletion Preview",
+        "operationId": "college_task_deletion_preview_inspection_tasks_deletion_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskDeletionSelection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/inspection-tasks/{task_id}/restore-deleted": {
+      "post": {
+        "tags": [
+          "college-inspection"
+        ],
+        "summary": "College Restore Deleted Task",
+        "operationId": "college_restore_deleted_task_inspection_tasks__task_id__restore_deleted_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeletedTaskRestore"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -29971,6 +30569,18 @@
             "type": "boolean",
             "title": "Require Photo",
             "default": false
+          },
+          "course_type_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Type Id"
           }
         },
         "type": "object",
@@ -30490,6 +31100,75 @@
           "versions"
         ],
         "title": "DeleteMany"
+      },
+      "DeletedRestore": {
+        "properties": {
+          "lock_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Lock Version"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "lock_version"
+        ],
+        "title": "DeletedRestore"
+      },
+      "DeletedTaskRestore": {
+        "properties": {
+          "lock_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Lock Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lock_version"
+        ],
+        "title": "DeletedTaskRestore"
+      },
+      "DeletionConfirm": {
+        "properties": {
+          "lock_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Lock Version"
+          },
+          "deletion_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deletion Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "lock_version"
+        ],
+        "title": "DeletionConfirm"
       },
       "ElectiveBatch": {
         "properties": {
@@ -35374,6 +36053,18 @@
             ],
             "title": "Execution Group Id"
           },
+          "course_type_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,18}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Type Id"
+          },
           "semester_id": {
             "type": "integer",
             "minimum": 1.0,
@@ -36368,6 +37059,18 @@
             "type": "boolean",
             "title": "Force",
             "default": false
+          },
+          "deletion_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deletion Revision"
           }
         },
         "type": "object",
@@ -36397,6 +37100,24 @@
         ],
         "title": "TaskCancelRequest",
         "description": "取消某未取消任务：原因选填，lock_version 乐观锁防并发覆盖。"
+      },
+      "TaskDeletionSelection": {
+        "properties": {
+          "task_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Task Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_ids"
+        ],
+        "title": "TaskDeletionSelection"
       },
       "TaskHandoffReview": {
         "properties": {

@@ -40,7 +40,7 @@ class GroupMemberService:
         if write:
             stmt = stmt.with_for_update()
         group = self.db.scalar(stmt.execution_options(populate_existing=True))
-        if group is None:
+        if group is None or group.deleted_at is not None:
             raise NotFoundError("组不在本学院")
         return college, group
 

@@ -25,6 +25,8 @@ from app.modules.organization.schemas import (
     TypeCreate,
     TypeUpdate,
     Versioned,
+    DeletionConfirm,
+    DeletedRestore,
 )
 from app.modules.organization.service import CampusService
 
@@ -134,8 +136,8 @@ def revoke_grant(
 
 
 @router.get("/colleges/{cid}/course-types")
-def types(cid: ResourceId, actor: CurrentUserDep, service: ServiceDep):
-    return success(service.list_types(actor, cid), service.request_id)
+def types(cid: ResourceId, actor: CurrentUserDep, service: ServiceDep, deleted_only: bool = False):
+    return success(service.list_types(actor, cid, deleted_only), service.request_id)
 
 
 @router.post("/colleges/{cid}/course-types")
@@ -160,15 +162,14 @@ def type_impact(cid: ResourceId, rid: ResourceId, actor: CurrentUserDep, service
 
 @router.delete("/colleges/{cid}/course-types/{rid}")
 def delete_type(
-    cid: ResourceId, rid: ResourceId, body: Versioned, actor: CurrentUserDep, service: ServiceDep
+    cid: ResourceId, rid: ResourceId, body: DeletionConfirm, actor: CurrentUserDep, service: ServiceDep
 ):
-    service.delete_type(actor, cid, rid, body.lock_version)
-    return success(None, service.request_id)
+    return success(service.delete_type(actor, cid, rid, body.lock_version, body.deletion_revision), service.request_id)
 
 
 @router.get("/colleges/{cid}/volunteer-groups")
-def groups(cid: ResourceId, actor: CurrentUserDep, service: ServiceDep):
-    return success(service.list_groups(actor, cid), service.request_id)
+def groups(cid: ResourceId, actor: CurrentUserDep, service: ServiceDep, deleted_only: bool = False):
+    return success(service.list_groups(actor, cid, deleted_only), service.request_id)
 
 
 @router.post("/colleges/{cid}/volunteer-groups")
@@ -193,10 +194,29 @@ def group_impact(cid: ResourceId, rid: ResourceId, actor: CurrentUserDep, servic
 
 @router.delete("/colleges/{cid}/groups/{rid}")
 def delete_group(
-    cid: ResourceId, rid: ResourceId, body: Versioned, actor: CurrentUserDep, service: ServiceDep
+    cid: ResourceId, rid: ResourceId, body: DeletionConfirm, actor: CurrentUserDep, service: ServiceDep
 ):
-    service.delete_group(actor, cid, rid, body.lock_version)
-    return success(None, service.request_id)
+    return success(service.delete_group(actor, cid, rid, body.lock_version, body.deletion_revision), service.request_id)
+
+
+@router.get("/colleges/{cid}/groups/{rid}/deletion-impact")
+def group_deletion_impact(cid: ResourceId, rid: ResourceId, actor: CurrentUserDep, service: ServiceDep):
+    return success(service.deletion_preview(actor, cid, "group", rid), service.request_id)
+
+
+@router.get("/colleges/{cid}/course-types/{rid}/deletion-impact")
+def type_deletion_impact(cid: ResourceId, rid: ResourceId, actor: CurrentUserDep, service: ServiceDep):
+    return success(service.deletion_preview(actor, cid, "course_type", rid), service.request_id)
+
+
+@router.post("/colleges/{cid}/groups/{rid}/restore-deleted")
+def restore_group(cid: ResourceId, rid: ResourceId, body: DeletedRestore, actor: CurrentUserDep, service: ServiceDep):
+    return success(service.restore_deleted(actor, cid, "group", rid, body.lock_version, body.name), service.request_id)
+
+
+@router.post("/colleges/{cid}/course-types/{rid}/restore-deleted")
+def restore_type(cid: ResourceId, rid: ResourceId, body: DeletedRestore, actor: CurrentUserDep, service: ServiceDep):
+    return success(service.restore_deleted(actor, cid, "course_type", rid, body.lock_version, body.name), service.request_id)
 
 
 @router.post("/colleges/{cid}/groups/{rid}/configuration/publish")

@@ -1,6 +1,7 @@
 import { request } from './workspaceHttp'
 
 export interface InspectionTaskItem {
+  deleted_at?: string | null
   college_id?: string | null
   group_id?: string | null
   activity_start_at?: string | null
@@ -59,6 +60,7 @@ export interface InspectionTaskItem {
 }
 
 export interface TaskListQuery {
+  deleted_only?: boolean
   needs_attention?: 'unassigned' | 'roster'
   page?: number
   page_size?: number
@@ -115,6 +117,7 @@ export interface OccurrencesQueryResult {
 
 export async function listTasks(query: TaskListQuery): Promise<PaginatedResult<InspectionTaskItem>> {
   const params = new URLSearchParams()
+  if (query.deleted_only) params.set('deleted_only', 'true')
   if (query.needs_attention) params.set('needs_attention', query.needs_attention)
   if (query.page) params.set('page', String(query.page))
   if (query.page_size) params.set('page_size', String(query.page_size))
@@ -135,6 +138,7 @@ export async function getTask(id: string): Promise<InspectionTaskItem> {
 
 export async function queryCourseOccurrences(params: {
   execution_group_id?: string
+  course_type_id?: string
   semester_id: string
   date_from: string
   date_to: string
@@ -154,6 +158,7 @@ export async function queryCourseOccurrences(params: {
     searchParams.set('administrative_class_id', String(params.administrative_class_id))
   }
     if (params.execution_group_id) searchParams.set('execution_group_id', params.execution_group_id)
+  if (params.course_type_id) searchParams.set('course_type_id', params.course_type_id)
   if (params.teaching_class_ids?.length) {
     params.teaching_class_ids.forEach(id => searchParams.append('teaching_class_ids', String(id)))
   }
@@ -260,6 +265,7 @@ export interface SmartSampleResult {
 
 export async function smartSampleOccurrences(body: {
   execution_group_id?: string
+  course_type_id?: string
   semester_id: number
   week_no: number
   morning_only?: boolean
@@ -279,11 +285,13 @@ export async function smartSampleOccurrences(body: {
 export async function deleteTask(
   taskId: string | number,
   reason?: string,
-  force = false
+  force = false,
+  deletionRevision?: string
 ): Promise<{ deleted: boolean; task_id: string }> {
   const params = new URLSearchParams()
   if (reason) params.set('reason', reason)
   if (force) params.set('force', 'true')
+  if (deletionRevision) params.set('deletion_revision', deletionRevision)
   const qs = params.toString() ? `?${params.toString()}` : ''
   return request<{ deleted: boolean; task_id: string }>(`/api/v1/inspection-tasks/${taskId}${qs}`, {
     method: 'DELETE'
@@ -294,16 +302,28 @@ export async function batchDeleteTasks(body: {
   task_ids: (number | string)[]
   reason?: string
   force?: boolean
+  deletion_revision?: string
 }): Promise<{ deleted_count: number; deleted_ids: string[] }> {
   return request<{ deleted_count: number; deleted_ids: string[] }>('/api/v1/inspection-tasks/batch-delete', {
     method: 'POST',
     body: JSON.stringify({
       task_ids: body.task_ids.map(String),
       reason: body.reason,
-      force: body.force || false
+      force: body.force || false,
+      deletion_revision: body.deletion_revision
     })
   })
 }
+
+export interface TaskDeletionImpact {
+  revision: string; retained_ids: string[]; permanent_ids: string[]; history_preserved: boolean
+}
+export const previewTaskDeletion = (ids: string[]) => request<TaskDeletionImpact>('/api/v1/inspection-tasks/deletion-preview', {
+  method: 'POST', body: JSON.stringify({ task_ids: ids })
+})
+export const restoreDeletedTask = (id: string, lock_version: number) => request<InspectionTaskItem>(`/api/v1/inspection-tasks/${id}/restore-deleted`, {
+  method: 'POST', body: JSON.stringify({ lock_version })
+})
 
 export interface SemesterVolunteerItem {
   warning_codes?: string[]

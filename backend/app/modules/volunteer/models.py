@@ -1,6 +1,6 @@
 """组与不可变配置版本；显式范围引用阻止删掉已使用类型。"""
 
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
@@ -14,7 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.database import DATE_COL, Base, PkBigInt, TimestampMixin, pk_column
+from app.core.database import DATETIME_3, DATE_COL, Base, PkBigInt, TimestampMixin, pk_column
 from app.core.db import MYSQL_TABLE_ARGS
 
 
@@ -39,6 +39,7 @@ class VolunteerGroup(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(16), default="DRAFT")
     config_version: Mapped[int] = mapped_column(Integer, default=0)
     lock_version: Mapped[int] = mapped_column(Integer, default=1)
+    deleted_at: Mapped[datetime | None] = mapped_column(DATETIME_3, nullable=True)
 
 
 class GroupConfigVersion(TimestampMixin, Base):

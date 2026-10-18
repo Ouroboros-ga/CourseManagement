@@ -164,9 +164,17 @@ class ScopedAcademicRepository:
         semester_id: int | None = None,
         administrative_class_id: int | None = None,
         as_of: date | None = None,
+        is_volunteer: bool | None = None,
     ):
         stmt = self.query(kind, as_of=as_of)
         model = RESOURCES[kind]
+        if model is Student and is_volunteer is not None:
+            qualified = exists(select(VolunteerQualification.id).where(
+                VolunteerQualification.student_id == Student.id,
+                VolunteerQualification.semester_id == semester_id,
+                VolunteerQualification.enabled.is_(True),
+            ))
+            stmt = stmt.where(qualified if is_volunteer else ~qualified)
         if keyword:
             column = {
                 "administrative_classes": AdministrativeClass.class_name,

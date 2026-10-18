@@ -1,3 +1,11 @@
+> **2026-10-19 查课与组织修复候选（尚未部署）：**
+> - `GET /api/v1/inspection-course-occurrences` 及学院别名新增可选 `course_type_id`；`POST .../smart-sample` 同名字段可选。按数据库课程类型 ID 筛选，不按课程名猜测；类型进入精确课次范围和修订摘要，确认时重算，过期选择拒绝。旧调用不传字段仍保持原范围。
+> - 组织模式的课次查询/推荐向执行组校验传递 semester_id，使用学期有效规则；组织排班关闭时，显式传 execution_group_id 返回 409，不能悄悄忽略组并使用旧全院候选池。
+> - `GET /api/v1/colleges/{cid}/academic/students` 接受 `is_volunteer=true/false`，须同时提供 semester_id；WHERE 条件在分页/计数前生效，并与原学院/行政班范围取交集。
+> - 组成员、支援、请假、组织学期准备、负责人交接和权限来源的管理接口保留学院配置/正式业务开关与各动作授权，不再要求实际作息/组织排班开关。抽查、生成组织任务、排班和独立作息入口保留原运行守卫。
+> - 删除没有成员/任务/学期准备/授权引用的志愿者组时，可同时清理其未使用配置和类型引用；保留删除前快照及原发布审计。成员等已有业务引用时返回409。课程类型原有内置标识/引用保护和任务正式考勤/截止事实保护继续有效，不新增强制擦除历史入口。
+> - 本轮无数据库迁移、无小程序接口破坏性变化、无生产数据回填或开关修改。
+
 > **2026-10-16 个人课表兼容发布：** 新增 GET `/api/v1/me/class-timetable`、GET/PUT `/api/v1/me/timetable-backup`，以小程序本地编辑＋完整快照备份为准；不新增必填学院或current_version。原逐条接口保留，迁移头f26a1016b001，应用源码37e4440。具体字段、空备份及多设备覆盖边界见[现行课表交接](integration/WECHAT_PERSONAL_TIMETABLE_API_20261015.md)。
 
 > **2026-10-16学生端兼容收口：** `GET /me/attendance`及学生的`GET /attendance/{id}`恢复升级前考勤结构，不含负责学院/semester_status。管理端学院接口保留这些字段。个人课表新增接口为可选能力；本次学院/Web升级不要求小程序修改路径、增加学院参数或页面。后文旧版小程序学院展示建议由本条替代。
@@ -793,3 +801,16 @@ CHECK、区间 CHECK、外键）一律映射为 409，不返回 500。事实、�
 ### 2026-10-18 拖放与大包上限增量
 
 本批次统一替代上文旧体积/数量值：待处理队列及单 ZIP 最多 1000 个表格，ZIP 最大 50 MiB，解压合计 200 MiB，目录项最多 5000；单表格仍为 10 MiB。每次 confirmation-set 最多 100 个文件，变更条数沿用 IMPORT_MAX_ROWS（默认 5000），Web 可选 20/50/100 文件分批；已保存批次不重传、不回滚。ZIP members 最多 100 个路径，预览仅解压选定成员，仍验证整包元数据。Nginx 请求体上限配套为 52m。无新表、无业务权限扩展；发布状态以当前实施状态为准。
+
+### 2026-10-19 管理删除与恢复（本地实现，发布状态见当前实施状态）
+
+迁移 `f26a1019d001` 为 course_type、volunteer_group、inspection_task 增加可空 deleted_at，不回填历史。
+
+- `GET /colleges/{cid}/groups/{rid}/deletion-impact` 与 `GET /colleges/{cid}/course-types/{rid}/deletion-impact` 返回 `mode=PERMANENT|RETAIN_HISTORY`、`references`、`blocking_task_ids`、`can_delete`、`revision`。仍有待执行任务时拒绝删除，须先取消/转组；未来任务生成/排班不得使用停用或删除配置。
+- 原 DELETE 对应资源路径接收 `{lock_version,deletion_revision}`。有引用或内置类型必须提交最新预览 revision；无引用的原客户端请求仍兼容。未使用配置彻底清理；有成员/配置使用/课程/任务等引用时保留原实体、置停用并记录 deleted_at，从日常列表移除，保留历史与审计。组删除撤销其 owner_group_id 专属授权，不撤销独立院级授权。
+- `GET /colleges/{cid}/volunteer-groups?deleted_only=true`、`GET /colleges/{cid}/course-types?deleted_only=true` 仅列出保留历史的删除项。POST `/colleges/{cid}/groups/{rid}/restore-deleted` 或 `/course-types/{rid}/restore-deleted` 接收 `{lock_version,name?}`；恢复为 INACTIVE，重名时允许改名，不自动恢复旧授权。原读/管理权限及学院范围仍适用。
+- `POST /inspection-tasks/deletion-preview` 接收 `{task_ids:[字符串ID]}`，返回 `retained_ids`、`permanent_ids`、`history_preserved=true`、`revision`；学院入口同为 `/colleges/{cid}/inspection-tasks/deletion-preview`。1—500项，混入无权/不存在任务整批404。
+- 原单删 DELETE 可传 query `deletion_revision`，批量 POST `/inspection-tasks/batch-delete` body 增加 `deletion_revision`。存在提交、正式考勤、截止考核、变更影响或已归档学期的任务只移除管理可见性；其他误建任务彻底清理。返回原删除计数/ID并增加预览分类。有历史必须携带匹配的revision，过期409；force不能改变分类。管理历史保留不取消考勤、照片权限、统计或任务键，不释放已冻结责任给重建任务。
+- 管理任务列表 query `deleted_only=true` 仅显示保留历史的删除项；默认不显示。POST `/inspection-tasks/{task_id}/restore-deleted`（含学院别名）接收 `{lock_version}`，恢复原状态和ID，不重新排班。已删除任务不能经普通编辑/提交路径修改；本人历史、考勤与报表读取沿用原范围，删除不消除业务事实。
+
+删除、范围校验、版本更新、专属授权撤销与审计同事务。生产回滚仅切换应用与Web版本，保留新增可空列；显式降迁移前必须恢复所有保留历史的删除项，否则拒绝降级。

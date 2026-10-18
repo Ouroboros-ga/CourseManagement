@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { listGroups, listCourseTypes, type VolunteerGroup, type CourseType } from '../../api/campus'
+import { listCourseTypes, type CourseType } from '../../api/campus'
 import { confirmGroupPlan } from '../../composables/confirmGroupAssignment'
 import { ref, watch, onMounted, computed, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -32,6 +32,8 @@ import { batchCreateSelfStudy, getTeachingClassRoster, type TeachingClassStudent
 import TaskStatusTag from '../../components/TaskStatusTag.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import { formatPeriodText } from '../../utils/period'
+import DispatchFilters from './DispatchFilters.vue'
+import { useDispatchOptions } from '../../composables/useDispatchOptions'
 
 const props = withDefaults(defineProps<{ mode?: 'legacy' | 'academic' | 'inspection'; openImport?: boolean; openSelfStudy?: boolean; importOnly?: boolean }>(), { mode: 'legacy', openImport: false, openSelfStudy: false, importOnly: false })
 const sessionStore = useSessionStore()
@@ -47,18 +49,21 @@ const occurrences = ref<CourseOccurrence[]>([])
 const weekTasks = ref<InspectionTaskItem[]>([])
 const selectedKeys = ref<string[]>([])
 const executionGroupId = ref('')
-const executionGroups = ref<VolunteerGroup[]>([])
+const dispatchCourseTypeId = ref('')
 const organizationMode = computed(() => !!sessionStore.campusRuntime?.scheduling)
-watch(() => sessionStore.workspaceCollegeId, async cid => {
-  executionGroupId.value = ''; executionGroups.value = []
-  if (!cid || !organizationMode.value || props.mode === 'academic' || !sessionStore.hasPermission('volunteer.group.read')) return
-  try {
-    const rows = await listGroups(cid)
-    if (cid === sessionStore.workspaceCollegeId) executionGroups.value = rows.filter(row => row.status === 'ACTIVE')
-  } catch (e) {
-    if (cid === sessionStore.workspaceCollegeId) ElMessage.error(e instanceof Error ? e.message : '执行组读取失败')
-  }
-}, { immediate: true })
+const { types: dispatchCourseTypes, groups: executionGroups, error: dispatchOptionsError } = useDispatchOptions(() => ({
+  collegeId: sessionStore.workspaceCollegeId, userId: String(sessionStore.currentUser?.id || ''),
+  enabled: props.mode !== 'academic', readTypes: sessionStore.hasPermission('academic.course_type.read'),
+  readGroups: sessionStore.hasPermission('volunteer.group.read')
+}))
+const organizationPending = computed(() => !organizationMode.value && executionGroups.value.length > 0)
+watch(() => [sessionStore.currentUser?.id, sessionStore.workspaceCollegeId], () => {
+  executionGroupId.value = ''; dispatchCourseTypeId.value = ''; adminClasses.value = []
+})
+watch(dispatchCourseTypeId, value => {
+  const group = executionGroups.value.find(row => row.id === executionGroupId.value)
+  if (value && group && !group.configuration?.course_type_ids.includes(value)) executionGroupId.value = ''
+})
 const selectionRevision = ref<string>('')
 const selectionScope = ref<Record<string, unknown>>({})
 const hasData = computed(() => occurrences.value.length > 0 || weekTasks.value.length > 0)
@@ -188,7 +193,14 @@ const filteredAdminClassesForSelfStudy = computed(() => {
   return adminClasses.value.filter(c => c.class_name.toLowerCase().includes(kw) || String(c.grade_year || '').includes(kw))
 })
 
+let dispatchEpoch = 0
+const dispatchContext = () => JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId,
+  sessionStore.currentSemesterId, sessionStore.currentWeekNo, selectedAdminClassId.value,
+  executionGroupId.value, dispatchCourseTypeId.value, organizationMode.value])
 async function loadData() {
+  const ticket = ++dispatchEpoch, context = dispatchContext()
+  const current = () => ticket === dispatchEpoch && context === dispatchContext()
+  occurrences.value = []; selectionRevision.value = ''; selectionScope.value = {}; smartSampleResult.value = null
   if (!sessionStore.currentSemesterId) return
   loading.value = true
   selectedKeys.value = []
@@ -196,6 +208,7 @@ async function loadData() {
     // 1. 加载行政班列表（全校真实行政班）
     if (adminClasses.value.length === 0 && sessionStore.hasPermission('academic.read')) {
       const adminRes = await listAdministrativeClasses({ page_size: 100 })
+      if (!current()) return
       adminClasses.value = adminRes.items || []
     }
 
@@ -206,24 +219,28 @@ async function loadData() {
       administrative_class_id: selectedAdminClassId.value ? selectedAdminClassId.value : undefined,
       page_size: 100
     }) : { items: [] }
+    if (!current()) return
     weekTasks.value = taskRes.items || []
 
     // 3. 查询当周排课课次（支持按行政班精准过滤，或查当周全量课次）
     if (sessionStore.weekDateRange.start && sessionStore.weekDateRange.end && (!organizationMode.value || executionGroupId.value)) {
       try {
         const occRes = await queryCourseOccurrences({
-          execution_group_id: executionGroupId.value || undefined,
+          execution_group_id: organizationMode.value ? executionGroupId.value || undefined : undefined,
+          course_type_id: dispatchCourseTypeId.value || undefined,
           semester_id: sessionStore.currentSemesterId,
           date_from: sessionStore.weekDateRange.start,
           date_to: sessionStore.weekDateRange.end,
           administrative_class_id: selectedAdminClassId.value || undefined,
           page_size: 500
         })
+        if (!current()) return
         occurrences.value = occRes.items || []
         selectionRevision.value = occRes.selection_revision
         selectionScope.value = occRes.selection_scope || {}
       } catch (err: unknown) {
-        console.error('加载排课课次失败:', err)
+        if (!current()) return
+        ElMessage.error(err instanceof Error ? err.message : '加载排课课次失败')
         occurrences.value = []
       }
     } else {
@@ -232,7 +249,7 @@ async function loadData() {
   } catch (err: unknown) {
     console.error('加载排班数据失败:', err)
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
@@ -326,7 +343,7 @@ async function openTeachingClassRoster(item: MasterTimetableItem) {
 }
 
 watch(
-  () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo, selectedAdminClassId.value, executionGroupId.value],
+  () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo, selectedAdminClassId.value, executionGroupId.value, dispatchCourseTypeId.value, sessionStore.workspaceCollegeId, organizationMode.value],
   () => {
     if (props.importOnly) return
     if (activeTab.value === 'dispatch') {
@@ -432,6 +449,9 @@ function onRowClick(item: CourseOccurrence) {
 }
 
 async function triggerDispatch() {
+  if (organizationPending.value) { ElMessage.warning('组织排班尚未启用，请先完成成员和规则准备，不能退回全院候选池'); return }
+  if (organizationMode.value && !executionGroupId.value) { ElMessage.warning('请选择执行志愿者组'); return }
+  if (!selectionRevision.value) { ElMessage.warning('请重新读取课次后下发'); return }
   if (selectedKeys.value.length === 0) {
     ElMessage.warning('请勾选需要下发的课次')
     return
@@ -447,7 +467,7 @@ async function triggerDispatch() {
       execution_group_id: executionGroupId.value || undefined,
       semester_id: sessionStore.currentSemesterId,
       inspection_type: 'COURSE',
-      selection_revision: selectionRevision.value || 'rev_1',
+      selection_revision: selectionRevision.value,
       selection_scope: selectionScope.value,
       occurrences: selectedItems.map(o => ({
         course_schedule_id: o.course_schedule_id,
@@ -832,6 +852,8 @@ function handleTargetQuotaChange(quota: number) {
 }
 
 async function runSmartSample() {
+  const originalContext = dispatchContext()
+  if (organizationPending.value) { ElMessage.warning('请先完成组织业务启用，再按组抽查'); return }
   if (organizationMode.value && !executionGroupId.value) { ElMessage.warning('请先选择执行组'); return }
   if (!sessionStore.currentSemesterId) return
 
@@ -846,6 +868,7 @@ async function runSmartSample() {
   try {
     const payload: Parameters<typeof smartSampleOccurrences>[0] = {
       execution_group_id: executionGroupId.value || undefined,
+      course_type_id: dispatchCourseTypeId.value || undefined,
       semester_id: Number(sessionStore.currentSemesterId),
       week_no: sessionStore.currentWeekNo,
       morning_only: smartSampleForm.value.morning_only,
@@ -868,6 +891,7 @@ async function runSmartSample() {
     }
 
     const res = await smartSampleOccurrences(payload)
+    if (originalContext !== dispatchContext()) return
     smartSampleResult.value = res
     if (res.sampled_count === 0) {
       ElMessage.info('未筛选出待查课次（可能已全部下发或无符合条件的早八课）')
@@ -918,7 +942,6 @@ function applySmartSample() {
         </div>
 
         <div class="head-actions flex items-center gap-2">
-          <el-select v-if="organizationMode && props.mode !== 'academic'" v-model="executionGroupId" placeholder="先选择执行组" aria-label="手选课次执行组"><el-option v-for="group in executionGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select>
           <button v-if="props.mode !== 'inspection' && (sessionStore.hasPermission('import.execute') || sessionStore.hasPermission('course_schedule.import'))" class="btn btn-outline" @click="openImportDialog">
             <AppIcon name="upload" :size="14" />
             <span>批量导入教务数据</span>
@@ -942,7 +965,7 @@ function applySmartSample() {
           <button
             v-if="activeTab === 'dispatch'"
             class="btn btn-dark"
-            :disabled="dispatchLoading || selectedKeys.length === 0"
+            :disabled="dispatchLoading || selectedKeys.length === 0 || organizationPending || !!dispatchOptionsError || (organizationMode && !executionGroupId)"
             @click="triggerDispatch"
           >
             <AppIcon name="send" :size="14" />
@@ -972,6 +995,9 @@ function applySmartSample() {
       </button>
     </div>
 
+    <DispatchFilters v-if="activeTab === 'dispatch' && props.mode !== 'academic'"
+      v-model:course-type-id="dispatchCourseTypeId" v-model:group-id="executionGroupId"
+      :types="dispatchCourseTypes" :groups="executionGroups" :organization-mode="organizationMode" :error="dispatchOptionsError" />
     <!-- TAB 1: 课次勾选与下发 -->
     <div v-if="activeTab === 'dispatch'" v-loading="loading" class="tbl-wrap">
       <!-- 筛选条 -->

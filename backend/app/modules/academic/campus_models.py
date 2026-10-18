@@ -1,9 +1,11 @@
 """院级可维护课程类型；与旧 InspectionType 兼容枚举无隐式映射。"""
 
+from datetime import datetime
+
 from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.database import Base, TimestampMixin, pk_column
+from app.core.database import DATETIME_3, Base, TimestampMixin, pk_column
 from app.core.db import MYSQL_TABLE_ARGS
 
 
@@ -31,3 +33,4 @@ class CourseType(TimestampMixin, Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="ACTIVE")
     lock_version: Mapped[int] = mapped_column(Integer, default=1)
+    deleted_at: Mapped[datetime | None] = mapped_column(DATETIME_3, nullable=True)

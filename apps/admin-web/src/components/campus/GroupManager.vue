@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, reactive, shallowRef } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { createGroup, deleteGroup, publishGroup, updateGroup, type CourseType, type GroupConfiguration, type VolunteerGroup } from '../../api/campus'
+import { createGroup, publishGroup, updateGroup, type CourseType, type GroupConfiguration, type VolunteerGroup } from '../../api/campus'
 import { useCampusMutation } from '../../composables/useCampusMutation'
 import { useConfigurationImpact } from '../../composables/useConfigurationImpact'
 import GroupRuleEditor from './GroupRuleEditor.vue'
 import GroupHandover from './GroupHandover.vue'
 import { useSessionStore } from '../../stores/session'
+import { deleteManagedResource } from '../../composables/useResourceDeletion'
+import DeletedResources from './DeletedResources.vue'
 
 const props = defineProps<{ collegeId: string; rows: VolunteerGroup[]; types: CourseType[]; userId: string; canManage: boolean; canPublish: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -43,14 +44,13 @@ async function publish(configuration: GroupConfiguration) {
   })) configuring.value = false
 }
 async function remove(row: VolunteerGroup) {
-  try {
-    await ElMessageBox.confirm(`删除“${row.name}”？已有配置历史的组只能停用。`, '删除志愿者组', { type: 'warning' })
-    await run(cid => deleteGroup(cid, row))
-  } catch { /* 用户取消 */ }
+  const cid = props.collegeId
+  await run(id => deleteManagedResource(id, 'groups', row, () => cid === props.collegeId))
 }
 </script>
 <template>
   <el-button v-if="canManage" type="primary" :disabled="saving" @click="edit(null)">新建志愿者组</el-button>
+  <DeletedResources v-if="canManage" :college-id="collegeId" kind="groups" @changed="emit('changed')" />
   <el-table :data="rows" empty-text="暂无志愿者组">
     <el-table-column prop="name" label="组织名称" />
     <el-table-column label="查课范围"><template #default="{ row }">{{ scopeName(row) }}</template></el-table-column>
@@ -59,7 +59,7 @@ async function remove(row: VolunteerGroup) {
     <el-table-column label="操作" width="280">
       <template #default="{ row }">
         <el-button v-if="canManage" link :disabled="saving" @click="edit(row)">编辑</el-button>
-        <el-button v-if="canManage && session.hasAnyRole('SUPER_ADMIN', 'TEACHER_ADMIN') && session.campusRuntime?.scheduling && row.status === 'ACTIVE'" link @click="selected = row; handingOver = true">负责人交接</el-button>
+        <el-button v-if="canManage && session.hasAnyRole('SUPER_ADMIN', 'TEACHER_ADMIN') && session.campusRuntime?.business_scoped && row.status === 'ACTIVE'" link @click="selected = row; handingOver = true">负责人交接</el-button>
         <el-button v-if="canPublish" link :disabled="saving" @click="selected = row; configuring = true">范围与规则</el-button>
         <el-button v-if="canManage" link :disabled="saving" @click="updateExisting(row, { status: row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' })">{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button>
         <el-button v-if="canManage" link type="danger" :disabled="saving" @click="remove(row)">删除</el-button>

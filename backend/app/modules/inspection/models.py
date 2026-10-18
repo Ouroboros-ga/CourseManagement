@@ -173,6 +173,7 @@ class InspectionTask(CollegeOwned, TimestampMixin, Base):
     group_id: Mapped[int | None] = mapped_column(ForeignKey("volunteer_group.id", ondelete="RESTRICT"))
     group_config_version_id: Mapped[int | None] = mapped_column(ForeignKey("group_config_version.id", ondelete="RESTRICT"))
     group_name_snapshot: Mapped[str | None] = mapped_column(String(128))
+    deleted_at: Mapped[datetime | None] = mapped_column(DATETIME_3, nullable=True)
     course_type_id_snapshot: Mapped[int | None] = mapped_column(BigInteger)
     course_type_name_snapshot: Mapped[str | None] = mapped_column(String(128))
     classification_revision_snapshot: Mapped[int | None] = mapped_column(Integer)

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { reactive, shallowRef } from 'vue'
-import { ElMessageBox } from 'element-plus'
-import { createCourseType, updateCourseType, deleteCourseType, type CourseType } from '../../api/campus'
+import { createCourseType, updateCourseType, type CourseType } from '../../api/campus'
 import { useCampusMutation } from '../../composables/useCampusMutation'
 import { useConfigurationImpact } from '../../composables/useConfigurationImpact'
+import { deleteManagedResource } from '../../composables/useResourceDeletion'
+import DeletedResources from './DeletedResources.vue'
 
 const props = defineProps<{ collegeId: string; rows: CourseType[]; canManage: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -28,15 +29,12 @@ async function save() {
 }
 async function remove(row: CourseType) {
   const cid = props.collegeId
-  try {
-    await ElMessageBox.confirm(`删除“${row.name}”？有引用的类型无法删除，可选择停用。`, '删除课程类型', { type: 'warning' })
-    if (cid !== props.collegeId) return
-    await run(id => deleteCourseType(id, row))
-  } catch { /* 用户取消 */ }
+  await run(id => deleteManagedResource(id, 'course-types', row, () => cid === props.collegeId))
 }
 </script>
 <template>
   <el-button v-if="canManage" type="primary" :disabled="saving" @click="edit(null)">新建课程类型</el-button>
+  <DeletedResources v-if="canManage" :college-id="collegeId" kind="course-types" @changed="emit('changed')" />
   <el-table :data="rows" empty-text="暂无课程类型，可新建普通课、早自习或其他分类">
     <el-table-column prop="name" label="名称" />
     <el-table-column prop="description" label="说明" />

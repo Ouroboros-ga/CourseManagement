@@ -1,6 +1,6 @@
 # API 路由索引
 
-2026-10-18，依据当前 app.main OpenAPI 核对：336 个路径、397 个操作。统一资料入口识别、分组及冲突增量已随 `6a00179` 部署；此前人员关联与报表随 `bed04b8` 发布，见 [当前状态](development/IMPLEMENTATION_STATUS.md) 与 [API 契约](API_CONTRACT.md)。
+2026-10-19，依据当前 app.main OpenAPI 生成：344 个路径、405 个操作。包含动态类型筛选、准备入口解耦、删除影响预览与历史保留恢复；发布与启用状态见 [当前状态](development/IMPLEMENTATION_STATUS.md)，参数语义见 [API 契约](API_CONTRACT.md)。
 
 | 方法 | 路径 | 标签 |
 | --- | --- | --- |
@@ -64,6 +64,10 @@
 | PATCH | `/api/v1/colleges/{cid}/groups/{rid}` | campus-configuration |
 | DELETE | `/api/v1/colleges/{cid}/groups/{rid}` | campus-configuration |
 | GET | `/api/v1/colleges/{cid}/groups/{rid}/impact` | campus-configuration |
+| GET | `/api/v1/colleges/{cid}/groups/{rid}/deletion-impact` | campus-configuration |
+| GET | `/api/v1/colleges/{cid}/course-types/{rid}/deletion-impact` | campus-configuration |
+| POST | `/api/v1/colleges/{cid}/groups/{rid}/restore-deleted` | campus-configuration |
+| POST | `/api/v1/colleges/{cid}/course-types/{rid}/restore-deleted` | campus-configuration |
 | POST | `/api/v1/colleges/{cid}/groups/{rid}/configuration/publish` | campus-configuration |
 | GET | `/api/v1/colleges/{cid}/groups/{rid}/references` | campus-configuration |
 | GET | `/api/v1/colleges/{cid}/configuration-impacts` | campus-configuration |
@@ -300,6 +304,8 @@
 | GET | `/api/v1/me/assignment-change-requests` | inspection |
 | POST | `/api/v1/assignment-change-requests/{request_id}/review` | inspection |
 | POST | `/api/v1/inspection-tasks/{task_id}/cancel` | inspection |
+| POST | `/api/v1/inspection-tasks/deletion-preview` | inspection |
+| POST | `/api/v1/inspection-tasks/{task_id}/restore-deleted` | inspection |
 | POST | `/api/v1/inspection-tasks/batch-delete` | inspection |
 | POST | `/api/v1/inspection-tasks/{task_id}/roster-versions` | inspection |
 | GET | `/api/v1/inspection-tasks/{task_id}/roster-versions` | inspection |
@@ -336,6 +342,8 @@
 | GET | `/api/v1/colleges/{cid}/assignment-change-requests` | college-inspection |
 | POST | `/api/v1/colleges/{cid}/assignment-change-requests/{request_id}/review` | college-inspection |
 | POST | `/api/v1/colleges/{cid}/inspection-tasks/{task_id}/cancel` | college-inspection |
+| POST | `/api/v1/colleges/{cid}/inspection-tasks/deletion-preview` | college-inspection |
+| POST | `/api/v1/colleges/{cid}/inspection-tasks/{task_id}/restore-deleted` | college-inspection |
 | POST | `/api/v1/colleges/{cid}/inspection-tasks/batch-delete` | college-inspection |
 | POST | `/api/v1/colleges/{cid}/inspection-tasks/{task_id}/roster-versions` | college-inspection |
 | GET | `/api/v1/colleges/{cid}/inspection-tasks/{task_id}/roster-versions` | college-inspection |
@@ -401,15 +409,3 @@
 | GET | `/api/v1/colleges/{cid}/academic/master-timetable` | college-academic |
 | GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
 | PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
-
-### 教务 ZIP 预览（2026-10-18，members 增量随 6a00179 发布）
-
-- `POST /api/v1/colleges/{cid}/imports/confirmation-set/zip-preview`：ZIP 逐成员预览；multipart 可选 `members` JSON 字符串数组精确选择同类型成员，省略时兼容旧的全成员行为；正式保存仍走原集合确认。限制见 [API 契约](API_CONTRACT.md) 和 [实施记录](development/IMPORT_FLOW_SIMPLIFICATION_20261018.md)。
-
-### 统一资料入口识别（2026-10-18，随 6a00179 发布）
-
-- `GET /api/v1/colleges/{cid}/imports/intake/catalog`：返回当前操作者可管理的资料类型与文件上限。
-- `POST /api/v1/colleges/{cid}/imports/intake/inspect`：上传单个表格或混合 ZIP，仅识别文件类型，不建草稿、不返回人员行或写业务资料；多非空工作表明确阻断并要求拆分。
-- `GET /api/v1/colleges/{cid}/imports/intake/templates`：下载按目标管理权限过滤的标准模板 ZIP。
-
-以上接口受学院配置和正式业务隔离开关保护。导入确认按资料组独立执行；无跨资料事务。工号/学号与现有档案姓名矛盾须先核对原表或明确更名再重传；责任表按同校档案姓名消歧，不本院优先；课表教师姓名待关联不阻断课表保存。Web 保留问题详情和现有档案、授课、责任交接处理入口。

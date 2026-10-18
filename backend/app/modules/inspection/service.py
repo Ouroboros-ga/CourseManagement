@@ -831,6 +831,7 @@ class InspectionService:
         administrative_class_id: int | None = None,
         include_canceled: bool,
         needs_attention: str | None = None,
+        deleted_only: bool = False,
     ) -> dict:
         self._require(actor.id, perms.READ_PERMISSION)
         scope = self._scope_filter(actor)
@@ -845,6 +846,7 @@ class InspectionService:
             administrative_class_id=administrative_class_id,
             include_canceled=include_canceled,
             needs_attention=needs_attention,
+            deleted_only=deleted_only,
         )
         dto = self._assemble_tasks(rows)
         return {
@@ -867,7 +869,7 @@ class InspectionService:
         self._require(actor.id, perms.READ_PERMISSION)
         scope = self._scope_filter(actor, force_assigned=True)
         rows, total = self._repo.list_tasks(
-            params, scope_filter=scope, include_canceled=include_canceled
+            params, scope_filter=scope, include_canceled=include_canceled, include_deleted=True
         )
         dto = self._assemble_tasks(rows)
         return {
@@ -1195,6 +1197,7 @@ class InspectionService:
             group_config_version_id=task.group_config_version_id,
             group_name_snapshot=task.group_name_snapshot,
             course_type_id_snapshot=task.course_type_id_snapshot,
+            deleted_at=task.deleted_at,
             course_type_name_snapshot=task.course_type_name_snapshot,
             course_schedule_id=task.course_schedule_id,
             teaching_class_id=task.teaching_class_id,
@@ -2714,7 +2717,27 @@ class InspectionService:
         self._session.commit()
         return self._assemble_tasks([task])[0]
 
-    def delete_tasks(
+    def deletion_preview(self, actor, task_ids):
+        from app.modules.inspection.task_deletion import preview
+        return preview(self, actor, task_ids)[1]
+
+    def restore_deleted_task(self, actor, task_id, lock_version):
+        from app.modules.inspection.task_deletion import restore
+        try:
+            return restore(self, actor, task_id, lock_version)
+        except Exception:
+            self._session.rollback()
+            raise
+
+    def delete_tasks(self, actor, task_ids, *, reason=None, force=False, request_id=None, deletion_revision=None):
+        from app.modules.inspection.task_deletion import apply
+        try:
+            return apply(self, actor, task_ids, reason, request_id, deletion_revision)
+        except Exception:
+            self._session.rollback()
+            raise
+
+    def _legacy_delete_tasks(
         self,
         actor: CurrentUser,
         task_ids: list[int],

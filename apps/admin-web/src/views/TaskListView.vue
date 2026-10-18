@@ -11,7 +11,8 @@ import AppIcon from '../components/AppIcon.vue'
 import {
   listTasks,
   updateTask,
-  deleteTask,
+  previewTaskDeletion,
+  restoreDeletedTask,
   batchDeleteTasks,
   triggerAutoAssign,
   listSemesterVolunteers,
@@ -37,6 +38,7 @@ onUnmounted(() => taskEpoch.invalidate())
 
 const loading = ref(false)
 const tasks = ref<InspectionTaskItem[]>([])
+const deletedOnly = ref(false)
 const selectedTaskIds = ref<string[]>([])
 const drawerVisible = ref(false)
 const activeTask = ref<InspectionTaskItem | null>(null)
@@ -119,6 +121,7 @@ async function fetchTasks() {
   loading.value = true
   try {
     const res = await listTasks({
+      deleted_only: deletedOnly.value,
       semester_id: sessionStore.currentSemesterId,
       week_no: needsAttention.value ? undefined : sessionStore.currentWeekNo,
       needs_attention: needsAttention.value,
@@ -248,72 +251,35 @@ function openTaskDetail(task: InspectionTaskItem) {
   drawerVisible.value = true
 }
 
-// 单项删除查课任务
-async function handleDeleteSingleTask(task: InspectionTaskItem) {
+// Deletion previews are bound to the current actor, workspace and exact task set.
+const deletionContext = () => `${sessionStore.currentUser?.id}:${sessionStore.workspaceCollegeId}:${sessionStore.currentSemesterId}:${sessionStore.currentWeekNo}:${deletedOnly.value}`
+watch(deletedOnly, () => { taskEpoch.invalidate(); selectedTaskIds.value = []; void fetchTasks() })
+async function deleteReviewedTasks(ids: string[]) {
+  const context = deletionContext()
   try {
-    await ElMessageBox.confirm(
-      `确定要删除查课任务 #${task.id}（${task.course_name_snapshot || '未命名课程'}）吗？\n删除后关联的排班分配与点名名单快照将一并移除，此操作不可撤销。`,
-      '删除查课任务',
-      {
-        confirmButtonText: '确定删除',
-        cancelButtonText: '取消',
-        type: 'warning',
-        confirmButtonClass: 'el-button--danger',
-        lockScroll: false
-      }
-    )
+    const plan = await previewTaskDeletion(ids)
+    if (context !== deletionContext()) return
+    await ElMessageBox.confirm(`本次彻底删除 ${plan.permanent_ids.length} 项未使用任务；另有 ${plan.retained_ids.length} 项仅从日常管理移除，保留考勤、异议、照片及截止事实，考勤统计不变，可恢复。`, '核对删除方式', { type: 'warning', confirmButtonText: '按上述方式删除' })
+    if (context !== deletionContext()) return
     loading.value = true
-    await deleteTask(task.id, '管理端单项删除')
-    ElMessage.success(`查课任务 #${task.id} 已成功删除！`)
-    selectedTaskIds.value = selectedTaskIds.value.filter(id => id !== task.id)
-    if (activeTask.value?.id === task.id) {
-      drawerVisible.value = false
-      activeTask.value = null
-    }
+    await batchDeleteTasks({ task_ids: ids, reason: '管理端确认删除', deletion_revision: plan.revision })
+    if (context !== deletionContext()) return
+    ElMessage.success(`已处理 ${ids.length} 项；历史记录按预览保留`)
+    selectedTaskIds.value = []; drawerVisible.value = false; activeTask.value = null
     await fetchTasks()
-  } catch (e: any) {
-    if (e !== 'cancel') {
-      ElMessage.error(e?.message || '删除任务失败')
-    }
-  } finally {
-    loading.value = false
-  }
+  } catch (e) { if (e !== 'cancel' && e !== 'close' && context === deletionContext()) ElMessage.error(e instanceof Error ? e.message : '删除失败') }
+  finally { if (context === deletionContext()) loading.value = false }
 }
-
-// 批量删除查课任务
-async function handleBatchDelete() {
-  if (selectedTaskIds.value.length === 0) return
+async function handleDeleteSingleTask(task: InspectionTaskItem) { await deleteReviewedTasks([task.id]) }
+async function handleBatchDelete() { if (selectedTaskIds.value.length) await deleteReviewedTasks([...selectedTaskIds.value]) }
+async function handleRestoreDeleted(task: InspectionTaskItem) {
+  const context = deletionContext()
   try {
-    await ElMessageBox.confirm(
-      `确定要批量删除选中的 ${selectedTaskIds.value.length} 个查课任务吗？\n删除后关联的排班受派与名单快照将一并清除，此操作不可撤销。`,
-      '批量删除查课任务',
-      {
-        confirmButtonText: `确认删除 (${selectedTaskIds.value.length}项)`,
-        cancelButtonText: '取消',
-        type: 'warning',
-        confirmButtonClass: 'el-button--danger',
-        lockScroll: false
-      }
-    )
-    loading.value = true
-    const res = await batchDeleteTasks({
-      task_ids: selectedTaskIds.value,
-      reason: '管理端批量删除'
-    })
-    ElMessage.success(`成功批量删除 ${res.deleted_count} 个查课任务！`)
-    selectedTaskIds.value = []
-    if (activeTask.value && res.deleted_ids.includes(String(activeTask.value.id))) {
-      drawerVisible.value = false
-      activeTask.value = null
-    }
-    await fetchTasks()
-  } catch (e: any) {
-    if (e !== 'cancel') {
-      ElMessage.error(e?.message || '批量删除任务失败')
-    }
-  } finally {
-    loading.value = false
-  }
+    await ElMessageBox.confirm('恢复到日常任务列表，保留原状态、考勤与受派；不会重新生成任务或自动重新排班。', '恢复任务', { type: 'info' })
+    if (context !== deletionContext()) return
+    await restoreDeletedTask(task.id, task.lock_version || 0)
+    if (context === deletionContext()) { ElMessage.success('已恢复'); await fetchTasks() }
+  } catch (e) { if (e !== 'cancel' && e !== 'close' && context === deletionContext()) ElMessage.error(e instanceof Error ? e.message : '恢复失败') }
 }
 
 // ==================== 智能自动排班（求解器防冲突算法） ====================
@@ -697,6 +663,7 @@ async function handleConfirmCancelFromEdit() {
       </button>
     </div>
 
+    <el-checkbox v-model="deletedOnly">查看已删除任务（历史保留）</el-checkbox>
     <!-- 任务表 -->
     <div class="tbl-wrap">
       <div class="tbl-head">
@@ -725,7 +692,7 @@ async function handleConfirmCancelFromEdit() {
           </select>
           <button
             class="btn btn-sm btn-primary inline-flex items-center gap-1 shadow-sm flex-shrink-0"
-            :disabled="autoAssigning"
+              :disabled="autoAssigning || deletedOnly"
             title="调用求解器防冲突算法，为当前未分配任务自动匹配在册志愿者"
             @click="handleAutoAssign"
           >
@@ -734,7 +701,7 @@ async function handleConfirmCancelFromEdit() {
           </button>
           <button
             class="btn btn-sm btn-danger inline-flex items-center gap-1 flex-shrink-0"
-            :disabled="selectedTaskIds.length === 0"
+              :disabled="selectedTaskIds.length === 0 || deletedOnly"
             @click="handleBatchDelete"
           >
             <AppIcon name="trash" :size="13" />
@@ -880,6 +847,8 @@ async function handleConfirmCancelFromEdit() {
               </td>
               <td style="text-align: right; white-space: nowrap">
                 <div class="inline-flex items-center justify-end gap-1 flex-nowrap">
+                  <el-button v-if="task.deleted_at" link @click="handleRestoreDeleted(task)">恢复到日常列表</el-button>
+                  <template v-else>
                   <button
                     class="btn btn-action"
                     :style="(task as any).assignment?.change_request_status === 'PENDING' ? 'background: #d97706; color: #fff; border-color: #d97706; font-weight: 600;' : ''"
@@ -913,6 +882,7 @@ async function handleConfirmCancelFromEdit() {
                     <AppIcon name="trash" :size="12" />
                     <span>删除</span>
                   </button>
+                  </template>
                 </div>
               </td>
             </tr>

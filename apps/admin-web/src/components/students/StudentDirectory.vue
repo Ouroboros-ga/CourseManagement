@@ -31,6 +31,7 @@ import { exportBindingTokensExcel, resetStudentBinding } from '../../api/auth'
 import AppIcon from '../../components/AppIcon.vue'
 import { ContextEpoch } from '../../utils/contextEpoch'
 import { formatPeriodText } from '../../utils/period'
+import StudentGroupEnrollment from './StudentGroupEnrollment.vue'
 
 const props = withDefaults(defineProps<{ mode?: 'legacy' | 'students' | 'qualifications' }>(), { mode: 'legacy' })
 const showsQualification = computed(() => props.mode !== 'students')
@@ -1012,6 +1013,7 @@ async function handleAddConfirm() {
                   inactive-text="普通学生"
                   @change="(val: boolean) => handleToggleVolunteer(stu, val)"
                 />
+                <StudentGroupEnrollment v-if="volunteerMap.get(String(stu.id)) && sessionStore.campusRuntime?.business_scoped && sessionStore.hasPermission('volunteer.member.manage') && sessionStore.hasPermission('volunteer.group.read')" :student-id="String(stu.id)" :name="stu.name" />
               </div>
             </td>
             <td style="text-align: right">

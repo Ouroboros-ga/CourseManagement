@@ -68,6 +68,14 @@ class Versioned(StrictModel):
         return self
 
 
+class DeletionConfirm(Versioned):
+    deletion_revision: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+
+class DeletedRestore(Versioned):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 class CollegeUpdate(Versioned):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     status: Literal["ACTIVE", "INACTIVE"] | None = None

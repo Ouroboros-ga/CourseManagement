@@ -132,6 +132,7 @@ def list_rows(
     as_of: Annotated[
         date | None, Query(description="学生学籍在指定日期的归属；无历史事实不推断")
     ] = None,
+    is_volunteer: bool | None = None,
 ):
     result = service.list_rows(
         kind.replace("-", "_"),
@@ -140,6 +141,7 @@ def list_rows(
         semester_id=semester_id,
         administrative_class_id=administrative_class_id,
         as_of=as_of,
+        is_volunteer=is_volunteer,
     )
     return success(result, getattr(request.state, "request_id", None))
 
