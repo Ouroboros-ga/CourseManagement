@@ -1,0 +1,71 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { previewSummary } from './importLabels'
+import { describeImportValue, groupIssues, personLinkNotice, type ReviewFile } from './importReviewPresentation'
+
+const props = defineProps<{ file: ReviewFile | null }>()
+const emit = defineEmits<{ close: [] }>()
+const page = ref(1)
+watch(() => props.file, () => { page.value = 1 })
+const issues = computed(() => props.file ? groupIssues(props.file) : { errors: [], warnings: [], people: [] })
+const changes = computed(() => props.file?.changes.slice((page.value - 1) * 30, page.value * 30) || [])
+const labels = { CREATE: '新增', UPDATE: '修改', UNCHANGED: '无变化' }
+</script>
+
+<template>
+  <el-dialog :model-value="!!file" :title="file?.filename || '文件内容'" width="min(980px, 94vw)" @close="emit('close')">
+    <template v-if="file">
+      <p class="file-summary">{{ previewSummary(file.target, file.summary) || `${file.changes.length} 项核对内容` }}</p>
+      <section v-if="issues.errors.length" class="blocking-section">
+        <h3>需先处理的问题（{{ issues.errors.length }}）</h3>
+        <p class="section-note">处理后重新上传，或在本次导入中移除此文件。</p>
+        <p v-for="(issue, index) in issues.errors" :key="index" class="problem">
+          {{ issue.row ? `第 ${issue.row} 行 · ` : '' }}{{ issue.field || '' }} {{ issue.message }}
+        </p>
+      </section>
+      <section v-if="issues.warnings.length" class="warning-section">
+        <h3>其他核对提示（{{ issues.warnings.length }}）</h3>
+        <p v-for="(issue, index) in issues.warnings" :key="index" class="warning">
+          {{ issue.row ? `第 ${issue.row} 行 · ` : '' }}{{ issue.field || '' }} {{ issue.message }}
+        </p>
+      </section>
+      <details v-if="issues.people.length" class="person-links">
+        <summary>人员待关联 {{ issues.people.length }} 项 · 不影响课表保存</summary>
+        <p class="section-note">{{ personLinkNotice(issues.people.length) }}</p>
+        <p class="section-note">可先保存课表，再导入教职工档案并补齐关联。重名或工号不符时需核对，系统不会猜配。</p>
+        <el-table :data="issues.people" max-height="320">
+          <el-table-column prop="context" label="班级 / 课程" min-width="170" />
+          <el-table-column prop="person" label="教师 / 责任人" min-width="100" />
+          <el-table-column prop="reason" label="待处理原因" min-width="230" />
+        </el-table>
+      </details>
+      <h3 class="detail-heading">资料核对明细</h3>
+      <p class="section-note">“无变化”表示与已有资料一致，确认后不会重复新增。</p>
+      <el-table :data="changes" empty-text="没有可导入的内容">
+        <el-table-column label="处理" width="80"><template #default="{ row }">{{ labels[row.action as keyof typeof labels] }}</template></el-table-column>
+        <el-table-column label="来源位置" width="145"><template #default="{ row }">
+          {{ row.source.sheet || '表格' }}{{ row.source.row ? ` · 第${row.source.row}行` : '' }}{{ row.source.column ? ` · 第${row.source.column}列` : '' }}
+        </template></el-table-column>
+        <el-table-column label="资料内容" min-width="260"><template #default="{ row }">
+          <pre class="business-fields">{{ describeImportValue(row.after) }}</pre>
+          <details v-if="row.action === 'UPDATE'" class="before-values"><summary>查看修改前</summary><pre class="business-fields">{{ describeImportValue(row.before) }}</pre></details>
+        </template></el-table-column>
+      </el-table>
+      <el-pagination v-model:current-page="page" :page-size="30" :total="file.changes.length" layout="prev, pager, next, total" />
+    </template>
+  </el-dialog>
+</template>
+
+<style scoped>
+.file-summary { margin-bottom: 16px; }
+.blocking-section, .warning-section { margin: 16px 0; }
+.problem { color: var(--red, #b42318); margin: 8px 0; }
+.warning { color: var(--amber, #946200); margin: 8px 0; }
+.section-note { color: var(--ink-mute); font-size: 13px; margin: 8px 0 12px; }
+.person-links { padding: 14px 16px; margin: 16px 0; background: var(--paper-deep, #f6f5f2); border: 1px solid var(--line); border-radius: 4px; }
+.person-links > summary { cursor: pointer; font-weight: 600; line-height: 1.6; }
+.detail-heading { margin-top: 22px; }
+.business-fields { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 13px; line-height: 1.8; }
+.before-values { margin-top: 8px; }
+.el-pagination { margin-top: 16px; }
+</style>

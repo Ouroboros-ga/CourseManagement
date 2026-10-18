@@ -9,7 +9,7 @@ export interface ImportChange {
 export interface ImportSetPlan {
   revision: string; batch_ids: string[]; can_confirm: boolean; impact_note: string
   files: Array<{ id: string; filename: string; target: string; summary: Record<string, unknown>
-    changes: ImportChange[]; issues: Array<{ severity: string; message: string; row?: number; field?: string; filename?: string }> }>
+    changes: ImportChange[]; issues: Array<{ code?: string; severity: string; message: string; row?: number; field?: string; filename?: string }> }>
 }
 export interface ImportSetResult { status: string; batch_ids: string[]; files: Array<{ id: string; filename: string; summary: Record<string, unknown> }> }
 const setRoot = (cid: string) => `/api/v1/colleges/${encodeURIComponent(cid)}/imports/confirmation-set`
