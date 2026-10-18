@@ -8,7 +8,7 @@ import * as vue from 'vue'
 function load(path, imports) {
   const module = { exports: {} }
   const code = ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
-  vm.runInNewContext(code, { module, exports: module.exports, require: name => imports[name] })
+  vm.runInNewContext(code, { module, exports: module.exports, require: name => imports[name] || (name === "../utils/importLimits" ? { IMPORT_MAX_BATCH:100, IMPORT_TABLE_BYTES:10485760, IMPORT_ARCHIVE_BYTES:52428800 } : undefined) })
   return module.exports
 }
 const flush = async () => { await vue.nextTick(); await Promise.resolve(); await vue.nextTick() }

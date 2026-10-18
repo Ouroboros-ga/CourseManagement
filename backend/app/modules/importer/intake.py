@@ -6,6 +6,7 @@ import zipfile
 from app.common.parsing.xlsx_tabular import read_any_matrix
 from app.core.exceptions import AppError, ErrorCode
 from app.modules.importer.catalog import detect_target
+from app.modules.importer.limits import MAX_ARCHIVE_BYTES
 from app.modules.importer.zip_preview import MAX_FILE, expand_zip
 
 
@@ -76,8 +77,9 @@ def _inspect(content: bytes, name: str) -> dict:
 
 
 def inspect_upload(content: bytes, filename: str) -> list[dict]:
-    if len(content) > MAX_FILE:
-        raise AppError(ErrorCode.VALIDATION_ERROR, "文件不能超过 10 MiB", 422)
+    limit = MAX_ARCHIVE_BYTES if filename.lower().endswith('.zip') else MAX_FILE
+    if len(content) > limit:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "ZIP 上限 50 MiB，单表格上限 10 MiB", 422)
     if filename.lower().endswith(".zip"):
         return [
             {**_inspect(data, name), "archive_member": name}

@@ -13,6 +13,7 @@ from app.modules.attendance.scoped_router import require_business_scoped_enabled
 from app.modules.identity.deps import CurrentUserDep
 from app.modules.importer.catalog import build_template_pack, catalog_items
 from app.modules.importer.intake import inspect_upload
+from app.modules.importer.limits import MAX_ARCHIVE_BYTES, MAX_BATCH_FILES, MAX_QUEUE_FILES
 from app.modules.importer.scoped_service import ScopedImporterService
 from app.modules.importer.zip_preview import MAX_FILE
 from app.modules.organization.router import require_campus_enabled
@@ -43,7 +44,9 @@ def catalog(
     service = ScopedImporterService(db, actor, cid)
     with service.operation("import.execute"):
         return success(
-            {"types": available(service), "max_files": 20, "max_file_bytes": MAX_FILE},
+            {"types": available(service), "max_files": MAX_QUEUE_FILES,
+             "max_batch_files": MAX_BATCH_FILES, "max_file_bytes": MAX_FILE,
+             "max_archive_bytes": MAX_ARCHIVE_BYTES},
             getattr(request.state, "request_id", None),
         )
 
@@ -61,7 +64,7 @@ async def inspect(
     with service.operation("import.execute"):
         pass
     db.rollback()
-    content = await file.read(MAX_FILE + 1)
+    content = await file.read(MAX_ARCHIVE_BYTES + 1)
     from starlette.concurrency import run_in_threadpool
 
     rows = await run_in_threadpool(inspect_upload, content, file.filename or "未命名表格")

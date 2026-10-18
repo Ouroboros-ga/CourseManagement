@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.modules.attendance.scoped_router import require_business_scoped_enabled
 from app.modules.identity.deps import CurrentUserDep
 from app.modules.importer.confirmation_set import ImportConfirmationSet
+from app.modules.importer.limits import MAX_ARCHIVE_BYTES, MAX_BATCH_FILES
 from app.modules.importer.scoped_service import ScopedImporterService
 from app.modules.organization.router import require_campus_enabled
 from app.modules.organization.schemas import StrictModel
@@ -17,7 +18,7 @@ Id = Annotated[str, Field(pattern=r"^[1-9][0-9]{0,18}$")]
 
 
 class ConfirmationSelection(StrictModel):
-    batch_ids: list[Id] = Field(min_length=1, max_length=20)
+    batch_ids: list[Id] = Field(min_length=1, max_length=MAX_BATCH_FILES)
 
 
 class ConfirmationRequest(ConfirmationSelection):
@@ -82,12 +83,12 @@ async def zip_preview(
     semester_id: Annotated[int | None, Form()] = None,
     teaching_class_id: Annotated[int | None, Form()] = None,
     course_type_id: Annotated[int | None, Form()] = None,
-    members: Annotated[str | None, Form(max_length=12000)] = None,
+    members: Annotated[str | None, Form(max_length=40000)] = None,
 ):
     import json
 
     from app.core.exceptions import AppError, ErrorCode
-    from app.modules.importer.zip_preview import MAX_FILE, preview_zip
+    from app.modules.importer.zip_preview import preview_zip
 
     try:
         selected = json.loads(members) if members is not None else None
@@ -98,7 +99,7 @@ async def zip_preview(
     result = preview_zip(
         ScopedImporterService(db, actor, cid),
         actor,
-        await file.read(MAX_FILE + 1),
+        await file.read(MAX_ARCHIVE_BYTES + 1),
         target=target,
         semester_id=semester_id,
         teaching_class_id=teaching_class_id,

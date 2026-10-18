@@ -1,0 +1,4 @@
+export const IMPORT_MAX_QUEUE = 1000
+export const IMPORT_MAX_BATCH = 100
+export const IMPORT_TABLE_BYTES = 10 * 1024 * 1024
+export const IMPORT_ARCHIVE_BYTES = 50 * 1024 * 1024

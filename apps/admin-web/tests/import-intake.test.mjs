@@ -10,7 +10,7 @@ function setup(api) {
   const module = { exports: {} }
   const source = readFileSync(new URL('../src/composables/useImportIntake.ts', import.meta.url), 'utf8')
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText,
-    { module, exports: module.exports, require: name => ({ vue: { ...vue, onUnmounted: () => {} }, '../stores/session': { useSessionStore: () => session }, '../api/importer': api })[name] })
+    { module, exports: module.exports, require: name => ({ vue: { ...vue, onUnmounted: () => {} }, '../stores/session': { useSessionStore: () => session }, '../utils/importLimits': { IMPORT_MAX_QUEUE:1000, IMPORT_MAX_BATCH:100, IMPORT_TABLE_BYTES:10485760, IMPORT_ARCHIVE_BYTES:52428800 }, '../api/importer': api })[name] })
   const scope = vue.effectScope(), state = scope.run(() => module.exports.useImportIntake())
   return { session, scope, state }
 }
@@ -54,5 +54,17 @@ test('college change discards late inspection and existing receipts', async () =
     await pending
     assert.equal(state.entries.value.length, 0)
     assert.equal(state.receipts.value.length, 0)
+  } finally { scope.stop() }
+})
+
+test('large archive enters queue and later batches exclude the successful first batch', async () => {
+  const { state, scope } = setup({ inspectImportUpload: async () => ({ files: Array.from({length:471},(_,i)=>({filename:`${i}.xls`,target:'grid_timetable',archive_member:`${i}.xls`,blocked:false,message:''})) }) })
+  try {
+    await state.addFiles([{name:'whole-college.zip',size:12*1024*1024}])
+    assert.equal(state.entries.value.length,471)
+    assert.equal(state.sources('grid_timetable')[0].members.length,100)
+    state.markSaved('grid_timetable',{files:Array.from({length:100},(_,i)=>({id:String(i),filename:`${i}.xls`,summary:{}}))})
+    assert.equal(state.sources('grid_timetable')[0].members[0],'100.xls')
+    assert.equal(state.receipts.value.length,100)
   } finally { scope.stop() }
 })

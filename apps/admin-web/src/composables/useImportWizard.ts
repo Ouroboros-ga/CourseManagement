@@ -1,6 +1,7 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useSessionStore } from '../stores/session'
 import { uploadImportFile, previewImportArchive, previewImportSet, confirmImportSet, type ImportPreviewResult, type ImportSetPlan, type ImportSetResult, type ImportUploadSource } from '../api/importer'
+import { IMPORT_MAX_BATCH, IMPORT_TABLE_BYTES, IMPORT_ARCHIVE_BYTES } from '../utils/importLimits'
 
 export function useImportWizard() {
   const session = useSessionStore()
@@ -17,7 +18,7 @@ export function useImportWizard() {
   const context = () => JSON.stringify([scopeContext(), target.value, teachingClassId.value, courseTypeId.value])
   let previousScope = scopeContext()
   const selection = () => JSON.stringify(selectedIds.value)
-  const canUpload = computed(() => !!target.value && !!files.value.length && files.value.length <= 20 && !!session.workspaceCollegeId
+  const canUpload = computed(() => !!target.value && !!files.value.length && files.value.length <= IMPORT_MAX_BATCH && !!session.workspaceCollegeId
     && (['admin_roster', 'class_duty', 'faculty_staff', 'class_responsibility'].includes(target.value) || !!session.currentSemesterId)
     && (target.value !== 'roster' || !!teachingClassId.value))
   watch(context, () => {
@@ -44,7 +45,8 @@ export function useImportWizard() {
       for (const source of pendingFiles) {
         const file = source.file
         if (!current()) return
-        if (file.size > 10 * 1024 * 1024) { uploadErrors.value.push(`${file.name}：超过 10 MiB`); continue }
+        const limit = /\.zip$/i.test(file.name) ? IMPORT_ARCHIVE_BYTES : IMPORT_TABLE_BYTES
+        if (file.size > limit) { uploadErrors.value.push(`${file.name}：ZIP 上限 50 MiB，单表格上限 10 MiB`); continue }
         try {
           const options = {
             semester_id: ['admin_roster', 'class_duty', 'faculty_staff', 'class_responsibility'].includes(target.value) ? undefined : session.currentSemesterId,
@@ -72,7 +74,7 @@ export function useImportWizard() {
   }
   async function review() {
     if (busy.value || !selectedIds.value.length) return
-    if (selectedIds.value.length > 20) { error.value = '本次展开后超过 20 个表格，请移除部分文件后核对；尚未保存正式数据。'; return }
+    if (selectedIds.value.length > IMPORT_MAX_BATCH) { error.value = '本批展开后超过 100 个表格，请减少文件后核对；尚未保存正式数据。'; return }
     const current = ticket()
     busy.value = true; error.value = ''; plan.value = null
     try {

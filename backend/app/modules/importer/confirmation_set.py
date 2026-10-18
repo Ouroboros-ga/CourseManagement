@@ -9,11 +9,12 @@ from app.core.config import get_settings
 from app.core.database import utcnow
 from app.core.exceptions import AppError, ConflictError, ErrorCode, NotFoundError
 from app.modules.importer.confirmation_diff import changes_for
+from app.modules.importer.limits import MAX_BATCH_FILES
 from app.modules.importer.service import ImporterService
 
 
 class ImportConfirmationSet:
-    MAX_FILES = 20
+    MAX_FILES = MAX_BATCH_FILES
 
     def __init__(self, service):
         self.service = service
@@ -25,7 +26,7 @@ class ImportConfirmationSet:
             or len(set(ids)) != len(ids)
             or any(not 0 < value < 2**63 for value in ids)
         ):
-            raise AppError(ErrorCode.VALIDATION_ERROR, "一次请选择 1—20 个不同的预览文件", 422)
+            raise AppError(ErrorCode.VALIDATION_ERROR, "一次请选择 1—100 个不同的预览文件", 422)
         batches = []
         for bid in sorted(ids):
             batch = self.service._repo.get_for_update(bid)

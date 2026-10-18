@@ -1,6 +1,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useSessionStore } from '../stores/session'
 import { inspectImportUpload, type ImportInspectedFile, type ImportSetResult, type ImportUploadSource } from '../api/importer'
+import { IMPORT_MAX_QUEUE, IMPORT_MAX_BATCH, IMPORT_TABLE_BYTES, IMPORT_ARCHIVE_BYTES } from '../utils/importLimits'
 
 interface Entry extends Omit<ImportInspectedFile, 'target'> {
   id: number; target: string; source: File; saved: boolean; excluded: boolean
@@ -19,7 +20,7 @@ export function useImportIntake() {
   const groups = computed(() => order.map(target => ({ target, entries: entries.value.filter(e => e.target === target && !e.excluded) })).filter(g => g.entries.length))
   async function addFiles(files: File[]) {
     if (busy.value || !session.workspaceCollegeId) return
-    if (files.length > 20) { error.value = '每次最多添加 20 个文件或压缩包，请分批处理。'; return }
+    if (files.length > IMPORT_MAX_QUEUE) { error.value = '每次最多添加 1000 个文件或压缩包，请分批处理。'; return }
     const ticket = ++generation, captured = context()
     const current = () => active && ticket === generation && captured === context()
     busy.value = true; error.value = ''
@@ -29,15 +30,16 @@ export function useImportIntake() {
         const filename = source.webkitRelativePath || source.name
         let inspected: ImportInspectedFile[]
         try {
-          if (source.size > 10 * 1024 * 1024) throw new Error('文件超过 10 MiB，请拆分')
+          const limit = /\.zip$/i.test(source.name) ? IMPORT_ARCHIVE_BYTES : IMPORT_TABLE_BYTES
+          if (source.size > limit) throw new Error('ZIP 上限 50 MiB，单表格上限 10 MiB，请拆分')
           inspected = (await inspectImportUpload(session.workspaceCollegeId, source)).files
         } catch (e) {
           inspected = [{ filename, target: null, archive_member: null, blocked: true, message: e instanceof Error ? e.message : '读取失败，请重新添加' }]
         }
         if (!current()) return
         const retained = entries.value.filter(e => e.saved || e.source.name !== source.name || (e.source.webkitRelativePath || e.source.name) !== filename)
-        if (retained.filter(e => !e.excluded && !e.saved).length + inspected.length > 20) {
-          error.value = '展开后待处理表格超过 20 个。请先处理当前文件，再添加其余文件。'; break
+        if (retained.filter(e => !e.excluded && !e.saved).length + inspected.length > IMPORT_MAX_QUEUE) {
+          error.value = '展开后待处理表格超过 1000 个。请先处理当前文件，再添加其余文件。'; break
         }
         // 修正文件重新添加时仅替换未保存的同路径来源，保留已有成功记录。
         entries.value = retained
@@ -56,8 +58,8 @@ export function useImportIntake() {
     if (!row || row.saved || busy.value) return
     row.excluded = !row.excluded; revision.value++
   }
-  function sources(target: string): ImportUploadSource[] {
-    const selected = entries.value.filter(e => e.target === target && !e.excluded && !e.saved && !e.blocked)
+  function sources(target: string, batchSize = IMPORT_MAX_BATCH): ImportUploadSource[] {
+    const selected = entries.value.filter(e => e.target === target && !e.excluded && !e.saved && !e.blocked).slice(0, batchSize)
     const result: ImportUploadSource[] = []
     for (const row of selected) {
       if (row.archive_member) {

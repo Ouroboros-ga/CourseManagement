@@ -66,7 +66,7 @@ function selectFiles(event: Event) {
   if (!chosen.length) return
   const accepted = chosen.filter(file => !file.name.startsWith('.') && !file.name.startsWith('~$') && /\.(xlsx?|csv|zip)$/i.test(file.name))
   skippedFiles.value = chosen.filter(file => !accepted.includes(file)).map(file => file.webkitRelativePath || file.name)
-  selectingError.value = accepted.length > 20 ? `选中了 ${accepted.length} 个表格/压缩包，每次最多 20 个。请分批选择。` : !accepted.length ? '没有找到 Excel、CSV 或 ZIP 文件，请重新选择。' : ''
+  selectingError.value = accepted.length > 100 ? `选中了 ${accepted.length} 个表格/压缩包，每次最多 100 个。请分批选择。` : !accepted.length ? '没有找到 Excel、CSV 或 ZIP 文件，请重新选择。' : ''
   files.value = accepted
 }
 async function uploadAndReview() { await upload(props.sources); if (drafts.value.length) await review() }
@@ -102,7 +102,7 @@ function classesOpened(value: boolean) { if (value) void searchClasses('') }
       <div v-if="!embedded" class="import-context"><label for="import-kind">导入什么</label><el-select id="import-kind" v-model="kind" aria-label="导入资料类型" :disabled="busy || hasPreview" style="width:290px"><el-option v-for="row in options" :key="row.id" :label="row.label" :value="row.id" /></el-select><span class="hint">{{ session.workspace?.name }}<template v-if="!['admin_roster', 'class_duty', 'faculty_staff', 'class_responsibility'].includes(target)"> · {{ session.currentSemesterName }}</template></span><el-button link :loading="templateBusy" @click="template">下载填写模板</el-button></div>
       <div v-if="!hasPreview && !embedded" class="upload-area"><h2>把要导入的文件选进来</h2><p>{{ isTimetable ? '直接使用教务系统导出的班级课表，不用逐班上传。' : '同一种资料可以一次选择多个文件。' }}</p><div class="pick-actions"><el-button type="primary" size="large" @click="folderInput?.click()">选择文件夹</el-button><el-button size="large" @click="zipInput?.click()">选择 ZIP 压缩包</el-button><el-button size="large" @click="fileInput?.click()">选择多个文件</el-button></div>
         <input ref="folderInput" class="native-file" type="file" webkitdirectory multiple aria-label="选择导入文件夹" @change="selectFiles" /><input ref="zipInput" class="native-file" type="file" accept=".zip" multiple aria-label="选择 ZIP 压缩包" @change="selectFiles" /><input ref="fileInput" class="native-file" type="file" accept=".xlsx,.xls,.csv" multiple aria-label="选择多个表格" @change="selectFiles" />
-        <p class="hint">支持子文件夹；ZIP 内请放同一种资料。每批最多 20 个表格，单文件或压缩包不超过 10 MiB。</p>
+        <p class="hint">支持子文件夹；ZIP 内请放同一种资料。每批最多 100 个表格，单表格 10 MiB、ZIP 50 MiB。</p>
       </div>
       <el-alert v-if="selectingError" :title="selectingError" type="warning" :closable="false" /><details v-if="skippedFiles.length" class="hint"><summary>{{ skippedFiles.length }} 个非表格或临时文件未选入</summary><p v-for="name in skippedFiles" :key="name">{{ name }}</p></details>
       <div v-if="files.length && !hasPreview" class="selected-files"><strong>已选择 {{ files.length }} 个文件{{ files.some(f => /\.zip$/i.test(f.name)) ? '（压缩包将在下一步展开）' : '' }}</strong><ul><li v-for="(file, index) in files" :key="index">{{ file.webkitRelativePath || file.name }}</li></ul></div>

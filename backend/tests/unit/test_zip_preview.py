@@ -27,7 +27,7 @@ def zipped(files):
     [
         [("../outside.csv", b"x")],
         [("nested.zip", b"x")],
-        [(f"{i}.csv", b"x") for i in range(21)],
+        [(f"{i}.csv", b"x") for i in range(1001)],
     ],
 )
 def test_zip_rejects_unsafe_or_excessive_members(files):

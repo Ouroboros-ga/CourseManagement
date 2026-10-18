@@ -12,7 +12,7 @@ server {
     ssl_certificate /etc/letsencrypt/live/API_DOMAIN/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/API_DOMAIN/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
-    client_max_body_size 12m;
+    client_max_body_size 52m;
     server_tokens off;
 
     location = /openapi.json { return 404; }
