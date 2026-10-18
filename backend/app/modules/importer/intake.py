@@ -29,9 +29,9 @@ def _inspect(content: bytes, name: str) -> dict:
             if attendance
             else (detect_target([str(v) for v in matrix[0]], name) if matrix else None)
         )
-        if attendance and attendance["issues"]:
+        if attendance and attendance["ignored_sheets"]:
             result["message"] = (
-                "已识别课堂考勤名单；辅助页与主表存在差异，请在预览中核对，修正后才能保存"
+                f"仅采用工作表 {attendance['source_sheet']} 的名单，其余工作表不导入"
             )
         if target is None:
             from app.common.parsing.grid import load_grid

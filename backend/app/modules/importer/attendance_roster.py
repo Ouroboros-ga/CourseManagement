@@ -1,4 +1,4 @@
-"""学校原始课堂考勤表：首表为正式名单，辅助页仅作一致性核对。"""
+"""学校原始课堂考勤表：首表为正式名单，按业务约定忽略其余工作表。"""
 
 import io
 import re
@@ -91,41 +91,13 @@ def inspect_attendance(sheets: list[tuple[str, list[list[str]]]]) -> dict | None
             primary[row[no_col]] = row[name_col]
     if not primary:
         return None
-    issues, verified = [], []
-    for sheet_name, rows in sheets[1:]:
-        nonempty = [
-            (i, [(j, value) for j, value in enumerate(row) if value])
-            for i, row in enumerate(rows, 1)
-            if any(row)
-        ]
-        if not nonempty:
-            continue
-        sheet_issues = []
-        for row_no, cells in nonempty:
-            # 辅助名单可位于任意相邻两列，但不得含未识别的额外业务列。
-            if (
-                len(cells) != 2
-                or cells[1][0] != cells[0][0] + 1
-                or not re.fullmatch(r"\d{6,20}", cells[0][1])
-            ):
-                code = "unsupported_auxiliary_sheet"
-                message = "辅助页包含非名单内容，请核对后移出本文件，不会自动忽略"
-            elif primary.get(cells[0][1]) != cells[1][1]:
-                code = "auxiliary_roster_mismatch"
-                message = "辅助页的学号/姓名与主表不一致或未在主表出现，请核对主表与辅助页"
-            else:
-                continue
-            sheet_issues.append(
-                {
-                    "code": code,
-                    "message": f"{sheet_name} 第 {row_no} 行：{message}",
-                    "field": "学号/姓名",
-                    "row": row_no,
-                    "sheet": sheet_name,
-                    "severity": "error",
-                }
-            )
-        issues.extend(sheet_issues)
-        if not sheet_issues:
-            verified.append(sheet_name)
-    return {"source_sheet": name, "verified_auxiliary_sheets": verified, "issues": issues}
+    # 2026-10-18 用户确认：这类原始考勤表只采用首表（原文件Sheet1），
+    # 后续工作表不参与名单、身份匹配或冲突判断；不扩展到其他资料类型。
+    return {
+        "source_sheet": name,
+        "verified_auxiliary_sheets": [],
+        "ignored_sheets": [
+            sheet_name for sheet_name, rows in sheets[1:] if any(any(r) for r in rows)
+        ],
+        "issues": [],
+    }

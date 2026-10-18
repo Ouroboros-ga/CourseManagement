@@ -1250,7 +1250,10 @@ class ImporterService:
         }
         if attendance:
             summary.update(
-                {key: attendance[key] for key in ("source_sheet", "verified_auxiliary_sheets")}
+                {
+                    key: attendance[key]
+                    for key in ("source_sheet", "verified_auxiliary_sheets", "ignored_sheets")
+                }
             )
             for student in students:
                 student["source_sheet"] = attendance["source_sheet"]

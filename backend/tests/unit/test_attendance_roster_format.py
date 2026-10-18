@@ -32,39 +32,35 @@ def test_title_before_headers_is_recognized_as_administrative_roster():
     assert not item["blocked"]
 
 
-def test_duplicate_auxiliary_roster_is_checked_without_duplicate_students():
+def test_secondary_roster_is_ignored_without_duplicate_students():
     data = attendance_book([[None, None, None, "0012345678", "测试甲"]])
     item = inspect_upload(data, "测试2601.xlsx")[0]
     assert item["target"] == "admin_roster" and not item["blocked"]
     payload, issues, summary = parse(data)
     assert len(payload["students"]) == 2
     assert summary["source_sheet"] == "课堂考勤"
-    assert summary["verified_auxiliary_sheets"] == ["辅助名单"]
+    assert summary["ignored_sheets"] == ["辅助名单"]
     assert not [i for i in issues if i["severity"] == "error"]
 
 
-def test_auxiliary_additional_student_remains_a_preview_conflict():
-    data = attendance_book([["0099999999", "测试丙"]])
+@pytest.mark.parametrize(
+    "secondary",
+    [
+        [["0099999999", "测试丙"]],
+        [["0012345678", "另一姓名"]],
+        [["工号", "姓名"], ["00123", "教师甲"]],
+    ],
+)
+def test_secondary_content_does_not_block_or_change_primary_roster(secondary):
+    data = attendance_book(secondary)
     assert not inspect_upload(data, "测试2601.xlsx")[0]["blocked"]
-    payload, issues, _ = parse(data)
-    assert len(payload["students"]) == 2
-    assert any(
-        i["code"] == "auxiliary_roster_mismatch"
-        and i["sheet"] == "辅助名单"
-        and i["row"] == 1
-        and i["severity"] == "error"
-        for i in issues
-    )
-
-
-def test_auxiliary_same_number_different_name_is_not_merged():
-    _, issues, _ = parse(attendance_book([["0012345678", "另一姓名"]]))
-    assert any(i["code"] == "auxiliary_roster_mismatch" for i in issues)
-
-
-def test_unrelated_auxiliary_data_is_not_silently_dropped():
-    _, issues, _ = parse(attendance_book([["工号", "姓名"], ["00123", "教师甲"]]))
-    assert any(i["code"] == "unsupported_auxiliary_sheet" for i in issues)
+    payload, issues, summary = parse(data)
+    assert [(s["student_no"], s["name"]) for s in payload["students"]] == [
+        ("0012345678", "测试甲"),
+        ("0012345679", "测试乙"),
+    ]
+    assert not issues
+    assert summary["ignored_sheets"] == ["辅助名单"]
 
 
 def test_empty_formatted_auxiliary_is_ignored():
@@ -79,7 +75,7 @@ def campus():
     yield from campus_fixture.__wrapped__()
 
 
-def test_real_preview_blocks_sheet_conflict_and_confirms_consistent_roster(campus):
+def test_real_preview_confirms_only_primary_roster_despite_secondary_differences(campus):
     from app.modules.academic.models import Student
     from app.modules.importer.confirmation_set import ImportConfirmationSet
     from app.modules.organization.models import College
@@ -104,14 +100,12 @@ def test_real_preview_blocks_sheet_conflict_and_confirms_consistent_roster(campu
             request_id=None,
         )
 
-    bad = preview(attendance_book([["0099999999", "测试丙"]]))
-    assert not bad.can_confirm
+    draft = preview(attendance_book([["0099999999", "测试丙"]]))
+    assert draft.can_confirm
     confirmation = ImportConfirmationSet(service)
-    assert not confirmation.preview([int(bad.id)])["can_confirm"]
-    assert set(db.scalars(select(Student.id)).all()) == before_ids
-    good = preview(attendance_book([["0012345678", "测试甲"]]))
-    assert good.can_confirm
-    plan = confirmation.preview([int(good.id)])
+    plan = confirmation.preview([int(draft.id)])
     assert plan["can_confirm"]
-    confirmation.confirm([int(good.id)], plan["revision"], None)
-    assert len(set(db.scalars(select(Student.id)).all()) - before_ids) == 2
+    assert set(db.scalars(select(Student.id)).all()) == before_ids
+    confirmation.confirm([int(draft.id)], plan["revision"], None)
+    created = db.scalars(select(Student).where(Student.id.not_in(before_ids))).all()
+    assert {s.student_no for s in created} == {"0012345678", "0012345679"}
