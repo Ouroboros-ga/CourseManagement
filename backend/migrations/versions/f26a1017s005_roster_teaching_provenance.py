@@ -65,7 +65,9 @@ def upgrade():
         "ix_roster_member_class_task", "task_roster_member_class", ["task_id", "roster_version"]
     )
     op.create_index(
-        "ix_roster_member_class_student", "task_roster_member_class", ["task_id", "roster_version", "student_id"]
+        "ix_roster_member_class_student",
+        "task_roster_member_class",
+        ["task_id", "roster_version", "student_id"],
     )
     op.create_index(
         "ix_roster_member_class_class", "task_roster_member_class", ["teaching_class_id"]
@@ -74,7 +76,6 @@ def upgrade():
 
 def downgrade():
     # 归属来源是更正授权的依据；回退前先确认没有依赖它的本人更正记录。
-    op.drop_index("ix_roster_member_class_class", table_name="task_roster_member_class")
-    op.drop_index("ix_roster_member_class_student", table_name="task_roster_member_class")
-    op.drop_index("ix_roster_member_class_task", table_name="task_roster_member_class")
+    # InnoDB 外键依赖 teaching_class_id 索引，不能在保留外键时先 DROP INDEX。
+    # 整表回退会同时移除本表外键与索引，不单独破坏外键所需的索引。
     op.drop_table("task_roster_member_class")
