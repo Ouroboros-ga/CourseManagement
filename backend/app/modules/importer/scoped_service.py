@@ -80,6 +80,21 @@ class ScopedImporterService(ImporterService):
         self._repo = CollegeBatchRepository(db, self)
 
     def grid_slot_mapping(self, semester_id):
+        from app.core.config import get_settings
+
+        # 学院数据隔离不等于启用学院独立作息。关闭后，正式业务仍使用
+        # PeriodDefinition，导入也必须遵循同一学校节次口径。
+        if not get_settings().campus_scheduling_enabled:
+            try:
+                return super().grid_slot_mapping(semester_id)
+            except AppError as exc:
+                raise AppError(
+                    ErrorCode.VALIDATION_ERROR,
+                    "学校本学期的节次配置缺失或无法识别，请联系管理员核对学校节次后重新上传课表；"
+                    "当前使用学校统一作息，无需另建学院独立作息。",
+                    422,
+                ) from exc
+
         version = self._session.scalar(
             select(CollegeTimeVersion)
             .where(
@@ -94,7 +109,12 @@ class ScopedImporterService(ImporterService):
         )
         mapping = (version.configuration if version else {}).get("grid_slot_mapping", {})
         if not mapping:
-            raise AppError(ErrorCode.VALIDATION_ERROR, "请先发布本学院作息中的教务小节映射", 422)
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                "本学院本学期尚未设置教务课表节次对应关系。请到“教务资料 → 本院作息与校历”"
+                "采用含节次对应关系的学校默认作息，或完善对应关系并发布后，再重新上传课表。",
+                422,
+            )
         return {int(raw): target for raw, target in mapping.items()}
 
     def _require(self, actor_user_id, code):

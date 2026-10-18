@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, File, Form, Path, Request, UploadFile
 from pydantic import Field
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,33 @@ router = APIRouter(
     tags=["import-confirmation"],
     dependencies=[Depends(require_campus_enabled), Depends(require_business_scoped_enabled)],
 )
+
+
+@router.post("/zip-preview")
+async def zip_preview(
+    cid: Annotated[int, Path(gt=0, le=2**63 - 1)],
+    actor: CurrentUserDep,
+    db: Annotated[Session, Depends(get_db)],
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    target: Annotated[str, Form()],
+    semester_id: Annotated[int | None, Form()] = None,
+    teaching_class_id: Annotated[int | None, Form()] = None,
+    course_type_id: Annotated[int | None, Form()] = None,
+):
+    from app.modules.importer.zip_preview import MAX_FILE, preview_zip
+
+    result = preview_zip(
+        ScopedImporterService(db, actor, cid),
+        actor,
+        await file.read(MAX_FILE + 1),
+        target=target,
+        semester_id=semester_id,
+        teaching_class_id=teaching_class_id,
+        course_type_id=course_type_id,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    return success(result, getattr(request.state, "request_id", None))
 
 
 @router.post("/preview")

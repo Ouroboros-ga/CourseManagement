@@ -397,3 +397,7 @@
 | GET | `/api/v1/colleges/{cid}/academic/master-timetable` | college-academic |
 | GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
 | PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
+
+### 教务 ZIP 预览（2026-10-18，待部署）
+
+- `POST /api/v1/colleges/{cid}/imports/confirmation-set/zip-preview`：同类表格 ZIP 逐成员草稿；正式保存仍走原集合确认。multipart 与限制见 [API 契约](API_CONTRACT.md) 和 [实施记录](development/IMPORT_FLOW_SIMPLIFICATION_20261018.md)。

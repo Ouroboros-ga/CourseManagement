@@ -16458,6 +16458,63 @@
         ]
       }
     },
+    "/api/v1/colleges/{cid}/imports/confirmation-set/zip-preview": {
+      "post": {
+        "tags": [
+          "import-confirmation"
+        ],
+        "summary": "Zip Preview",
+        "operationId": "zip_preview_api_v1_colleges__cid__imports_confirmation_set_zip_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_zip_preview_api_v1_colleges__cid__imports_confirmation_set_zip_preview_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/colleges/{cid}/imports/confirmation-set/preview": {
       "post": {
         "tags": [
@@ -29132,6 +29189,58 @@
           "category"
         ],
         "title": "Body_upload_file_api_v1_files_post"
+      },
+      "Body_zip_preview_api_v1_colleges__cid__imports_confirmation_set_zip_preview_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "semester_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semester Id"
+          },
+          "teaching_class_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teaching Class Id"
+          },
+          "course_type_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Type Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "target"
+        ],
+        "title": "Body_zip_preview_api_v1_colleges__cid__imports_confirmation_set_zip_preview_post"
       },
       "CalendarOverrideCreateRequest": {
         "properties": {

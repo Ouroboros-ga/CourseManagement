@@ -16,6 +16,16 @@ const setRoot = (cid: string) => `/api/v1/colleges/${encodeURIComponent(cid)}/im
 export const previewImportSet = (cid: string, ids: string[]) => directRequest<ImportSetPlan>(`${setRoot(cid)}/preview`, { method: 'POST', body: JSON.stringify({ batch_ids: ids }) })
 export const confirmImportSet = (cid: string, ids: string[], revision: string) => directRequest<ImportSetResult>(`${setRoot(cid)}/confirm`, { method: 'POST', body: JSON.stringify({ batch_ids: ids, revision }) })
 
+export async function previewImportArchive(cid: string, target: string, file: File,
+  options: { semester_id?: string; teaching_class_id?: string; course_type_id?: string }) {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('target', target)
+  for (const [key, value] of Object.entries(options)) if (value) body.append(key, value)
+  return directRequest<{ files: Array<ImportPreviewResult & { filename: string }>; errors: Array<{ filename: string; message: string }> }>(
+    `${setRoot(cid)}/zip-preview`, { method: 'POST', body })
+}
+
 export interface ImportPreviewResult {
   id: string
   target: string
@@ -47,7 +57,7 @@ export async function uploadImportFile(
   } = {}
 ): Promise<ImportPreviewResult> {
   const formData = new FormData()
-  formData.append('file', file)
+  formData.append('file', file, file.webkitRelativePath || file.name)
   formData.append('target', target)
   if (options.semester_id !== undefined && options.semester_id !== null && options.semester_id !== '') {
     formData.append('semester_id', String(options.semester_id))

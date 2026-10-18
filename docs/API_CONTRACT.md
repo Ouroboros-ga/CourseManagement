@@ -715,3 +715,9 @@ CHECK、区间 CHECK、外键）一律映射为 409，不返回 500。事实、�
 `INVALID_ANCHOR_TYPE`；同锚点重叠或跨锚点覆盖同一共享身份在预览给出
 `MULTIPLE_TEACHING_OVERLAP`/`ANCHOR_OVERLAP`，确认阶段 409；补录区间只更新与之重叠的那条任命，
 不影响不重叠的历史记录。整批在确认集合的单一提交点落库，任一行失败全部回滚，重试不重复。
+
+## 2026-10-18 导入 ZIP 预览（待部署）
+
+`POST /api/v1/colleges/{cid}/imports/confirmation-set/zip-preview`：multipart 上传 `file`、`target`，可选 `semester_id`、`teaching_class_id`、`course_type_id`。与原学院导入相同的功能/范围鉴权，仅创建成员预览，不写正式资料。返回 `files`（逐成员预览）、`errors`（filename/message）、`business_data_applied=false`。成功成员仍须经现有集合 preview 与携带 revision 的 confirm；前端必须让用户明确处理/排除失败成员，不能静默确认成功子集。
+
+限制：ZIP 10 MiB、20 个表格、每成员 10 MiB、总展开 50 MiB、目录项 200。接受 xls/xlsx/csv，拒绝不安全或重复路径、加密、链接、嵌套归档及其他文件。格式/范围不合规返回现有 422/权限错误；详细行为见 development/IMPORT_FLOW_SIMPLIFICATION_20261018.md。该接口开发完成不等于生产可用。
