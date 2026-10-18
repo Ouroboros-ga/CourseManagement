@@ -86,3 +86,11 @@
 - 回退只需原子恢复两处 current 指针到上述旧目录，重启 course-management 并核对内外网 ready；无结构变化，不应无故恢复数据库备份覆盖后续业务。
 - 服务器证据在 `/opt/course-management/incoming/20261018-unified-import-6a00179/` 的 DEPLOYED.json、ONLINE_VERIFICATION.json；发布目录含 RELEASE.json，Web 含 WEB_RELEASE.json。
 - 主工作区六份其他任务文档已备份并逐字节核对保留，没有混入本次提交。当前开发工作区干净；未归档或删除其他工作区。
+
+### 2026-10-18 19:21 拖放与大包上限发布
+
+- 源码 `242259aa0d39a4aba4dd979558c4842ba1ba7d24` 已合入推送并部署；后端 `/opt/course-management/releases/20261018-import-drop-242259aa0d`，Web `/opt/course-management/admin-web/releases/20261018-import-drop-242259aa0d`。
+- 候选/线上 ready、首页及教务 JS 资源哈希、新接口匿名 401、运行时代码上限（1000 文件、100 文件/批、50 MiB ZIP）、Nginx 52m 及只读迁移版本检查通过；结构仍 `f26a1018s006`。后端环境配置未修改，业务隔离 true、组织排班 false；仅站点请求体配置由 12m 改为 52m。
+- 发布前完整备份 `/var/backups/course-management/20261018T112135Z.WgdXID`，SHA256SUMS 通过；上一后端及 Web 均为各自 releases 下的 `20261018-unified-import-6a0017939c`。
+- 回退时恢复上述旧 current 指针、重启应用；同时用 incoming 发布目录中的 `nginx.previous.conf` 恢复原 `/etc/nginx/sites-available/course-management.conf`，`nginx -t` 后重载 nginx。发布脚本已包含失败自动恢复两端和 Nginx 配置的逻辑；无结构降级。
+- 证据：`/opt/course-management/incoming/20261018-import-drop-242259a/{DEPLOYED,ONLINE_VERIFICATION}.json`。先前读取失败的浏览器文件记录不会自动重试；刷新页面后重新拖入原 ZIP/文件夹。真实教务包写入仍由用户核对确认，本次没有代用户导入学生数据。
