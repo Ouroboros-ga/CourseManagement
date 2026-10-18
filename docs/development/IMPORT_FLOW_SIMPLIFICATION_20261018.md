@@ -102,3 +102,10 @@
 - 原 ZIP 本地只读核对：32 文件全部识别 admin_roster，主表解析 1053 名学生；其中机自2602 的 Sheet2 第2行、计算机2602 的第15/33行、计算机2603 的第8/17/22/34行共7条辅助记录不在主表，保留为3个文件的待核对差异。没有向生产导入名单，也没有把源文件或学生个人信息写入版本库。
 - 定向回归20项通过，含真实预览/确认集合阻断差异、匹配名单保存，以及原身份冲突/导入HTTP回归；使用隔离SQLite。未增加数据库表、迁移、依赖或前端接口，不重复整套产品验收。
 - 此段为实现记录；实际发布状态见后续发布条目。
+
+### 2026-10-18 19:33 原表识别修复发布
+
+- 源码 `f86c285be6c3fc90d48563be3057a42d65c250c3` 已合入推送 dev-main；Web代码未改，沿用已构建静态资源，与后端一起记录本次发布来源。后端 `/opt/course-management/releases/20261018-roster-fix-f86c285be6`，Web `/opt/course-management/admin-web/releases/20261018-roster-fix-f86c285be6`。
+- 候选启动、内网/公网数据库 ready、入口与教务JS哈希、识别目录/模板及人员关联接口匿名401、只读结构版本核对通过。结构仍 `f26a1018s006`，环境配置哈希不变，业务隔离true、组织排班false；未改Nginx的52m上限，未迁移、回填或导入学生资料。
+- 发布前备份 `/var/backups/course-management/20261018T113336Z.qfi0RO`，SHA256SUMS通过；上一版后端/Web均为各自releases下的 `20261018-import-drop-242259aa0d`。回退仅恢复两处current指针并重启、核对ready，不恢复数据库覆盖后续业务。
+- 证据 `/opt/course-management/incoming/20261018-roster-fix-f86c285/{DEPLOYED,ONLINE_VERIFICATION}.json`。本地原ZIP核对未上传真实学生源文件到服务器；浏览器需刷新并重新添加ZIP，不会自动重试已有失败记录。
