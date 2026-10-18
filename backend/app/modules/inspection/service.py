@@ -169,6 +169,8 @@ class PlanItem:
     teacher_name_snapshot: str | None = None
     student_ids: list[int] = field(default_factory=list)
     roster: list[TaskRosterMember] = field(default_factory=list)
+    # 该生在本次课次属于任务里的哪些教学班（合班逐学生归属的唯一来源记录）。
+    student_class_map: dict[int, list[int]] = field(default_factory=dict)
     constituent_schedule_ids: list[int] = field(default_factory=list)
     occurrence_keys: list[str] = field(default_factory=list)
 
@@ -672,6 +674,18 @@ class InspectionService:
                 m.task_id = task.id
                 m.roster_version = 1
                 self._repo.add(m)
+            from app.modules.inspection.models import TaskRosterMemberClass
+
+            for sid, class_ids in sorted(it.student_class_map.items()):
+                for cid in sorted(set(class_ids)):
+                    self._repo.add(
+                        TaskRosterMemberClass(
+                            task_id=task.id,
+                            roster_version=1,
+                            student_id=sid,
+                            teaching_class_id=cid,
+                        )
+                    )
             self._repo.flush()
 
             if get_settings().campus_scheduling_enabled:
@@ -1335,12 +1349,14 @@ class InspectionService:
 
                 merged_students = []
                 seen_sids = set()
+                student_classes: dict[int, list[int]] = {}
                 class_names_set = set()
                 for sc in sched_list:
                     cl_name = tc_class_name.get(sc.teaching_class_id)
                     if cl_name:
                         class_names_set.add(cl_name)
                     for st in dated_rosters.get(sc.teaching_class_id, []):
+                        student_classes.setdefault(st.id, []).append(sc.teaching_class_id)
                         if st.id not in seen_sids:
                             seen_sids.add(st.id)
                             merged_students.append(st)
@@ -1426,6 +1442,9 @@ class InspectionService:
                     teacher_name_snapshot=rep_teacher,
                     require_photo_snapshot=body.require_photo,
                     student_ids=[st.id for st in merged_students],
+                    student_class_map={
+                        sid: sorted(set(ids)) for sid, ids in student_classes.items()
+                    },
                     constituent_schedule_ids=c_sched_ids,
                     occurrence_keys=sorted({schedule_occurrence(s, date_key) for s in sched_list}),
                 )
@@ -2906,6 +2925,18 @@ class InspectionService:
                     major_name_snapshot=ac.major_name if ac else None,
                 )
             )
+        from app.modules.inspection.roster_provenance import provenance_rows
+
+        self._repo.add_all(
+            provenance_rows(
+                self._session,
+                task_id=task.id,
+                roster_version=new_version,
+                primary_class_id=task.teaching_class_id,
+                student_ids=list(wanted),
+                inspection_date=task.inspection_date,
+            )
+        )
         prev_version = task.roster_version
         task.roster_version = new_version
         task.expected_count_current = len(wanted)

@@ -11,7 +11,13 @@ def test_unified_release_has_one_head_and_keeps_both_published_branches():
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["f26a1017c001"]
+    # 收敛点之后允许继续追加链路，但必须仍是单一 head，且 c001 在其祖先路径上。
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert any(
+        step.module.revision == "f26a1017c001"
+        for step in script.iterate_revisions(heads[0], "base")
+    )
     assert script.get_revision("f26a1017c001").down_revision == "f26a1017a001"
     assert script.get_revision("f26a1017a001").down_revision == "f26a1016b001"
     assert script.get_revision("f26a1016b001").down_revision == "f26a1016a003"

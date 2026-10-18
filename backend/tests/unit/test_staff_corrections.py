@@ -11,6 +11,7 @@ from app.models import Base
 from app.modules.academic.models import (
     AdministrativeClass,
     Course,
+    CourseSchedule,
     Semester,
     Student,
     TeachingClass,
@@ -18,7 +19,7 @@ from app.modules.academic.models import (
 from app.modules.academic.offering_models import AcademicOffering
 from app.modules.academic.staff_models import FacultyStaff, TeachingStaffAssignment
 from app.modules.identity.models import UserAccount
-from app.modules.inspection.models import InspectionTask
+from app.modules.inspection.models import InspectionTask, TaskRosterVersion
 from app.modules.organization.models import College, School
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
@@ -171,10 +172,16 @@ def request(version, attendance_type="NORMAL", reason="教师核对后更正"):
     )
 
 
-def service(db):
-    from app.modules.attendance.staff_service import StaffTeachingAttendanceService
+def page_params(page=1, page_size=20):
+    from app.common.pagination import PageParams
 
-    return StaffTeachingAttendanceService(db)
+    return PageParams(page=page, page_size=page_size)
+
+
+def service(db):
+    from app.modules.attendance.staff_service import StaffAttendanceSelfService
+
+    return StaffAttendanceSelfService(db)
 
 
 def test_own_correction_appends_version_audit_and_bumps_responsible_college_source(db, monkeypatch):
@@ -374,16 +381,16 @@ def test_own_history_is_readable_and_foreign_record_stays_hidden(db, monkeypatch
     ref = staff_ref(db)
     service(db).correct_teaching(ref.user, ref, 1, request(1), "REQ-H")
 
-    rows = service(db).teaching_versions(ref.user, ref, 1)
+    rows = service(db).record_versions(ref.user, ref, 1, "teaching")
     assert [(v.version_no, v.source_type) for v in rows] == [
         (2, AttendanceSourceType.CORRECTION.value)
     ]
     # 记录 2 属于学院 2 的教学班：本地任命不扩散，历史同样不可见。
     with pytest.raises(NotFoundError):
-        service(db).teaching_versions(ref.user, ref, 2)
+        service(db).record_versions(ref.user, ref, 2, "teaching")
 
 
-def test_history_route_is_mounted_and_narrows_by_teaching_relation(db, monkeypatch):
+def test_history_route_requires_the_view_and_narrows_by_teaching_relation(db, monkeypatch):
     from app.core.database import get_db
     from app.main import create_app
     from app.modules.identity.deps import get_current_user
@@ -399,8 +406,174 @@ def test_history_route_is_mounted_and_narrows_by_teaching_relation(db, monkeypat
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: ref.user
     with TestClient(app) as client:
-        mine = client.get("/api/v1/me/teaching-attendance/1/versions")
+        mine = client.get("/api/v1/me/attendance-records/1/versions?view=teaching")
         assert mine.status_code == 200, mine.text
         assert [row["version_no"] for row in mine.json()["data"]] == [2]
-        foreign = client.get("/api/v1/me/teaching-attendance/2/versions")
+        foreign = client.get("/api/v1/me/attendance-records/2/versions?view=teaching")
         assert foreign.status_code == 404, foreign.text
+        # 责任谓词不能替授课关系放行，也不允许省略视图猜测范围。
+        wrong_view = client.get("/api/v1/me/attendance-records/1/versions?view=responsible")
+        assert wrong_view.status_code == 404, wrong_view.text
+        assert client.get("/api/v1/me/attendance-records/1/versions").status_code == 422
+        assert client.get("/api/v1/me/attendance-records/1/versions?view=all").status_code == 422
+
+
+# --------------------------------------------------------------------------- #
+# 审查 F1：合班任务逐学生判定授课归属，不因为同任务有自己的班就放行整条名单
+# --------------------------------------------------------------------------- #
+def make_merged_task(db, *, provenance: bool, shared_offering: bool = True):
+    """两个教学班同时间同教室合成一条任务；学生 1 只在一班，学生 2 只在二班。
+
+    `provenance=False` 模拟本迁移之前的历史名单版本（没有冻结教学班归属）。
+    `shared_offering=False` 表示两班只是恰好同堂，并未确认同一共享教务身份。
+    """
+    from app.modules.attendance.models import AttendanceRecord
+    from app.modules.inspection.models import (
+        TaskRosterMember,
+        TaskRosterMemberClass,
+        TaskScheduleSource,
+    )
+
+    db.add_all(
+        [
+            CourseSchedule(
+                id=1, teaching_class_id=1, semester_id=1, college_id=1, weekday=3,
+                start_period=1, end_period=2, classroom="A101",
+            ),
+            CourseSchedule(
+                id=2, teaching_class_id=2, semester_id=1, college_id=2, weekday=3,
+                start_period=1, end_period=2, classroom="A101",
+            ),
+        ]
+    )
+    if not shared_offering:
+        for tc in db.scalars(select(TeachingClass)):
+            tc.academic_offering_id = None
+    db.flush()
+    db.add(
+        InspectionTask(
+            id=3, task_key="T3", semester_id=1, inspection_date=COURSE_DAY, week_no=6,
+            inspection_type="COURSE", start_period=1, end_period=2, teaching_class_id=1,
+            college_id=1, roster_version=1, occurrence_keys_snapshot=[OCC_KEY],
+            classroom_snapshot="A101",
+        )
+    )
+    db.flush()
+    db.add_all(
+        [
+            TaskScheduleSource(task_id=3, teaching_class_id=1, course_schedule_id=1),
+            TaskScheduleSource(task_id=3, teaching_class_id=2, course_schedule_id=2),
+            TaskRosterMember(
+                task_id=3, roster_version=1, student_id=1, student_no="S001", name="张一",
+                class_name_snapshot="一班", administrative_class_id_snapshot=1,
+            ),
+            TaskRosterMember(
+                task_id=3, roster_version=1, student_id=2, student_no="S002", name="张二",
+                class_name_snapshot="一班", administrative_class_id_snapshot=1,
+            ),
+            AttendanceRecord(
+                id=3, task_id=3, student_id=1, effective_type="LATE", current_version=1
+            ),
+            AttendanceRecord(
+                id=4, task_id=3, student_id=2, effective_type="ABSENT", current_version=1
+            ),
+        ]
+    )
+    if provenance:
+        db.add_all(
+            [
+                TaskRosterMemberClass(
+                    task_id=3, roster_version=1, student_id=1, teaching_class_id=1
+                ),
+                TaskRosterMemberClass(
+                    task_id=3, roster_version=1, student_id=2, teaching_class_id=2
+                ),
+            ]
+        )
+    db.add(TaskRosterVersion(task_id=3, version_no=1, reason="初始名单"))
+    db.commit()
+
+
+def _query(db):
+    from app.modules.identity.service import CurrentUser
+    from app.modules.inspection.staff_record_query import StaffRecordQueryService
+
+    ref = staff_ref(db)
+    row = db.scalar(select(UserAccount).where(UserAccount.id == ref.user.id))
+    actor = CurrentUser(
+        id=row.id, username=None, display_name=row.display_name, status="ACTIVE",
+        roles=[], permissions=[],
+    )
+    return StaffRecordQueryService(db, actor), ref
+
+
+def test_merged_task_lists_and_corrects_only_own_class_students(db, monkeypatch):
+    from app.core.exceptions import NotFoundError
+    from app.modules.report.source_revision import SourceRevisionService
+
+    monkeypatch.setattr(SourceRevisionService, "bump_for_task_id", lambda session, tid: None)
+    add_relation(db, local_class=1)
+    make_merged_task(db, provenance=True)
+    query, ref = _query(db)
+
+    rows, total = query.list_attendance(3, "teaching", None, page_params(1, 50))
+    assert [r.student_id for r in rows] == ["1"], "二班学生不泄露给一班教师"
+    assert total == 1
+    assert "correct" in rows[0].allowed_actions
+
+    with pytest.raises(NotFoundError):
+        service(db).correct_teaching(ref.user, ref, 4, request(1), "REQ-F1")
+    result = service(db).correct_teaching(ref.user, ref, 3, request(1), "REQ-F1-OK")
+    assert (result.effective_type, result.current_version) == ("NORMAL", 2)
+
+    card = query.get_card(3, "teaching")
+    assert card.counts.total == 1, "人数与明细同一口径，不把整条合班名单算成本人应到"
+
+
+def test_merged_task_without_provenance_stays_readable_but_blocks_correction(db, monkeypatch):
+    from app.core.exceptions import PermissionDeniedError
+    from app.modules.report.source_revision import SourceRevisionService
+
+    monkeypatch.setattr(SourceRevisionService, "bump_for_task_id", lambda session, tid: None)
+    add_relation(db, local_class=1)
+    make_merged_task(db, provenance=False)
+    query, ref = _query(db)
+
+    rows, total = query.list_attendance(3, "teaching", None, page_params(1, 50))
+    assert total == 2, "历史名单没有归属记录时不封掉整条任务"
+    assert all("correct" not in r.allowed_actions for r in rows)
+    assert all(r.restriction_reason for r in rows)
+
+    with pytest.raises(PermissionDeniedError):
+        service(db).correct_teaching(ref.user, ref, 3, request(1), "REQ-F1-LEGACY")
+    # 归属不清仍可核对历史，不需要为此给全院读取权限。
+    assert service(db).record_versions(ref.user, ref, 3, "teaching") == []
+
+
+def test_confirmed_shared_meeting_keeps_whole_classroom(db, monkeypatch):
+    from app.modules.report.source_revision import SourceRevisionService
+
+    monkeypatch.setattr(SourceRevisionService, "bump_for_task_id", lambda session, tid: None)
+    add_relation(db, shared=True)
+    make_merged_task(db, provenance=True)
+    query, ref = _query(db)
+
+    rows, total = query.list_attendance(3, "teaching", None, page_params(1, 50))
+    assert total == 2, "已确认共同授课的共享课堂保持完整能力"
+    assert all("correct" in r.allowed_actions for r in rows)
+
+
+def test_unconfirmed_same_room_classes_do_not_merge_authority(db, monkeypatch):
+    """同教室、同名课、同节次都不是共享身份的证明：未确认映射就不产生任何授课范围。"""
+    from app.core.exceptions import NotFoundError
+    from app.modules.report.source_revision import SourceRevisionService
+
+    monkeypatch.setattr(SourceRevisionService, "bump_for_task_id", lambda session, tid: None)
+    add_relation(db, shared=True)
+    make_merged_task(db, provenance=True, shared_offering=False)
+    query, ref = _query(db)
+
+    with pytest.raises(NotFoundError):
+        query.list_attendance(3, "teaching", None, page_params(1, 50))
+    with pytest.raises(NotFoundError):
+        service(db).correct_teaching(ref.user, ref, 3, request(1), "REQ-F1-SHARED")

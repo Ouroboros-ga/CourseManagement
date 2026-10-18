@@ -293,6 +293,42 @@ class TaskRosterMember(Base):
     major_name_snapshot: Mapped[str | None] = mapped_column(String(128))
 
 
+class TaskRosterMemberClass(Base):
+    """名单快照里“该生属于本任务的哪些教学班”（审查 F1）。
+
+    合班任务的一条考勤记录只有 (task_id, student_id)，而教师更正必须逐学生判断归属；
+    行政班快照解决不了这件事，回头用当前选课名单猜历史又会在学生转班后把 B 班记录
+    交给 A 班教师。因此名单冻结时一并冻结来源教学班：
+
+    - 有记录：全部命中本人授课才可更正，部分命中只可读并提示归属待核对，完全不命中不返回；
+    - 无记录（本迁移之前的历史版本）：仍可见，但不给本人写入口，不猜归属。
+    """
+
+    __tablename__ = "task_roster_member_class"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id",
+            "roster_version",
+            "student_id",
+            "teaching_class_id",
+            name="uq_task_roster_member_class",
+        ),
+        MYSQL_TABLE_ARGS,
+    )
+
+    id: Mapped[int] = pk_column()
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("inspection_task.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    roster_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    student_id: Mapped[int] = mapped_column(
+        ForeignKey("student.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    teaching_class_id: Mapped[int] = mapped_column(
+        ForeignKey("teaching_class.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 提交截止时间：某日当前值 + 历史版本（技术方案 13.1）
 # --------------------------------------------------------------------------- #

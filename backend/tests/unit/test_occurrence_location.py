@@ -6,6 +6,7 @@ import pytest
 from app.models import Base
 from app.modules.academic.models import (
     AdministrativeClass,
+    CalendarOverride,
     Course,
     CourseSchedule,
     CourseScheduleWeek,
@@ -24,6 +25,7 @@ from app.modules.inspection.models import InspectionTask
 from app.modules.organization.models import College, School
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 COURSE_DAY = date(2026, 10, 7)
 KEY = "s:1|2026-10-07"
@@ -39,7 +41,9 @@ def occurrence_request(**kwargs):
 
 @pytest.fixture(name="db")
 def location_db():
-    engine = create_engine("sqlite://")
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     event.listen(engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON"))
     Base.metadata.create_all(engine)
     with Session(engine, expire_on_commit=False) as db:
@@ -227,6 +231,54 @@ def test_get_summary_reflects_override_and_base(db):
     service(db).change_location(staff_ref(db), 1, KEY, occurrence_request(), None)
     after = service(db).location_summary(staff_ref(db), 1, KEY)
     assert after.current_location == "B202" and after.overridden and after.revision == 1
+
+
+def test_request_requires_the_seen_revision():
+    """省略所见版本即跳过乐观校验，会让旧页面静默覆盖他人已保存的安排；契约要求必传。"""
+    from app.modules.academic.occurrence_location import OccurrenceLocationRequest
+    from pydantic import ValidationError
+
+    for payload in ({"location": "C303"}, {"location": "C303", "revision": None}):
+        with pytest.raises(ValidationError):
+            OccurrenceLocationRequest.model_validate(payload)
+    saved = OccurrenceLocationRequest.model_validate({"location": "C303", "revision": 0})
+    assert saved.revision == 0
+
+
+def test_makeup_day_resolves_the_source_weekday_occurrence(db):
+    """调补课（周六补第 6 周周三的课）必须按校历找到那节课，否则教师既看不到也改不了地点。"""
+    add_relation(db)
+    makeup_day = date(2026, 10, 10)
+    key = f"s:1|{makeup_day}"
+    db.add(
+        CalendarOverride(
+            semester_id=1, date=makeup_day, override_type="MAKEUP",
+            source_teaching_week=6, source_teaching_weekday=3,
+        )
+    )
+    db.commit()
+    summary = service(db).location_summary(staff_ref(db), 1, key)
+    assert summary.base_location == "A101" and summary.revision == 0
+    changed = service(db).change_location(
+        staff_ref(db), 1, key, occurrence_request(revision=0, reason="调补课换教室"), "REQ-M"
+    )
+    assert changed.current_location == "B202" and changed.revision == 1
+    db.expire_all()
+    row = db.scalar(
+        select(OccurrenceLocationOverride).where(OccurrenceLocationOverride.occurrence_key == key)
+    )
+    assert row is not None and row.location == "B202"
+
+
+def test_stop_day_offers_no_modifiable_occurrence(db):
+    """停课日不伪造一个可改地点的课次。"""
+    from app.core.exceptions import NotFoundError
+
+    add_relation(db)
+    db.add(CalendarOverride(semester_id=1, date=COURSE_DAY, override_type="STOP"))
+    db.commit()
+    with pytest.raises(NotFoundError):
+        service(db).location_summary(staff_ref(db), 1, KEY)
 
 
 def test_stale_revision_conflicts_and_writes_nothing(db):
@@ -464,3 +516,138 @@ def test_other_semester_task_is_not_rewritten_by_this_room_change(db):
     summary = service(db).change_location(staff_ref(db), 1, KEY, occurrence_request(), None)
     assert foreign.id not in [int(t) for t in summary.affected_task_ids]
     assert foreign.classroom_snapshot == "A101"
+
+
+# --------------------------------------------------------------------------- #
+# 本人正式课次日历（审查 F4：日常换教室不能以“先被抽到查课”为前提）
+# --------------------------------------------------------------------------- #
+WEEK6 = (date(2026, 10, 5), date(2026, 10, 11))
+
+
+def calendar(db, date_from, date_to, **kwargs):
+    return service(db).occurrence_calendar(
+        staff_ref(db), date_from=date_from, date_to=date_to, **kwargs
+    )
+
+
+def add_makeup(db, day):
+    db.add(
+        CalendarOverride(
+            semester_id=1, date=day, override_type="MAKEUP",
+            source_teaching_week=6, source_teaching_weekday=3,
+        )
+    )
+    db.commit()
+
+
+def test_calendar_lists_classes_that_were_never_inspected(db):
+    add_relation(db)
+    page = calendar(db, *WEEK6)
+    assert (page.total, page.page, page.page_size) == (1, 1, 50)
+    item = page.items[0]
+    assert item.occurrence_key == KEY and item.task_ids == []
+    assert item.base_location == "A101" and item.current_location == "A101"
+    assert item.overridden is False and item.revision == 0
+    assert item.course_names == ["数学"] and item.class_names == ["数学一班"]
+    assert item.teaching_class_id == "1" and item.inspection_date == "2026-10-07"
+    # 从未生成任务的正式课也能换教室，改完列表反映新安排
+    service(db).change_location(staff_ref(db), 1, KEY, occurrence_request(), None)
+    after = calendar(db, *WEEK6).items[0]
+    assert after.current_location == "B202" and after.overridden and after.revision == 1
+
+
+def test_calendar_links_existing_tasks_without_requiring_them(db):
+    add_relation(db)
+    task = make_task(db, key="PA", snapshot=[KEY], with_source=True)
+    canceled = make_task(db, key="CA", snapshot=[KEY], with_source=True, canceled=True)
+    item = calendar(db, *WEEK6).items[0]
+    assert item.task_ids == [str(task.id)]
+    assert str(canceled.id) not in item.task_ids
+
+
+def test_calendar_follows_makeup_and_stop_days(db):
+    add_relation(db)
+    add_makeup(db, date(2026, 10, 10))
+    page = calendar(db, *WEEK6)
+    assert {i.occurrence_key for i in page.items} == {KEY, "s:1|2026-10-10"}
+    db.add(CalendarOverride(semester_id=1, date=COURSE_DAY, override_type="STOP"))
+    db.commit()
+    page = calendar(db, *WEEK6)
+    assert [i.occurrence_key for i in page.items] == ["s:1|2026-10-10"]
+    assert page.total == 1
+    changed = service(db).change_location(
+        staff_ref(db), 1, "s:1|2026-10-10", occurrence_request(), None
+    )
+    assert changed.current_location == "B202" and changed.revision == 1
+
+
+def test_calendar_merges_shared_occurrence_across_college_views(db):
+    add_relation(db, local_class=1)
+    add_relation(db, local_class=2)
+    page = calendar(db, *WEEK6)
+    assert page.total == 1
+    item = page.items[0]
+    assert item.occurrence_key == KEY
+    assert sorted(item.class_names) == ["数学一班", "数学二班"]
+    assert item.teaching_class_id == "1" and item.base_location == "A101"
+
+
+def test_calendar_only_lists_days_the_appointment_covers(db):
+    """任命区间外的课次不能因为“现在仍在任”就列出来让人改。"""
+    db.add(
+        TeachingStaffAssignment(
+            staff_id=1, semester_id=1, anchor_type="LOCAL",
+            teaching_class_id=1, effective_from=date(2026, 10, 8),
+        )
+    )
+    db.commit()
+    add_makeup(db, date(2026, 10, 10))
+    assert [i.occurrence_key for i in calendar(db, *WEEK6).items] == ["s:1|2026-10-10"]
+
+
+def test_calendar_hides_classes_without_my_relation(db):
+    add_relation(db, local_class=1)
+    page = calendar(db, *WEEK6, teaching_class_id=2)
+    assert page.items == [] and page.total == 0
+
+
+def test_calendar_rejects_invalid_ranges(db):
+    from app.core.exceptions import AppError, ErrorCode
+
+    add_relation(db)
+    with pytest.raises(AppError) as inverted:
+        calendar(db, date(2026, 10, 7), date(2026, 10, 6))
+    assert inverted.value.http_status == 422
+    assert inverted.value.code == ErrorCode.VALIDATION_ERROR
+    with pytest.raises(AppError) as too_long:
+        calendar(db, date(2026, 9, 1), date(2026, 11, 1))
+    assert too_long.value.http_status == 422
+
+
+def test_calendar_route_lists_and_validates(db):
+    from app.core.database import get_db
+    from app.main import create_app
+    from app.modules.identity.deps import get_current_user
+    from fastapi.testclient import TestClient
+
+    add_relation(db)
+    ref = staff_ref(db)
+    app = create_app()
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: ref.user
+    params = {"date_from": "2026-10-05", "date_to": "2026-10-11"}
+    with TestClient(app) as client:
+        ok = client.get("/api/v1/me/teaching-occurrences", params=params)
+        assert ok.status_code == 200, ok.text
+        payload = ok.json()["data"]
+        assert payload["total"] == 1
+        assert payload["items"][0]["occurrence_key"] == KEY
+        assert payload["items"][0]["revision"] == 0
+        assert payload["items"][0]["task_ids"] == []
+        assert client.get(
+            "/api/v1/me/teaching-occurrences",
+            params={"date_from": "2026-10-07", "date_to": "2026-10-06"},
+        ).status_code == 422
+        assert client.get(
+            "/api/v1/me/teaching-occurrences", params={**params, "page_size": 0}
+        ).status_code == 422

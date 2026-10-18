@@ -346,7 +346,7 @@ def test_foreign_college_task_cannot_be_reviewed_even_with_copied_request(db):
 # 与教师更正共用考勤行与版本链
 # --------------------------------------------------------------------------- #
 def _teacher_correction(db, record_id=1, target="LATE"):
-    from app.modules.attendance.staff_service import StaffTeachingAttendanceService
+    from app.modules.attendance.staff_service import StaffAttendanceSelfService
 
     db.add(
         TeachingStaffAssignment(
@@ -357,7 +357,7 @@ def _teacher_correction(db, record_id=1, target="LATE"):
     db.commit()
     from app.modules.attendance.schemas import AttendanceCorrectionRequest
 
-    return StaffTeachingAttendanceService(db).correct_teaching(
+    return StaffAttendanceSelfService(db).correct_teaching(
         staff_ref(db, 20).user,
         staff_ref(db, 20),
         record_id,
@@ -610,3 +610,84 @@ def test_http_account_without_staff_profile_is_rejected(db):
             ).status_code
             == 403
         )
+
+
+# --------------------------------------------------------------------------- #
+# 认定历史：责任视图必须可用（纯辅导员没有授课关系），且不越班、不跨视图放行
+# --------------------------------------------------------------------------- #
+def test_responsible_history_entry_and_view_binding(db):
+    from app.core.exceptions import NotFoundError
+    from app.modules.attendance.models import AttendanceSourceType
+    from app.modules.attendance.staff_service import StaffAttendanceSelfService
+
+    ref = staff_ref(db, 20)
+    attendance = StaffAttendanceSelfService(db)
+    # 卡片声明 view_history，就必须有能用的入口：还没有授课关系时责任视图先要可读。
+    assert attendance.record_versions(ref.user, ref, 1, "responsible") == []
+    with pytest.raises(NotFoundError):
+        attendance.record_versions(ref.user, ref, 1, "teaching")
+    # 同院他班（王五归陈辅导员）不因“同一条任务对本视图可见”就读到历史。
+    with pytest.raises(NotFoundError):
+        attendance.record_versions(ref.user, ref, 3, "responsible")
+    # 外院任务里的本班学生只读可见，与责任异议列表同一口径。
+    assert attendance.record_versions(ref.user, ref, 4, "responsible") == []
+
+    _teacher_correction(db)
+    rows = attendance.record_versions(ref.user, ref, 1, "teaching")
+    assert [(r.version_no, r.attendance_type, r.source_type) for r in rows] == [
+        (2, "LATE", AttendanceSourceType.CORRECTION.value)
+    ]
+    # 同一条记录在两种视图返回同一份历史：视图只决定能否读取，不决定投影内容。
+    responsible_rows = attendance.record_versions(ref.user, ref, 1, "responsible")
+    assert [r.version_no for r in responsible_rows] == [2]
+
+
+def test_http_responsible_history_round_trip(db):
+    client = _client(db, 20)
+    ok = client.get("/api/v1/me/attendance-records/1/versions?view=responsible")
+    assert ok.status_code == 200, ok.text
+    assert client.get(
+        "/api/v1/me/attendance-records/3/versions?view=responsible"
+    ).status_code == 404
+    # 省略视图不猜测范围。
+    assert client.get("/api/v1/me/attendance-records/1/versions").status_code == 422
+
+
+# --------------------------------------------------------------------------- #
+# 审查 F3：任何决定都基于所见事实；已符合诉求时不制造多余版本
+# --------------------------------------------------------------------------- #
+def test_rejection_also_requires_the_seen_version(db):
+    from app.core.exceptions import ConflictError, ErrorCode
+    from app.modules.attendance.models import AttendanceRecord
+
+    _teacher_correction(db, target="NORMAL")
+    with pytest.raises(ConflictError) as exc:
+        service(db, 20).review(1, review_body(1, decision="REJECTED"), "REQ-R")
+    assert exc.value.code == ErrorCode.VERSION_CONFLICT
+    obj = db.get(Objection, 1)
+    assert obj.final_status == ObjectionFinalStatus.PENDING.value
+    # 驳回未生效时，教师的新认定保持不动，也不被“恢复原始判定”改写。
+    assert db.get(AttendanceRecord, 1).effective_type == "NORMAL"
+    assert "考勤认定已变化" in str(exc.value.message)
+
+
+def test_approved_without_change_adds_no_attendance_version(db):
+    from app.modules.attendance.models import AttendanceRecord, AttendanceRecordVersion
+    from app.modules.audit.models import AuditLog
+
+    _teacher_correction(db, target="NORMAL")
+    result = service(db, 20).review(1, review_body(2, final_type="NORMAL"), "REQ-N")
+    assert result.final_status == "APPROVED"
+    assert result.attendance.current_version == 2, "判定与当前认定一致，不追加版本"
+    assert db.get(AttendanceRecord, 1).effective_type == "NORMAL"
+    rows = db.scalars(
+        select(AttendanceRecordVersion).where(AttendanceRecordVersion.attendance_record_id == 1)
+    ).all()
+    assert [r.version_no for r in rows] == [2], "只剩教师更正那一版，没有为凑版本再写一次"
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "objection.final_review", AuditLog.resource_id == "1"
+        )
+    )
+    assert audit.after_json["attendance_changed_since_filing"] is True
+    assert audit.after_json["base_attendance_version"] == 1

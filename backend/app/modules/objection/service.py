@@ -82,6 +82,14 @@ from app.modules.objection.schemas import (
 )
 from app.modules.report.source_revision import SourceRevisionService
 
+# 认定类型的中文表述：冲突说明与响应装配共用一张表，避免同一事实出现两种说法。
+ATTENDANCE_TYPE_LABELS = {
+    "NORMAL": "正常出勤",
+    "LEAVE": "请假",
+    "LATE": "迟到",
+    "ABSENT": "旷课",
+}
+
 
 def assert_pending_review(obj: Objection) -> None:
     """唯一状态机：已完成终审的异议不可再次审核。"""
@@ -411,12 +419,20 @@ class ObjectionService:
         调用方必须已按“考勤→异议”顺序锁定这两行、复核归档与各自的资源授权，并在本方法
         成功后自行完成**单次**提交；本方法不读权限、不提交、失败由调用方回滚。
 
-        版本口径：审核者所见 `current_version` 必须等于考勤当前版本，否则 409，绝不覆盖他人
-        新认定。教师更正等合法写入推进版本后，审核以**当前**版本重新起版（而非异议发起时的
-        `base_attendance_version`），使“考勤已变化”的异议仍可在重新核对后结案，同时保留
-        完整版本链；发起版本与本次落差记入审计。
+        版本口径：任何决定（通过或驳回）都必须提交所见的 `current_version`，与考勤当前版本
+        不符即 409，绝不静默结案。审核者看到的事实与库里不一致时，需要刷新后重新确认；
+        驳回维持的是**当前**认定，不是异议发起时的认定。教师更正等合法写入推进版本后，
+        审核以**当前**版本重新起版（而非异议发起时的 `base_attendance_version`），使“考勤已
+        变化”的异议仍可在重新核对后结案，同时保留完整版本链；发起版本与本次落差记入审计。
         """
         assert_pending_review(obj)
+        if body.current_version != record.current_version:
+            raise ConflictError(
+                ErrorCode.VERSION_CONFLICT,
+                f"考勤认定已变化：你所见 v{body.current_version}，当前为"
+                f" {ATTENDANCE_TYPE_LABELS.get(record.effective_type, record.effective_type)}"
+                f"（v{record.current_version}），请刷新核对后再决定",
+            )
         now = utcnow()
         if body.decision == "REJECTED":
             obj.final_status = ObjectionFinalStatus.REJECTED.value
@@ -452,11 +468,8 @@ class ObjectionService:
         changed_since_filing = record.current_version != obj.base_attendance_version
         if needs_correction:
             # 审核授权包含本次异议改判，不赋予独立的手工考勤更正能力。
-            # 审阅者所见版本须与考勤当前一致（乐观锁），据此不覆盖他人在异议发起后的新认定。
-            if body.current_version != record.current_version:
-                raise ConflictError(
-                    ErrorCode.VERSION_CONFLICT, "考勤已被他人更正，请刷新后重看再操作"
-                )
+            # 所见版本已在入口统一核对（不符 409），这里只推进认定与版本链。
+            # 判定与当前认定相同时不改考勤、不追加版本，避免制造无意义的考勤版本。
             record.effective_type = target
             record.current_version = record.current_version + 1
             self._repo.flush()
@@ -586,12 +599,7 @@ class ObjectionService:
         )
         admin_class_map = {c.id: c.class_name for c in admin_classes}
 
-        type_cn_map = {
-            "NORMAL": "正常出勤",
-            "LEAVE": "请假",
-            "LATE": "迟到",
-            "ABSENT": "旷课",
-        }
+        type_cn_map = ATTENDANCE_TYPE_LABELS
 
         out: list[ObjectionResponse] = []
         for o in objs:

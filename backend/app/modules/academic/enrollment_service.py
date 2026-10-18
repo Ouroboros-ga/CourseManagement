@@ -877,6 +877,20 @@ class EnrollmentService:
                             **snapshots[student.id],
                         )
                     )
+                from app.modules.inspection.roster_provenance import provenance_rows
+
+                # 异动同步的是未来正式名单：按任务课次日重新冻结教学班归属，
+                # 之后教师转班/换班都不会再改写这次名单的授课来源事实。
+                self.db.add_all(
+                    provenance_rows(
+                        self.db,
+                        task_id=task.id,
+                        roster_version=task.roster_version,
+                        primary_class_id=task.teaching_class_id,
+                        student_ids=[s.id for s in students],
+                        inspection_date=task.inspection_date,
+                    )
+                )
                 if old_ids != new_ids:
                     if task.expected_count_current == len(old_members):
                         task.expected_count_current = len(students)

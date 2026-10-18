@@ -49,6 +49,31 @@ def teaching_class_condition(user_id: int, *, occurrence_on, as_of: date):
     LOCAL 不经共享 ID 扩权；SHARED 只匹配已确认的映射，且学校/学期一致。
     历史只读的另行授权不由本谓词隐含提供。
     """
+    return _teaching_condition(
+        user_id, as_of, _active_interval(TeachingStaffAssignment, occurrence_on)
+    )
+
+
+def teaching_class_covers_range(user_id: int, *, date_from: date, date_to: date, as_of: date):
+    """关系在 ``[date_from, date_to]`` 内至少一个日期有效——本人正式课次日历用。
+
+    与 ``teaching_class_condition`` 共用同一套锚点、学院与学期判定，只把“覆盖某一天”
+    换成“区间相交”，避免出现第二套算法；已在区间前结束的任命不会因为当前在任而被列出。
+    """
+    return _teaching_condition(
+        user_id,
+        as_of,
+        and_(
+            TeachingStaffAssignment.effective_from <= date_to,
+            or_(
+                TeachingStaffAssignment.effective_to.is_(None),
+                TeachingStaffAssignment.effective_to > date_from,
+            ),
+        ),
+    )
+
+
+def _teaching_condition(user_id: int, as_of: date, occurrence_predicate):
     relation = TeachingStaffAssignment
     target_college = aliased(College)
     shared = (
@@ -72,7 +97,7 @@ def teaching_class_condition(user_id: int, *, occurrence_on, as_of: date):
             TeachingClass.status == "ACTIVE",
             relation.semester_id == TeachingClass.semester_id,
             _active_interval(relation, as_of),
-            _active_interval(relation, occurrence_on),
+            occurrence_predicate,
             or_(
                 and_(
                     relation.anchor_type == "LOCAL", relation.teaching_class_id == TeachingClass.id

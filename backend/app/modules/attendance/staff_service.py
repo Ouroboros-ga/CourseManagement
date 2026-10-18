@@ -1,15 +1,17 @@
-"""任课教师对本人授课查课记录的直接更正（教职工协作，T04）。
+"""教职工本人的考勤更正与认定历史（教职工协作 T04/T07，审查 F1/F6）。
 
 授权与事务边界：
 - 授权在写入事务内完成：锁操作者账号（复用 identity 仓储）与教职工档案，再锁考勤
-  行与任务行，随后按 `staff_scope.teaching_class_condition` 逐条复核本人对任务
-  （主教学班或全部来源课表教学班）在课次日的有效授课关系；LOCAL 不扩散共享视图，
-  SHARED 仅匹配已确认映射。
+  行与任务行，随后**逐学生**复核本人对该生在本任务里的授课归属
+  （`inspection/staff_record_query.teaching_membership_for_record`）。合班任务不再因为
+  任务里有一个自己的班就放行整条名单；LOCAL 不扩散共享视图，SHARED 仅匹配已确认映射；
+  归属取自名单快照冻结的来源教学班，不回头用当前选课名单猜历史。
+- 完全不属于本人的学生统一 404 防枚举；归属待核对（历史名单版本没有来源记录，或该生
+  同时属于其他教学班）可读、可看历史，但写入口 403 并说明原因，由既有获授权管理路径核实。
 - 教师更正不向普通教工拼接全局 `attendance.correct`，也不走管理员路径：
   版本写入复用 `AttendanceService.apply_correction` 的同一版本/审计/源修订事务，
   归档学期不因本人入口解锁；待处理异议保持原状态且必须在后续审核中重新核对版本。
-- `current_version` 过期统一 409 VERSION_CONFLICT；记录不存在或不在本人授课范围内
-  统一 404 防枚举。
+- `current_version` 过期统一 409 VERSION_CONFLICT。
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from app.core.exceptions import (
     PermissionDeniedError,
     UnauthenticatedError,
 )
-from app.modules.academic.models import Semester, TeachingClass
+from app.modules.academic.models import Semester
 from app.modules.academic.staff_models import FacultyStaff
 from app.modules.attendance.repository import AttendanceRepository
 from app.modules.attendance.schemas import (
@@ -37,11 +39,11 @@ from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.role_scope import business_today
 from app.modules.identity.service import CurrentUser
 from app.modules.identity.staff_deps import CurrentStaff
-from app.modules.identity.staff_scope import teaching_class_condition
-from app.modules.inspection.models import InspectionTask, TaskScheduleSource
+from app.modules.identity.staff_scope import responsible_class_condition
+from app.modules.inspection.models import InspectionTask, TaskRosterMember
 
 
-class StaffTeachingAttendanceService:
+class StaffAttendanceSelfService:
     """教职工本人授课视角的考勤更正服务；只服务本人资源，不产生管理范围。"""
 
     def __init__(self, db: Session) -> None:
@@ -106,7 +108,7 @@ class StaffTeachingAttendanceService:
             # 归档学期只走既有获授权归档更正入口，不因本人授课入口自动解锁。
             raise ConflictError(message="该学期已归档，请使用获授权的归档更正入口")
 
-        self._assert_teaching_coverage(actor.id, task)
+        self._assert_correctable(actor.id, task, record.student_id)
         try:
             self._attendance.apply_correction(
                 record,
@@ -121,11 +123,22 @@ class StaffTeachingAttendanceService:
         self._db.commit()
         return self._attendance._assemble([record])[0]
 
-    def teaching_versions(
-        self, actor: CurrentUser, staff_ref: CurrentStaff, record_id: int
+    def record_versions(
+        self,
+        actor: CurrentUser,
+        staff_ref: CurrentStaff,
+        record_id: int,
+        view: str,
     ) -> list[AttendanceVersionResponse]:
-        """本人授课记录的认定历史：卡片允许 `view_history` 必须有对应入口，
-        不能只过滤列表却把历史留给需要全院 `attendance.read` 的旧接口。"""
+        """本人可见考勤记录的认定历史：卡片声明哪个动作就必须有对应入口。
+
+        明细在两种视图都会给出 ``view_history``，因此历史也必须两种视图都可用——纯辅导员
+        没有授课关系，若历史只按授课谓词放行，按钮会稳定失败。按 ``view`` 使用与列表
+        相同的范围谓词：授课视图核对本人当前授课关系，责任视图核对该生在任务名单快照中的
+        行政班是否由本人负责。读入口不持 ``FOR UPDATE`` 行锁，越界与不存在统一 404。
+        """
+        if view not in ("teaching", "responsible"):
+            raise NotFoundError("考勤记录不存在或无权访问")
         self._guard(actor, staff_ref, lock=False)
         record = self._repo.get_record(record_id)
         if record is None:
@@ -137,32 +150,55 @@ class StaffTeachingAttendanceService:
         )
         if task is None:
             raise NotFoundError("考勤记录不存在或无权访问")
-        self._assert_teaching_coverage(actor.id, task)
+        if view == "teaching":
+            self._assert_record_visible(actor.id, task, record.student_id)
+        else:
+            self._assert_responsible_coverage(actor.id, task, record.student_id)
         return self._attendance.assemble_versions(record_id)
 
-    def _assert_teaching_coverage(self, user_id: int, task: InspectionTask) -> None:
-        """锁内复核本人当前有效授课关系同时覆盖记录任务与课次日期。"""
-        class_ids: set[int] = set()
-        if task.teaching_class_id:
-            class_ids.add(task.teaching_class_id)
-        class_ids.update(
-            self._db.scalars(
-                select(TaskScheduleSource.teaching_class_id).where(
-                    TaskScheduleSource.task_id == task.id
-                )
-            )
+    def _membership(self, task: InspectionTask, user_id: int, student_id: int):
+        from app.modules.inspection.staff_record_query import teaching_membership_for_record
+
+        return teaching_membership_for_record(
+            self._db, task, user_id, business_today(), student_id
         )
-        class_ids.discard(None)
-        covered = self._db.scalar(
-            select(TeachingClass.id).where(
-                TeachingClass.id.in_(class_ids),
-                teaching_class_condition(
-                    user_id, occurrence_on=task.inspection_date, as_of=business_today()
+
+    def _assert_record_visible(self, user_id: int, task: InspectionTask, student_id: int) -> None:
+        """读取（含认定历史）：合班任务里非本人授课的学生不返回，归属不清的仍可读但不可改。"""
+        visible, _correctable, _reason = self._membership(task, user_id, student_id)
+        if not visible:
+            raise NotFoundError("考勤记录不存在或无权访问")
+
+    def _assert_correctable(self, user_id: int, task: InspectionTask, student_id: int) -> None:
+        """写入：逐学生核对冻结的教学班归属，不因为同任务里有自己的班就放行整条名单。"""
+        visible, correctable, reason = self._membership(task, user_id, student_id)
+        if not visible:
+            raise NotFoundError("考勤记录不存在或无权访问")
+        if not correctable:
+            raise PermissionDeniedError(reason or "该生的授课归属待核对，暂不能由本人更正")
+
+    def _assert_responsible_coverage(
+        self, user_id: int, task: InspectionTask, student_id: int
+    ) -> None:
+        """责任视图：该生在本次名单快照中的行政班由本人当前责任关系覆盖。
+
+        与 ``StaffRecordQueryService`` 的读取谓词同一口径（名单快照行政班，不用当前学籍，
+        也不要求任务由本院负责——只读命中不授予改判或材料权限）。
+        """
+        hit = self._db.scalar(
+            select(TaskRosterMember.id).where(
+                TaskRosterMember.task_id == task.id,
+                TaskRosterMember.student_id == student_id,
+                TaskRosterMember.roster_version == task.roster_version,
+                responsible_class_condition(
+                    user_id,
+                    administrative_class_id=TaskRosterMember.administrative_class_id_snapshot,
+                    as_of=business_today(),
                 ),
             )
         )
-        if covered is None:
+        if hit is None:
             raise NotFoundError("考勤记录不存在或无权访问")
 
 
-__all__ = ["StaffTeachingAttendanceService"]
+__all__ = ["StaffAttendanceSelfService"]
