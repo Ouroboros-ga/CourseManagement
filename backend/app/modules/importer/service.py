@@ -944,7 +944,13 @@ class ImporterService:
         class_duties: list[dict] = []
 
         try:
-            matrix = read_any_matrix(content)
+            from app.modules.importer.attendance_roster import inspect_attendance, read_sheets
+
+            sheets = read_sheets(content)
+            attendance = inspect_attendance(sheets)
+            matrix = sheets[0][1] if sheets else read_any_matrix(content)
+            if attendance:
+                issues.extend(attendance["issues"])
         except Exception as exc:
             issues.append(_issue("parse_failed", f"文件解析失败：{exc}"))
             return (
@@ -1237,6 +1243,12 @@ class ImporterService:
             "classes_count": len(class_names),
             "class_names": sorted(class_names),
         }
+        if attendance:
+            summary.update(
+                {key: attendance[key] for key in ("source_sheet", "verified_auxiliary_sheets")}
+            )
+            for student in students:
+                student["source_sheet"] = attendance["source_sheet"]
         return payload, issues, summary
 
     def _apply_admin_roster(
