@@ -21,6 +21,12 @@ from app.core.exceptions import AppError, ErrorCode
 # 固定参数的 Argon2id 实现；上线前应完成密码校验成本压测。
 _hasher = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 
+# 账号不存在 / 无口令 / 已锁定时用于对齐耗时的占位哈希。
+# 登录路径必须在这些分支上付出与真实校验同量级的 Argon2 成本，否则攻击者仅凭
+# 响应时间即可判定用户名是否存在（CWE-208 可观测时序差异）。模块加载时算一次，
+# 不进入请求路径；明文特意写成明显非凭证的占位值，避免被误认为有效口令。
+ABSENT_ACCOUNT_PASSWORD_HASH = _hasher.hash("absent-account-timing-equalizer")
+
 _JWT_ALGORITHM = "HS256"
 
 

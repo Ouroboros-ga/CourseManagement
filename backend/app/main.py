@@ -23,7 +23,7 @@ from app.core.logging import get_logger, setup_logging
 
 fastapi.encoders.ENCODERS_BY_TYPE[datetime] = iso_utc
 BaseModel.model_config = ConfigDict(json_encoders={datetime: iso_utc})
-from app.core.middleware import RequestIdMiddleware
+from app.core.middleware import RequestIdMiddleware, SecurityHeadersMiddleware
 from app.modules.academic.enrollment_router import router as enrollment_router
 from app.modules.academic.export_router import router as course_export_router
 from app.modules.academic.publication_router import router as academic_publication_router
@@ -62,12 +62,17 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="查课管理系统 API",
         version="0.1.0",
-        docs_url="/docs" if not settings.is_prod else None,
+        # 生产不暴露交互文档与 schema：docs_url 与 openapi_url 必须同时关闭，
+        # 只关 docs 时 /openapi.json 仍会返回完整接口定义（不能只依赖 nginx 遮挡）。
+        docs_url=None if settings.is_prod else "/docs",
         redoc_url=None,
+        openapi_url=None if settings.is_prod else "/openapi.json",
         lifespan=lifespan,
     )
 
     app.add_middleware(RequestIdMiddleware)
+    # 安全头是应用层兜底；生产由 nginx 统一输出同名头，避免依赖单点配置。
+    app.add_middleware(SecurityHeadersMiddleware, is_prod=settings.is_prod)
 
     if settings.cors_origin_list:
         from fastapi.middleware.cors import CORSMiddleware

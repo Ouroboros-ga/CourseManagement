@@ -32,6 +32,7 @@ from app.core.exceptions import (
 )
 from app.core.permissions import PermissionCode, RoleCode
 from app.core.security import (
+    ABSENT_ACCOUNT_PASSWORD_HASH,
     create_access_token,
     generate_friendly_binding_code,
     generate_secure_token,
@@ -142,23 +143,44 @@ class IdentityService:
     # Web 账号密码登录
     # ------------------------------------------------------------------ #
     def login_web(self, username: str, password: str) -> TokenPair:
+        """Web 账号密码登录。
+
+        所有失败分支（查无此人、无口令、已锁定、口令错误、账号停用）都执行一次真实
+        Argon2id 校验，使响应耗时与账号是否存在无关。账本字段的差异不复用为
+        "提示用户账号状态"的手段：错误口令一律返回同一消息，避免账号枚举。
+        """
         user = self._repo.get_user_by_username(username)
+        now = utcnow()
+
         if user is None:
+            # 查无此人：仍付出同量级校验成本，否则 65ms 与 200ms 的差异即可枚举账号。
+            verify_password(password, ABSENT_ACCOUNT_PASSWORD_HASH)
             raise UnauthenticatedError("账号或密码错误")
 
-        now = utcnow()
-        if user.locked_until is not None and user.locked_until > now:
+        is_locked = user.locked_until is not None and user.locked_until > now
+        stored_hash = user.password_hash
+        # 锁定与无口令账号不做真实校验（避免锁定期间仍可验证口令），但用占位哈希
+        # 补齐耗时，保证与正常校验分支不可区分。
+        password_ok = verify_password(
+            password,
+            stored_hash if stored_hash is not None and not is_locked
+            else ABSENT_ACCOUNT_PASSWORD_HASH,
+        )
+
+        if is_locked:
             raise AppError(
                 ErrorCode.STATE_CONFLICT,
                 "账号已锁定，请稍后重试",
                 http_status=429,
             )
-        if not user.is_active:
-            raise UnauthenticatedError("账号未启用")
-        if user.password_hash is None or not verify_password(password, user.password_hash):
+        if stored_hash is None or not password_ok:
+            # 无口令账号即便口令"碰巧"匹配占位哈希也不会通过：stored_hash is None 独立兜底。
             self._register_login_failure(user, now)
             self._session.commit()  # 锁定计数需独立落地
             raise UnauthenticatedError("账号或密码错误")
+        if not user.is_active:
+            # 口令已通过校验才暴露停用状态：此时调用方已证明持有凭据，不构成枚举面。
+            raise UnauthenticatedError("账号未启用")
 
         user.failed_login_count = 0
         user.locked_until = None
