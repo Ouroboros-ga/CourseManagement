@@ -130,7 +130,7 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 
 请求：`{"username": string, "password": string}`
 成功 `200`：`data = {access_token, token_type:"bearer", expires_in}`；并下发 refresh Cookie。
-错误：`401 UNAUTHENTICATED`（账号或密码错误 / 账号未启用）；`429 STATE_CONFLICT`（连续失败触发锁定）。
+错误：`401 UNAUTHENTICATED`。账号不存在与口令错误统一返回“账号或密码错误”，两条路径均执行 Argon2 校验以降低时序枚举风险；不保证网络响应耗时完全相同。“账号未启用”仅在口令正确后返回。`429 STATE_CONFLICT`（连续失败触发锁定）。
 
 ### 3.2 `POST /auth/wechat/login` — 微信登录（公开，P2）
 
