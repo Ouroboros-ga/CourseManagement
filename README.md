@@ -16,7 +16,7 @@
 
 仓库已有 FastAPI 后端、Vue 管理端及小程序适配代码；多学院配置、资源授权、多作息、组织成员与排班、影响处置和个人课表已有相应实现。代码存在不代表生产全部启用或完整产品验收完成。
 
-最新七入口及生命周期页面重构、共享教务身份和跨院独立检查仍属于后续设计。此前生产正式业务隔离及组织排班保持关闭；本 README 不代替实时服务器核验。剩余工作以当前状态页和最新设计为入口，不以历史测试数字判定完成。
+七入口、教务与人员关系、成员导入和组织排班已有相应实现，具体完成边界见当前状态页。2026-10-19 核验时，生产正式业务隔离已开启，组织排班仍关闭；代码可用不等于真实成员数据已准备或生产排班已启用。本 README 不代替实时服务器核验。
 
 ## 开发入口
 
@@ -50,6 +50,7 @@ Vite 固定监听 `127.0.0.1:3000`，默认将 `/api` 和 `/health` 代理到 `h
 - [权限策略](docs/PERMISSIONS.md)、[排班规则参考](docs/SCHEDULING_RULES.md)。
 - [小程序现有业务交接](docs/integration/WECHAT_DEVELOPER_CHANGES_20261014.md)、[个人课表与通知接口](docs/integration/WECHAT_PERSONAL_TIMETABLE_API_20261015.md)。
 - [微信配置](docs/WECHAT_RUNTIME_CONFIG.md)、[备份恢复手册](docs/RUNBOOK_BACKUP_RESTORE.md)、[按需负载验收手册](docs/RUNBOOK_LOADTEST_ACCEPTANCE.md)。
+- [生产安全配置与恢复](deploy/production/SECURITY_BASELINE.md)：已上线配置的版本化清单；历史发布器不得直接重跑。
 
 核心约束：服务端范围授权、字符串 ID、关键写入与审计同事务、版本冲突 409、生成与排班两阶段、异议一次审核、个人课表不参与正式业务。历史文档中的旧状态、旧目录或初终审设计不能覆盖后续确认规则。
 
