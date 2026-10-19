@@ -1,6 +1,12 @@
 # 当前实施状态与下一步
 
-## 2026-10-19 志愿者选组与 Excel 成员导入（本地完成，待发布）
+## 2026-10-19 志愿者选组与 Excel 成员导入（已推送、部署）
+
+**发布结果**：应用源码 `fe626e3d9dfc6f24bf94b9182367d0bf1c37fb8a` 已推送 `origin/dev-main`，后端与Web均为各自releases下的 `20261019-member-onboarding-fe626e3d9d`。上线时间2026-10-19 08:30（北京时间）。本轮无需迁移、seed或生产数据导入，结构仍为 `f26a1019d001`。
+
+**验证与边界**：本地32项后端定向回归、Web12项状态/路径检查、类型/构建通过；Edge/Playwright以模拟API核对Excel预览确认及单人选组保存。服务器采用生产结构的隔离空MySQL库，用虚构学生及日期学籍完成真实multipart模板、姓名阻断、预览不写、资格与成员一起保存、重复导入保留验收，临时库已清理。公网/内网ready、模板/预览匿名401、首页及资源哈希通过；独立复核531个后端文件、67个Web产物、两处current、数据库版本和配置哈希一致。未向生产分配任何真实学生；线上仍为2组、0成员，组织排班开关仍关闭，准备成员入口可用，不声称真实组织已经排班。
+
+**恢复**：备份 `/var/backups/course-management/20261019T003019Z.7uQ0HH` 的SHA256SUMS校验通过。上一后端/Web均为各自releases下的 `20261019-dispatch-deletion-17ea72af51`；恢复两处current并重启course-management即可回退应用，无数据库降级。证据：服务器 `/opt/course-management/rehearsals/20261019-member-onboarding-fe626e3/{DEPLOYED,ONLINE_VERIFICATION}.json`。保留其他工作区和旧导入设计草稿的未提交内容。
 
 **目标**：管理员在系统中从已有有效学籍选拔志愿者并选择组织；组织直接下载/上传姓名、学号Excel，预览后整批开通本学期资格并加入当前组。不得向用户索要生产名单后直接写库，导入不得新建学生/学籍，不自动开启运行开关或指派任务。
 
@@ -9,7 +15,7 @@
 - [x] 后端：在 `volunteer/member_batch.py` 统一姓名核对、按行预览、重复跳过和资格/成员原子提交；`member_excel.py` 提供有界xlsx解析与模板；`member_router.py` 挂载模板、文件预览/确认；复用 `academic/scoped_writes.py`，仅新增内部不提交参数，不改变旧接口默认事务。
 - [x] Web：`GroupMemberImport.vue` 管理模板、上传、预览与确认，组列表及成员页提供入口；`VolunteerEnrollmentDialog.vue` 负责已有学籍选人、选组与有效期，替换资格页的直接开通流程；已有“所属组织”与跨院支援不丢失。
 - [x] 验证：已观察新增回归失败后修复。覆盖未知学号、姓名不符、学籍无效、越权、预览不写、整批回滚（含账号）、重复导入、多组、停用组准备、过期预览及不按同名用户名认领账号。Web12项状态/路径检查与构建通过；Edge/Playwright两个真实页面流程以模拟API走通，未使用生产名单。Browser插件未提供，使用捆绑Playwright；截图为本机visualizations下member-import-preview.png和volunteer-enrollment.png，不作为真实后端或生产业务验收。
-- [ ] 交付：更新契约/索引/OpenAPI，提交推送并可回退部署；只用虚构数据验收，不更改真实成员和组范围。完成后按用户要求关机。
+- [x] 交付：更新契约/索引/OpenAPI，提交推送并可回退部署；只用虚构数据验收，不更改真实成员和组范围。最后按用户要求执行本机关闭，不影响服务器运行。
 
 **组件契约**：导入组件接收collegeId/groupId/semesterId，保存后发出changed；手动弹窗接收可选已有学生，选择组后使用同一学籍校验/资格开通事务，成功后通知列表刷新。异步响应及确认均绑定账号、学院、学期、组和文件/表单版本。
 
