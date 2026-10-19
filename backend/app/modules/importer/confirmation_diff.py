@@ -175,6 +175,7 @@ def changes_for(service, batch):
         elective = batch.target == "elective_course"
         entries_key = "courses" if grid else "groups" if elective else "rows"
         prepared = []
+        incoming_schedules = set()
         for row in payload.get(entries_key, []):
             if batch.target == "timetable":
                 course = academic.get_course_by_code(row["course_code"])
@@ -202,6 +203,21 @@ def changes_for(service, batch):
                     issue("请先导入并核对该行政班与学生档案", row.get("source_row"))
                     continue
                 class_code = f"{ac.class_code}_{course_code}"
+            schedule_identity = (
+                class_code, course_code, row["weekday"], row["start_period"], row["end_period"],
+                tuple(sorted(set(row["weeks"]))), row.get("classroom") or "",
+                row.get("teacher") or "", row.get("course_name") or "",
+            )
+            if not elective and schedule_identity in incoming_schedules:
+                issues.append({
+                    "code": "DUPLICATE_SCHEDULE_ROW", "severity": "warning",
+                    "filename": batch.filename, "row": row.get("source_row"),
+                    "sheet": row.get("source_sheet"), "column": row.get("source_column"),
+                    "message": f"课程“{row.get('course_name') or course_code}”的相同课表重复出现，"
+                               "已按一条处理；不同周次的安排仍分别保留",
+                })
+                continue
+            incoming_schedules.add(schedule_identity)
             tc = (
                 academic.get_teaching_class_by_key(batch.semester_id, course.id, class_code)
                 if course
@@ -254,7 +270,8 @@ def changes_for(service, batch):
                     )
             key = (
                 f"{class_code}/{course_code}/{row['weekday']}/"
-                f"{row['start_period']}-{row['end_period']}"
+                f"{row['start_period']}-{row['end_period']}/"
+                + ",".join(str(week) for week in sorted(set(row["weeks"])))
             )
             change(
                 "UNCHANGED" if unchanged else "CREATE",
