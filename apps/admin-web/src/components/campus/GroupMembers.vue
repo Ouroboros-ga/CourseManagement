@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import GroupMemberBatch from './GroupMemberBatch.vue'
+import GroupMemberImport from './GroupMemberImport.vue'
+import { useSessionStore } from '../../stores/session'
+import { memberDates } from '../../utils/memberDates'
 import GroupUnavailability from './GroupUnavailability.vue'
 import { useGroupMembers } from '../../composables/useGroupMembers'
 
@@ -12,18 +15,25 @@ const props = defineProps<{
   canManage: boolean
   isSuper: boolean
 }>()
+const session = useSessionStore(), importing = ref(false)
 
 const state = useGroupMembers({
   collegeId: () => props.collegeId,
   groupId: () => props.groupId,
   semesterId: () => props.semesterId,
   canManage: () => props.canManage,
-  isSuper: () => props.isSuper
+  isSuper: () => props.isSuper,
+  canQualify: () => session.hasPermission('volunteer.manage')
 })
 const visibleRows = computed(() => state.activeKind.value === 'members' ? state.members.value : state.supports.value)
 const recordName = (row: { name?: string; student_no?: string; student_id: string }) =>
   row.name ? `${row.name}${row.student_no ? `（${row.student_no}）` : ''}` : `学生 ${row.student_id}`
 const canEdit = computed(() => props.canManage && (state.activeKind.value === 'members' || props.isSuper))
+function startCreate() {
+  state.startCreate()
+  const dates = memberDates(session.currentSemester)
+  state.candidateFrom.value = dates.from; state.candidateTo.value = dates.to
+}
 
 function chooseCandidate(candidate: { id: string; name: string; student_no: string }) {
   state.selectedCandidate.value = candidate
@@ -44,7 +54,8 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
       </nav>
       <div class="toolbar-actions">
         <button type="button" :disabled="state.busy.value" @click="state.load">刷新</button>
-        <button v-if="canEdit" type="button" :disabled="state.busy.value" @click="state.startCreate">新增</button>
+        <button v-if="canManage" type="button" :disabled="state.busy.value" @click="importing = true">导入成员 Excel</button>
+        <button v-if="canEdit" type="button" :disabled="state.busy.value" @click="startCreate">新增</button>
       </div>
     </header>
 
@@ -54,6 +65,7 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
 
     <div v-if="state.creating.value || state.editing.value" class="editor">
       <h3>{{ state.editing.value ? '编辑成员有效期' : state.activeKind.value === 'members' ? '新增组成员' : '新增跨院支援授权' }}</h3>
+      <label v-if="state.creating.value && state.activeKind.value === 'members' && session.hasPermission('volunteer.manage')"><input v-model="state.enableQualification.value" type="checkbox">同时开通本学期志愿者资格</label>
       <template v-if="state.creating.value">
         <div class="candidate-search">
           <label>有效开始日期<input v-model="state.candidateFrom.value" type="date"></label>
@@ -117,6 +129,9 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
       </table>
     </div>
   </section>
+  <el-dialog v-model="importing" title="导入当前组成员" width="780px" destroy-on-close :close-on-click-modal="false">
+    <GroupMemberImport v-if="importing" :key="`${collegeId}:${groupId}:${semesterId}`" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" @changed="state.load" />
+  </el-dialog>
 </template>
 
 <style scoped>

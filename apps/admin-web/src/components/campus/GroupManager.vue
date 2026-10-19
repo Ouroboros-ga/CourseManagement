@@ -8,6 +8,7 @@ import GroupHandover from './GroupHandover.vue'
 import { useSessionStore } from '../../stores/session'
 import { deleteManagedResource } from '../../composables/useResourceDeletion'
 import DeletedResources from './DeletedResources.vue'
+import GroupMemberImport from './GroupMemberImport.vue'
 
 const props = defineProps<{ collegeId: string; rows: VolunteerGroup[]; types: CourseType[]; userId: string; canManage: boolean; canPublish: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -21,6 +22,7 @@ const selected = shallowRef<VolunteerGroup | null>(null)
 const editing = shallowRef(false)
 const configuring = shallowRef(false)
 const handingOver = shallowRef(false)
+const importing = shallowRef(false)
 const session = useSessionStore()
 const form = reactive({ name: '', starts_on: null as string | null, ends_on: null as string | null })
 const typesById = computed(() => new Map(props.types.map(row => [row.id, row.name])))
@@ -56,9 +58,10 @@ async function remove(row: VolunteerGroup) {
     <el-table-column label="查课范围"><template #default="{ row }">{{ scopeName(row) }}</template></el-table-column>
     <el-table-column label="状态" width="100"><template #default="{ row }">{{ row.status === 'ACTIVE' ? '启用' : row.status === 'DRAFT' ? '草稿' : '停用' }}</template></el-table-column>
     <el-table-column label="配置版本" prop="config_version" width="90" />
-    <el-table-column label="操作" width="280">
+    <el-table-column label="操作" width="370">
       <template #default="{ row }">
         <el-button v-if="canManage" link :disabled="saving" @click="edit(row)">编辑</el-button>
+        <el-button v-if="session.hasPermission('volunteer.member.manage')" link @click="selected = row; importing = true">导入成员 Excel</el-button>
         <el-button v-if="canManage && session.hasAnyRole('SUPER_ADMIN', 'TEACHER_ADMIN') && session.campusRuntime?.business_scoped && row.status === 'ACTIVE'" link @click="selected = row; handingOver = true">负责人交接</el-button>
         <el-button v-if="canPublish" link :disabled="saving" @click="selected = row; configuring = true">范围与规则</el-button>
         <el-button v-if="canManage" link :disabled="saving" @click="updateExisting(row, { status: row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' })">{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button>
@@ -66,6 +69,9 @@ async function remove(row: VolunteerGroup) {
       </template>
     </el-table-column>
   </el-table>
+  <el-dialog v-model="importing" :title="`${selected?.name || ''} · 导入志愿者成员`" width="780px" destroy-on-close :close-on-click-modal="false">
+    <GroupMemberImport v-if="selected && importing" :key="`${collegeId}:${selected.id}:${session.currentSemesterId}`" :college-id="collegeId" :group-id="selected.id" :semester-id="session.currentSemesterId" @changed="emit('changed')" />
+  </el-dialog>
   <el-dialog v-model="editing" :title="selected ? '编辑志愿者组' : '新建志愿者组'" width="500px" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
     <el-form label-width="90px">
       <el-form-item label="名称"><el-input v-model="form.name" maxlength="128" /></el-form-item>

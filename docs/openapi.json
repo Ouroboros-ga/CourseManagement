@@ -35,7 +35,7 @@
           "system"
         ],
         "summary": "Ready",
-        "description": "就绪检查：执行一次轻量 SELECT 1 验证数据库可连通。\n\n连接失败时返回 503，并把错误摘要写进响应，便于定位是网络还是凭证问题\n（不回显密码等敏感信息，仅记异常类型与短语）。",
+        "description": "就绪检查：执行一次轻量 SELECT 1 验证数据库可连通。\n\n连接失败时返回 503；异常类型只在非生产环境回显，生产仅记结构化日志\n（不回显密码或连接串，避免把内部拓扑带进公开响应）。",
         "operationId": "ready_health_ready_get",
         "responses": {
           "200": {
@@ -11915,6 +11915,200 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/MemberBatchCommit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/groups/{gid}/members/import-template": {
+      "get": {
+        "tags": [
+          "group-members"
+        ],
+        "summary": "Member Import Template",
+        "operationId": "member_import_template_api_v1_colleges__cid__groups__gid__members_import_template_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Gid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/groups/{gid}/members/import/preview": {
+      "post": {
+        "tags": [
+          "group-members"
+        ],
+        "summary": "Member Import Preview",
+        "operationId": "member_import_preview_api_v1_colleges__cid__groups__gid__members_import_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Gid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_member_import_preview_api_v1_colleges__cid__groups__gid__members_import_preview_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/groups/{gid}/members/import/commit": {
+      "post": {
+        "tags": [
+          "group-members"
+        ],
+        "summary": "Member Import Commit",
+        "operationId": "member_import_commit_api_v1_colleges__cid__groups__gid__members_import_commit_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Gid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_member_import_commit_api_v1_colleges__cid__groups__gid__members_import_commit_post"
               }
             }
           }
@@ -30018,6 +30212,84 @@
         ],
         "title": "Body_inspect_api_v1_colleges__cid__imports_intake_inspect_post"
       },
+      "Body_member_import_commit_api_v1_colleges__cid__groups__gid__members_import_commit_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "semester_id": {
+            "type": "string",
+            "title": "Semester Id"
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective From"
+          },
+          "effective_to": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective To"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision"
+          },
+          "enable_qualification": {
+            "type": "boolean",
+            "title": "Enable Qualification",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "semester_id",
+          "effective_from",
+          "effective_to",
+          "revision"
+        ],
+        "title": "Body_member_import_commit_api_v1_colleges__cid__groups__gid__members_import_commit_post"
+      },
+      "Body_member_import_preview_api_v1_colleges__cid__groups__gid__members_import_preview_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "semester_id": {
+            "type": "string",
+            "title": "Semester Id"
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective From"
+          },
+          "effective_to": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective To"
+          },
+          "enable_qualification": {
+            "type": "boolean",
+            "title": "Enable Qualification",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "semester_id",
+          "effective_from",
+          "effective_to"
+        ],
+        "title": "Body_member_import_preview_api_v1_colleges__cid__groups__gid__members_import_preview_post"
+      },
       "Body_preview_file_api_v1_academic_student_data_preview_file_post": {
         "properties": {
           "college_id": {
@@ -33331,6 +33603,24 @@
             "maxItems": 200,
             "minItems": 1,
             "title": "Student Nos"
+          },
+          "expected_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "maxProperties": 200,
+            "title": "Expected Names"
+          },
+          "enable_qualification": {
+            "type": "boolean",
+            "title": "Enable Qualification",
+            "default": false
+          },
+          "skip_existing": {
+            "type": "boolean",
+            "title": "Skip Existing",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -33368,6 +33658,24 @@
             "maxItems": 200,
             "minItems": 1,
             "title": "Student Nos"
+          },
+          "expected_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "maxProperties": 200,
+            "title": "Expected Names"
+          },
+          "enable_qualification": {
+            "type": "boolean",
+            "title": "Enable Qualification",
+            "default": false
+          },
+          "skip_existing": {
+            "type": "boolean",
+            "title": "Skip Existing",
+            "default": false
           },
           "revision": {
             "type": "string",
@@ -33407,6 +33715,11 @@
             "type": "string",
             "format": "date",
             "title": "Effective To"
+          },
+          "enable_qualification": {
+            "type": "boolean",
+            "title": "Enable Qualification",
+            "default": false
           }
         },
         "additionalProperties": false,

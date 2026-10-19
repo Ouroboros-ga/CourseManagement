@@ -10,6 +10,7 @@ export interface GroupMemberContext {
   semesterId: () => string
   canManage: () => boolean
   isSuper: () => boolean
+  canQualify?: () => boolean
 }
 
 export interface MemberDraft {
@@ -40,6 +41,7 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
   const selectedCandidate = shallowRef<MemberCandidate | null>(null)
   const editing = shallowRef<GroupMember | null>(null)
   const creating = shallowRef(false)
+  const enableQualification = shallowRef(context.canQualify?.() || false)
   const pendingChange = shallowRef<PendingChange | null>(null)
   const confirmFutureAssignments = shallowRef(false)
   const keyword = shallowRef('')
@@ -140,7 +142,8 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
     const ticket = epoch, kind = activeKind.value
     writing.value = true; error.value = ''; message.value = ''
     try {
-      await api.create(kind, cid, gid, { student_id: selectedCandidate.value.id, semester_id: sid, effective_from: draft.value.effective_from, effective_to: draft.value.effective_to })
+      await api.create(kind, cid, gid, { student_id: selectedCandidate.value.id, semester_id: sid, effective_from: draft.value.effective_from, effective_to: draft.value.effective_to,
+        ...(kind === 'members' && enableQualification.value && context.canQualify?.() ? { enable_qualification: true } : {}) })
       if (ticket !== epoch || key !== contextKey() || disposed) return
       cancelEdit(); message.value = kind === 'members' ? '已新增组成员' : '已新增跨院支援授权'
       await load()
@@ -212,7 +215,7 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
   }
 
   return {
-    members, supports, candidates, draft, selectedCandidate, editing, creating, pendingChange,
+    members, supports, candidates, draft, selectedCandidate, editing, creating, pendingChange, enableQualification,
     confirmFutureAssignments, keyword, candidateFrom, candidateTo, error, message,
     loading, candidateLoading, writing, busy, activeKind, load, searchCandidates,
     setKind, startCreate, startEdit, cancelEdit, create, prepareChange, applyChange

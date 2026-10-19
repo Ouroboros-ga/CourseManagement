@@ -32,6 +32,8 @@ import AppIcon from '../../components/AppIcon.vue'
 import { ContextEpoch } from '../../utils/contextEpoch'
 import { formatPeriodText } from '../../utils/period'
 import StudentGroupEnrollment from './StudentGroupEnrollment.vue'
+import VolunteerEnrollmentDialog from './VolunteerEnrollmentDialog.vue'
+import type { MemberCandidate } from '../../api/groupMembers'
 
 const props = withDefaults(defineProps<{ mode?: 'legacy' | 'students' | 'qualifications' }>(), { mode: 'legacy' })
 const showsQualification = computed(() => props.mode !== 'students')
@@ -44,6 +46,8 @@ const canManageStudents = computed(() => sessionStore.hasPermission('student.man
 const canManageClasses = computed(() => sessionStore.hasPermission('academic.manage'))
 const canBind = computed(() => sessionStore.hasPermission('identity.binding.manage'))
 const canQualify = computed(() => sessionStore.hasPermission('volunteer.manage'))
+const enrollmentVisible = ref(false), enrollmentStudent = ref<MemberCandidate | null>(null)
+const canEnroll = computed(() => sessionStore.workspaceMode && sessionStore.campusRuntime?.business_scoped && sessionStore.hasPermission('volunteer.member.manage') && sessionStore.hasPermission('volunteer.group.read'))
 const loading = ref(false)
 const students = ref<StudentItem[]>([])
 const volunteerQuals = ref<VolunteerQualificationItem[]>([])
@@ -525,6 +529,15 @@ const stats = computed(() => {
 
 // 切换志愿者资质
 async function handleToggleVolunteer(student: StudentItem, enabled: boolean) {
+  if (enabled && sessionStore.workspaceMode && !canEnroll.value) {
+    ElMessage.warning('请由具有组织成员维护权限的管理员选择所属组后开通志愿者')
+    return
+  }
+  if (enabled && canEnroll.value) {
+    enrollmentStudent.value = { id: String(student.id), student_no: student.student_no, name: student.name }
+    enrollmentVisible.value = true
+    return
+  }
   try {
     await upsertVolunteerQualification({
       semester_id: sessionStore.currentSemesterId,
@@ -672,6 +685,14 @@ async function assignTaskToStudent(task: InspectionTaskItem) {
 
 // 打开添加对话框
 function openAddDialog() {
+  if (showsQualification.value && sessionStore.workspaceMode && !canEnroll.value) {
+    ElMessage.warning('添加志愿者需要组织成员维护权限；新增学籍请到“学生与班级”')
+    return
+  }
+  if (showsQualification.value && canEnroll.value) {
+    enrollmentStudent.value = null; enrollmentVisible.value = true
+    return
+  }
   selectedStudentId.value = ''
   newStudentForm.value = {
     student_no: '',
@@ -747,12 +768,13 @@ async function handleAddConfirm() {
 
 <template>
   <div class="student-directory-container">
+    <VolunteerEnrollmentDialog v-if="canEnroll" v-model="enrollmentVisible" :initial-student="enrollmentStudent" @saved="loadData" />
     <header class="page-head">
       <div class="title-row">
         <div>
           <h2>{{ showsQualification ? '本学期志愿者资格与排班账号' : '当前学生档案与行政班' }}</h2>
           <p class="sub">
-            {{ showsQualification ? '按当前学期维护资格；加入组织与获得资格分别判断。' : '维护当前档案、班级和绑定；不随学期切换重建学生。' }}
+            {{ showsQualification ? '从已有学籍开通本学期资格并选择所属组织；同一人可加入多个组。' : '维护当前档案、班级和绑定；不随学期切换重建学生。' }}
           </p>
         </div>
         <div class="head-actions flex items-center gap-2">
@@ -766,7 +788,7 @@ async function handleAddConfirm() {
           </button>
           <button v-if="showsQualification ? canQualify : canManageStudents" class="btn btn-dark inline-flex items-center gap-1.5" @click="openAddDialog">
             <AppIcon name="plus" :size="14" />
-            <span>{{ showsQualification ? '维护志愿者资格' : '添加学生' }}</span>
+            <span>{{ showsQualification ? '添加志愿者（选组）' : '添加学生' }}</span>
           </button>
         </div>
       </div>
@@ -782,12 +804,12 @@ async function handleAddConfirm() {
       <div class="stat-cell">
         <div class="label">当前学期志愿者</div>
         <div class="value" style="color: var(--blue)">{{ stats.volunteers }} <span class="unit">人</span></div>
-        <div class="note">已具备查课排班资格</div>
+        <div class="note">已开通学期资格；排班还需有效组成员与规则</div>
       </div>
       <div class="stat-cell">
         <div class="label">可受派系统账号</div>
         <div class="value" style="color: var(--green)">{{ stats.boundCount }} <span class="unit">人</span></div>
-        <div class="note">已具备独立系统 UID / 可直接排班</div>
+        <div class="note">已有独立系统 UID；排班仍核对组织与冲突</div>
       </div>
     </div>
 

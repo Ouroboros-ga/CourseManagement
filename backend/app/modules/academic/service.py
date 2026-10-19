@@ -1292,22 +1292,8 @@ class AcademicService:
         if stu is None:
             return None
 
-        # 检查是否已有未绑定的原学号账号，若存在且未绑定微信则优先复用绑定
-        existing_by_no = self._session.execute(
-            select(UserAccount).where(
-                UserAccount.username == stu.student_no,
-                UserAccount.student_id.is_(None),
-            )
-        ).scalar_one_or_none()
-        if existing_by_no is not None:
-            existing_by_no.student_id = stu.id
-            existing_by_no.display_name = stu.name
-            student_role = self._identity.get_or_create_role(
-                RoleCode.STUDENT.value, RoleCode.STUDENT.value
-            )
-            self._identity.grant_role(existing_by_no.id, student_role.id)
-            return existing_by_no
-
+        # 仅复用已明确关联 Student.id 的账号。用户名恰好等于学号不证明
+        # 该账号属于此学生；重名走下面的唯一用户名分配，不能自动认领账号。
         base_username = stu.student_no or f"stu_{stu.id}"
         username = base_username
         if (

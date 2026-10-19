@@ -1,6 +1,6 @@
 # API 路由索引
 
-2026-10-19，依据当前 app.main OpenAPI 生成：344 个路径、405 个操作。包含动态类型筛选、准备入口解耦、删除影响预览与历史保留恢复；发布与启用状态见 [当前状态](development/IMPLEMENTATION_STATUS.md)，参数语义见 [API 契约](API_CONTRACT.md)。
+2026-10-19，依据当前 app.main OpenAPI 生成：347 个路径、408 个操作。包含组成员Excel模板、预览/确认及可选资格开通；发布与启用状态见 [当前状态](development/IMPLEMENTATION_STATUS.md)，参数语义见 [API 契约](API_CONTRACT.md)。
 
 | 方法 | 路径 | 标签 |
 | --- | --- | --- |
@@ -193,6 +193,9 @@
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/support-authorizations/{rid}/revoke` | group-members |
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/members/batch/preview` | group-members |
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/members/batch/commit` | group-members |
+| GET | `/api/v1/colleges/{cid}/groups/{gid}/members/import-template` | group-members |
+| POST | `/api/v1/colleges/{cid}/groups/{gid}/members/import/preview` | group-members |
+| POST | `/api/v1/colleges/{cid}/groups/{gid}/members/import/commit` | group-members |
 | GET | `/api/v1/colleges/{cid}/groups/{gid}/unavailability` | group-members |
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/unavailability` | group-members |
 | GET | `/api/v1/colleges/{cid}/groups/{gid}/unavailability/{rid}/impact` | group-members |

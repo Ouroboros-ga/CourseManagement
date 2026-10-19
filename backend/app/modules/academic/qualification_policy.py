@@ -9,10 +9,11 @@ from app.modules.academic.enrollment_models import StudentEnrollment
 from app.modules.academic.models import AdministrativeClass, Student, VolunteerQualification
 
 
-def enrollment_on(db: Session, student_id: int, on_date: date):
+def enrollment_on(db: Session, student_id: int, on_date: date, *, lock=False):
     table = StudentEnrollment.__table__
-    return db.execute(
-        select(table.c.status, table.c.administrative_class_id, table.c.college_id)
+    query = select(table.c.status, table.c.administrative_class_id, table.c.college_id)
+    query = (
+        query
         .where(
             table.c.student_id == student_id,
             table.c.superseded.is_(False),
@@ -21,7 +22,10 @@ def enrollment_on(db: Session, student_id: int, on_date: date):
         )
         .order_by(table.c.effective_from.desc())
         .limit(1)
-    ).first()
+    )
+    if lock:
+        query = query.with_for_update(read=True)
+    return db.execute(query).first()
 
 
 def qualified_on(

@@ -209,8 +209,6 @@ class GroupMemberService:
         }
         _, student, origin = self._input(prepared)
         if body.status == "ACTIVE":
-            if group.status == "INACTIVE":
-                raise ConflictError(message="组已停用")
             model = type(row)
             overlap = self.db.scalar(
                 select(model.id)
@@ -295,7 +293,7 @@ class GroupMemberService:
         )
         if student is None:
             raise NotFoundError("学生不存在")
-        enrollment = enrollment_on(self.db, student.id, body.effective_from)
+        enrollment = enrollment_on(self.db, student.id, body.effective_from, lock=True)
         if enrollment:
             if enrollment.status != "ENROLLED":
                 raise ConflictError(message="成员生效日期不属于在读学籍")
@@ -343,8 +341,6 @@ class GroupMemberService:
         college, group = self._group(
             "volunteer.member.manage", write=True, semester_id=int(requested.semester_id)
         )
-        if group.status == "INACTIVE":
-            raise ConflictError(message="组已停用")
         body, student, origin = self._input(data)
         if origin != self.cid:
             supported = self.db.scalar(
@@ -393,6 +389,9 @@ class GroupMemberService:
 
     @atomic_write
     def create(self, data):
+        if data.get("enable_qualification"):
+            from app.modules.volunteer.member_batch import GroupMemberBatchService
+            return GroupMemberBatchService(self.db, self.actor, self.cid, self.gid).enroll_one(data)
         row, college, group = self._prepare_create(data)
         return self._save(row, college, group, "volunteer.member.create")
 

@@ -814,3 +814,18 @@ CHECK、区间 CHECK、外键）一律映射为 409，不返回 500。事实、�
 - 管理任务列表 query `deleted_only=true` 仅显示保留历史的删除项；默认不显示。POST `/inspection-tasks/{task_id}/restore-deleted`（含学院别名）接收 `{lock_version}`，恢复原状态和ID，不重新排班。已删除任务不能经普通编辑/提交路径修改；本人历史、考勤与报表读取沿用原范围，删除不消除业务事实。
 
 删除、范围校验、版本更新、专属授权撤销与审计同事务。生产回滚仅切换应用与Web版本，保留新增可空列；显式降迁移前必须恢复所有保留历史的删除项，否则拒绝降级。
+
+### 2026-10-19 志愿者选组与成员 Excel 导入
+
+所有入口仍受配置、学院正式业务开关及当前学院/组范围授权保护；准备成员不要求组织排班开关开启。停用组允许准备成员，已删除组禁止；实际生成和排班仍要求组启用且通过原资格、支援、课程冲突和配额规则。
+
+- `POST /api/v1/colleges/{cid}/groups/{gid}/members` 保留原请求字段，新增可选 `enable_qualification`，默认false兼容旧客户端。明确传true时，复用本学院资格写入规则，在同一事务中开通资格、维护已关联的学生账号角色并加入当前组；额外要求 `volunteer.manage`。没有任何新建学生、自动更名、自动跨院支援或任务指派。
+- `GET /api/v1/colleges/{cid}/groups/{gid}/members/import-template` 下载空xlsx模板，仅“学号、姓名”两列，学号列预设文本格式。要求 `volunteer.member.manage`。教师须先在“学生与班级”建立有效学籍，再导入志愿者组。
+- `POST /api/v1/colleges/{cid}/groups/{gid}/members/import/preview` 为multipart：`file`、`semester_id`、`effective_from`、`effective_to`（不含结束日）、`enable_qualification`（默认true）。最多2MiB、单工作表xlsx、200人。文本学号保留前导零，姓名与学号都必填；数值学号、公式、重复学号、多个工作表或超限文件返回422，不猜测补零或合并名单。
+- 预览不写资格、成员、账号或角色。返回 `revision/count/can_commit/qualifications_to_enable/unchanged/issues/items`；items包含 `source_row/student_no/name/status`（ADD、UNCHANGED、BLOCKED）、可选 `student_id/message/qualification_action`。未知学号、姓名不符、非在读/未知归属、无覆盖支援授权及有效期冲突逐行阻断；阻断行不泄露未授权学生的档案姓名。
+- `POST /api/v1/colleges/{cid}/groups/{gid}/members/import/commit` 重传相同文件和表单，另带 `revision`。服务端重新解析、授权、加锁核对学籍/资格/成员与组配置；任何阻断或过期修订409，整批不保存。成功返回 `created/unchanged/qualifications_enabled/items`。完整相同组/学期/有效期的已有有效成员作为UNCHANGED保留，不重复建人或成员；不同组可各自加入，部分重叠有效期仍须人工核对。
+- 旧JSON `/members/batch/{preview,commit}` 可选传 `expected_names`（学号→姓名映射，须覆盖全部输入学号）、`skip_existing`、`enable_qualification`，默认均保持旧行为。已有资格且跨院支援有效的学生可以加入；缺少资格的跨院学生须先由学籍所属学院开通资格，当前组不能借导入扩大权限。
+
+资格写入默认仍独立提交；仅本模块内部显式使用不提交模式纳入组成员事务。任意后续写入失败会一起回滚资格、账号、角色、成员及审计。只复用已通过Student.id明确关联的系统账号，不以姓名或“用户名恰好等于学号”认领无关账号。
+
+Web入口：“志愿者组织→组织与规则→组行的导入成员Excel”或“成员、支援与请假→选择组→导入成员Excel”；单人添加在“本学期资格→添加志愿者（选组）”。保存不启用组或全局排班，也不分配查课任务。小程序无需新增页面或改接口。

@@ -83,7 +83,7 @@ class ScopedAcademicWriteService(ScopedAcademicService):
         return snapshot(self, self._semester(sid))
 
     @atomic_write
-    def upsert_qualification(self, body):
+    def upsert_qualification(self, body, *, commit=True):
         from app.modules.academic.scoped_write_schemas import QualificationUpsert
         from app.modules.academic.service import AcademicService
 
@@ -127,6 +127,7 @@ class ScopedAcademicWriteService(ScopedAcademicService):
             before,
             body.reason,
             after_extra={"student_lock_version": student.lock_version},
+            commit=commit,
         )
 
     def _action(self, kind):

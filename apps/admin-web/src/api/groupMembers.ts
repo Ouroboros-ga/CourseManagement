@@ -33,6 +33,7 @@ export interface MemberCreatePayload {
   semester_id: string
   effective_from: string
   effective_to: string
+  enable_qualification?: boolean
 }
 
 export interface MemberUpdatePayload {
@@ -82,4 +83,24 @@ export const groupMemberApi: GroupMemberApi = {
   revoke: (kind, collegeId, groupId, id, payload) => request<GroupMember>(
     `${base(collegeId, groupId)}/${kind}/${encodeURIComponent(id)}/revoke`, json('POST', payload)
   )
+}
+
+export interface MemberImportPreview {
+  revision: string; count: number; can_commit: boolean; qualifications_to_enable: number; unchanged: number
+  issues: { student_no: string; message: string }[]
+  items: { student_id?: string; student_no: string; name: string; status: 'ADD' | 'UNCHANGED' | 'BLOCKED'; message?: string; source_row?: number; qualification_action?: 'ENABLE' | 'KEEP' }[]
+}
+export interface MemberImportResult { created: number; unchanged: number; qualifications_enabled: number }
+export interface MemberImportForm { semester_id: string; effective_from: string; effective_to: string; enable_qualification: boolean }
+function fileBody(file: File, body: MemberImportForm, revision?: string) {
+  const data = new FormData()
+  data.set('file', file)
+  for (const [key, value] of Object.entries(body)) data.set(key, String(value))
+  if (revision) data.set('revision', revision)
+  return data
+}
+export const memberImportApi = {
+  template: (cid: string, gid: string) => request<Blob>(`${base(cid, gid)}/members/import-template`, {}, false, 'blob'),
+  preview: (cid: string, gid: string, file: File, body: MemberImportForm) => request<MemberImportPreview>(`${base(cid, gid)}/members/import/preview`, { method: 'POST', body: fileBody(file, body) }),
+  commit: (cid: string, gid: string, file: File, body: MemberImportForm, revision: string) => request<MemberImportResult>(`${base(cid, gid)}/members/import/commit`, { method: 'POST', body: fileBody(file, body, revision) })
 }

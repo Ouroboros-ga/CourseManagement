@@ -246,7 +246,7 @@ class ScopedAcademicService:
         row = self._repo("academic.read").get("teaching_classes", rid)
         return future_impact(self.db, self.college_id, "teaching_class", row.id, row.classification_revision)
 
-    def _audit(self, action, row, before, reason=None, *, after_extra=None):
+    def _audit(self, action, row, before, reason=None, *, after_extra=None, commit=True):
         after = self._dto(row)
         if after_extra:
             after.update(after_extra)
@@ -263,7 +263,10 @@ class ScopedAcademicService:
             )
         )
         try:
-            self.db.commit()
+            if commit:
+                self.db.commit()
+            else:
+                self.db.flush()
         except IntegrityError as exc:
             raise ConflictError(message="编码重复或关联已变化，未保存") from exc
         return after

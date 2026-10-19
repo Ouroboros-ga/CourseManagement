@@ -11,6 +11,7 @@ class MemberCreate(StrictModel):
     semester_id: str = Field(pattern=r"^[1-9][0-9]{0,18}$")
     effective_from: date
     effective_to: date
+    enable_qualification: bool = False
 
     @model_validator(mode="after")
     def valid(self):
