@@ -23,7 +23,9 @@ const options = computed(() => [
   ...(session.hasPermission('student.manage') ? [{ id: 'admin_roster', label: '行政班与学生名单' }, { id: 'class_duty', label: '班主任与责任区辅导员' }, { id: 'roster', label: '教学班补充名单' }] : []),
   ...(session.hasPermission('volunteer.manage') ? [{ id: 'volunteer', label: '志愿者资格名单' }] : [])
 ])
-target.value = options.value.some(row => row.id === props.initialTarget) ? props.initialTarget : options.value[0]?.id || ''
+// 分组入口必须保持已识别类型；权限不可用时阻止读取，不能改用另一类解析器。
+target.value = options.value.some(row => row.id === props.initialTarget)
+  ? props.initialTarget : props.embedded ? '' : options.value[0]?.id || ''
 const kind = computed({ get: () => target.value === 'timetable' ? 'grid_timetable' : target.value, set: value => { target.value = value } })
 const isTimetable = computed(() => ['grid_timetable', 'timetable'].includes(target.value))
 const templateKey = computed(() => target.value === 'grid_timetable' ? 'timetable' : target.value)
@@ -99,6 +101,7 @@ function classesOpened(value: boolean) { if (value) void searchClasses('') }
 <template>
   <section ref="form" class="import-workspace" aria-label="批量导入资料" data-unsaved-form v-loading="busy">
     <template v-if="!result">
+      <el-alert v-if="embedded && !target" title="当前账号无权导入此类型，请刷新学院权限或交由有权管理员处理。" type="warning" :closable="false" />
       <div v-if="!embedded" class="import-context"><label for="import-kind">导入什么</label><el-select id="import-kind" v-model="kind" aria-label="导入资料类型" :disabled="busy || hasPreview" style="width:290px"><el-option v-for="row in options" :key="row.id" :label="row.label" :value="row.id" /></el-select><span class="hint">{{ session.workspace?.name }}<template v-if="!['admin_roster', 'class_duty', 'faculty_staff', 'class_responsibility'].includes(target)"> · {{ session.currentSemesterName }}</template></span><el-button link :loading="templateBusy" @click="template">下载填写模板</el-button></div>
       <div v-if="!hasPreview && !embedded" class="upload-area"><h2>把要导入的文件选进来</h2><p>{{ isTimetable ? '直接使用教务系统导出的班级课表，不用逐班上传。' : '同一种资料可以一次选择多个文件。' }}</p><div class="pick-actions"><el-button type="primary" size="large" @click="folderInput?.click()">选择文件夹</el-button><el-button size="large" @click="zipInput?.click()">选择 ZIP 压缩包</el-button><el-button size="large" @click="fileInput?.click()">选择多个文件</el-button></div>
         <input ref="folderInput" class="native-file" type="file" webkitdirectory multiple aria-label="选择导入文件夹" @change="selectFiles" /><input ref="zipInput" class="native-file" type="file" accept=".zip" multiple aria-label="选择 ZIP 压缩包" @change="selectFiles" /><input ref="fileInput" class="native-file" type="file" accept=".xlsx,.xls,.csv" multiple aria-label="选择多个表格" @change="selectFiles" />
