@@ -416,6 +416,12 @@ def parse_faculty_staff(
             )
             continue
 
+        if staff_no.upper().startswith("TMP_"):
+            issues.append(_issue(
+                "RESERVED_STAFF_NO", "TMP_ 是后台初始化保留前缀，请提供真实工号",
+                field="staff_no", row=row_num))
+            continue
+
         raw_name = pick(raw, "姓名", "name", "teacher_name", "教职工姓名")
         name = _clean(raw_name)
         if not name:

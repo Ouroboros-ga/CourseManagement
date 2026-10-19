@@ -15,6 +15,8 @@ def test_staff_migration_matches_models_and_does_not_change_existing_tables():
         str(Path(__file__).parents[2] / "migrations/versions/f26a1017s001_staff_foundation.py")
     )
     new_names = {"faculty_staff", "teaching_staff_assignment", "class_staff_responsibility"}
+    temporary = runpy.run_path(str(
+        Path(__file__).parents[2] / "migrations/versions/f26a1019s007_staff_temporary_number.py"))
     engine = create_engine("sqlite://")
     with engine.begin() as db:
         Base.metadata.create_all(
@@ -23,9 +25,11 @@ def test_staff_migration_matches_models_and_does_not_change_existing_tables():
         before = set(inspect(db).get_table_names())
         with Operations.context(MigrationContext.configure(db)):
             migration["upgrade"]()
+            temporary["upgrade"]()
         assert set(inspect(db).get_table_names()) == before | new_names
         assert compare_metadata(MigrationContext.configure(db), Base.metadata) == []
         with Operations.context(MigrationContext.configure(db)):
+            temporary["downgrade"]()
             migration["downgrade"]()
         assert set(inspect(db).get_table_names()) == before
     engine.dispose()

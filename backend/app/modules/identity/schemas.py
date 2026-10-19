@@ -11,7 +11,10 @@ from app.common.responses import to_id_str
 
 
 class WebLoginRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
+    username: str = Field(
+        min_length=1, max_length=64,
+        description="既有 Web 用户名；不支持临时工号登录，普通临时教师须先核对真实工号",
+    )
     password: str = Field(min_length=1, max_length=128)
 
 
@@ -148,7 +151,10 @@ class StudentBindingResult(BaseModel):
 class StaffBindingRequest(BaseModel):
     """教职工本人绑定：工号加一次性绑定码，姓名与手机号不作为认领依据。"""
 
-    staff_no: str = Field(min_length=1, max_length=64)
+    staff_no: str = Field(
+        min_length=1, max_length=64,
+        description="当前工号或该档案保留的临时工号，须与一次性绑定码同时核验",
+    )
     binding_code: str = Field(min_length=6, max_length=128)
 
 

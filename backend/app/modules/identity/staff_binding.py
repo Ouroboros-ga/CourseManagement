@@ -71,7 +71,21 @@ class StaffBindingService:
         reason: str | None = None,
         request_id: str | None = None,
     ) -> tuple[int, str, datetime]:
-        """签发 6 位一次性绑定码；明文只在此返回一次，库中仅存摘要。"""
+        """签发并提交一次性绑定码；明文只返回一次。"""
+        result = self.issue_token_in_transaction(
+            actor=actor, staff_id=staff_id, reason=reason, request_id=request_id)
+        self._session.commit()
+        return result
+
+    def issue_token_in_transaction(
+        self,
+        *,
+        actor: CurrentUser,
+        staff_id: int,
+        reason: str | None = None,
+        request_id: str | None = None,
+    ) -> tuple[int, str, datetime]:
+        """签发 6 位绑定码，由调用方统一提交；导出落盘失败时凭证一起回滚。"""
         self._require_workspace(actor)
         row = self._profile(staff_id)
         if row.status != "ACTIVE":
@@ -109,7 +123,6 @@ class StaffBindingService:
             reason=reason,
             request_id=request_id,
         )
-        self._session.commit()
         return token.id, code, expires_at
 
     def revoke_token(
@@ -196,12 +209,14 @@ class StaffBindingService:
         candidates = self._session.execute(
             select(
                 StaffBindingToken.id, StaffBindingToken.staff_id, FacultyStaff.staff_no,
+                FacultyStaff.temporary_staff_no,
                 StaffBindingToken.status, StaffBindingToken.expires_at, StaffBindingToken.used_at,
             )
             .join(FacultyStaff, FacultyStaff.id == StaffBindingToken.staff_id)
             .where(StaffBindingToken.token_hash == digest)
         ).all()
-        matching = [row for row in candidates if row.staff_no == staff_no]
+        matching = [row for row in candidates
+                    if staff_no in (row.staff_no, row.temporary_staff_no)]
         live = [row for row in matching if (
             row.status == BindingTokenStatus.UNUSED.value
             and row.used_at is None and row.expires_at > now
@@ -241,7 +256,7 @@ class StaffBindingService:
             self._session.commit()
             raise ConflictError(ErrorCode.STATE_CONFLICT, "绑定码已过期")
 
-        if profile.staff_no != staff_no:
+        if staff_no not in (profile.staff_no, profile.temporary_staff_no):
             # 不匹配按无效处理并计数，不泄露该码对应哪位教职工。
             token.failed_attempts += 1
             self._session.commit()

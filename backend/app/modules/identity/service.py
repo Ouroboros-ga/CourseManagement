@@ -182,11 +182,27 @@ class IdentityService:
             # 口令已通过校验才暴露停用状态：此时调用方已证明持有凭据，不构成枚举面。
             raise UnauthenticatedError("账号未启用")
 
+        self._require_staff_web_eligibility(user)
         user.failed_login_count = 0
         user.locked_until = None
         _session, access, refresh = self._issue_session(user, ClientType.WEB)
         self._session.commit()
         return self._token_pair(access, refresh)
+
+    def _require_staff_web_eligibility(self, user: UserAccount) -> None:
+        """临时教师仅使用微信；既有管理员账号继续按原管理权限登录。"""
+        from app.modules.academic.staff_models import FacultyStaff
+
+        if user.username and user.username.upper().startswith("TMP_"):
+            raise UnauthenticatedError("账号或密码错误")
+        temporary = self._session.scalar(select(FacultyStaff.id).where(
+            FacultyStaff.user_id == user.id,
+            FacultyStaff.temporary_staff_no.is_not(None),
+            FacultyStaff.staff_no == FacultyStaff.temporary_staff_no,
+        ))
+        if temporary and not ({"SUPER_ADMIN", "TEACHER_ADMIN", "STUDENT_AFFAIRS_MANAGER"}
+                              & set(self._repo.list_role_codes(user.id))):
+            raise UnauthenticatedError("教职工尚未核对真实工号，请使用微信小程序")
 
     def _register_login_failure(self, user: UserAccount, now) -> None:
         user.failed_login_count += 1
@@ -266,6 +282,8 @@ class IdentityService:
         if user is None or not user.is_active:
             raise UnauthenticatedError("账号不可用")
 
+        if current.client_type == ClientType.WEB.value:
+            self._require_staff_web_eligibility(user)
         # 轮换：撤销旧凭证，签发同族新凭证。
         current.revoked_at = utcnow()
         new_refresh = generate_secure_token(32)
@@ -318,6 +336,8 @@ class IdentityService:
         if session.user_id != user_id:
             raise UnauthenticatedError("会话与身份不匹配")
 
+        if session.client_type == ClientType.WEB.value:
+            self._require_staff_web_eligibility(user)
         session.last_used_at = utcnow()
         self._session.commit()  # 刷新 last_used，只读事务下的轻量写入
         roles = self._repo.list_role_codes(user.id)

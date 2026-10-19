@@ -412,3 +412,5 @@
 | GET | `/api/v1/colleges/{cid}/academic/master-timetable` | college-academic |
 | GET | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
 | PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
+
+临时教职工初始化使用后台 CLI，不新增 HTTP 路由。既有 `/api/v1/me/staff-binding` 支持该档案保留的临时工号；Web 登录、刷新及会话禁止只有临时身份的普通教师使用。详见 [操作说明](development/STAFF_TEMPORARY_ONBOARDING.md) 和 API 契约。

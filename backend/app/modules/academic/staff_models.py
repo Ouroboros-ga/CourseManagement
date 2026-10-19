@@ -17,6 +17,8 @@ class FacultyStaff(TimestampMixin, Base):
     __tablename__ = "faculty_staff"
     __table_args__ = (
         UniqueConstraint("school_id", "staff_no", name="uq_staff_school_number"),
+        UniqueConstraint(
+            "school_id", "temporary_staff_no", name="uq_staff_school_temporary_number"),
         CheckConstraint("status IN ('ACTIVE','INACTIVE')", name="staff_status"),
         MYSQL_TABLE_ARGS,
     )
@@ -27,6 +29,8 @@ class FacultyStaff(TimestampMixin, Base):
         ForeignKey("college.id", ondelete="RESTRICT"), index=True
     )
     staff_no: Mapped[str] = mapped_column(String(64))
+    # 补充真实工号时保留原临时工号，只用于微信绑定；不改变档案或账号主键。
+    temporary_staff_no: Mapped[str | None] = mapped_column(String(64))
     name: Mapped[str] = mapped_column(String(128))
     phone: Mapped[str | None] = mapped_column(String(32))
     user_id: Mapped[int | None] = mapped_column(
