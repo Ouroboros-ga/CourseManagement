@@ -165,9 +165,15 @@ class ScopedAcademicRepository:
         administrative_class_id: int | None = None,
         as_of: date | None = None,
         is_volunteer: bool | None = None,
+        student_ids: list[int] | None = None,
     ):
         stmt = self.query(kind, as_of=as_of)
         model = RESOURCES[kind]
+        if student_ids is not None:
+            if model is VolunteerQualification:
+                stmt = stmt.where(VolunteerQualification.student_id.in_(student_ids))
+            else:
+                raise PermissionDeniedError("student_ids 仅用于志愿者资格的批量读取")
         if model is Student and is_volunteer is not None:
             qualified = exists(select(VolunteerQualification.id).where(
                 VolunteerQualification.student_id == Student.id,

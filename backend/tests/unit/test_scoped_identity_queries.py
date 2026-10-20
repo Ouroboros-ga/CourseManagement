@@ -40,6 +40,29 @@ def test_role_targets_and_account_counts_use_explicit_college_sql(campus, monkey
     targets, _ = IdentityService(db).list_role_assignment_targets(teacher.id)
     assert str(own_user.id) in {row.id for row in targets}
     assert str(other_user.id) not in {row.id for row in targets}
+    subset, _ = IdentityService(db).list_role_assignment_targets(
+        teacher.id, student_ids=[own.id, foreign.id]
+    )
+    assert [row.id for row in subset] == [str(own_user.id)]
+    hidden, _ = IdentityService(db).list_role_assignment_targets(
+        teacher.id, student_ids=[foreign.id]
+    )
+    assert hidden == []
+    page = IdentityService(db).role_assignment_target_page(
+        teacher.id, PageParams(1, 50), role_code="STUDENT_AFFAIRS_MANAGER", keyword="负责人"
+    )
+    assert page["total"] == 1 and page["items"][0]["id"] == str(own_user.id)
+    assert (
+        IdentityService(db).role_assignment_target_page(
+            teacher.id, PageParams(1, 50), student_candidates=True
+        )["total"]
+        == 0
+    )
     accounts = AccountService(db).list_accounts(teacher, PageParams(1, 20), None, None)
     assert accounts["total"] == 2
+    teachers = AccountService(db).list_accounts(
+        teacher, PageParams(1, 50), None, None, role_codes=["SUPER_ADMIN", "TEACHER_ADMIN"]
+    )
+    assert teachers["total"] == 1
+    assert teachers["items"][0]["id"] == str(teacher.id)
     assert {row["id"] for row in accounts["items"]} == {str(teacher.id), str(own_user.id)}

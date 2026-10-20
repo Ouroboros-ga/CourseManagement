@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../../components/AppPagination.vue'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { listUnavailability, createUnavailability, getUnavailabilityImpact, decideUnavailability, type Unavailability } from '../../api/unavailability'
@@ -71,7 +72,7 @@ onUnmounted(() => epoch.invalidate())
         <el-button v-if="row.status === 'PENDING' || row.status === 'APPROVED'" :disabled="busy" @click="decide(row, 'CANCELED')">撤销</el-button>
       </template></el-table-column>
     </el-table>
-    <el-pagination v-model:current-page="page" :page-size="50" :total="total" layout="prev,pager,next,total" />
+    <AppPagination v-model:current-page="page" :page-size="50" :total="total" />
   </el-collapse-item></el-collapse>
 </template>
 

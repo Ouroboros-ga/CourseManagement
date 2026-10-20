@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../../components/PaginatedTable.vue'
 import { reactive, shallowRef } from 'vue'
 import { createCourseType, updateCourseType, type CourseType } from '../../api/campus'
 import { useCampusMutation } from '../../composables/useCampusMutation'
@@ -35,7 +36,7 @@ async function remove(row: CourseType) {
 <template>
   <el-button v-if="canManage" type="primary" :disabled="saving" @click="edit(null)">新建课程类型</el-button>
   <DeletedResources v-if="canManage" :college-id="collegeId" kind="course-types" @changed="emit('changed')" />
-  <el-table :data="rows" empty-text="暂无课程类型，可新建普通课、早自习或其他分类">
+  <PaginatedTable :data="rows" empty-text="暂无课程类型，可新建普通课、早自习或其他分类">
     <el-table-column prop="name" label="名称" />
     <el-table-column prop="description" label="说明" />
     <el-table-column prop="sort_order" label="排序" width="80" />
@@ -47,7 +48,7 @@ async function remove(row: CourseType) {
         <el-button link type="danger" :disabled="saving" @click="remove(row)">删除</el-button>
       </template>
     </el-table-column>
-  </el-table>
+  </PaginatedTable>
   <el-dialog v-model="opened" :title="editing ? '编辑课程类型' : '新建课程类型'" width="480px" :close-on-click-modal="false" :show-close="!saving" :close-on-press-escape="!saving">
     <el-form label-width="70px" @submit.prevent="save">
       <el-form-item label="名称"><el-input v-model="form.name" maxlength="128" /></el-form-item>

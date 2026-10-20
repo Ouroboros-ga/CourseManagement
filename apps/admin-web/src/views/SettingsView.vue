@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useDisplayPage } from '../composables/useDisplayPage'
+import AppPagination from '../components/AppPagination.vue'
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
@@ -567,6 +569,10 @@ onMounted(async () => {
   await fetchCalendarOverrides()
   loading.value = false
 })
+
+const { page: display0Page, rows: display0Rows, total: display0Total } = useDisplayPage(() => semesters.value)
+const { page: display1Page, rows: display1Rows, total: display1Total } = useDisplayPage(() => calendarOverrides.value)
+const { page: display2Page, rows: display2Rows, total: display2Total } = useDisplayPage(() => periods.value)
 </script>
 
 <template>
@@ -720,7 +726,7 @@ onMounted(async () => {
           </thead>
           <tbody>
             <tr
-              v-for="sem in semesters"
+              v-for="sem in display0Rows"
               :key="sem.id"
               :style="sem.id === sessionStore.currentSemesterId ? 'background: var(--paper-deep);' : ''"
             >
@@ -765,6 +771,7 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
+<AppPagination v-model:current-page="display0Page" :total="display0Total" />
       </div>
 
       <!-- 校历停补课调度覆盖 -->
@@ -795,7 +802,7 @@ onMounted(async () => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in calendarOverrides" :key="item.id">
+            <tr v-for="item in display1Rows" :key="item.id">
               <td class="cell-mono font-bold">{{ item.date }}</td>
               <td>
                 <span class="tag" :class="item.override_type === 'STOP' ? 'tag-red' : 'tag-blue'">
@@ -822,6 +829,7 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
+<AppPagination v-model:current-page="display1Page" :total="display1Total" />
       </div>
 
       <!-- 高危重置区 (纸面秩序标准 banner-warn) -->
@@ -880,7 +888,7 @@ onMounted(async () => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="p in periods" :key="p.id">
+            <tr v-for="p in display2Rows" :key="p.id">
               <td class="cell-main font-bold">第 {{ p.period_no }} 节</td>
               <td>
                 <span class="tag" :class="getPeriodTagClass(p.period_no)">
@@ -908,6 +916,7 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
+        <AppPagination v-model:current-page="display2Page" :total="display2Total" />
       </div>
     </div>
 

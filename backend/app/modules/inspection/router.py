@@ -30,6 +30,7 @@ from app.modules.inspection.schemas import (
     CourseTypeId,
     DeadlineDayUpdateRequest,
     DeadlineSettleRequest,
+    DeletedTaskRestore,
     ExpectedCountUpdateRequest,
     InspectionGenerateRequest,
     InspectionTaskUpdateRequest,
@@ -42,7 +43,6 @@ from app.modules.inspection.schemas import (
     TaskBatchDeleteRequest,
     TaskCancelRequest,
     TaskDeletionSelection,
-    DeletedTaskRestore,
 )
 from app.modules.inspection.service import InspectionService
 
@@ -134,7 +134,7 @@ def get_course_occurrences(
     teaching_class_ids: Annotated[list[int] | None, Query(max_length=2000)] = None,
     administrative_class_id: Annotated[int | None, Query(ge=1)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=1000)] = 200,
+    page_size: Annotated[int, Query(ge=1, le=1000)] = 50,
     require_photo: bool = False,
     execution_group_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     course_type_id: Annotated[CourseTypeId | None, Query()] = None,
@@ -150,8 +150,9 @@ def get_course_occurrences(
             http_status=422,
         )
     service._require(actor.id, PermissionCode.INSPECTION_GENERATE.value)
-    from app.modules.inspection.execution_group import prepare
     from types import SimpleNamespace
+
+    from app.modules.inspection.execution_group import prepare
     prepare(service, actor, SimpleNamespace(inspection_type="COURSE", execution_group_id=execution_group_id,
                                            semester_id=semester_id))
     semester = service._get_active_semester_read(semester_id)
@@ -241,6 +242,7 @@ def smart_sample_course_occurrences(
 
     service._require(actor.id, PermissionCode.INSPECTION_GENERATE.value)
     from types import SimpleNamespace
+
     from app.modules.inspection.execution_group import prepare
     prepare(service, actor, SimpleNamespace(inspection_type="COURSE", execution_group_id=body.execution_group_id,
                                            semester_id=body.semester_id))
@@ -315,6 +317,11 @@ def list_inspection_tasks(
     include_canceled: Annotated[bool, Query()] = True,
     needs_attention: Annotated[str | None, Query(pattern="^(unassigned|roster)$")] = None,
     deleted_only: bool = False,
+    keyword: Annotated[str | None, Query(max_length=128)] = None,
+    status: Annotated[
+        str | None, Query(pattern="^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED)$")
+    ] = None,
+    pending_change: bool = False,
 ) -> dict[str, object]:
     return success(
         service.list_tasks(
@@ -329,6 +336,49 @@ def list_inspection_tasks(
             include_canceled=include_canceled,
             needs_attention=needs_attention,
             deleted_only=deleted_only,
+            keyword=keyword,
+            status=status,
+            pending_change=pending_change,
+        ),
+        _rid(request),
+    )
+
+
+@router.get("/inspection-tasks/export")
+def export_inspection_tasks(
+    actor: InspectionReadDep,
+    service: ServiceDep,
+    request: Request,
+    semester_id: Annotated[int | None, Query(ge=1)] = None,
+    inspection_date: Annotated[date_ | None, Query()] = None,
+    week_no: Annotated[int | None, Query(ge=1, le=60)] = None,
+    inspection_type: Annotated[str | None, Query(max_length=16)] = None,
+    teaching_class_id: Annotated[int | None, Query(ge=1)] = None,
+    administrative_class_id: Annotated[int | None, Query(ge=1)] = None,
+    include_canceled: Annotated[bool, Query()] = True,
+    needs_attention: Annotated[str | None, Query(pattern="^(unassigned|roster)$")] = None,
+    deleted_only: bool = False,
+    keyword: Annotated[str | None, Query(max_length=128)] = None,
+    status: Annotated[
+        str | None, Query(pattern="^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED)$")
+    ] = None,
+    pending_change: bool = False,
+) -> dict[str, object]:
+    return success(
+        service.export_tasks(
+            actor,
+            semester_id=semester_id,
+            inspection_date=inspection_date,
+            week_no=week_no,
+            inspection_type=inspection_type,
+            teaching_class_id=teaching_class_id,
+            administrative_class_id=administrative_class_id,
+            include_canceled=include_canceled,
+            needs_attention=needs_attention,
+            deleted_only=deleted_only,
+            keyword=keyword,
+            status=status,
+            pending_change=pending_change,
         ),
         _rid(request),
     )
@@ -673,6 +723,8 @@ def list_management_submissions(
     date_to: date_ | None = None,
     task_id: Annotated[int | None, Query(ge=1)] = None,
     review_status: ReviewStatusLiteral | None = None,
+    keyword: Annotated[str | None, Query(max_length=128)] = None,
+    result: Annotated[str | None, Query(pattern="^(NORMAL|ABNORMAL)$")] = None,
 ) -> dict[str, object]:
     data = service.list_management_submissions(
         actor,
@@ -682,6 +734,8 @@ def list_management_submissions(
         date_to=date_to,
         task_id=task_id,
         review_status=review_status,
+        keyword=keyword,
+        result=result,
     )
     return success(data, _rid(request))
 

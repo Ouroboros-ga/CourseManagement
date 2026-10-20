@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import Field
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams, page_params
@@ -579,9 +580,14 @@ def list_volunteer_qualifications(
     params: Annotated[PageParams, Depends(page_params)],
     semester_id: Annotated[int | None, Query(ge=1)] = None,
     enabled: Annotated[bool | None, Query()] = None,
+    student_ids: Annotated[
+        list[Annotated[int, Field(gt=0, le=2**63 - 1)]] | None, Query(max_length=200)
+    ] = None,
 ) -> dict[str, object]:
     return success(
-        service.list_volunteer_qualifications(params, semester_id=semester_id, enabled=enabled),
+        service.list_volunteer_qualifications(
+            params, semester_id=semester_id, enabled=enabled, student_ids=student_ids
+        ),
         _rid(request),
     )
 
@@ -594,6 +600,7 @@ def get_master_timetable(
     actor: AcademicReadDep,
     service: ServiceDep,
     request: Request,
+    params: Annotated[PageParams, Depends(page_params)],
     semester_id: Annotated[int, Query(ge=1)],
     week_no: Annotated[int | None, Query(ge=1, le=60)] = None,
     weekday: Annotated[int | None, Query(ge=1, le=7)] = None,
@@ -610,7 +617,15 @@ def get_master_timetable(
             keyword=keyword,
         )
     ]
-    return success({"items": items, "total": len(items)}, _rid(request))
+    return success(
+        {
+            "items": items[params.offset : params.offset + params.limit],
+            "total": len(items),
+            "page": params.page,
+            "page_size": params.page_size,
+        },
+        _rid(request),
+    )
 
 
 # =========================================================================== #

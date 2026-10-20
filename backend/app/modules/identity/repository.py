@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, raiseload, selectinload
 
 from app.modules.academic.models import Student
 from app.modules.identity.models import (
@@ -27,8 +27,12 @@ class IdentityRepository:
 
     # ---- 账号 ----
     def get_user_by_id(self, user_id: int) -> UserAccount | None:
-        return self._session.scalar(select(UserAccount).where(UserAccount.id == user_id)
-            .execution_options(populate_existing=True))
+        return self._session.scalar(
+            select(UserAccount)
+            .options(selectinload(UserAccount.roles).raiseload("*"), raiseload("*"))
+            .where(UserAccount.id == user_id)
+            .execution_options(populate_existing=True)
+        )
 
     def get_user_by_id_for_update(self, user_id: int) -> UserAccount | None:
         """SELECT ... FOR UPDATE 锁定账号行，并强制回填最新列值。
@@ -38,6 +42,7 @@ class IdentityRepository:
         """
         stmt = (
             select(UserAccount)
+            .options(selectinload(UserAccount.roles).raiseload("*"), raiseload("*"))
             .where(UserAccount.id == user_id)
             .with_for_update()
             .execution_options(populate_existing=True)
@@ -45,7 +50,11 @@ class IdentityRepository:
         return self._session.execute(stmt).scalar_one_or_none()
 
     def get_user_by_username(self, username: str) -> UserAccount | None:
-        stmt = select(UserAccount).where(UserAccount.username == username)
+        stmt = (
+            select(UserAccount)
+            .options(selectinload(UserAccount.roles).raiseload("*"), raiseload("*"))
+            .where(UserAccount.username == username)
+        )
         return self._session.execute(stmt).scalar_one_or_none()
 
     # ---- 角色与权限 ----
@@ -234,6 +243,7 @@ class IdentityRepository:
     def list_all_users(self, statement=None) -> list[UserAccount]:
         """角色分配目标选择器：返回全部账号（按 ID 稳定排序）。"""
         stmt = (statement if statement is not None else select(UserAccount)).order_by(UserAccount.id)
+        stmt = stmt.options(selectinload(UserAccount.roles).raiseload("*"), raiseload("*"))
         return list(self._session.execute(stmt).scalars().all())
 
     def list_users_with_role(self, role_code: str, statement=None) -> list[UserAccount]:
@@ -245,7 +255,22 @@ class IdentityRepository:
             .where(Role.code == role_code)
             .order_by(UserAccount.id)
         )
+        stmt = stmt.options(selectinload(UserAccount.roles).raiseload("*"), raiseload("*"))
         return list(self._session.execute(stmt).scalars().all())
+
+    def optional_grants_by_users(self, user_ids):
+        result = {uid: set() for uid in user_ids}
+        if result:
+            for uid, code in self._session.execute(
+                select(UserPermission.user_id, Permission.code)
+                .join(Permission, Permission.id == UserPermission.permission_id)
+                .where(
+                    UserPermission.user_id.in_(result),
+                    Permission.code.in_(OPTIONAL_PERMISSION_CODES),
+                )
+            ):
+                result[uid].add(code)
+        return result
 
     def list_optional_grant_codes(self, user_id: int) -> list[str]:
         """当前逐人开启的可选权限 code（限定在三项许可清单内）。"""
@@ -361,6 +386,7 @@ class IdentityRepository:
         """按 appid + openid 唯一定位已绑定的账号；无则 None（首次登录需建号）。"""
         stmt = (
             select(UserAccount)
+            .options(selectinload(UserAccount.roles).raiseload("*"), raiseload("*"))
             .join(WechatIdentity, WechatIdentity.user_id == UserAccount.id)
             .where(WechatIdentity.appid == appid, WechatIdentity.openid == openid)
         )

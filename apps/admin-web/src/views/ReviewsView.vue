@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useDisplayPage } from '../composables/useDisplayPage'
 import { formatBeijingTime } from '@/utils/datetime'
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -9,6 +10,8 @@ import {
   batchReviewSubmissions,
   type ManagementSubmissionItem
 } from '../api/submissions'
+import AppPagination from '../components/AppPagination.vue'
+import { ContextEpoch } from '../utils/contextEpoch'
 import AppIcon from '../components/AppIcon.vue'
 
 const sessionStore = useSessionStore()
@@ -21,16 +24,28 @@ const activeId = ref<string>('')
 const statusFilter = ref<string>('PENDING')
 const searchQuery = ref<string>('')
 const selectedIds = ref<string[]>([])
+const page = ref(1), total = ref(0)
+const summary = ref({ pending: 0, normal: 0, abnormal: 0, reviewed: 0 })
+const epoch = new ContextEpoch(() => JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId,
+  sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value]))
 const queueListRef = ref<HTMLElement | null>(null)
 
 async function fetchSubmissions() {
+  const ticket = epoch.begin()
   loading.value = true
   try {
     const res = await listManagementSubmissions({
       semester_id: sessionStore.currentSemesterId || undefined,
-      page_size: 100
+      page: page.value, page_size: 50,
+      keyword: searchQuery.value.trim() || undefined,
+      review_status: ['PENDING', 'APPROVED', 'REJECTED'].includes(statusFilter.value) ? statusFilter.value as 'PENDING' | 'APPROVED' | 'REJECTED' : undefined,
+      result: ['NORMAL', 'ABNORMAL'].includes(statusFilter.value) ? statusFilter.value : undefined
     })
+    if (!ticket.isCurrent()) return
     submissions.value = res.items || []
+    total.value = res.total
+    summary.value = res.summary || summary.value
+    if (page.value > 1 && !res.items.length) page.value = Math.max(1, Math.ceil(res.total / 50))
 
     // 保持或更新当前选中的项
     if (!submissions.value.some(s => s.id === activeId.value)) {
@@ -38,18 +53,19 @@ async function fetchSubmissions() {
       activeId.value = firstPending ? firstPending.id : (submissions.value[0]?.id || '')
     }
   } catch (err: unknown) {
-    console.error('获取待审核提交列表失败:', err)
+    if (ticket.isCurrent()) console.error('获取待审核提交列表失败:', err)
   } finally {
-    loading.value = false
+    if (ticket.isLatest()) loading.value = false
   }
 }
 
-watch(
-  () => sessionStore.currentSemesterId,
-  () => {
-    fetchSubmissions()
-  }
-)
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+watch([statusFilter, searchQuery, () => sessionStore.currentSemesterId, () => sessionStore.workspaceCollegeId,
+  () => sessionStore.currentUser?.id], () => {
+  epoch.invalidate(); selectedIds.value = []; submissions.value = []; activeId.value = ''; page.value = 1
+  clearTimeout(searchTimer); searchTimer = setTimeout(() => void fetchSubmissions(), 250)
+})
+watch(page, () => { selectedIds.value = []; clearTimeout(searchTimer); searchTimer = setTimeout(() => void fetchSubmissions(), 0) })
 
 onMounted(() => {
   fetchSubmissions()
@@ -57,50 +73,16 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  epoch.invalidate(); clearTimeout(searchTimer)
   window.removeEventListener('keydown', handleKeyDown)
 })
 
-// 宏观统计指标
 const pendingSubmissions = computed(() => submissions.value.filter(s => s.review_status === 'PENDING'))
-const pendingCount = computed(() => pendingSubmissions.value.length)
-const pendingNormalCount = computed(() =>
-  pendingSubmissions.value.filter(s => s.result === 'NORMAL' && s.abnormal_items.length === 0).length
-)
-const pendingAbnormalCount = computed(() =>
-  pendingSubmissions.value.filter(s => s.result === 'ABNORMAL' || s.abnormal_items.length > 0).length
-)
-const reviewedCount = computed(() => submissions.value.filter(s => s.review_status !== 'PENDING').length)
-
-// 视图过滤与搜索
-const filteredSubmissions = computed(() => {
-  let list = submissions.value
-
-  if (statusFilter.value === 'PENDING') {
-    list = list.filter(s => s.review_status === 'PENDING')
-  } else if (statusFilter.value === 'ABNORMAL') {
-    list = list.filter(s => s.result === 'ABNORMAL' || s.abnormal_items.length > 0)
-  } else if (statusFilter.value === 'NORMAL') {
-    list = list.filter(s => s.result === 'NORMAL' && s.abnormal_items.length === 0)
-  } else if (statusFilter.value === 'APPROVED') {
-    list = list.filter(s => s.review_status === 'APPROVED')
-  } else if (statusFilter.value === 'REJECTED') {
-    list = list.filter(s => s.review_status === 'REJECTED')
-  }
-
-  if (searchQuery.value.trim()) {
-    const q = searchQuery.value.trim().toLowerCase()
-    list = list.filter(s => {
-      const course = (s.task?.course_name_snapshot || '').toLowerCase()
-      const cls = (s.task?.class_name_snapshot || '').toLowerCase()
-      const room = (s.task?.classroom_snapshot || '').toLowerCase()
-      const vol = String(s.volunteer_user_id || '').toLowerCase()
-      const id = String(s.id).toLowerCase()
-      return course.includes(q) || cls.includes(q) || room.includes(q) || vol.includes(q) || id.includes(q)
-    })
-  }
-
-  return list
-})
+const pendingCount = computed(() => summary.value.pending)
+const pendingNormalCount = computed(() => summary.value.normal)
+const pendingAbnormalCount = computed(() => summary.value.abnormal)
+const reviewedCount = computed(() => summary.value.reviewed)
+const filteredSubmissions = computed(() => submissions.value)
 
 // 当前右侧展示项
 const currentSubmission = computed<ManagementSubmissionItem | null>(() => {
@@ -227,6 +209,7 @@ async function handleReject(sub?: ManagementSubmissionItem) {
 
 // ⚡ 一键通过所有全勤正常项（核心推荐加速）
 async function handleBatchApproveNormal() {
+  const context = JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])
   const normalPending = pendingSubmissions.value.filter(
     s => s.result === 'NORMAL' && s.abnormal_items.length === 0
   )
@@ -237,7 +220,7 @@ async function handleBatchApproveNormal() {
 
   try {
     await ElMessageBox.confirm(
-      `检测到当前共有 ${normalPending.length} 笔【全员到齐（无异常）】的待审核记录。\n\n• 点击确定将一键批量通过并固化全勤事实；\n• 其余含异常学生名单的提交将安全保留在队列中，供人工重点核查。`,
+      `检测到本页共有 ${normalPending.length} 笔【全员到齐（无异常）】的待审核记录。\n\n• 点击确定将一键批量通过并固化全勤事实；\n• 其余含异常学生名单的提交将安全保留在队列中，供人工重点核查。`,
       '⚡ 一键通过全勤正常提交',
       {
         confirmButtonText: `确认通过 (${normalPending.length} 笔)`,
@@ -247,6 +230,7 @@ async function handleBatchApproveNormal() {
       }
     )
 
+    if (context !== JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])) return
     batchLoading.value = true
     const res = await batchReviewSubmissions({
       submission_ids: normalPending.map(s => s.id),
@@ -268,6 +252,7 @@ async function handleBatchApproveNormal() {
 
 // 批量通过勾选项
 async function handleBatchApproveSelected() {
+  const context = JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])
   const selectedPending = submissions.value.filter(
     s => selectedIds.value.includes(s.id) && s.review_status === 'PENDING'
   )
@@ -294,6 +279,7 @@ async function handleBatchApproveSelected() {
       }
     )
 
+    if (context !== JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])) return
     batchLoading.value = true
     const res = await batchReviewSubmissions({
       submission_ids: selectedPending.map(s => s.id),
@@ -314,40 +300,43 @@ async function handleBatchApproveSelected() {
   }
 }
 
-// 一键通过全部待审（包含异常高危警示）
+// 通过本页全部待审（包含异常高危警示）
 async function handleBatchApproveAllPending() {
-  if (pendingSubmissions.value.length === 0) {
+  const context = JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])
+  const pending = [...pendingSubmissions.value]
+  if (pending.length === 0) {
     ElMessage.info('当前没有待审核的提交记录')
     return
   }
 
-  const normalCount = pendingNormalCount.value
-  const abnormalCount = pendingAbnormalCount.value
+  const normalCount = pending.filter(row => row.result === 'NORMAL' && !row.abnormal_items.length).length
+  const abnormalCount = pending.length - normalCount
 
   const warningContent = abnormalCount > 0
-    ? `⚠️ 高危提示：当前待审队列中包含 ${abnormalCount} 笔【存在异常学生】的查课记录！\n\n一键全部通过后，相关学生的旷课/迟到记录将直接固化记入正式考勤档案。\n\n全勤记录：${normalCount} 笔\n异常记录：${abnormalCount} 笔\n总计通过：${pendingSubmissions.value.length} 笔`
-    : `当前待审共 ${pendingSubmissions.value.length} 笔，均为全勤到齐。确认全部通过吗？`
+    ? `⚠️ 高危提示：本页待审队列中包含 ${abnormalCount} 笔【存在异常学生】的查课记录！\n\n一键全部通过后，相关学生的旷课/迟到记录将直接固化记入正式考勤档案。\n\n全勤记录：${normalCount} 笔\n异常记录：${abnormalCount} 笔\n总计通过：${pending.length} 笔`
+    : `本页待审共 ${pending.length} 笔，均为全勤到齐。确认全部通过吗？`
 
   try {
     await ElMessageBox.confirm(
       warningContent,
-      '一键通过全部待审记录',
+      '通过本页全部待审记录',
       {
-        confirmButtonText: `确认全部通过 (${pendingSubmissions.value.length} 笔)`,
+        confirmButtonText: `确认全部通过 (${pending.length} 笔)`,
         cancelButtonText: '取消',
         type: abnormalCount > 0 ? 'warning' : 'info',
         confirmButtonClass: abnormalCount > 0 ? 'el-button--danger' : 'el-button--primary'
       }
     )
 
+    if (context !== JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])) return
     batchLoading.value = true
     const res = await batchReviewSubmissions({
-      submission_ids: pendingSubmissions.value.map(s => s.id),
+      submission_ids: pending.map(s => s.id),
       decision: 'APPROVED',
       comment: '管理端一键全部审核通过'
     })
 
-    ElMessage.success(`全量初审通过！共完成 ${res.success_count} 笔，失败 ${res.failed_count} 笔。`)
+    ElMessage.success(`本页审核完成！共完成 ${res.success_count} 笔，失败 ${res.failed_count} 笔。`)
     await fetchSubmissions()
   } catch (err: unknown) {
     if (err !== 'cancel') {
@@ -364,6 +353,8 @@ const typeMap: Record<string, string> = {
   'ABSENT': '旷课',
   'LEAVE': '请假'
 }
+
+const { page: display0Page, rows: display0Rows, total: display0Total } = useDisplayPage(() => currentSubmission.value?.abnormal_items || [])
 </script>
 
 <template>
@@ -437,7 +428,7 @@ const typeMap: Record<string, string> = {
           :class="{ on: statusFilter === '' }"
           @click="statusFilter = ''"
         >
-          全部 ({{ submissions.length }})
+          全部 ({{ summary.pending + summary.reviewed }})
         </button>
         <button
           class="tab-btn"
@@ -466,7 +457,7 @@ const typeMap: Record<string, string> = {
           />
         </div>
 
-        <!-- ⚡ 一键通过所有全勤待审（主力推荐） -->
+        <!-- ⚡ 通过本页全勤待审（主力推荐） -->
         <button
           class="btn btn-sm btn-flash inline-flex items-center gap-1.5 shadow-sm"
           :disabled="pendingNormalCount === 0 || batchLoading"
@@ -474,7 +465,7 @@ const typeMap: Record<string, string> = {
           @click="handleBatchApproveNormal"
         >
           <AppIcon name="sparkles" :size="13" class="text-emerald-300" />
-          <span>⚡ 一键通过全勤待审 ({{ pendingNormalCount }})</span>
+          <span>⚡ 通过本页全勤待审</span>
         </button>
 
         <!-- 批量通过勾选项 -->
@@ -493,10 +484,10 @@ const typeMap: Record<string, string> = {
           v-if="pendingCount > 0"
           class="btn btn-sm btn-ghost inline-flex items-center gap-1 text-xs"
           :disabled="batchLoading"
-          title="将当前学期所有待审核提交一次性全额通过（包含异常考勤项）"
+          title="将本页待审核提交一次性通过（包含异常考勤项）"
           @click="handleBatchApproveAllPending"
         >
-          <span>一键通过全部待审</span>
+          <span>通过本页全部待审</span>
         </button>
 
         <button class="btn btn-sm btn-ghost" @click="fetchSubmissions">⟳ 刷新</button>
@@ -601,6 +592,7 @@ const typeMap: Record<string, string> = {
             </div>
           </div>
         </div>
+      <AppPagination v-model:current-page="page" :total="total" />
       </aside>
 
       <!-- 右栏：现场事实与管理决策展卷 -->
@@ -687,7 +679,7 @@ const typeMap: Record<string, string> = {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="ab in currentSubmission.abnormal_items" :key="ab.student_id">
+                    <tr v-for="ab in display0Rows" :key="ab.student_id">
                       <td class="cell-mono">{{ ab.student_no }}</td>
                       <td class="cell-main font-bold">{{ ab.name }}</td>
                       <td>
@@ -702,6 +694,7 @@ const typeMap: Record<string, string> = {
                     </tr>
                   </tbody>
                 </table>
+<AppPagination v-model:current-page="display0Page" :total="display0Total" />
               </div>
 
               <!-- 全勤清爽提示 -->

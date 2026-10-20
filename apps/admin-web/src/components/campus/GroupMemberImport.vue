@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../PaginatedTable.vue'
 import { computed, reactive, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { memberImportApi } from '../../api/groupMembers'
@@ -48,10 +49,10 @@ async function download() {
     <template v-if="state.preview.value">
       <p>共 {{ state.preview.value.count }} 人；已存在 {{ state.preview.value.unchanged }} 人；需开通资格 {{ state.preview.value.qualifications_to_enable }} 人。</p>
       <el-alert v-if="!state.preview.value.can_commit" title="有阻断项，整批不会保存。请按行修正表格或先维护学籍，再重新上传。" type="error" :closable="false" />
-      <el-table :data="state.preview.value.items" max-height="360">
+      <PaginatedTable :data="state.preview.value.items" max-height="360">
         <el-table-column prop="source_row" label="表格行" width="80" /><el-table-column prop="student_no" label="学号" />
         <el-table-column prop="name" label="姓名" /><el-table-column label="处理结果"><template #default="{ row }">{{ row.status === 'ADD' ? '新增成员' : row.status === 'UNCHANGED' ? '已存在，保留' : '阻断' }}{{ row.qualification_action === 'ENABLE' ? ' · 开通本学期资格' : '' }}{{ row.message ? `：${row.message}` : '' }}</template></el-table-column>
-      </el-table>
+      </PaginatedTable>
       <el-button type="primary" :loading="state.busy.value" :disabled="!state.preview.value.can_commit || !valid" @click="save">确认加入本组</el-button>
     </template>
   </section>

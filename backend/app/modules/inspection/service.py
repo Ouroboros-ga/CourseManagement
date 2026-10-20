@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from datetime import date as date_
 
-from sqlalchemy import ColumnElement, create_engine, delete, func, or_, select
+from sqlalchemy import ColumnElement, and_, create_engine, delete, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -832,11 +832,13 @@ class InspectionService:
         include_canceled: bool,
         needs_attention: str | None = None,
         deleted_only: bool = False,
+        keyword: str | None = None,
+        status: str | None = None,
+        pending_change: bool = False,
     ) -> dict:
         self._require(actor.id, perms.READ_PERMISSION)
         scope = self._scope_filter(actor)
-        rows, total = self._repo.list_tasks(
-            params,
+        filters = dict(
             scope_filter=scope,
             semester_id=semester_id,
             inspection_date=inspection_date,
@@ -847,6 +849,19 @@ class InspectionService:
             include_canceled=include_canceled,
             needs_attention=needs_attention,
             deleted_only=deleted_only,
+            keyword=keyword,
+            status=status,
+            pending_change=pending_change,
+        )
+        rows, total = self._repo.list_tasks(params, **filters)
+        summary = self._repo.task_summary(
+            **{
+                **filters,
+                "inspection_date": None,
+                "keyword": None,
+                "status": None,
+                "pending_change": False,
+            }
         )
         dto = self._assemble_tasks(rows)
         return {
@@ -854,7 +869,44 @@ class InspectionService:
             "page": params.page,
             "page_size": params.page_size,
             "total": total,
+            "summary": summary,
         }
+
+    def export_tasks(self, actor: CurrentUser, **filters) -> dict:
+        """用户主动导出完整筛选结果；只查导出列，不装配名单、照片和截止历史。"""
+        from sqlalchemy import func
+
+        from app.modules.inspection.list_queries import task_status_expression
+
+        self._require(actor.id, perms.READ_PERMISSION)
+        stmt = self._repo.task_list_statement(scope_filter=self._scope_filter(actor), **filters)
+        stmt = (
+            stmt.outerjoin(
+                InspectionAssignment,
+                and_(
+                    InspectionAssignment.task_id == InspectionTask.id,
+                    InspectionAssignment.revoked_at.is_(None),
+                ),
+            )
+            .outerjoin(UserAccount, UserAccount.id == InspectionAssignment.volunteer_user_id)
+            .outerjoin(Student, Student.id == UserAccount.student_id)
+        )
+        stmt = stmt.with_only_columns(
+            InspectionTask.id,
+            InspectionTask.inspection_date,
+            InspectionTask.week_no,
+            InspectionTask.start_period,
+            InspectionTask.end_period,
+            InspectionTask.course_name_snapshot,
+            InspectionTask.class_name_snapshot,
+            InspectionTask.classroom_snapshot,
+            func.coalesce(Student.name, UserAccount.display_name).label("assigned_volunteer_name"),
+            task_status_expression().label("status"),
+        ).order_by(InspectionTask.inspection_date, InspectionTask.id)
+        items = [dict(row) for row in self._session.execute(stmt).mappings()]
+        for item in items:
+            item["id"] = str(item["id"])
+        return {"items": items, "total": len(items)}
 
     def get_task(self, actor: CurrentUser, task_id: int) -> InspectionTaskResponse:
         self._require(actor.id, perms.READ_PERMISSION)
@@ -907,6 +959,8 @@ class InspectionService:
     def _assemble_tasks(self, tasks: Sequence[InspectionTask]) -> list[InspectionTaskResponse]:
         """批量装配任务响应：一次性取受派 + 日截止 + 考核快照 + 当前版本 id，
         避免逐行查询（技术方案 12）；派生五种当前状态并回填截止上下文。"""
+        if not tasks:
+            return []
         ids = [t.id for t in tasks]
         assignments = self._repo.list_assignments_by_task_ids(ids)
         assessments = self._repo.list_assessments_by_task_ids(ids)
@@ -915,7 +969,11 @@ class InspectionService:
         sem_ids = {t.semester_id for t in tasks}
         deadline_by_id = {}
         for sid in sem_ids:
-            for d in self._repo.list_deadline_days_by_semester(sid, scope_ids={0} | {t.college_id for t in tasks if t.college_id}):
+            for d in self._repo.list_deadline_days_by_semester(
+                sid,
+                scope_ids={0} | {t.college_id for t in tasks if t.college_id},
+                dates={t.inspection_date for t in tasks if t.semester_id == sid},
+            ):
                 if d.ownership_scope_id == 0:
                     deadline_by_date[(sid, d.inspection_date)] = d
                 deadline_by_id[d.id] = d
@@ -949,23 +1007,27 @@ class InspectionService:
         tc_ids = {t.teaching_class_id for t in tasks if t.teaching_class_id is not None}
         tc_admin_map: dict[int, list[tuple[str, str | None, str | None]]] = defaultdict(list)
         if tc_ids:
-            stu_rows = self._session.execute(
-                select(
-                    TeachingClassStudent.teaching_class_id,
-                    AdministrativeClass.class_name,
-                    AdministrativeClass.head_teacher,
-                    AdministrativeClass.counselor,
+            stu_rows = (
+                self._session.execute(
+                    select(
+                        TeachingClassStudent.teaching_class_id,
+                        AdministrativeClass.class_name,
+                        AdministrativeClass.head_teacher,
+                        AdministrativeClass.counselor,
+                    )
+                    .join(Student, Student.id == TeachingClassStudent.student_id)
+                    .outerjoin(
+                        AdministrativeClass,
+                        AdministrativeClass.id == Student.administrative_class_id,
+                    )
+                    .where(
+                        TeachingClassStudent.teaching_class_id.in_(tc_ids),
+                        Student.status == "ACTIVE",
+                    )
                 )
-                .join(Student, Student.id == TeachingClassStudent.student_id)
-                .outerjoin(
-                    AdministrativeClass,
-                    AdministrativeClass.id == Student.administrative_class_id,
-                )
-                .where(
-                    TeachingClassStudent.teaching_class_id.in_(tc_ids),
-                    Student.status == "ACTIVE",
-                )
-            ).all()
+                .distinct()
+                .all()
+            )
             for tid, ac_name, ht, co in stu_rows:
                 if ac_name:
                     tc_admin_map[tid].append((ac_name, ht, co))
@@ -1017,7 +1079,14 @@ class InspectionService:
         # 加载行政班基础信息索引，用于无名单时通过班级快照名称穿透匹配班主任与辅导员
         all_acs = (
             self._session.execute(
-                select(AdministrativeClass).where(AdministrativeClass.status == "ACTIVE")
+                select(AdministrativeClass).where(
+                    AdministrativeClass.status == "ACTIVE",
+                    *(
+                        [AdministrativeClass.college_id.in_({t.college_id for t in tasks})]
+                        if all(t.college_id for t in tasks)
+                        else []
+                    ),
+                )
             )
             .scalars()
             .all()
@@ -3474,6 +3543,8 @@ class InspectionService:
         date_to: date_ | None,
         task_id: int | None,
         review_status: str | None,
+        keyword: str | None = None,
+        result: str | None = None,
     ) -> dict:
         self._require_management_submission_read(actor)
         if date_from is not None and date_to is not None and date_from > date_to:
@@ -3483,13 +3554,18 @@ class InspectionService:
                 http_status=422,
                 field_errors={"date_from": "必须早于或等于 date_to"},
             )
-        rows, total = self._repo.list_management_submissions(
-            params,
+        filters = dict(
             semester_id=semester_id,
             date_from=date_from,
             date_to=date_to,
             task_id=task_id,
             review_status=review_status,
+            keyword=keyword,
+            result=result,
+        )
+        rows, total = self._repo.list_management_submissions(params, **filters)
+        summary = self._repo.management_submission_summary(
+            **{**filters, "review_status": None, "result": None, "keyword": None}
         )
         dto = self._assemble_management_submissions(rows)
         return {
@@ -3497,6 +3573,7 @@ class InspectionService:
             "page": params.page,
             "page_size": params.page_size,
             "total": total,
+            "summary": summary,
         }
 
     def get_management_submission(

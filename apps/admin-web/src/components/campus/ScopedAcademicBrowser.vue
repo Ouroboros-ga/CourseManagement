@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../../components/AppPagination.vue'
 import { computed, shallowRef, watch } from 'vue'
 import { setTeachingClassType, type ScopedAcademicKind, type ScopedAcademicRow } from '../../api/scopedAcademic'
 import type { CourseType } from '../../api/campus'
@@ -69,7 +70,7 @@ function formatField(row: ScopedAcademicRow, column: { property: string }) {
     <el-table-column v-if="canManageClasses" label="操作" width="100"><template #default="{ row }"><el-button link @click="edit(row)">编辑</el-button></template></el-table-column>
     <el-table-column v-if="kind === 'teaching-classes' && canClassify && session.campusRuntime?.scheduling" label="教务身份"><template #default="{ row }"><el-button link :disabled="session.currentSemester?.status === 'ARCHIVED'" @click="identityId = row.id">核对共享教学班</el-button></template></el-table-column>
   </el-table>
-  <el-pagination v-model:current-page="page" :total="total" :page-size="20" layout="prev, pager, next, total" />
+  <AppPagination v-model:current-page="page" :total="total" :page-size="50" />
   <ScopedClassEditor :college-id="collegeId" :opened="opened && canManageClasses" :row="editing" @close="opened = false" @changed="load" />
   <el-dialog :model-value="!!identityId" title="核对共享教学班身份" width="850px" :close-on-click-modal="false" append-to-body destroy-on-close @close="identityId = ''">
     <SharedIdentity v-if="identityId" :college-id="collegeId" :teaching-id="identityId" @changed="identityId = ''; load()" />

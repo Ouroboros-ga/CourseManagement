@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
+import AppPagination from '../components/AppPagination.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { useFileAccess } from '../composables/useFileAccess'
 import {
@@ -102,9 +103,9 @@ async function fetchObjections() {
       activeIndex.value = 0
     }
 
-    // 预加载考勤记录快照
-    const recordIds = Array.from(new Set(objections.value.map(o => o.attendance_record_id)))
-    await loadAttendanceForRecords(recordIds, requestId)
+    // 列表自带显示快照；仅选中的异议加载当前考勤详情。
+    const active = objections.value[activeIndex.value]
+    if (active) await loadAttendanceForRecords([active.attendance_record_id], requestId)
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '获取考勤异议列表失败'
     if (requestId === listRequest) ElMessage.error(msg)
@@ -143,6 +144,14 @@ onMounted(() => {
 const activeObjection = computed<ObjectionItem | null>(() => {
   if (objections.value.length === 0) return null
   return objections.value[activeIndex.value] || null
+})
+
+watch(() => activeObjection.value?.attendance_record_id, id => {
+  if (id && !props.selfScope) void loadAttendanceForRecords([id], listRequest)
+})
+watch(() => [sessionStore.workspaceCollegeId, sessionStore.currentUser?.id], () => {
+  ++listRequest; objections.value = []; attendanceMap.value = {}; page.value = 1; activeIndex.value = 0
+  void fetchObjections()
 })
 
 const activeAttendance = computed<AttendanceRecord | null>(() => {
@@ -520,11 +529,7 @@ const decisionOptions: DecisionOption[] = [
             </div>
           </div>
         </div>
-        <div v-if="total > 50" class="list-head">
-          <button class="btn btn-sm btn-ghost" :disabled="page <= 1 || loading" @click="changePage(page - 1)">上一页</button>
-          <span>{{ page }} / {{ Math.ceil(total / 50) }}</span>
-          <button class="btn btn-sm btn-ghost" :disabled="page * 50 >= total || loading" @click="changePage(page + 1)">下一页</button>
-        </div>
+        <AppPagination :current-page="page" :total="total" @current-change="changePage" />
       </aside>
 
       <!-- 右栏：申诉详情、三方事实与审核决策 -->

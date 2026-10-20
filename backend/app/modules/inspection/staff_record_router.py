@@ -102,7 +102,7 @@ def list_inspection_records(
     responsible_college_id: int | None = Query(None, description="任务负责学院 ID"),
     course_name: str | None = Query(None, description="课程名称"),
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=200, description="每页条数"),
+    page_size: int = Query(50, ge=1, le=200, description="每页条数"),
     actor: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

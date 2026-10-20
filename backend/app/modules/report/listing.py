@@ -149,7 +149,7 @@ def list_reports(
     semester_id: Annotated[int | None, Query(ge=1)] = None,
     week_no: Annotated[int | None, Query(ge=1)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> dict[str, Any]:
     data = ReportListingService(db).list_reports(
         actor, semester_id=semester_id, week_no=week_no, page=page, page_size=page_size

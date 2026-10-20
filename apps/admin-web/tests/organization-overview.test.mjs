@@ -19,7 +19,7 @@ function setup(api, groups = [{ id: '9007199254740993', config_version: 1, lock_
   const { useOrganizationOverview } = moduleAt('../src/composables/useOrganizationOverview.ts', {
     vue,
     '../api/groupMembers': { groupMemberApi: { list: async () => [] } },
-    '../api/organizationManagement': { preparationSource: api },
+    '../api/organizationManagement': { organizationOverview: api },
     './useWorkspaceRead': { useWorkspaceRead }
   })
   const context = vue.reactive({ key: 'actor:1:term-1', collegeId: '1', semesterId: 'term-1', enabled: true,
@@ -33,16 +33,16 @@ const flush = async () => { await new Promise(resolve => setImmediate(resolve));
 test('switching semester discards late organization rules and members', async () => {
   let releaseOld
   const old = new Promise(resolve => { releaseOld = resolve })
-  const { context, scope, state } = setup(async (_cid, _gid, sid) => sid === 'term-1' ? old
-    : { configuration: { course_type_ids: ['new'] }, members: [], uses_semester_specific_rules: true })
+  const { context, scope, state } = setup(async (_cid, sid) => sid === 'term-1' ? old
+    : { items: { '9007199254740993': { configuration: { course_type_ids: ['new'] }, member_count: 7, specific: true } } })
   try {
     context.key = 'actor:1:term-2'; context.semesterId = 'term-2'
     await flush()
-    releaseOld({ configuration: { course_type_ids: ['old'] }, members: [{ student_id: 'old' }] })
+    releaseOld({ items: { '9007199254740993': { configuration: { course_type_ids: ['old'] }, member_count: 1, specific: false } } })
     await flush()
     assert.equal(state.data.value['9007199254740993'].configuration.course_type_ids[0], 'new')
     assert.equal(state.data.value['9007199254740993'].specific, true)
-    assert.equal(state.data.value['9007199254740993'].members.length, 0)
+    assert.equal(state.data.value['9007199254740993'].member_count, 7)
   } finally { scope.stop() }
 })
 
@@ -58,18 +58,18 @@ test('authorization failures remain explicit and disabling the feature clears ca
   } finally { scope.stop() }
 })
 
-test('context changes stop queued organization requests, not only their UI updates', async () => {
+test('many organizations use one summary request and disabling clears the late result', async () => {
   let release
   const gate = new Promise(resolve => { release = resolve })
   let requests = 0
-  const { context, scope } = setup(async () => { requests++; await gate; return { members: [], configuration: null } },
+  const { context, scope } = setup(async () => { requests++; await gate; return { items: {} } },
     Array.from({ length: 6 }, (_, index) => ({ id: String(index + 1), config_version: 1, lock_version: 1 })))
   try {
-    assert.equal(requests, 4)
+    assert.equal(requests, 1)
     context.enabled = false
     await flush()
     release()
     await flush()
-    assert.equal(requests, 4)
+    assert.equal(requests, 1)
   } finally { scope.stop() }
 })

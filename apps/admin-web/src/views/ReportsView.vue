@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { collectPages } from '../utils/collectPages'
+import { useDisplayPage } from '../composables/useDisplayPage'
+import AppPagination from '../components/AppPagination.vue'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -417,9 +420,9 @@ async function openClassDetail(c: ClassStatsItem) {
   try {
     const classId = c.class_id
     if (classId) {
-      const stuRes = await listStudents({ administrative_class_id: classId, page_size: 200 })
+      const items = await collectPages((page, page_size) => listStudents({ administrative_class_id: classId, page, page_size }), () => revision === classLoadRevision)
       if (revision === classLoadRevision) {
-        classStudents.value = stuRes.items || []
+        classStudents.value = items
       }
     }
   } catch (err) {
@@ -599,6 +602,12 @@ function formatViolationType(type: string): string {
     default: return type
   }
 }
+
+const { page: display0Page, rows: display0Rows, total: display0Total } = useDisplayPage(() => filteredClasses.value)
+const { page: display1Page, rows: display1Rows, total: display1Total } = useDisplayPage(() => filteredTasks.value)
+const { page: display2Page, rows: display2Rows, total: display2Total } = useDisplayPage(() => filteredDetails.value)
+const { page: display3Page, rows: display3Rows, total: display3Total } = useDisplayPage(() => filteredClassStudents.value)
+const { page: display4Page, rows: display4Rows, total: display4Total } = useDisplayPage(() => selectedClassTasks.value)
 </script>
 
 <template>
@@ -849,7 +858,7 @@ function formatViolationType(type: string): string {
           </thead>
           <tbody>
             <tr
-              v-for="(c, idx) in filteredClasses"
+              v-for="(c, idx) in display0Rows"
               :key="`${c.college_id || ''}:${c.class_id || c.class_name}`"
               class="clickable-row"
               @click="openClassDetail(c)"
@@ -909,6 +918,7 @@ function formatViolationType(type: string): string {
             </tr>
           </tbody>
         </table>
+<AppPagination v-model:current-page="display0Page" :total="display0Total" />
       </div>
     </div>
 
@@ -953,7 +963,7 @@ function formatViolationType(type: string): string {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="t in filteredTasks" :key="t.task_id">
+            <tr v-for="t in display1Rows" :key="t.task_id">
               <td>
                 <div class="cell-main font-mono">{{ t.inspection_date }}</div>
                 <div class="cell-sub font-mono">
@@ -999,6 +1009,7 @@ function formatViolationType(type: string): string {
             </tr>
           </tbody>
         </table>
+<AppPagination v-model:current-page="display1Page" :total="display1Total" />
       </div>
     </div>
 
@@ -1095,7 +1106,7 @@ function formatViolationType(type: string): string {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(d, idx) in filteredDetails" :key="idx">
+            <tr v-for="(d, idx) in display2Rows" :key="idx">
               <td class="cell-mono fw-600">{{ d.date_display || d.inspection_date || '—' }}</td>
               <td>
                 <span class="cell-main fw-600">{{ d.class_name_snapshot || '—' }}</span>
@@ -1128,6 +1139,7 @@ function formatViolationType(type: string): string {
             </tr>
           </tbody>
         </table>
+<AppPagination v-model:current-page="display2Page" :total="display2Total" />
       </div>
     </div>
 
@@ -1272,7 +1284,7 @@ function formatViolationType(type: string): string {
           <!-- 学生考勤明细列表 -->
           <div v-else class="stu-list">
             <div
-              v-for="(stu, sIdx) in filteredClassStudents"
+              v-for="(stu, sIdx) in display3Rows"
               :key="stu.student_no"
               class="stu-card"
               :class="{ 'stu-card-abnormal': stu.is_abnormal }"
@@ -1331,6 +1343,7 @@ function formatViolationType(type: string): string {
                 <span class="cell-sub">本周查课无缺勤异常记录，全勤在籍</span>
               </div>
             </div>
+<AppPagination v-model:current-page="display3Page" :total="display3Total" />
           </div>
         </div>
 
@@ -1340,7 +1353,7 @@ function formatViolationType(type: string): string {
             本周未查到该班级作为主要受检对象的课堂记录。
           </div>
           <div v-else class="task-list">
-            <div v-for="t in selectedClassTasks" :key="t.task_id" class="task-card">
+            <div v-for="t in display4Rows" :key="t.task_id" class="task-card">
               <div class="tc-top">
                 <div class="tc-time font-mono">
                   {{ t.inspection_date }} · {{ t.start_period && t.end_period ? `第 ${t.start_period}–${t.end_period} 节` : '全天' }}
@@ -1367,6 +1380,7 @@ function formatViolationType(type: string): string {
                 </strong>
               </div>
             </div>
+<AppPagination v-model:current-page="display4Page" :total="display4Total" />
           </div>
         </div>
       </div>

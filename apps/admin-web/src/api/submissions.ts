@@ -38,6 +38,8 @@ export interface ManagementSubmissionItem {
 }
 
 export interface ManagementSubmissionsQuery {
+  keyword?: string
+  result?: string
   semester_id?: string
   review_status?: 'PENDING' | 'APPROVED' | 'REJECTED'
   task_id?: string
@@ -65,12 +67,15 @@ export interface TaskRosterResult {
 }
 
 export async function listManagementSubmissions(query: ManagementSubmissionsQuery = {}): Promise<{
+  summary?: { pending: number; normal: number; abnormal: number; reviewed: number }
   items: ManagementSubmissionItem[]
   total: number
   page: number
   page_size: number
 }> {
   const params = new URLSearchParams()
+  if (query.keyword) params.set('keyword', query.keyword)
+  if (query.result) params.set('result', query.result)
   if (query.semester_id) params.set('semester_id', query.semester_id)
   if (query.review_status) params.set('review_status', query.review_status)
   if (query.task_id) params.set('task_id', query.task_id)

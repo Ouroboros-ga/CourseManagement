@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../../components/PaginatedTable.vue'
 import { computed, reactive, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createGroup, publishGroup, updateGroup, type CourseType, type GroupConfiguration, type VolunteerGroup } from '../../api/campus'
@@ -29,11 +30,11 @@ const referenceDate = computed(() => {
   const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
   return session.currentSemester ? [session.currentSemester.start_date, today, session.currentSemester.end_date].sort()[1]! : today
 })
-const overview = useOrganizationOverview(() => ({ key: `${props.userId}:${props.collegeId}:${session.currentSemesterId}:${session.workspace?.authorization_revision}`, collegeId: props.collegeId, semesterId: session.currentSemesterId, enabled: !!session.campusRuntime?.business_scoped, groups: props.rows }))
+const overview = useOrganizationOverview(() => ({ key: `${props.userId}:${props.collegeId}:${session.currentSemesterId}:${session.workspace?.authorization_revision}`, collegeId: props.collegeId, semesterId: session.currentSemesterId, asOf: referenceDate.value, enabled: !!session.campusRuntime?.business_scoped, groups: props.rows }))
 const typesById = computed(() => new Map(props.types.map(t => [t.id, t.name])))
 function count(row: VolunteerGroup) {
   const term = overview.data.value?.[row.id]
-  return term && !term.error ? countEffectiveMembers(term.members, session.currentSemesterId, referenceDate.value) : null
+  return term && !term.error ? term.member_count ?? countEffectiveMembers(term.members, session.currentSemesterId, referenceDate.value) : null
 }
 function readiness(row: VolunteerGroup) {
   const term = overview.data.value?.[row.id]
@@ -101,13 +102,13 @@ const canCopy = computed(() => props.capabilities.includes('volunteer.member.man
     <el-alert v-if="route.query.group_id" title="该组织不存在、已删除或不在当前授权范围，请重新选择。" type="warning" :closable="false" />
     <el-alert v-if="['members', 'preparation', 'unavailability'].includes(String(route.query.tab || ''))" title="请先选择组织；成员、请假和复用上学期都在组织详情中维护。" type="info" :closable="false" />
     <el-empty v-if="!rows.length" description="先建立一个查课组织，例如“早晚自习查课组”或“普通课查课组”。"><el-button v-if="canManage" type="primary" @click="edit(null)">创建第一个组织</el-button></el-empty>
-    <el-table v-else :data="rows" v-loading="overview.busy.value">
+    <PaginatedTable v-else :data="rows" v-loading="overview.busy.value">
       <el-table-column label="组织名称" min-width="180"><template #default="{ row }"><el-button link class="organization-name" @click="open(row)">{{ row.name }}</el-button><small>{{ row.status === 'ACTIVE' ? '组织已启用' : row.status === 'DRAFT' ? '新组织，待设置' : '组织已停用' }}</small></template></el-table-column>
       <el-table-column label="本学期查课范围" min-width="170"><template #default="{ row }">{{ scopeName(row) }}</template></el-table-column>
       <el-table-column label="有效成员" width="110"><template #default="{ row }">{{ count(row) === null ? '待核对' : `${count(row)} 人` }}</template></el-table-column>
       <el-table-column label="下一步" min-width="220"><template #default="{ row }"><span :class="{ 'ready-label': readiness(row).ready }">{{ readiness(row).label }}</span><small v-if="overview.data.value?.[row.id]?.error">{{ overview.data.value?.[row.id]?.error }}</small></template></el-table-column>
       <el-table-column label="操作" width="190"><template #default="{ row }"><el-button type="primary" plain @click="primary(row)">{{ readiness(row).action === 'rules' && canPublish ? '设置查课范围' : readiness(row).action === 'members' && count(row) === 0 && capabilities.includes('volunteer.member.manage') ? '添加成员' : '管理组织' }}</el-button><el-dropdown v-if="canManage || canPublish || canCopy" trigger="click" @command="menu($event, row)"><el-button link :disabled="saving">更多</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="canManage" command="edit">编辑名称与有效期</el-dropdown-item><el-dropdown-item v-if="canCopy" command="copy">复用上学期成员与规则</el-dropdown-item><el-dropdown-item v-if="canPublish" command="defaults">维护组织默认规则</el-dropdown-item><el-dropdown-item v-if="canManage" command="toggle">{{ row.status === 'ACTIVE' ? '停用组织' : '启用组织' }}</el-dropdown-item><el-dropdown-item v-if="canManage" command="delete" divided>删除组织</el-dropdown-item></el-dropdown-menu></template></el-dropdown></template></el-table-column>
-    </el-table>
+    </PaginatedTable>
     <footer><span>成员按 {{ referenceDate }} 的有效期统计；具体日期的资格、请假和冲突在排班时重新核对。</span><DeletedResources v-if="canManage" :college-id="collegeId" kind="groups" @changed="emit('changed')" /></footer>
   </section>
   <el-dialog v-model="editing" :title="active ? '编辑组织' : '新建查课组织'" width="520px" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">

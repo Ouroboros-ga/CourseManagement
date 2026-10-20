@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../PaginatedTable.vue'
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 import type { CourseType, VolunteerGroup } from '../../api/campus'
 import { confirmPreparation, preparationSource, previewPreparation, type PreparationPreview } from '../../api/organizationManagement'
@@ -61,7 +62,7 @@ async function run(confirm = false) {
     <template v-if="preview">
       <p>本学期规则：课程类型 {{ preview.configuration.course_type_ids?.map(id => types.find(t => t.id === id)?.name || '类型待核对').join('、') }}；{{ preview.configuration.class_mode === 'SPECIFIC' ? `指定 ${preview.configuration.class_ids?.length || 0} 个行政班` : '本院授权班级范围' }}。</p>
       <p>每日上限 {{ preview.configuration.daily_limit }} 次，每周 {{ preview.configuration.weekly_limit }} 次；{{ preview.configuration.count_scope === 'ALL_GROUPS' ? '跨全部组累计' : '本组累计' }}。课表冲突与本班回避规则随本次规则版本冻结。</p>
-      <el-table :data="preview.items"><el-table-column label="成员"><template #default="{ row }">{{ source?.members.find(m => m.id === row.source_member_id)?.name || row.student_id }}</template></el-table-column><el-table-column label="准备情况"><template #default="{ row }">{{ row.ready ? '可创建目标学期成员' : row.reason }}</template></el-table-column></el-table><p>准备检查不代表已排班；实际排班仍按执行日期复核学籍、资格、支援和冲突。</p><el-button :disabled="!preview.can_confirm" :loading="saving" type="primary" @click="run(true)">确认复制到本学期</el-button></template>
+      <PaginatedTable :data="preview.items"><el-table-column label="成员"><template #default="{ row }">{{ source?.members.find(m => m.id === row.source_member_id)?.name || row.student_id }}</template></el-table-column><el-table-column label="准备情况"><template #default="{ row }">{{ row.ready ? '可创建目标学期成员' : row.reason }}</template></el-table-column></PaginatedTable><p>准备检查不代表已排班；实际排班仍按执行日期复核学籍、资格、支援和冲突。</p><el-button :disabled="!preview.can_confirm" :loading="saving" type="primary" @click="run(true)">确认复制到本学期</el-button></template>
   </section>
 </template>
 

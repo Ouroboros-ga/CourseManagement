@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../../components/AppPagination.vue'
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { correctArchivedAttendance, listAttendance, type AttendanceRecord, type AttendanceType } from '../../api/attendance'
 import { useWorkspaceContext } from '../../composables/useWorkspaceContext'
@@ -21,7 +22,7 @@ async function load() {
   if (!session.currentSemesterId) return
   busy.value = true
   try {
-    const result = await listAttendance({ semester_id: session.currentSemesterId, page: page.value, page_size: 20, effective_type: filter.value || undefined })
+    const result = await listAttendance({ semester_id: session.currentSemesterId, page: page.value, page_size: 50, effective_type: filter.value || undefined })
     if (ticket.isCurrent()) { rows.value = result.items; total.value = result.total }
   } catch (e) { if (ticket.isCurrent()) error.value = e instanceof Error ? e.message : '考勤读取失败' }
   finally { if (ticket.isLatest()) busy.value = false }
@@ -58,7 +59,7 @@ onUnmounted(() => { active = false; epoch.invalidate() })
       <el-table-column label="当前认定"><template #default="{ row }">{{ labels[row.effective_type as AttendanceType] }}</template></el-table-column>
       <el-table-column label="详情"><template #default="{ row }"><el-button link @click="open(row)">照片与记录详情</el-button></template></el-table-column>
     </el-table>
-    <el-pagination v-model:current-page="page" :total="total" :page-size="20" layout="prev, pager, next, total" />
+    <AppPagination v-model:current-page="page" :total="total" :page-size="50" />
     <el-dialog :model-value="!!selected" title="本次考勤与现场照片" @close="selected = null">
       <template v-if="selected"><p>{{ selected.name }} · {{ selected.task?.course_name_snapshot }} · {{ labels[selected.effective_type] }}</p>
         <p>考勤 ID：{{ selected.id }} · 当前版本：{{ selected.current_version }}</p>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useDisplayPage } from '../../composables/useDisplayPage'
+import AppPagination from '../../components/AppPagination.vue'
 import { computed } from 'vue'
 import { assignmentWarnings } from '../../utils/assignmentWarnings'
 import { useGroupSampling } from '../../composables/useGroupSampling'
@@ -40,6 +42,12 @@ function countChanged(id: string, event: Event) {
   const value = Number((event.target as HTMLInputElement).value)
   if (Number.isInteger(value)) state.setCount(id, value)
 }
+
+const { page: display0Page, rows: display0Rows, total: display0Total } = useDisplayPage(() => state.previewResult.value?.items || [])
+const { page: display1Page, rows: display1Rows, total: display1Total } = useDisplayPage(() => state.generateResult.value?.tasks || [])
+const { page: display2Page, rows: display2Rows, total: display2Total } = useDisplayPage(() => state.assignmentPlan.value?.assigned || [])
+const { page: display3Page, rows: display3Rows, total: display3Total } = useDisplayPage(() => state.assignmentResult.value?.assigned || [])
+const { page: display4Page, rows: display4Rows, total: display4Total } = useDisplayPage(() => state.assignmentResult.value?.unassigned || [])
 </script>
 
 <template>
@@ -104,7 +112,7 @@ function countChanged(id: string, event: Event) {
         <table>
           <thead><tr><th>日期</th><th>周次 / 节次</th><th>班级</th><th>课程</th><th>地点</th><th>人数</th></tr></thead>
           <tbody>
-            <tr v-for="item in state.previewResult.value.items" :key="item.task_key">
+            <tr v-for="item in display0Rows" :key="item.task_key">
               <td>{{ item.inspection_date }}</td>
               <td>第 {{ item.week_no }} 周 · 第 {{ item.start_period }}–{{ item.end_period }} 节</td>
               <td>{{ item.class_name_snapshot }}</td>
@@ -115,6 +123,7 @@ function countChanged(id: string, event: Event) {
             <tr v-if="state.previewResult.value.items.length === 0"><td colspan="6" class="empty">本次没有可抽查课次。</td></tr>
           </tbody>
         </table>
+<AppPagination v-model:current-page="display0Page" :total="display0Total" />
       </div>
     </section>
 
@@ -126,12 +135,13 @@ function countChanged(id: string, event: Event) {
         <table>
           <thead><tr><th>任务 ID</th><th>状态</th><th>本次是否新建</th><th>已有排班 ID</th></tr></thead>
           <tbody>
-            <tr v-for="task in state.generateResult.value.tasks" :key="task.task_id">
+            <tr v-for="task in display1Rows" :key="task.task_id">
               <td>{{ task.task_id }}</td><td>{{ task.status }}</td><td>{{ task.created ? '是' : '否' }}</td><td>{{ task.assignment_id || '—' }}</td>
             </tr>
             <tr v-if="state.generateResult.value.tasks.length === 0"><td colspan="4" class="empty">生成接口未返回任务明细。</td></tr>
           </tbody>
         </table>
+<AppPagination v-model:current-page="display1Page" :total="display1Total" />
       </div>
     </section>
 
@@ -139,11 +149,12 @@ function countChanged(id: string, event: Event) {
       <h3>待确认排班计划</h3>
       <p>尚未派发。请核对每项任务、志愿者和警告，计划有效期十分钟。</p>
       <table><thead><tr><th>任务</th><th>志愿者</th><th>规则警告与确认</th></tr></thead><tbody>
-        <tr v-for="item in state.assignmentPlan.value.assigned" :key="item.task_id">
+        <tr v-for="item in display2Rows" :key="item.task_id">
           <td>{{ item.task_id }}</td><td>{{ item.volunteer_user_id }}</td>
           <td><label v-if="item.warning_codes.length"><input v-model="state.confirmedWarnings.value" type="checkbox" :value="item.task_id" :disabled="state.writing.value">我确认：{{ assignmentWarnings(item.warning_codes) }}</label><span v-else>无警告</span></td>
         </tr>
       </tbody></table>
+<AppPagination v-model:current-page="display2Page" :total="display2Total" />
       <p v-for="item in state.assignmentPlan.value.unassigned" :key="item.task_id">任务 {{ item.task_id }} 未排：{{ item.message }}</p>
       <button type="button" class="primary" :disabled="state.writing.value || !state.canConfirmAssignment.value" @click="state.confirmAssignment">确认计划并派发</button>
     </section>
@@ -153,13 +164,15 @@ function countChanged(id: string, event: Event) {
       <p>已排 {{ state.assignmentResult.value.assigned_count }} / {{ state.assignmentResult.value.target_task_count }} 项，未排 {{ state.assignmentResult.value.unassigned_count }} 项。</p>
       <div v-if="state.assignmentResult.value.assigned.length" class="table-wrap">
         <table><thead><tr><th>任务 ID</th><th>志愿者账号 ID</th><th>规则提示</th></tr></thead>
-          <tbody><tr v-for="item in state.assignmentResult.value.assigned" :key="item.task_id"><td>{{ item.task_id }}</td><td>{{ item.volunteer_user_id }}</td><td>{{ assignmentWarnings(item.warning_codes) || '无' }}</td></tr></tbody>
+          <tbody><tr v-for="item in display3Rows" :key="item.task_id"><td>{{ item.task_id }}</td><td>{{ item.volunteer_user_id }}</td><td>{{ assignmentWarnings(item.warning_codes) || '无' }}</td></tr></tbody>
         </table>
+<AppPagination v-model:current-page="display3Page" :total="display3Total" />
       </div>
       <div v-if="state.assignmentResult.value.unassigned.length" class="table-wrap">
         <table><thead><tr><th>未排任务 ID</th><th>原因</th><th>说明</th></tr></thead>
-          <tbody><tr v-for="item in state.assignmentResult.value.unassigned" :key="item.task_id"><td>{{ item.task_id }}</td><td>{{ item.reason_code }}</td><td>{{ item.message }}</td></tr></tbody>
+          <tbody><tr v-for="item in display4Rows" :key="item.task_id"><td>{{ item.task_id }}</td><td>{{ item.reason_code }}</td><td>{{ item.message }}</td></tr></tbody>
         </table>
+<AppPagination v-model:current-page="display4Page" :total="display4Total" />
       </div>
     </section>
   </section>

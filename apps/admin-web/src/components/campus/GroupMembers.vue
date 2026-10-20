@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../AppPagination.vue'
 import { computed, ref, watch } from 'vue'
 import GroupMemberBatch from './GroupMemberBatch.vue'
 import GroupMemberImport from './GroupMemberImport.vue'
@@ -28,7 +29,10 @@ const state = useGroupMembers({
   isSuper: () => props.isSuper,
   canQualify: () => session.hasPermission('volunteer.manage')
 })
-const visibleRows = computed(() => (state.activeKind.value === 'members' ? state.members.value : state.supports.value).filter(row => !keyword.value.trim() || `${row.name || ''} ${row.student_no || ''}`.includes(keyword.value.trim())))
+const memberPage = ref(1)
+const allVisibleRows = computed(() => (state.activeKind.value === 'members' ? state.members.value : state.supports.value).filter(row => !keyword.value.trim() || `${row.name || ''} ${row.student_no || ''}`.includes(keyword.value.trim())))
+const visibleRows = computed(() => allVisibleRows.value.slice((memberPage.value - 1) * 50, memberPage.value * 50))
+watch(allVisibleRows, () => { memberPage.value = 1 })
 watch(() => JSON.stringify([state.members.value, state.supports.value]), () => emit('changed'))
 watch(() => [state.candidateFrom.value, state.candidateTo.value], () => { if (props.compact && state.creating.value) { state.selectedCandidate.value = null; state.candidates.value = [] } }, { flush: 'sync' })
 function memberStatus(row: { status: string; effective_from: string; effective_to: string }) {
@@ -150,6 +154,7 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
           <tr v-if="visibleRows.length === 0"><td :colspan="(canEdit ? 6 : 5) - (compact ? 2 : 0)" class="empty">{{ keyword ? '没有匹配的成员' : state.activeKind.value === 'members' ? '本组还没有成员，请添加已有学籍的学生或导入 Excel。' : '暂无跨院支援授权。' }}</td></tr>
         </tbody>
       </table>
+      <AppPagination v-model:current-page="memberPage" :total="allVisibleRows.length" />
     </div>
   </section>
   <el-dialog v-model="importing" title="导入当前组成员" width="780px" destroy-on-close :close-on-click-modal="false">

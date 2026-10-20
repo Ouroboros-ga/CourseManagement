@@ -168,6 +168,10 @@ class StaffRepository:
         )
 
     # ---- 关系 ----
+    def relation_page(self, model, college_id: int, params: PageParams, **filters):
+        stmt = self._relations_in_college(model, college_id, **filters)
+        return _paged(self.db, stmt.order_by(model.effective_from, model.id), params)
+
     def _relations_in_college(self, model, college_id: int, **filters: Any) -> Select:
         stmt = select(model).join(FacultyStaff, model.staff_id == FacultyStaff.id)
         if model is TeachingStaffAssignment:

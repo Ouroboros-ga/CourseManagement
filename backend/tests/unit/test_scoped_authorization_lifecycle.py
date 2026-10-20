@@ -29,7 +29,10 @@ def test_teacher_role_revocation_removes_primary_college_actions(campus):
     db.add(TeacherCollegeBinding(user_id=teacher.id, college_id=int(a["id"])))
     db.commit()
 
-    assert service.list_types(teacher, int(a["id"])) == []
+    # 学院已内置三类课程；先确认默认数据可见，再验证撤权/停用后的拒绝行为。
+    before = service.list_types(teacher, int(a["id"]))
+    assert {row["builtin_key"] for row in before} == {"regular", "morning_study", "evening_study"}
+    assert all(row["college_id"] == a["id"] for row in before)
     db.delete(
         db.scalar(
             select(UserRole).where(UserRole.user_id == teacher.id, UserRole.role_id == role.id)
@@ -51,7 +54,10 @@ def test_inactive_primary_college_does_not_derive_default_actions(campus):
     db.add(UserRole(user_id=teacher.id, role_id=role.id))
     db.add(TeacherCollegeBinding(user_id=teacher.id, college_id=int(a["id"])))
     db.commit()
-    assert service.list_types(teacher, int(a["id"])) == []
+    # 学院已内置三类课程；先确认默认数据可见，再验证撤权/停用后的拒绝行为。
+    before = service.list_types(teacher, int(a["id"]))
+    assert {row["builtin_key"] for row in before} == {"regular", "morning_study", "evening_study"}
+    assert all(row["college_id"] == a["id"] for row in before)
 
     service.update_college(
         admin,

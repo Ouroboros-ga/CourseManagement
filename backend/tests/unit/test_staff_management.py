@@ -143,6 +143,55 @@ def page():
     return PageParams(page=1, page_size=50)
 
 
+def test_relation_page_returns_names_with_complete_count(staff_env):
+    from app.modules.academic.staff_models import TeachingStaffAssignment
+
+    staff = create_staff(staff_env, "PAGE-STAFF", "分页教师")
+    db = staff_env["db"]
+    db.add_all(
+        [
+            TeachingStaffAssignment(
+                staff_id=int(staff["id"]),
+                semester_id=1,
+                anchor_type="LOCAL",
+                teaching_class_id=1,
+                effective_from=date(2026, 9, 1),
+            )
+            for _ in range(61)
+        ]
+    )
+    db.commit()
+    first = service(staff_env).relation_page("teaching", PageParams(1, 50))
+    second = service(staff_env).relation_page("teaching", PageParams(2, 50))
+    assert len(first["items"]) == 50 and len(second["items"]) == 11
+    assert first["total"] == second["total"] == 61
+    assert first["items"][0]["staff_name"] == "分页教师"
+    assert first["items"][0]["class_name"]
+    assert not ({r["id"] for r in first["items"]} & {r["id"] for r in second["items"]})
+
+
+def test_identity_lookup_loads_only_account_and_its_roles(staff_env):
+    from app.modules.identity.repository import IdentityRepository
+    from sqlalchemy import inspect
+
+    db = staff_env["db"]
+    actor_id = staff_env["admin"].id
+    db.expunge_all()
+    statements = []
+
+    def collect(_conn, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    event.listen(db.get_bind(), "before_cursor_execute", collect)
+    try:
+        user = IdentityRepository(db).get_user_by_id(actor_id)
+        assert user and user.roles
+        assert all({"users", "permissions"} <= inspect(role).unloaded for role in user.roles)
+    finally:
+        event.remove(db.get_bind(), "before_cursor_execute", collect)
+    assert len(statements) == 2
+
+
 def audit_rows(env, action):
     return list(
         env["db"].scalars(

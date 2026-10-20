@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../../components/PaginatedTable.vue'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { listRoleTargets, type RoleAssignmentTarget } from '../../api/accounts'
@@ -112,13 +113,13 @@ onUnmounted(() => { epoch.invalidate(); optionSerial++ })
       <el-form-item label="授权截止（本地时间，留空长期有效）"><el-date-picker v-model="form.expires" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" /></el-form-item>
       <el-button type="primary" :loading="busy" :disabled="!form.user_id || !form.actions.length || (form.kind !== 'COLLEGE' && !form.ids.length)" @click="save">预览并确认授权</el-button>
     </el-form>
-    <el-table :data="grants">
+    <PaginatedTable :data="grants">
       <el-table-column label="账号"><template #default="{ row }">{{ accountName(row.user_id) }}</template></el-table-column>
       <el-table-column label="范围"><template #default="{ row }">{{ row.resource_scope?.kind || 'COLLEGE' }} {{ row.resource_scope?.ids?.join('、') }}</template></el-table-column>
       <el-table-column label="操作"><template #default="{ row }">{{ row.actions.map((code: string) => campusActionLabels[code] || code).join('、') }}</template></el-table-column>
       <el-table-column prop="status" label="状态" />
       <el-table-column label="管理"><template #default="{ row }"><el-button :disabled="busy || row.status !== 'ACTIVE'" @click="revoke(row)">撤销</el-button></template></el-table-column>
-    </el-table>
+    </PaginatedTable>
   </section>
 </template>
 <style scoped>

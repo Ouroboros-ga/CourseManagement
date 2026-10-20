@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../../components/AppPagination.vue'
 import { computed, ref, watch } from 'vue'
 import { useSessionStore } from '../../stores/session'
 import { usePersonLinks } from '../../composables/usePersonLinks'
@@ -13,7 +14,7 @@ const { plan, busy, error, saved, canConfirm, preview } = state
 const page = ref(1)
 watch(plan, () => { page.value = 1 })
 const rows = computed(() => [...(plan.value?.pending || []), ...(plan.value?.links || [])])
-const visible = computed(() => rows.value.slice((page.value - 1) * 30, page.value * 30))
+const visible = computed(() => rows.value.slice((page.value - 1) * 50, page.value * 50))
 const target = (row: PersonLinkRow) => row.class_name || row.class_code || ''
 const status = (row: PersonLinkRow) => row.message || (row.action === 'CREATE' ? '确认后自动关联' : '已有关联，保持不变')
 async function confirm() { if (await state.confirm()) emit('saved') }
@@ -35,7 +36,7 @@ async function confirm() { if (await state.confirm()) emit('saved') }
           <el-table-column prop="name" label="姓名" width="100" /><el-table-column prop="staff_no" label="工号" width="110" />
           <el-table-column label="处理结果" min-width="240"><template #default="{ row }">{{ status(row) }}</template></el-table-column>
         </el-table>
-        <el-pagination v-model:current-page="page" :page-size="30" :total="rows.length" layout="prev, pager, next, total" />
+        <AppPagination v-model:current-page="page" :page-size="50" :total="rows.length" />
       </template>
       <template #footer><el-button @click="plan = null">关闭</el-button><el-button type="primary" :loading="busy" :disabled="!canConfirm" @click="confirm">确认补充 {{ plan?.summary.person_links_create || 0 }} 条关联</el-button></template>
     </el-dialog>

@@ -12,9 +12,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import Field
 from sqlalchemy.orm import Session
 
+from app.common.pagination import PageParams, page_params
 from app.common.responses import success
 from app.core.config import get_settings
 from app.core.database import get_db
@@ -282,9 +284,31 @@ def role_assignment_targets(
     actor: RoleAssignDep,
     service: ServiceDep,
     request: Request,
+    params: Annotated[PageParams, Depends(page_params)],
+    paged: bool = False,
+    keyword: Annotated[str | None, Query(max_length=128)] = None,
+    role_code: Annotated[
+        str | None, Query(pattern="^(STUDENT_AFFAIRS_MANAGER|STUDENT|VOLUNTEER)$")
+    ] = None,
+    student_candidates: bool = False,
+    student_ids: Annotated[
+        list[Annotated[int, Field(gt=0, le=2**63 - 1)]] | None, Query(max_length=200)
+    ] = None,
 ) -> dict[str, object]:
     """角色分配目标选择器：返回可管理目标与操作者可授予的角色集合。"""
-    items, assignable = service.list_role_assignment_targets(actor.id)
+    if paged:
+        return success(
+            service.role_assignment_target_page(
+                actor.id,
+                params,
+                student_ids=student_ids,
+                keyword=keyword,
+                role_code=role_code,
+                student_candidates=student_candidates,
+            ),
+            getattr(request.state, "request_id", None),
+        )
+    items, assignable = service.list_role_assignment_targets(actor.id, student_ids=student_ids)
     payload = RoleAssignmentTargetsResponse(
         items=items, assignable_roles=assignable
     )
@@ -318,9 +342,12 @@ def optional_permission_targets(
     actor: OptionalPermManageDep,
     service: ServiceDep,
     request: Request,
+    user_ids: Annotated[
+        list[Annotated[int, Field(gt=0, le=2**63 - 1)]] | None, Query(max_length=200)
+    ] = None,
 ) -> dict[str, object]:
     """可选权限目标选择器：仅返回负责人及其三项可选权限当前状态。"""
-    items, configurable = service.list_optional_permission_targets(actor.id)
+    items, configurable = service.list_optional_permission_targets(actor.id, user_ids=user_ids)
     payload = OptionalPermissionTargetsResponse(
         items=items, configurable_codes=configurable
     )
@@ -461,8 +488,9 @@ def export_binding_tokens(
     request: Request,
 ):
     """批量签发并导出绑定码 Excel 文件。"""
-    from fastapi.responses import StreamingResponse
     import urllib.parse
+
+    from fastapi.responses import StreamingResponse
 
     rid = getattr(request.state, "request_id", None)
     excel_stream = service.export_binding_tokens_excel(

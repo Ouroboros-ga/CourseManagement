@@ -1,3 +1,4 @@
+import { collectPages } from '../utils/collectPages'
 import { isAcademicScoped, request } from './workspaceHttp'
 
 export interface SemesterItem {
@@ -78,17 +79,24 @@ export async function listTeachingClasses(semesterId: string): Promise<{ items: 
 }
 
 export async function listAdministrativeClasses(params?: {
+  page?: number
   college?: string
   status?: string
   keyword?: string
   page_size?: number
 }): Promise<{ items: AdministrativeClassItem[]; total: number }> {
   const q = new URLSearchParams()
-  q.set('page_size', String(params?.page_size || 100))
+  q.set('page_size', String(params?.page_size || 50))
+  if (params?.page) q.set('page', String(params.page))
   if (params?.college) q.set('college', params.college)
   if (params?.status) q.set('status', params.status)
   if (params?.keyword) q.set('keyword', params.keyword)
   return request<{ items: AdministrativeClassItem[]; total: number }>(`/api/v1/academic/administrative-classes?${q.toString()}`)
+}
+
+/** Small reference set for dropdowns; fetch in bounded pages without truncating valid choices. */
+export async function administrativeClassOptions() {
+  return { items: await collectPages((page, page_size) => listAdministrativeClasses({ page, page_size })) }
 }
 
 export async function listStudents(params: {
@@ -113,13 +121,17 @@ export async function listStudents(params: {
   return request(`/api/v1/academic/students?${q.toString()}`)
 }
 
-export async function listVolunteerQualifications(semesterId: string): Promise<{
+export async function listVolunteerQualifications(semesterId: string, studentIds?: string[]): Promise<{
   items: VolunteerQualificationItem[]
   total: number
 }> {
   const q = new URLSearchParams()
   q.set('semester_id', semesterId)
   q.set('page_size', '200')
+  if (studentIds) {
+    if (!studentIds.length) return { items: [], total: 0 }
+    studentIds.forEach(id => q.append('student_ids', id))
+  }
   const res = await request<{ items: VolunteerQualificationItem[]; total: number }>(
     `/api/v1/academic/volunteer-qualifications?${q.toString()}`
   )
@@ -175,8 +187,10 @@ export interface RoleTargetUser {
   has_wechat?: boolean
 }
 
-export async function listRoleTargets(): Promise<{ items: RoleTargetUser[]; assignable_roles: string[] }> {
-  return request('/api/v1/role-assignment-targets')
+export async function listRoleTargets(studentIds?: string[]): Promise<{ items: RoleTargetUser[]; assignable_roles: string[] }> {
+  if (studentIds?.length === 0) return { items: [], assignable_roles: [] }
+  const query = studentIds ? '?' + new URLSearchParams(studentIds.map(id => ['student_ids', id])) : ''
+  return request(`/api/v1/role-assignment-targets${query}`)
 }
 
 export async function createStudent(payload: {
@@ -275,13 +289,15 @@ export async function updateAdministrativeClass(
 }
 
 export async function getMasterTimetable(params: {
+  page?: number
+  page_size?: number
   semester_id: string | number
   week_no?: number
   weekday?: number
   administrative_class_id?: string | number
   keyword?: string
 }): Promise<{ items: MasterTimetableItem[]; total: number }> {
-  const q = new URLSearchParams()
+  const q = new URLSearchParams({ page: String(params.page || 1), page_size: String(params.page_size || 50) })
   q.set('semester_id', String(params.semester_id))
   if (params.week_no !== undefined) q.set('week_no', String(params.week_no))
   if (params.weekday !== undefined) q.set('weekday', String(params.weekday))

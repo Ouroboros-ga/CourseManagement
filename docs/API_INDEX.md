@@ -1,6 +1,6 @@
 # API 路由索引
 
-2026-10-19，依据当前 app.main OpenAPI 生成：347 个路径、408 个操作。包含组成员Excel模板、预览/确认及可选资格开通；发布与启用状态见 [当前状态](development/IMPLEMENTATION_STATUS.md)，参数语义见 [API 契约](API_CONTRACT.md)。
+2026-10-20，依据当前 app.main OpenAPI 生成：350 个路径、411 个操作。新增统一分页、任务筛选/摘要/导出、人员批量读取、任职分页及组织学期摘要；本轮尚未提交部署，状态见 [当前实施状态](development/IMPLEMENTATION_STATUS.md)，参数见 [API 契约](API_CONTRACT.md) 和 [查询整改说明](development/LIST_PAGINATION_QUERY_AUDIT_20261020.md)。
 
 | 方法 | 路径 | 标签 |
 | --- | --- | --- |
@@ -203,6 +203,7 @@
 | GET | `/api/v1/colleges/{cid}/groups/{gid}/me/unavailability` | group-members |
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/me/unavailability` | group-members |
 | POST | `/api/v1/colleges/{cid}/groups/{gid}/me/unavailability/{rid}/withdraw` | group-members |
+| GET | `/api/v1/colleges/{cid}/volunteer-groups/semester-overview` | organization-management |
 | POST | `/api/v1/colleges/{cid}/volunteer-groups/{gid}/handover/preview` | organization-management |
 | GET | `/api/v1/colleges/{cid}/volunteer-groups/{gid}/handover/candidates` | organization-management |
 | POST | `/api/v1/colleges/{cid}/volunteer-groups/{gid}/handover/confirm` | organization-management |
@@ -293,6 +294,7 @@
 | POST | `/api/v1/inspection-tasks/{task_id}/restore` | inspection |
 | GET | `/api/v1/me/inspection-tasks` | inspection |
 | GET | `/api/v1/inspection-tasks` | inspection |
+| GET | `/api/v1/inspection-tasks/export` | inspection |
 | GET | `/api/v1/inspection-tasks/{task_id}` | inspection |
 | DELETE | `/api/v1/inspection-tasks/{task_id}` | inspection |
 | PATCH | `/api/v1/inspection-tasks/{task_id}` | inspection |
@@ -332,6 +334,7 @@
 | POST | `/api/v1/colleges/{cid}/inspection-tasks/generate` | college-inspection |
 | POST | `/api/v1/colleges/{cid}/inspection-tasks/{task_id}/restore` | college-inspection |
 | GET | `/api/v1/colleges/{cid}/inspection-tasks` | college-inspection |
+| GET | `/api/v1/colleges/{cid}/inspection-tasks/export` | college-inspection |
 | GET | `/api/v1/colleges/{cid}/inspection-tasks/{task_id}` | college-inspection |
 | DELETE | `/api/v1/colleges/{cid}/inspection-tasks/{task_id}` | college-inspection |
 | PATCH | `/api/v1/colleges/{cid}/inspection-tasks/{task_id}` | college-inspection |

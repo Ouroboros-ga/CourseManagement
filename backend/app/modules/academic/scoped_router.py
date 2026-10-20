@@ -98,6 +98,7 @@ def master_timetable(
     cid: ResourceId,
     service: ServiceDep,
     request: Request,
+    params: Annotated[PageParams, Depends(page_params)],
     semester_id: Annotated[int, Query(gt=0, le=2**63 - 1)],
     week_no: Annotated[int | None, Query(ge=1, le=60)] = None,
     weekday: Annotated[int | None, Query(ge=1, le=7)] = None,
@@ -114,6 +115,7 @@ def master_timetable(
             weekday=weekday,
             administrative_class_id=administrative_class_id,
             keyword=keyword,
+            params=params,
         ),
         getattr(request.state, "request_id", None),
     )
@@ -133,6 +135,9 @@ def list_rows(
         date | None, Query(description="学生学籍在指定日期的归属；无历史事实不推断")
     ] = None,
     is_volunteer: bool | None = None,
+    student_ids: Annotated[
+        list[Annotated[int, Field(gt=0, le=2**63 - 1)]] | None, Query(max_length=200)
+    ] = None,
 ):
     result = service.list_rows(
         kind.replace("-", "_"),
@@ -142,6 +147,7 @@ def list_rows(
         administrative_class_id=administrative_class_id,
         as_of=as_of,
         is_volunteer=is_volunteer,
+        student_ids=student_ids,
     )
     return success(result, getattr(request.state, "request_id", None))
 

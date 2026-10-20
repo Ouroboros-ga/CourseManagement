@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../PaginatedTable.vue'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { request } from '../../api/http'
 import type { MemberImportPreview } from '../../api/groupMembers'
@@ -42,6 +43,6 @@ onUnmounted(() => epoch.invalidate())
     <el-date-picker v-model="form.from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" :disabled="busy" />
     <el-date-picker v-model="form.to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期（不包含当天）" :disabled="busy" />
     <el-button :disabled="busy || !body.student_nos.length || !form.from || !form.to" @click="run(false)">预览整批成员</el-button>
-    <template v-if="preview"><el-alert v-if="!preview.can_commit" title="存在阻断项，整批不会保存。请按行修正或先维护学籍。" type="error" :closable="false" /><el-table :data="preview.items"><el-table-column prop="student_no" label="学号" /><el-table-column prop="name" label="姓名" /><el-table-column label="核对结果"><template #default="{ row }">{{ row.status === 'ADD' ? '将加入本组' : row.status === 'UNCHANGED' ? '已存在，保留' : row.message || '需修正' }}</template></el-table-column></el-table><el-button type="primary" :disabled="busy || !preview.can_commit" @click="run(true)">确认新增这 {{ preview.count }} 人</el-button></template>
+    <template v-if="preview"><el-alert v-if="!preview.can_commit" title="存在阻断项，整批不会保存。请按行修正或先维护学籍。" type="error" :closable="false" /><PaginatedTable :data="preview.items"><el-table-column prop="student_no" label="学号" /><el-table-column prop="name" label="姓名" /><el-table-column label="核对结果"><template #default="{ row }">{{ row.status === 'ADD' ? '将加入本组' : row.status === 'UNCHANGED' ? '已存在，保留' : row.message || '需修正' }}</template></el-table-column></PaginatedTable><el-button type="primary" :disabled="busy || !preview.can_commit" @click="run(true)">确认新增这 {{ preview.count }} 人</el-button></template>
   </el-collapse-item></el-collapse>
 </template>

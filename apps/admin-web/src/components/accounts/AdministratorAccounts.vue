@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../../components/AppPagination.vue'
 import { onMounted, ref, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -62,7 +63,7 @@ onMounted(load)
   <section v-loading="busy" class="administrator-panel">
     <div class="toolbar"><div><h3>管理员账号</h3><p>平台管理员可维护管理员账号。系统保护最后一位有效管理员与平台管理者。</p></div><el-button type="primary" :disabled="busy" @click="creating = true">新增管理员</el-button></div>
     <AdministratorAccountTable :rows="rows" :busy="busy" @update="update" @reset="reset" />
-    <el-pagination v-model:current-page="page" :page-size="20" :total="total" layout="prev, pager, next, total" @current-change="load" />
+    <AppPagination v-model:current-page="page" :page-size="50" :total="total" @current-change="load" />
     <el-dialog v-model="creating" title="新增管理员" width="440px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy">
       <AdministratorCreateForm :busy="busy" @submit="create" @cancel="creating = false" />
     </el-dialog>

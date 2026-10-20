@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useDisplayPage } from '../../composables/useDisplayPage'
+import AppPagination from '../../components/AppPagination.vue'
 import { confirmGroupAssignment } from '../../composables/confirmGroupAssignment'
 import { formatBeijingTime } from '@/utils/datetime'
 import { assignmentWarnings } from '../../utils/assignmentWarnings'
@@ -12,7 +14,7 @@ import {
   issueBindingToken,
   listRoleTargets,
   createStudent,
-  listAdministrativeClasses,
+  administrativeClassOptions,
   createAdministrativeClass,
   updateAdministrativeClass,
   deleteAdministrativeClass,
@@ -51,6 +53,7 @@ const canEnroll = computed(() => sessionStore.workspaceMode && sessionStore.camp
 const loading = ref(false)
 const students = ref<StudentItem[]>([])
 const volunteerQuals = ref<VolunteerQualificationItem[]>([])
+const volunteerCount = ref(0)
 const roleTargets = ref<RoleTargetUser[]>([])
 const adminClasses = ref<AdministrativeClassItem[]>([])
 
@@ -361,7 +364,8 @@ async function handleBatchExport() {
   try {
     let studentIds: string[] | undefined = undefined
     if (batchExportScope.value === 'volunteers') {
-      const volStudentIds = volunteerQuals.value.filter(q => q.enabled).map(q => String(q.student_id))
+      const qualificationExport = await listVolunteerQualifications(sessionStore.currentSemesterId)
+      const volStudentIds = qualificationExport.items.filter(q => q.enabled).map(q => String(q.student_id))
       studentIds = volStudentIds
     }
     const blob = await exportBindingTokensExcel({
@@ -388,7 +392,7 @@ async function handleBatchExport() {
 
 async function loadClasses() {
   try {
-    const res = await listAdministrativeClasses({ page_size: 100 })
+    const res = await administrativeClassOptions()
     adminClasses.value = res.items || []
   } catch (e) {
     console.warn('获取行政班级列表失败:', e)
@@ -425,15 +429,18 @@ async function loadData() {
 
     // 3. 获取当前学期志愿者资质列表
     if (showsQualification.value && sessionStore.hasPermission('volunteer.read')) {
-      const volRes = await listVolunteerQualifications(sessionStore.currentSemesterId)
+      const volRes = await listVolunteerQualifications(sessionStore.currentSemesterId, students.value.map(s => s.id))
       if (!ticket.isCurrent()) return
       volunteerQuals.value = volRes.items || []
+      const counts = await listStudents({ is_volunteer: true, semester_id: sessionStore.currentSemesterId, page_size: 1 })
+      if (!ticket.isCurrent()) return
+      volunteerCount.value = counts.total
     }
 
     // 4. 获取用户账号列表（仅持角色管理权限的管理员/教师加载，避免无权时触发 403）
     if (sessionStore.hasPermission('role.assign')) {
       try {
-        const userRes = await listRoleTargets()
+        const userRes = await listRoleTargets(students.value.map(s => s.id))
         if (!ticket.isCurrent()) return
         roleTargets.value = userRes.items || []
       } catch (e) {
@@ -448,6 +455,7 @@ async function loadData() {
 }
 
 function handleFilterChange() {
+  selectedStudentIds.value = []
   currentPage.value = 1
   loadData()
 }
@@ -461,15 +469,12 @@ function handleResetFilters() {
 }
 
 function handlePageChange(page: number) {
+  selectedStudentIds.value = []
   currentPage.value = page
   loadData()
 }
 
-function handleSizeChange(size: number) {
-  pageSize.value = size
-  currentPage.value = 1
-  loadData()
-}
+
 
 watch(
   () => sessionStore.currentSemesterId,
@@ -522,7 +527,7 @@ const boundUserMap = computed(() => {
 // 统计数据
 const stats = computed(() => {
   const total = allStudentsCount.value || totalStudents.value
-  const volunteers = volunteerQuals.value.filter(q => q.enabled).length
+  const volunteers = volunteerCount.value
   const boundCount = roleTargets.value.filter(u => u.student_id).length
   return { total, volunteers, boundCount }
 })
@@ -556,9 +561,6 @@ async function handleToggleVolunteer(student: StudentItem, enabled: boolean) {
     })
     if (captured !== context()) return
     ElMessage.success(`${student.name} 已${enabled ? '开通' : '取消'}本学期志愿者资质`)
-    // 重新拉取资质
-    const volRes = await listVolunteerQualifications(sessionStore.currentSemesterId)
-    volunteerQuals.value = volRes.items || []
     await loadData()
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '操作失败'
@@ -614,7 +616,7 @@ async function handleUnbindStudent(stu: StudentItem) {
     await resetStudentBinding(String(boundUser.id), { reason: `管理员在底册解绑学生 ${stu.name}` })
     ElMessage.success(`学生【${stu.name}】已成功解除绑定！`)
     if (sessionStore.hasPermission('role.assign')) {
-      const userRes = await listRoleTargets()
+      const userRes = await listRoleTargets(students.value.map(s => s.id))
       roleTargets.value = userRes.items || []
     }
   } catch (err: unknown) {
@@ -638,7 +640,7 @@ async function openAssignDialog(student: StudentItem) {
         reason: '分配查课任务时确保系统账号就绪'
       })
       if (sessionStore.hasPermission('role.assign')) {
-        const userRes = await listRoleTargets()
+        const userRes = await listRoleTargets(students.value.map(s => s.id))
         roleTargets.value = userRes.items || []
       }
       boundUser = boundUserMap.value.get(student.id)
@@ -773,6 +775,7 @@ async function handleAddConfirm() {
     adding.value = false
   }
 }
+const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage(() => adminClasses.value)
 </script>
 
 <template>
@@ -1067,23 +1070,7 @@ async function handleAddConfirm() {
         </tbody>
       </table>
 
-      <!-- 底部服务端分页栏 -->
-      <div class="tbl-footer">
-        <div class="pagination-info font-mono">
-          显示第 {{ totalStudents > 0 ? (currentPage - 1) * pageSize + 1 : 0 }} - {{ Math.min(currentPage * pageSize, totalStudents) }} 条，全库共 {{ totalStudents }} 名学生
-        </div>
-        <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          :page-sizes="[20, 50, 100, 200]"
-          :total="totalStudents"
-          layout="total, sizes, prev, pager, next, jumper"
-          size="default"
-          background
-          @current-change="handlePageChange"
-          @size-change="handleSizeChange"
-        />
-      </div>
+      <AppPagination v-model:current-page="currentPage" :total="totalStudents" @current-change="handlePageChange" />
     </div>
 
     <!-- 弹窗 1：一次性绑定码发放 -->
@@ -1353,7 +1340,7 @@ async function handleAddConfirm() {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
-              <tr v-for="cls in adminClasses" :key="cls.id" class="hover:bg-slate-50">
+              <tr v-for="cls in classRows" :key="cls.id" class="hover:bg-slate-50">
                 <td class="p-2.5 font-bold text-slate-800">{{ cls.class_name }}</td>
                 <td class="p-2.5 font-mono text-xs text-slate-600">{{ cls.class_code }}</td>
                 <td class="p-2.5 text-xs">
@@ -1392,6 +1379,7 @@ async function handleAddConfirm() {
               </tr>
             </tbody>
           </table>
+          <AppPagination v-model:current-page="classPage" :total="classTotal" />
         </div>
       </div>
       <template #footer>
