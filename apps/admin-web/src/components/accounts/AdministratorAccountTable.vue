@@ -13,7 +13,7 @@ const emit = defineEmits<{ reset: [row: AdministratorAccount]; update: [row: Adm
     <el-table-column label="操作" min-width="340"><template #default="{ row }">
       <el-button link :disabled="busy" @click="emit('reset', row)">重置密码</el-button>
       <el-button link :disabled="busy" @click="emit('update', row, 'status')">{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button>
-      <el-button link :disabled="busy" @click="emit('update', row, 'platform')">{{ row.can_manage_administrators ? '关闭平台能力' : '开启平台能力' }}</el-button>
+      <el-button link :disabled="busy" @click="emit('update', row, 'platform')">{{ row.can_manage_administrators ? '取消平台管理员' : '设为平台管理员' }}</el-button>
     </template></el-table-column>
   </el-table>
 </template>

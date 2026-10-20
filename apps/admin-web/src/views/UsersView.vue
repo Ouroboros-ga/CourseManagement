@@ -42,7 +42,7 @@ const isSuperAdmin = computed(() => {
 })
 
 const roleNameMap: Record<string, string> = {
-  SUPER_ADMIN: '系统管理员',
+  SUPER_ADMIN: '超级管理员',
   TEACHER_ADMIN: '教师管理员',
   STUDENT_AFFAIRS_MANAGER: '学生工作负责人',
   COUNSELOR: '专职辅导员',
@@ -481,7 +481,7 @@ onMounted(async () => {
         @click="activeTab = 'teachers'"
       >
         <AppIcon name="users" :size="14" />
-        <span>教工与系统管理员 ({{ stats.teachersCount }})</span>
+        <span>教工与超级管理员 ({{ stats.teachersCount }})</span>
       </button>
       <button
         class="tab-btn"
@@ -493,12 +493,12 @@ onMounted(async () => {
       </button>
     </div>
 
-    <!-- ==================== Tab 1: 教工与系统管理员 ==================== -->
+    <!-- ==================== Tab 1: 教工与超级管理员 ==================== -->
     <div v-if="activeTab === 'teachers'" class="space-y-4">
       <div class="tbl-wrap">
         <div class="tbl-head">
           <div>
-            <h3>全校教工及系统管理员名册</h3>
+            <h3>全校教工及超级管理员名册</h3>
             <div class="meta">
               教师管理员可查看在册人员及角色；超级管理员可直接新增教工、管理启停状态与重置登录凭证。
             </div>
@@ -586,7 +586,7 @@ onMounted(async () => {
         <div>
           <div class="b-title">学生工作负责人（STUDENT_AFFAIRS_MANAGER）职责与授权机制</div>
           <div class="b-desc">
-            学生工作负责人由教师管理员或系统管理员在已完成微信认证的学生中委任，协助开展学院日常查课与核验工作。
+            学生工作负责人由教师管理员或超级管理员在已完成微信认证的学生中委任，协助开展学院日常查课与核验工作。
             【异议处理等本院功能】与【数据统计查阅】功能由教师按需逐人开启。
           </div>
         </div>

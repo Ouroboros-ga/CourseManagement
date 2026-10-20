@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 
 const source = relative => readFileSync(new URL(relative, import.meta.url), 'utf8')
 
@@ -17,10 +17,13 @@ test('管理对象只有页面上下文条一个学院选择器', () => {
   assert.doesNotMatch(source('../src/components/campus/CampusAdministration.vue'), /el-select/)
 })
 
-test('学院作息页签仅在运行开关开启时出现，不再渲染只能读提示的空页签', () => {
+test('学院作息在管理端没有入口，也不再渲染只能读提示的空页签', () => {
   const academic = source('../src/views/AcademicView.vue')
-  assert.match(academic, /session\.hasPermission\('academic\.manage'\) && collegeTimeReady\.value/)
   assert.doesNotMatch(academic, /学院作息业务尚未启用/)
+  assert.doesNotMatch(academic, /^\s*import CollegeTimeConfiguration/m)
+  // 组件与后端 time-versions 入口刻意保留；恢复页签时必须同时接回
+  // business_scoped && scheduling 门控，否则会重现“点进去只有一条提示”的死页签。
+  assert.ok(existsSync(new URL('../src/components/campus/CollegeTimeConfiguration.vue', import.meta.url)))
 })
 
 test('全校作息模板在平台与学期设置内编辑，且只对超管开放', () => {

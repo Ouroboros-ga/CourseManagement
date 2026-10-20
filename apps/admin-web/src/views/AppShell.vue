@@ -162,7 +162,7 @@ const userDisplayName = computed(() => {
 })
 
 const roleNameMap: Record<string, string> = {
-  SUPER_ADMIN: '系统管理员',
+  SUPER_ADMIN: '超级管理员',
   TEACHER_ADMIN: '教师管理员',
   COLLEGE_ADMIN: '学院管理员',
   COUNSELOR: '专职辅导员',
