@@ -31,6 +31,7 @@ export const auxiliaryPages: WorkspacePage[] = [
   // 教职工档案走学院运行开关（capability）而不是全局权限，避免无档案职能的学院出现过早入口。
   { id: 'staff', label: '教职工档案', path: '/dashboard/staff', permissions: [], capability: 'staff.manage' },
   { id: 'settings', label: '学期与平台设置', path: '/dashboard/settings', permissions: ['academic.manage'] },
+  { id: 'audit', label: '操作日志', path: '/dashboard/audit', permissions: ['audit.read'] },
   { id: 'help', label: '帮助与操作说明', path: '/dashboard/help', permissions: [] }
 ]
 export function canAccessPage(id: string, actor: WorkspaceActor): boolean {
@@ -44,7 +45,7 @@ export function canAccessPage(id: string, actor: WorkspaceActor): boolean {
   return !!page.allowSelfScope && !!actor.staffViews && (actor.staffViews.teaching || actor.staffViews.responsible)
 }
 export function pageContextMode(id: string, tab = ''): ContextMode {
-  if (['students', 'school', 'users', 'staff', 'help'].includes(id)) return 'current'
+  if (['students', 'school', 'users', 'staff', 'audit', 'help'].includes(id)) return 'current'
   if (id === 'organizations') return 'semester'
   if (id === 'academic' && ['types', 'courses', 'teaching-assignments'].includes(tab)) return 'current'
   return 'semester'

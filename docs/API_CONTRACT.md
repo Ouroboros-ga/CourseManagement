@@ -531,7 +531,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 - `GET/POST /teacher-accounts`、`PATCH /teacher-accounts/{id}`、`POST /teacher-accounts/{id}/password-reset` 仅超管；创建同时赋教师角色，停用和重置口令撤销会话，不回显口令。`POST /me/password-change` 适用于本人密码账号。写入遵守版本冲突与最后超管保护。
 - `GET /course-schedules/export` 需要 `course_schedule.export`，按学期及可选教学班导出最多 10000 行 XLSX；列为教学班、课程、教师、周次、星期、开始节次、结束节次、教室。当前模型没有任课教师字段，教师列为空；文本列强制字符串以避免公式执行。
 - `GET /reports` 需要 `report.read`，仅列学院记录，支持学期/周次过滤与分页；`latest_version_id/no/created_at` 取最新已发布版本，`source_changed` 比较当前考勤源修订。周报内容只含考勤汇总，`CLASS` 请求 422，下载格式按该版本实际产物及当前 API schema 选择。
-- `GET /audit-logs` 和详情仅 `audit.read`；列表时间窗最多 31 天、每页最多 100 条，按操作者、动作和资源筛选；详情 before/after 使用字段白名单，不返回密码、令牌或证明正文。
+- `GET /audit-logs` 和详情仅 `audit.read`；列表时间窗最多 31 天、每页最多 100 条，按操作者、动作和资源筛选；详情 before/after 使用字段白名单，不返回密码、令牌或证明正文。列表每行返回 `actor_name` 与 `actor_username`，账号已注销时为 `null` 而不是让整页失败；详情另返回 `reason`。`business_scoped=true` 时全局入口只允许 `SUPER_ADMIN`，其他账号必须走 `GET /colleges/{cid}/audit-logs`，后者的范围由固定学院身份或有效 `ScopedGrant` 决定，不读全局权限。管理端入口是 `/dashboard/audit`「操作日志」，按 `audit.read` 显示。这些响应是 `dict[str, object]` 信封，`docs/openapi.json` 只能记为 `additionalProperties: true`，字段含义以本条为准。
 
 
 ## 学院配置底座契约（2026-10-13）

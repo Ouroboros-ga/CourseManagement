@@ -21,10 +21,14 @@ def _db_time(value: datetime) -> datetime:
     return value.astimezone(UTC).replace(tzinfo=None)
 
 
-def _dto(log: AuditLog, *, detail: bool = False) -> dict[str, Any]:
+def _dto(
+    log: AuditLog, *, detail: bool = False, actor: tuple[str, str] | None = None
+) -> dict[str, Any]:
     item: dict[str, Any] = {
         "id": str(log.id),
         "actor_user_id": str(log.actor_user_id) if log.actor_user_id is not None else None,
+        "actor_name": actor[0] if actor else None,
+        "actor_username": actor[1] if actor else None,
         "action": log.action,
         "resource_type": log.resource_type,
         "resource_id": log.resource_id,
@@ -32,6 +36,7 @@ def _dto(log: AuditLog, *, detail: bool = False) -> dict[str, Any]:
     }
     if detail:
         item.update(
+            reason=log.reason,
             before=safe_snapshot(log.before_json),
             after=safe_snapshot(log.after_json),
             request_id=log.request_id,
@@ -63,6 +68,24 @@ class AuditReadService:
         ):
             raise PermissionDeniedError()
 
+    def _actors(self, logs: list[AuditLog]) -> dict[int | None, tuple[str, str]]:
+        """一次取回本页操作者的显示名与账号名；账号已注销时该行不在结果里，投影为 null。"""
+        from sqlalchemy import select
+
+        from app.modules.identity.models import UserAccount
+
+        ids = {log.actor_user_id for log in logs if log.actor_user_id is not None}
+        names: dict[int | None, tuple[str, str]] = {}
+        if not ids:
+            return names
+        for user_id, display_name, username in self._session.execute(
+            select(UserAccount.id, UserAccount.display_name, UserAccount.username).where(
+                UserAccount.id.in_(ids)
+            )
+        ):
+            names[user_id] = (display_name, username)
+        return names
+
     def list_logs(
         self,
         actor_id: int,
@@ -86,8 +109,9 @@ class AuditReadService:
             action=action, resource_type=resource_type, resource_id=resource_id,
             page=page, page_size=page_size,
         )
+        actors = self._actors(rows)
         return {
-            "items": [_dto(row) for row in rows],
+            "items": [_dto(row, actor=actors.get(row.actor_user_id)) for row in rows],
             "page": page,
             "page_size": page_size,
             "total": total,
@@ -98,4 +122,4 @@ class AuditReadService:
         row = self._repo.get(log_id)
         if row is None:
             raise NotFoundError("审计记录不存在")
-        return _dto(row, detail=True)
+        return _dto(row, detail=True, actor=self._actors([row]).get(row.actor_user_id))

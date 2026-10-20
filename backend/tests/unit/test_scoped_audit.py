@@ -52,3 +52,33 @@ def test_scoped_audit_counts_details_and_unknown_history_use_immutable_scope(cam
     for row in (foreign, unknown):
         with pytest.raises(NotFoundError):
             service.get(actor.id, row.id)
+
+
+def test_actor_names_project_and_missing_accounts_stay_readable(campus):
+    """日志列表要能直接回答"谁做的"；账号注销后原记录仍须可读，操作者投影为 null 而不是报错。"""
+    from app.modules.audit.service import _dto
+
+    config, db, admin, actor, a, b = campus
+    grant(config, admin, actor, a, ["audit.read"])
+    named = AuditLog(
+        actor_user_id=admin.id,
+        action="account.administrator.bootstrap",
+        resource_type="user_account",
+        resource_id=str(admin.id),
+        reason="初始化平台管理员",
+    )
+    orphan = AuditLog(
+        actor_user_id=None, action="file.purge", resource_type="file_object", resource_id="7"
+    )
+    db.add_all([named, orphan])
+    db.commit()
+    service = AuditReadService(db, college_id=int(a["id"]))
+
+    actors = service._actors([named, orphan])
+    assert actors[named.actor_user_id][0] == "超管"
+    assert actors.get(orphan.actor_user_id) is None
+    detail = _dto(named, detail=True, actor=actors[named.actor_user_id])
+    assert detail["reason"] == "初始化平台管理员"
+    assert detail["actor_name"] == "超管"
+    anonymous = _dto(orphan, actor=None)
+    assert anonymous["actor_name"] is None and anonymous["actor_user_id"] is None

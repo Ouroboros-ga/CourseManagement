@@ -67,3 +67,10 @@ test('current file keys ignore remembered semester, semester business keys inval
   assert.notEqual(nav.workspaceContextKey(base, 'current'), nav.workspaceContextKey({ ...base, userId: 'U2' }, 'current'))
   assert.notEqual(nav.workspaceContextKey(base, 'current'), nav.workspaceContextKey({ ...base, authorizationRevision: 'R2' }, 'current'))
 })
+
+test('操作日志只对持有 audit.read 的账号开放，教师管理员默认看不到', () => {
+  assert.equal(nav.canAccessPage('audit', actor(['audit.read'])), true)
+  assert.equal(nav.canAccessPage('audit', actor(['academic.manage', 'student.manage', 'inspection.read'])), false)
+  assert.equal(nav.canAccessPage('audit', actor([])), false)
+  assert.equal(nav.pageContextMode('audit'), 'current')
+})
