@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import GroupMemberBatch from './GroupMemberBatch.vue'
 import GroupMemberImport from './GroupMemberImport.vue'
 import { useSessionStore } from '../../stores/session'
@@ -14,8 +14,11 @@ const props = defineProps<{
   semesterName?: string
   canManage: boolean
   isSuper: boolean
+  compact?: boolean
+  asOf?: string
 }>()
-const session = useSessionStore(), importing = ref(false)
+const emit = defineEmits<{ changed: [] }>()
+const session = useSessionStore(), importing = ref(false), leaveOpen = ref(false), batchOpen = ref(false), keyword = ref('')
 
 const state = useGroupMembers({
   collegeId: () => props.collegeId,
@@ -25,7 +28,13 @@ const state = useGroupMembers({
   isSuper: () => props.isSuper,
   canQualify: () => session.hasPermission('volunteer.manage')
 })
-const visibleRows = computed(() => state.activeKind.value === 'members' ? state.members.value : state.supports.value)
+const visibleRows = computed(() => (state.activeKind.value === 'members' ? state.members.value : state.supports.value).filter(row => !keyword.value.trim() || `${row.name || ''} ${row.student_no || ''}`.includes(keyword.value.trim())))
+watch(() => JSON.stringify([state.members.value, state.supports.value]), () => emit('changed'))
+watch(() => [state.candidateFrom.value, state.candidateTo.value], () => { if (props.compact && state.creating.value) { state.selectedCandidate.value = null; state.candidates.value = [] } }, { flush: 'sync' })
+function memberStatus(row: { status: string; effective_from: string; effective_to: string }) {
+  const day = props.asOf || new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
+  return row.status !== 'ACTIVE' ? '已停用' : row.effective_to <= day ? '已到期' : row.effective_from > day ? '待生效' : '有效'
+}
 const recordName = (row: { name?: string; student_no?: string; student_id: string }) =>
   row.name ? `${row.name}${row.student_no ? `（${row.student_no}）` : ''}` : `学生 ${row.student_id}`
 const canEdit = computed(() => props.canManage && (state.activeKind.value === 'members' || props.isSuper))
@@ -45,19 +54,25 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
 
 <template>
   <section class="group-members">
-    <GroupMemberBatch v-if="canManage" :key="`${collegeId}:${groupId}:${semesterId}`" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" @changed="state.load" />
-    <GroupUnavailability :key="`availability:${collegeId}:${groupId}:${semesterId}`" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" :members="state.members.value" :can-manage="canManage" />
+    <GroupMemberBatch v-if="canManage && !compact" :key="`${collegeId}:${groupId}:${semesterId}`" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" @changed="state.load" />
+    <GroupUnavailability v-if="!compact" :key="`availability:${collegeId}:${groupId}:${semesterId}`" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" :members="state.members.value" :can-manage="canManage" />
     <header class="toolbar">
-      <nav class="tabs" aria-label="成员类别">
+      <nav v-if="!compact" class="tabs" aria-label="成员类别">
         <button :class="{ active: state.activeKind.value === 'members' }" type="button" @click="state.setKind('members')">组成员</button>
         <button :class="{ active: state.activeKind.value === 'support-authorizations' }" type="button" @click="state.setKind('support-authorizations')">跨院支援</button>
       </nav>
+      <el-input v-if="compact" v-model="keyword" placeholder="搜索姓名或学号" clearable aria-label="搜索本组成员" style="max-width:260px" />
       <div class="toolbar-actions">
         <button type="button" :disabled="state.busy.value" @click="state.load">刷新</button>
         <button v-if="canManage" type="button" :disabled="state.busy.value" @click="importing = true">导入成员 Excel</button>
-        <button v-if="canEdit" type="button" :disabled="state.busy.value" @click="startCreate">新增</button>
+        <button v-if="canEdit" type="button" :disabled="state.busy.value" @click="startCreate">{{ state.activeKind.value === 'members' ? '添加成员' : '添加支援授权' }}</button>
       </div>
     </header>
+    <div v-if="compact" class="secondary-actions">
+      <el-button link @click="leaveOpen = true">请假记录与审批</el-button>
+      <el-button link @click="state.setKind(state.activeKind.value === 'members' ? 'support-authorizations' : 'members')">{{ state.activeKind.value === 'members' ? '查看跨院支援' : '返回组成员' }}</el-button>
+      <el-button v-if="canManage" link @click="batchOpen = true">粘贴学号批量加入</el-button>
+    </div>
 
     <p v-if="state.activeKind.value === 'support-authorizations'" class="notice">支援权限固定为授权时已发布的课程类型与班级范围。组范围扩大后须由超管重新授权；未发布配置的授权暂不能用于排班。</p>
     <p v-if="state.error.value" class="notice error" role="alert">{{ state.error.value }}</p>
@@ -65,11 +80,13 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
 
     <div v-if="state.creating.value || state.editing.value" class="editor">
       <h3>{{ state.editing.value ? '编辑成员有效期' : state.activeKind.value === 'members' ? '新增组成员' : '新增跨院支援授权' }}</h3>
-      <label v-if="state.creating.value && state.activeKind.value === 'members' && session.hasPermission('volunteer.manage')"><input v-model="state.enableQualification.value" type="checkbox">同时开通本学期志愿者资格</label>
+      <label v-if="!compact && state.creating.value && state.activeKind.value === 'members' && session.hasPermission('volunteer.manage')"><input v-model="state.enableQualification.value" type="checkbox">同时开通本学期志愿者资格</label>
+      <p v-if="compact && state.creating.value && state.activeKind.value === 'members'" class="notice">{{ session.hasPermission('volunteer.manage') ? '选人后同时开通缺失的本学期资格并加入本组，已加入的其他组织保留。' : '你可以维护成员，但无权开通志愿者资格；加入后需由学院管理员核对本学期资格，未满足资格不能排班。' }}</p>
       <template v-if="state.creating.value">
+        <el-collapse v-if="compact"><el-collapse-item title="调整成员有效期（默认本学期）" name="dates"><div class="date-fields"><label>开始日期<input v-model="state.candidateFrom.value" type="date"></label><label>失效日期（不含）<input v-model="state.candidateTo.value" type="date"></label></div><p>修改有效期后请重新搜索并选择学生。</p></el-collapse-item></el-collapse>
         <div class="candidate-search">
-          <label>有效开始日期<input v-model="state.candidateFrom.value" type="date"></label>
-          <label>有效结束日期<input v-model="state.candidateTo.value" type="date"></label>
+          <label v-if="!compact">有效开始日期<input v-model="state.candidateFrom.value" type="date"></label>
+          <label v-if="!compact">有效结束日期<input v-model="state.candidateTo.value" type="date"></label>
           <label>姓名或学号<input v-model="state.keyword.value" type="search" maxlength="100" placeholder="输入姓名或学号"></label>
           <button type="button" :disabled="state.busy.value || !state.candidateFrom.value || !state.candidateTo.value" @click="state.searchCandidates">搜索学生</button>
         </div>
@@ -80,7 +97,7 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
           </button>
         </div>
       </template>
-      <div class="date-fields">
+      <div v-if="!compact || state.editing.value" class="date-fields">
         <label>开始日期<input v-model="state.draft.value.effective_from" type="date" :disabled="state.writing.value"></label>
         <label>结束日期<input v-model="state.draft.value.effective_to" type="date" :disabled="state.writing.value"></label>
         <label v-if="state.editing.value">状态
@@ -99,7 +116,7 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
       </div>
       <div class="editor-actions">
         <button type="button" :disabled="state.writing.value" @click="state.cancelEdit">取消</button>
-        <button v-if="state.creating.value" type="button" class="primary" :disabled="state.busy.value || !state.selectedCandidate.value || !state.draft.value.effective_from || !state.draft.value.effective_to" @click="state.create">新增</button>
+        <button v-if="state.creating.value" type="button" class="primary" :disabled="state.busy.value || !state.selectedCandidate.value || !state.draft.value.effective_from || !state.draft.value.effective_to" @click="state.create">{{ state.activeKind.value === 'members' ? '确认加入本组' : '确认添加支援授权' }}</button>
         <template v-else-if="state.editing.value">
           <button v-if="!state.pendingChange.value" type="button" class="primary" :disabled="state.busy.value || !state.draft.value.effective_from || !state.draft.value.effective_to" @click="state.prepareChange(state.editing.value)">查询影响并继续</button>
           <button v-else type="button" class="primary" :disabled="state.busy.value || (state.pendingChange.value.impact.retained_future_task_ids.length > 0 && !state.confirmFutureAssignments.value)" @click="state.applyChange">{{ state.pendingChange.value.revoke ? '确认停用' : '确认更新' }}</button>
@@ -107,24 +124,30 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
       </div>
     </div>
 
+    <el-dialog v-if="compact" v-model="leaveOpen" title="本组成员请假与不可用" width="min(960px, 94vw)" destroy-on-close append-to-body>
+      <GroupUnavailability v-if="leaveOpen" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" :members="state.members.value" :can-manage="canManage" expanded />
+    </el-dialog>
+    <el-dialog v-if="compact" v-model="batchOpen" title="粘贴学号批量加入本组" width="min(700px, 94vw)" destroy-on-close append-to-body>
+      <GroupMemberBatch v-if="batchOpen" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" @changed="state.load" />
+    </el-dialog>
     <p v-if="state.loading.value" class="loading">正在读取成员记录…</p>
     <div v-else class="table-wrap">
       <table>
-        <thead><tr><th>学生</th><th>学期</th><th>有效日期</th><th>状态</th><th>版本</th><th v-if="canEdit">操作</th></tr></thead>
+        <thead><tr><th>学生</th><th v-if="!compact">学期</th><th>有效日期</th><th>状态</th><th v-if="!compact">版本</th><th v-if="canEdit">操作</th></tr></thead>
         <tbody>
           <tr v-for="row in visibleRows" :key="row.id">
             <td>{{ recordName(row) }}</td>
-            <td>{{ semesterName || '当前学期' }}</td>
-            <td>{{ row.effective_from }} 至 {{ row.effective_to }}</td>
-            <td><span :class="['status', row.status.toLowerCase()]">{{ row.status === 'ACTIVE' ? '有效' : '停用' }}</span></td>
-            <td>{{ row.lock_version }}</td>
+            <td v-if="!compact">{{ semesterName || '当前学期' }}</td>
+            <td>{{ row.effective_from }} 至 {{ row.effective_to }}（不含结束日）</td>
+            <td><span :class="['status', row.status.toLowerCase()]">{{ memberStatus(row) }}</span></td>
+            <td v-if="!compact">{{ row.lock_version }}</td>
             <td v-if="canEdit" class="row-actions">
               <button type="button" :disabled="state.busy.value" @click="state.startEdit(row)">编辑</button>
               <button v-if="row.status === 'ACTIVE'" type="button" :disabled="state.busy.value" @click="state.prepareChange(row, true)">停用</button>
               <button v-else type="button" :disabled="state.busy.value" @click="state.startEdit(row); state.draft.value.status = 'ACTIVE'">重新启用</button>
             </td>
           </tr>
-          <tr v-if="visibleRows.length === 0"><td :colspan="canEdit ? 6 : 5" class="empty">暂无记录</td></tr>
+          <tr v-if="visibleRows.length === 0"><td :colspan="(canEdit ? 6 : 5) - (compact ? 2 : 0)" class="empty">{{ keyword ? '没有匹配的成员' : state.activeKind.value === 'members' ? '本组还没有成员，请添加已有学籍的学生或导入 Excel。' : '暂无跨院支援授权。' }}</td></tr>
         </tbody>
       </table>
     </div>
@@ -137,7 +160,8 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
 <style scoped>
 .group-members { display: grid; gap: 16px; color: var(--el-text-color-primary); }
 .toolbar, .toolbar-actions, .tabs, .editor-actions, .row-actions { display: flex; align-items: center; gap: 8px; }
-.toolbar { justify-content: space-between; }
+.toolbar { justify-content: space-between; flex-wrap: wrap; }
+.secondary-actions { display: flex; gap: 16px; flex-wrap: wrap; }
 .tabs button, .toolbar button, .editor button, .row-actions button { border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-bg-color); color: inherit; padding: 7px 12px; cursor: pointer; }
 .tabs button.active, button.primary { border-color: var(--el-color-primary); background: var(--el-color-primary); color: white; }
 button:disabled { opacity: .55; cursor: not-allowed; }

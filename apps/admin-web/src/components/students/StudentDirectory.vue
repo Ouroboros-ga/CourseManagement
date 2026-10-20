@@ -529,6 +529,8 @@ const stats = computed(() => {
 
 // 切换志愿者资质
 async function handleToggleVolunteer(student: StudentItem, enabled: boolean) {
+  const context = () => JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, sessionStore.workspace?.authorization_revision])
+  const captured = context(), semesterId = sessionStore.currentSemesterId
   if (enabled && sessionStore.workspaceMode && !canEnroll.value) {
     ElMessage.warning('请由具有组织成员维护权限的管理员选择所属组后开通志愿者')
     return
@@ -538,14 +540,21 @@ async function handleToggleVolunteer(student: StudentItem, enabled: boolean) {
     enrollmentVisible.value = true
     return
   }
+  if (!enabled) {
+    try {
+      await ElMessageBox.confirm(`取消 ${student.name} 的本学期志愿者资格？这会影响其所有组织的新排班；已有任务需另行核对与改派。只需调整某个组时，请在组织内维护成员。`, '取消本学期资格', { type: 'warning', confirmButtonText: '确认取消资格', cancelButtonText: '返回' })
+      if (captured !== context() || !canQualify.value || sessionStore.currentSemester?.status !== 'ACTIVE') return
+    } catch { return }
+  }
   try {
     await upsertVolunteerQualification({
-      semester_id: sessionStore.currentSemesterId,
+      semester_id: semesterId,
       student_id: student.id,
       student_lock_version: student.lock_version,
       enabled,
       reason: '管理端手动配置资格'
     })
+    if (captured !== context()) return
     ElMessage.success(`${student.name} 已${enabled ? '开通' : '取消'}本学期志愿者资质`)
     // 重新拉取资质
     const volRes = await listVolunteerQualifications(sessionStore.currentSemesterId)
@@ -772,7 +781,7 @@ async function handleAddConfirm() {
     <header class="page-head">
       <div class="title-row">
         <div>
-          <h2>{{ showsQualification ? '本学期志愿者资格与排班账号' : '当前学生档案与行政班' }}</h2>
+          <h2>{{ showsQualification ? '本学期志愿者名册' : '当前学生档案与行政班' }}</h2>
           <p class="sub">
             {{ showsQualification ? '从已有学籍开通本学期资格并选择所属组织；同一人可加入多个组。' : '维护当前档案、班级和绑定；不随学期切换重建学生。' }}
           </p>
@@ -780,7 +789,7 @@ async function handleAddConfirm() {
         <div class="head-actions flex items-center gap-2">
           <router-link to="/dashboard/tasks" class="btn btn-ghost inline-flex items-center gap-1.5 text-xs text-slate-700">
             <AppIcon name="external-link" :size="13" />
-            <span>前往任务排班中心</span>
+            <span>前往查课安排</span>
           </router-link>
           <button v-if="canBind" class="btn btn-primary inline-flex items-center gap-1.5" @click="batchExportDialogVisible = true">
             <AppIcon name="download" :size="14" />
@@ -788,30 +797,11 @@ async function handleAddConfirm() {
           </button>
           <button v-if="showsQualification ? canQualify : canManageStudents" class="btn btn-dark inline-flex items-center gap-1.5" @click="openAddDialog">
             <AppIcon name="plus" :size="14" />
-            <span>{{ showsQualification ? '添加志愿者（选组）' : '添加学生' }}</span>
+            <span>{{ showsQualification ? '添加志愿者并选组' : '添加学生' }}</span>
           </button>
         </div>
       </div>
     </header>
-
-    <!-- 关键指标条 -->
-    <div v-if="showsQualification" class="stats-row font-mono">
-      <div class="stat-cell">
-        <div class="label">学生档案库</div>
-        <div class="value">{{ stats.total }} <span class="unit">人</span></div>
-        <div class="note">全校导入与登记总数</div>
-      </div>
-      <div class="stat-cell">
-        <div class="label">当前学期志愿者</div>
-        <div class="value" style="color: var(--blue)">{{ stats.volunteers }} <span class="unit">人</span></div>
-        <div class="note">已开通学期资格；排班还需有效组成员与规则</div>
-      </div>
-      <div class="stat-cell">
-        <div class="label">可受派系统账号</div>
-        <div class="value" style="color: var(--green)">{{ stats.boundCount }} <span class="unit">人</span></div>
-        <div class="note">已有独立系统 UID；排班仍核对组织与冲突</div>
-      </div>
-    </div>
 
     <!-- 流程全景指引卡片 -->
     <div v-if="props.mode === 'legacy'" class="guide-banner">
@@ -856,13 +846,13 @@ async function handleAddConfirm() {
     <div v-loading="loading" class="tbl-wrap">
       <div class="tbl-head">
         <div>
-          <h3>学生与志愿者名册（共 {{ totalStudents }} 条）</h3>
+          <h3>{{ showsQualification ? '志愿者名册' : '学生名册' }}（共 {{ totalStudents }} 条）</h3>
           <div class="meta">{{ showsQualification ? `${sessionStore.currentSemesterName} 志愿者资格` : '当前有效学生档案，跨学期持续保留' }}</div>
         </div>
         <div class="tbl-tools flex items-center gap-2 flex-wrap">
           <!-- 批量操作栏（有选中时显示） -->
           <div
-            v-if="selectedStudentIds.length > 0"
+            v-if="!showsQualification && selectedStudentIds.length > 0"
             class="batch-bar flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-800 px-3 py-1 rounded"
           >
             <span class="text-xs font-bold font-mono">已选中 {{ selectedStudentIds.length }} 人</span>
@@ -900,6 +890,7 @@ async function handleAddConfirm() {
           <!-- 班级管理按钮 -->
           <button
             class="btn btn-sm btn-ghost border border-slate-300 hover:bg-slate-50 inline-flex items-center gap-1"
+            v-if="!showsQualification"
             title="查看所有行政班级，支持整班清理"
             @click="adminClassDialogVisible = true"
           >
@@ -908,7 +899,7 @@ async function handleAddConfirm() {
           </button>
 
           <button
-            v-if="selectedAdminClassId && canManageClasses"
+            v-if="!showsQualification && selectedAdminClassId && canManageClasses"
             class="btn btn-sm text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 inline-flex items-center gap-1"
             title="整班删除选中的行政班及其名下学生"
             @click="() => { const cls = adminClasses.find(c => String(c.id) === selectedAdminClassId); if (cls) handleDeleteAdminClass(cls) }"
@@ -918,7 +909,7 @@ async function handleAddConfirm() {
           </button>
 
           <!-- 仅看志愿者 -->
-          <label v-if="showsQualification" class="filter-chk font-mono">
+          <label v-if="props.mode === 'legacy'" class="filter-chk font-mono">
             <input type="checkbox" v-model="filterOnlyVolunteers" @change="handleFilterChange" />
             <span>仅看志愿者 ({{ stats.volunteers }})</span>
           </label>
@@ -1012,7 +1003,7 @@ async function handleAddConfirm() {
             <td>
               <span v-if="boundUserMap.get(stu.id)?.has_wechat" class="tag tag-green inline-flex items-center gap-1">
                 <AppIcon name="check-circle" :size="12" class="text-emerald-600" />
-                <span>微信已绑定 (UID: {{ boundUserMap.get(stu.id)?.id }})</span>
+                <span>微信已绑定</span>
               </span>
               <span
                 v-else-if="boundUserMap.has(stu.id)"
@@ -1020,7 +1011,7 @@ async function handleAddConfirm() {
                 title="该学生已有系统账号，尚未在微信小程序完成绑定；受派仍需符合资格与规则"
               >
                 <AppIcon name="warning" :size="12" class="text-amber-600" />
-                <span>已有系统账号 · 未绑定微信 (UID: {{ boundUserMap.get(stu.id)?.id }})</span>
+                <span>尚未绑定微信</span>
               </span>
               <span v-else class="tag tag-gray inline-flex items-center gap-1">
                 <AppIcon name="close" :size="10" class="text-slate-400" />
@@ -1029,29 +1020,27 @@ async function handleAddConfirm() {
             </td>
             <td v-if="showsQualification">
               <div class="vol-switch-wrap">
-                <el-switch
+                <el-switch v-if="props.mode !== 'qualifications'"
                   :disabled="!canQualify" :model-value="volunteerMap.get(stu.id) || false"
                   active-text="志愿者"
                   inactive-text="普通学生"
                   @change="(val: boolean) => handleToggleVolunteer(stu, val)"
                 />
+                <template v-if="props.mode === 'qualifications'">
+                  <el-tag :type="volunteerMap.get(stu.id) ? 'success' : 'info'">{{ volunteerMap.get(stu.id) ? '本学期有效' : '本学期未开通' }}</el-tag>
+                  <el-button v-if="canQualify && volunteerMap.get(stu.id)" :disabled="sessionStore.currentSemester?.status !== 'ACTIVE'" link @click="handleToggleVolunteer(stu, false)">取消本学期资格</el-button>
+                </template>
                 <StudentGroupEnrollment v-if="volunteerMap.get(String(stu.id)) && sessionStore.campusRuntime?.business_scoped && sessionStore.hasPermission('volunteer.member.manage') && sessionStore.hasPermission('volunteer.group.read')" :student-id="String(stu.id)" :name="stu.name" />
               </div>
             </td>
             <td style="text-align: right">
               <div class="action-btns flex items-center justify-end gap-1.5">
+                <button v-if="props.mode === 'legacy' && showsQualification && sessionStore.hasPermission('assignment.manage') && volunteerMap.get(stu.id)" class="btn btn-sm" @click="openAssignDialog(stu)">分配任务</button>
                 <button v-if="canBind" class="btn btn-sm inline-flex items-center gap-1" @click="handleIssueToken(stu)">
                   <AppIcon name="key" :size="12" />
                   <span>生成绑定码</span>
                 </button>
-                <button
-                  v-if="showsQualification && sessionStore.hasPermission('assignment.manage') && volunteerMap.get(stu.id)"
-                  class="btn btn-dark btn-sm inline-flex items-center gap-1"
-                  @click="openAssignDialog(stu)"
-                >
-                  <AppIcon name="calendar" :size="12" />
-                  <span>分配课程</span>
-                </button>
+
                 <button
                   v-if="canBind && boundUserMap.get(stu.id)"
                   class="btn btn-sm btn-ghost text-amber-600 hover:bg-amber-50 inline-flex items-center gap-0.5"
@@ -1063,7 +1052,7 @@ async function handleAddConfirm() {
                 </button>
                 <button
                   class="btn btn-sm btn-ghost text-rose-600 hover:bg-rose-50 inline-flex items-center gap-0.5"
-                  v-if="canManageStudents" title="删除此学生底册档案"
+                  v-if="!showsQualification && canManageStudents" title="删除此学生底册档案"
                   @click="handleDeleteStudent(stu)"
                 >
                   <AppIcon name="trash" :size="12" />

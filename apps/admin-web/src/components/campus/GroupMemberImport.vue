@@ -33,11 +33,15 @@ async function download() {
     <el-button :disabled="state.busy.value" @click="download">下载 Excel 模板</el-button>
     <input :key="`${collegeId}:${groupId}:${semesterId}`" type="file" accept=".xlsx" aria-label="志愿者成员Excel" :disabled="state.busy.value" @change="choose">
     <p>每次最多200人、文件2MiB，仅支持单工作表xlsx；学号须为文本，保留前导零。</p>
+    <p>成员默认从本学期当前可用日期开始；需要调整时展开下面的有效期。</p>
+    <el-alert v-if="!session.hasPermission('volunteer.manage')" title="你没有开通资格权限。本次仅加入组织；请联系学院管理员核对本学期志愿者资格，否则不能排班。" type="warning" :closable="false" />
+    <el-collapse><el-collapse-item title="调整成员有效期（默认本学期）" name="dates">
     <el-form label-width="140px" :disabled="state.busy.value">
       <el-form-item label="成员生效日期"><el-date-picker v-model="form.from" value-format="YYYY-MM-DD" /></el-form-item>
       <el-form-item label="失效日期（不含）"><el-date-picker v-model="form.to" value-format="YYYY-MM-DD" /></el-form-item>
-      <el-form-item label="本学期资格"><el-checkbox v-model="form.enable_qualification" :disabled="!session.hasPermission('volunteer.manage')">同时开通缺失/停用的本学期志愿者资格</el-checkbox></el-form-item>
-    </el-form>
+
+    </el-form></el-collapse-item></el-collapse>
+    <p v-if="form.enable_qualification">确认加入时同时开通缺失的本学期志愿者资格；其他组织的成员关系保留。</p>
     <el-alert v-if="state.error.value" :title="state.error.value" type="error" :closable="false" />
     <el-alert v-if="state.result.value" :title="`新增 ${state.result.value.created} 人，已存在 ${state.result.value.unchanged} 人，开通资格 ${state.result.value.qualifications_enabled} 人。未自动排班。`" type="success" :closable="false" />
     <el-button :loading="state.busy.value" :disabled="!state.file.value || !valid" @click="state.run(body)">上传并核对</el-button>
@@ -48,7 +52,7 @@ async function download() {
         <el-table-column prop="source_row" label="表格行" width="80" /><el-table-column prop="student_no" label="学号" />
         <el-table-column prop="name" label="姓名" /><el-table-column label="处理结果"><template #default="{ row }">{{ row.status === 'ADD' ? '新增成员' : row.status === 'UNCHANGED' ? '已存在，保留' : '阻断' }}{{ row.qualification_action === 'ENABLE' ? ' · 开通本学期资格' : '' }}{{ row.message ? `：${row.message}` : '' }}</template></el-table-column>
       </el-table>
-      <el-button type="primary" :loading="state.busy.value" :disabled="!state.preview.value.can_commit || !valid" @click="save">确认保存至当前组</el-button>
+      <el-button type="primary" :loading="state.busy.value" :disabled="!state.preview.value.can_commit || !valid" @click="save">确认加入本组</el-button>
     </template>
   </section>
 </template>

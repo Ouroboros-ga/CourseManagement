@@ -45,7 +45,7 @@ export function canAccessPage(id: string, actor: WorkspaceActor): boolean {
 }
 export function pageContextMode(id: string, tab = ''): ContextMode {
   if (['students', 'school', 'users', 'staff', 'help'].includes(id)) return 'current'
-  if (id === 'organizations') return ['members', 'qualifications', 'unavailability', 'preparation'].includes(tab) ? 'semester' : 'current'
+  if (id === 'organizations') return 'semester'
   if (id === 'academic' && ['types', 'courses', 'teaching-assignments'].includes(tab)) return 'current'
   return 'semester'
 }
