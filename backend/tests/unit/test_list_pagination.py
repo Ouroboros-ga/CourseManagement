@@ -16,7 +16,12 @@ def fixture():
 
 
 def test_linked_teaching_class_task_assembly_uses_sql_distinct(campus):
-    from app.modules.academic.models import AdministrativeClass, Student, TeachingClass, TeachingClassStudent
+    from app.modules.academic.models import (
+        AdministrativeClass,
+        Student,
+        TeachingClass,
+        TeachingClassStudent,
+    )
     from app.modules.inspection.service import InspectionService
     from sqlalchemy import event
 
