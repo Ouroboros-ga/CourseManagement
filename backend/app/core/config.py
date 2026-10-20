@@ -123,6 +123,8 @@ class Settings(BaseSettings):
     oss_region: str = Field(default="", alias="OSS_REGION")
     oss_endpoint: str = Field(default="", alias="OSS_ENDPOINT")
     oss_role_name: str = Field(default="", alias="OSS_ROLE_NAME")
+    oss_access_key_id: str = Field(default="", alias="OSS_ACCESS_KEY_ID")
+    oss_access_key_secret: str = Field(default="", alias="OSS_ACCESS_KEY_SECRET")
     oss_timeout_seconds: float = Field(default=15, gt=0, le=120, alias="OSS_TIMEOUT_SECONDS")
     file_max_bytes: int = Field(default=10 * 1024 * 1024, alias="FILE_MAX_BYTES")
     file_max_files_per_submission: int = Field(default=5, alias="FILE_MAX_FILES_PER_SUBMISSION")

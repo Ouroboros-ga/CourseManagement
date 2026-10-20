@@ -71,8 +71,9 @@ def ready(request: Request) -> dict[str, object] | JSONResponse:
         "status": "ok",
         "check": "ready",
         "requestId": request_id,
+        # 与 AppShell 就绪探针契约对齐:成功时显式声明 database=up(1xx ok 分支)。
+        "database": "up",
     }
     if _diagnostics_enabled():
-        body["database"] = "up"
         body["env"] = get_settings().app_env
     return body
