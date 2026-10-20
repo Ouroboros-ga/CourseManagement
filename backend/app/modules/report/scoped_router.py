@@ -35,7 +35,7 @@ def report_list(
     semester_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     week_no: Annotated[int | None, Query(ge=1, le=60)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
 ):
     from app.modules.report.listing import ReportListingService
 

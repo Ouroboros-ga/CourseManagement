@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useSessionStore } from '../../stores/session'
 import type { VolunteerGroup } from '../../api/campus'
 import GroupMembers from './GroupMembers.vue'
 import GroupSampling from './GroupSampling.vue'
 
 const props = withDefaults(defineProps<{ collegeId: string; groups: VolunteerGroup[]; capabilities: string[]; isSuper: boolean; mode?: 'all' | 'members' | 'sampling' }>(), { mode: 'all' })
+const route = useRoute()
 const session = useSessionStore()
 const semesterId = computed(() => session.currentSemesterId)
 const groupId = shallowRef('')
@@ -15,8 +17,10 @@ const canGenerate = computed(() => props.capabilities.includes('inspection.gener
 const canAssign = computed(() => props.capabilities.includes('assignment.manage'))
 const canSample = computed(() => group.value?.status === 'ACTIVE' && (group.value?.config_version || 0) > 0)
 const semesterName = computed(() => session.currentSemesterName)
-watch(() => [props.collegeId, props.groups] as const, () => {
-  if (!props.groups.some(row => row.id === groupId.value)) groupId.value = props.groups[0]?.id || ''
+watch(() => [props.collegeId, props.groups, route.query.group_id] as const, () => {
+  const requested = typeof route.query.group_id === 'string' ? route.query.group_id : ''
+  if (requested) groupId.value = props.groups.some(row => row.id === requested) ? requested : ''
+  else if (!props.groups.some(row => row.id === groupId.value)) groupId.value = props.groups[0]?.id || ''
 }, { immediate: true })
 </script>
 

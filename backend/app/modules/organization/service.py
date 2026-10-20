@@ -2,7 +2,7 @@
 
 import unicodedata
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from functools import wraps
 
 from pydantic import ValidationError
@@ -172,7 +172,7 @@ class CampusService:
             self.db.rollback()
             raise ConflictError(message="名称/编码重复或资源已被引用，无法保存") from exc
 
-    def _dto(self, row):
+    def _dto(self, row, *, group_config=None, group_config_loaded=False):
         data = {}
         for column in row.__table__.columns:
             if column.name in {"normalized_name", "singleton_key"}:
@@ -191,12 +191,16 @@ class CampusService:
                 value = value.isoformat()
             data[column.name] = value
         if isinstance(row, VolunteerGroup):
-            config = self.db.scalar(
-                select(GroupConfigVersion).where(
-                    GroupConfigVersion.group_id == row.id,
-                    GroupConfigVersion.version == row.config_version,
-                ).with_for_update(read=True)
-            )
+            config = group_config
+            if not group_config_loaded:
+                config = self.db.scalar(
+                    select(GroupConfigVersion)
+                    .where(
+                        GroupConfigVersion.group_id == row.id,
+                        GroupConfigVersion.version == row.config_version,
+                    )
+                    .with_for_update(read=True)
+                )
             data["configuration"] = config.configuration if config else None
         return data
 
@@ -463,7 +467,32 @@ class CampusService:
         if not scope.unrestricted:
             ids = {int(value) for clause in scope.constraints if clause["kind"] == "GROUPS" for value in clause["ids"]}
             query = query.where(VolunteerGroup.id.in_(ids))
-        return [self._dto(row) for row in self.db.scalars(query)]
+        from sqlalchemy import tuple_
+
+        rows = list(self.db.scalars(query))
+        configs = (
+            {
+                (row.group_id, row.version): row
+                for row in self.db.scalars(
+                    select(GroupConfigVersion).where(
+                        GroupConfigVersion.college_id == cid,
+                        tuple_(GroupConfigVersion.group_id, GroupConfigVersion.version).in_(
+                            {(row.id, row.config_version) for row in rows}
+                        ),
+                    )
+                )
+            }
+            if rows
+            else {}
+        )
+        return [
+            self._dto(
+                row,
+                group_config=configs.get((row.id, row.config_version)),
+                group_config_loaded=True,
+            )
+            for row in rows
+        ]
 
     def group_references(self, actor, cid, gid):
         from app.modules.academic.models import AdministrativeClass, TeachingClass

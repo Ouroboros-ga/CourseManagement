@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PaginatedTable from '../PaginatedTable.vue'
+import AppPagination from '../../components/AppPagination.vue'
 /** 本人工作视图的查课面板：卡片、受限名单明细、更正、认定历史、正式课次日历与课次教室、同范围导出。
  *
  * 只显示服务端逐记录返回的 allowed_actions；按钮存在不代表授权，授权每次请求由服务端重算。
@@ -125,7 +127,7 @@ const occurrencePage = ref(1)
 const occurrenceBusy = ref(false)
 const occurrenceScope = ref('')
 const occurrenceError = ref('')
-const occurrencePageSize = 20
+const occurrencePageSize = 50
 
 function countsText(card: StaffRecordCard) {
   if (!card.counts) return '未查课'
@@ -516,12 +518,10 @@ function revisionText(card: StaffRecordCard) {
         </template>
       </el-table-column>
     </el-table>
-    <el-pagination
+    <AppPagination
       :current-page="page"
-      :page-size="20"
+      :page-size="50"
       :total="total"
-      layout="prev, pager, next"
-      background
       @current-change="(value: number) => { page = value }"
     />
 
@@ -564,12 +564,11 @@ function revisionText(card: StaffRecordCard) {
       </el-table>
       <div class="roster-pager">
         <span class="hint">共 {{ occurrenceTotal }} 节。</span>
-        <el-pagination
+        <AppPagination
           v-if="occurrenceTotal > occurrencePageSize"
           :current-page="occurrencePage"
           :page-size="occurrencePageSize"
           :total="occurrenceTotal"
-          layout="prev, pager, next"
           background
           @current-change="gotoOccurrencePage"
         />
@@ -617,12 +616,11 @@ function revisionText(card: StaffRecordCard) {
       </div>
       <div class="roster-pager">
         <span class="hint">共 {{ detailTotal }} 名可见学生，每页 {{ detailPageSize }} 名。</span>
-        <el-pagination
+        <AppPagination
           v-if="detailTotal > detailPageSize"
           :current-page="detailPage"
           :page-size="detailPageSize"
           :total="detailTotal"
-          layout="prev, pager, next"
           background
           @current-change="gotoDetailPage"
         />
@@ -658,7 +656,7 @@ function revisionText(card: StaffRecordCard) {
         {{ selected?.course_name }} · {{ selected?.inspection_date }} ·
         {{ historyRow?.name }}（{{ historyRow?.student_no }}）· 当前 v{{ historyRow?.current_version }}
       </p>
-      <el-table :data="historyRows" v-loading="historyBusy" empty-text="暂无历史版本">
+      <PaginatedTable :data="historyRows" v-loading="historyBusy" empty-text="暂无历史版本">
         <el-table-column prop="version_no" label="版本" width="70" />
         <el-table-column label="认定" width="90">
           <template #default="{ row }">{{ labels[row.attendance_type] || row.attendance_type }}</template>
@@ -668,7 +666,7 @@ function revisionText(card: StaffRecordCard) {
           <template #default="{ row }">{{ formatBeijingTime(row.created_at) }}</template>
         </el-table-column>
         <el-table-column prop="reason" label="备注" min-width="160" />
-      </el-table>
+      </PaginatedTable>
     </el-dialog>
 
     <el-dialog v-model="locationOpen" title="更换本节教室" width="520px">

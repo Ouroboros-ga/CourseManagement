@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import {
@@ -9,7 +9,7 @@ import {
   resetTeacherPassword,
   resetManagerPassword,
   changeMyPassword,
-  listRoleTargets,
+  listRoleTargetPage,
   updateUserRoles,
   listOptionalPermissionTargets,
   updateOptionalPermission,
@@ -17,6 +17,8 @@ import {
   type RoleAssignmentTarget,
   type OptionalPermissionTargetItem
 } from '../api/accounts'
+import { ContextEpoch } from '../utils/contextEpoch'
+import AppPagination from '../components/AppPagination.vue'
 import AppIcon from '../components/AppIcon.vue'
 import AdministratorAccounts from '../components/accounts/AdministratorAccounts.vue'
 import { listWorkspaces, type College } from '../api/campus'
@@ -33,7 +35,7 @@ const loading = ref(false)
 const teachers = ref<TeacherAccountItem[]>([])
 const totalTeachers = ref(0)
 const currentPage = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(50)
 const searchQuery = ref('')
 const selectedStatus = ref('')
 
@@ -61,53 +63,66 @@ function getRoleTagClass(code: string): string {
   return 'tag-gray'
 }
 
+const teacherEpoch = new ContextEpoch(() => JSON.stringify([sessionStore.currentUser?.id,
+  sessionStore.workspaceCollegeId, currentPage.value, searchQuery.value, selectedStatus.value]))
 async function fetchTeachers() {
+  const ticket = teacherEpoch.begin()
   loading.value = true
   try {
     const res = await listTeacherAccounts({
+      role_codes: ['SUPER_ADMIN', 'TEACHER_ADMIN'],
       page: currentPage.value,
       page_size: pageSize.value,
       query: searchQuery.value || undefined,
       status: selectedStatus.value || undefined
     })
+    if (!ticket.isCurrent()) return
     teachers.value = res.items || []
     totalTeachers.value = res.total || 0
   } catch (err: unknown) {
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '获取教工列表失败'
-    ElMessage.error(msg)
+    if (ticket.isCurrent()) ElMessage.error(msg)
   } finally {
-    loading.value = false
+    if (ticket.isLatest()) loading.value = false
   }
 }
 
 // 仅展示教工（SUPER_ADMIN / TEACHER_ADMIN）在第一栏
-const facultyAccounts = computed(() => {
-  return teachers.value.filter(t => {
-    const roles = t.roles || []
-    return roles.includes('SUPER_ADMIN') || roles.includes('TEACHER_ADMIN') || roles.length === 0
-  })
-})
+const facultyAccounts = computed(() => teachers.value)
 
 // ==================== 2. 学生工作负责人与授权 ====================
 const roleTargets = ref<RoleAssignmentTarget[]>([])
 const assignableRoles = ref<string[]>([])
 const optionalTargets = ref<OptionalPermissionTargetItem[]>([])
 const managersLoading = ref(false)
+const managersPage = ref(1), managersTotal = ref(0), managerCandidates = ref<RoleAssignmentTarget[]>([])
+const candidateBusy = ref(false)
+let candidateRevision = 0, managerRevision = 0
+async function findManagerCandidates(keyword = '') {
+  const ticket = ++candidateRevision
+  candidateBusy.value = true
+  try {
+    const result = await listRoleTargetPage({ keyword, student_candidates: true })
+    if (ticket === candidateRevision) managerCandidates.value = result.items
+  } catch { if (ticket === candidateRevision) managerCandidates.value = [] }
+  finally { if (ticket === candidateRevision) candidateBusy.value = false }
+}
 
 async function fetchManagersAndRoles() {
+  const ticket = ++managerRevision
   managersLoading.value = true
   try {
-    const [targetsRes, optRes] = await Promise.all([
-      listRoleTargets(),
-      listOptionalPermissionTargets().catch(() => ({ items: [], configurable_codes: [] }))
-    ])
+    const targetsRes = await listRoleTargetPage({ page: managersPage.value, role_code: 'STUDENT_AFFAIRS_MANAGER' })
+    const optRes = await listOptionalPermissionTargets(targetsRes.items.map(row => row.id)).catch(() => ({ items: [], configurable_codes: [] }))
+    if (ticket !== managerRevision) return
+    managersTotal.value = targetsRes.total
     roleTargets.value = targetsRes.items || []
     assignableRoles.value = targetsRes.assignable_roles || []
     optionalTargets.value = optRes.items || []
   } catch (err: unknown) {
     console.warn('获取授权目标与可选权限列表失败:', err)
   } finally {
-    managersLoading.value = false
+    if (ticket === managerRevision) managersLoading.value = false
   }
 }
 
@@ -117,7 +132,7 @@ const studentAffairsManagers = computed(() => {
 })
 
 const eligibleStudentsForManager = computed(() => {
-  return roleTargets.value.filter(u => !u.roles.includes('STUDENT_AFFAIRS_MANAGER') && !!u.student_id)
+  return managerCandidates.value
 })
 
 // 查找用户的可选权限状态映射
@@ -184,8 +199,8 @@ async function handleToggleManagerRole(user: RoleAssignmentTarget, makeManager: 
 
 // ==================== 统计指标 ====================
 const stats = computed(() => {
-  const teachersCount = facultyAccounts.value.length
-  const managersCount = studentAffairsManagers.value.length
+  const teachersCount = totalTeachers.value
+  const managersCount = managersTotal.value
   const initialReviewCount = studentAffairsManagers.value.filter(m => getOptionalPermState(m.id, 'objection.initial_review')).length
   const statsReadCount = studentAffairsManagers.value.filter(m => getOptionalPermState(m.id, 'statistics.read')).length
   return {
@@ -408,6 +423,13 @@ onMounted(async () => {
   await fetchTeachers()
   await fetchManagersAndRoles()
 })
+
+watch(() => [sessionStore.currentUser?.id, sessionStore.workspaceCollegeId], () => {
+  ++candidateRevision; ++managerRevision; teacherEpoch.invalidate(); teachers.value = []; totalTeachers.value = 0; roleTargets.value = []; optionalTargets.value = []; managerCandidates.value = []
+  managersPage.value = 1; managersTotal.value = 0
+  void fetchManagersAndRoles(); void fetchTeachers()
+})
+onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRevision })
 </script>
 
 <template>
@@ -465,7 +487,7 @@ onMounted(async () => {
         <div class="note">已赋权初审学生异议申请</div>
       </div>
       <div class="stat-cell">
-        <div class="label">数据统计查阅权</div>
+        <div class="label">本页数据统计查阅权</div>
         <div class="value" style="color: var(--green)">{{ stats.statsReadCount }} <span class="text-xs font-normal text-[var(--ink-mute)]">人</span></div>
         <div class="note">已开通学院全景统计看板</div>
       </div>
@@ -507,9 +529,9 @@ onMounted(async () => {
               v-model="searchQuery"
               class="input w-48"
               placeholder="搜索工号或姓名…"
-              @keyup.enter="fetchTeachers"
+              @keyup.enter="currentPage = 1; fetchTeachers()"
             />
-            <select v-model="selectedStatus" class="input" @change="fetchTeachers">
+            <select v-model="selectedStatus" class="input" @change="currentPage = 1; fetchTeachers()">
               <option value="">全部状态</option>
               <option value="ACTIVE">正常 (ACTIVE)</option>
               <option value="DISABLED">已停用 (DISABLED)</option>
@@ -574,6 +596,7 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
+        <AppPagination v-model:current-page="currentPage" :total="totalTeachers" @current-change="fetchTeachers" />
       </div>
     </div>
 
@@ -685,6 +708,7 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
+<AppPagination v-model:current-page="managersPage" :total="managersTotal" @current-change="fetchManagersAndRoles" />
       </div>
     </div>
 
@@ -772,19 +796,16 @@ onMounted(async () => {
     </el-dialog>
 
     <!-- 弹窗 3: 委任学生工作负责人 -->
-    <el-dialog v-model="showAppointDialog" title="委任学生工作负责人" width="520px">
+    <el-dialog v-model="showAppointDialog" @open="managerCandidates = []; findManagerCandidates()" title="委任学生工作负责人" width="520px">
       <div class="space-y-4">
         <p class="text-xs text-[var(--ink-soft)] leading-relaxed">
           从已在系统内绑定学生身份的用户中，选择并委任为<b>学生工作负责人（STUDENT_AFFAIRS_MANAGER）</b>：
         </p>
         <div>
           <label class="block text-xs font-bold text-[var(--ink)] mb-1">选择候选学生账号 *</label>
-          <select v-model="selectedStudentToAppoint" class="input w-full">
-            <option :value="null" disabled>请选择候选学生…</option>
-            <option v-for="stu in eligibleStudentsForManager" :key="stu.id" :value="stu">
-              {{ stu.display_name }} (学号: {{ stu.username || '未登记' }}) — {{ stu.has_wechat ? '已绑定微信' : '未绑定' }}
-            </option>
-          </select>
+          <el-select v-model="selectedStudentToAppoint" value-key="id" filterable remote :remote-method="findManagerCandidates" :loading="candidateBusy" placeholder="按姓名或账号搜索学生，最多显示 50 位" style="width:100%">
+            <el-option v-for="stu in eligibleStudentsForManager" :key="stu.id" :value="stu" :label="`${stu.display_name}（${stu.username || '未登记账号'}）`" />
+          </el-select>
           <p class="text-[11px] text-[var(--ink-mute)] mt-1.5">
             * 仅列出已完成学生绑定的账号。委任后该学生将拥有管理端访问权限与学院业务协助权限。
           </p>

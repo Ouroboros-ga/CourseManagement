@@ -128,7 +128,13 @@ class AccountService:
     ) -> dict:
         self._require_administrator_account_manage(actor.id)
         ids = select(UserRole.user_id).join(Role).where(Role.code == "SUPER_ADMIN")
-        stmt = select(UserAccount).where(UserAccount.id.in_(ids))
+        from sqlalchemy.orm import raiseload, selectinload
+
+        stmt = (
+            select(UserAccount)
+            .options(selectinload(UserAccount.roles).raiseload("*"), raiseload("*"))
+            .where(UserAccount.id.in_(ids))
+        )
         if query:
             stmt = stmt.where(
                 UserAccount.username.contains(query, autoescape=True)
@@ -282,7 +288,12 @@ class AccountService:
         )
 
     def list_accounts(
-        self, actor: CurrentUser, params: PageParams, query: str | None, status: str | None
+        self,
+        actor: CurrentUser,
+        params: PageParams,
+        query: str | None,
+        status: str | None,
+        role_codes: list[str] | None = None,
     ) -> dict:
         roles = set(self.repo.list_role_codes(actor.id))
         if RoleCode.SUPER_ADMIN.value not in roles and RoleCode.TEACHER_ADMIN.value not in roles:
@@ -292,7 +303,9 @@ class AccountService:
             .join(Role)
             .where(
                 Role.code.in_(
-                    [
+                    role_codes
+                    if role_codes is not None
+                    else [
                         RoleCode.TEACHER_ADMIN.value,
                         RoleCode.SUPER_ADMIN.value,
                         RoleCode.STUDENT_AFFAIRS_MANAGER.value,
@@ -300,7 +313,13 @@ class AccountService:
                 )
             )
         )
-        stmt = select(UserAccount).where(UserAccount.id.in_(teacher))
+        from sqlalchemy.orm import raiseload, selectinload
+
+        stmt = (
+            select(UserAccount)
+            .options(selectinload(UserAccount.roles).raiseload("*"), raiseload("*"))
+            .where(UserAccount.id.in_(teacher))
+        )
         from app.modules.identity.account_visibility import management_users
         visible = management_users(self.session, actor.id,
             "role.assign" if RoleCode.TEACHER_ADMIN.value in roles and RoleCode.SUPER_ADMIN.value not in roles else "account.read")

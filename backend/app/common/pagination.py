@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from fastapi import Query
 
+DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
 
 
@@ -28,7 +29,7 @@ class PageParams:
 
 def page_params(
     page: int = Query(1, ge=1, description="页码，从 1 开始"),
-    page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE, description="每页条数"),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="每页条数"),
 ) -> PageParams:
     """FastAPI 依赖：解析并校验分页参数。"""
     return PageParams(page=page, page_size=page_size)

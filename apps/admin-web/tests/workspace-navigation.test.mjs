@@ -26,7 +26,7 @@ test('seven primary entries share a stable order and distinct destinations', () 
 
 test('page and tab lifecycle distinguishes current files from semester participation', () => {
   assert.equal(nav.pageContextMode('students'), 'current')
-  assert.equal(nav.pageContextMode('organizations', 'groups'), 'current')
+  assert.equal(nav.pageContextMode('organizations', 'groups'), 'semester')
   assert.equal(nav.pageContextMode('organizations', 'members'), 'semester')
   assert.equal(nav.pageContextMode('organizations', 'preparation'), 'semester')
   assert.equal(nav.pageContextMode('academic', 'types'), 'current')

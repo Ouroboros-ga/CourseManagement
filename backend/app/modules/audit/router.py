@@ -46,7 +46,7 @@ def list_audit_logs(
     resource_type: Annotated[str | None, Query(max_length=64)] = None,
     resource_id: Annotated[str | None, Query(max_length=64)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> dict[str, object]:
     data = service.list_logs(
         actor.id, start=date_from, end=date_to, actor_user_id=actor_user_id,

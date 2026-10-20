@@ -91,9 +91,13 @@ def list_teachers(
     params: Annotated[PageParams, Depends(page_params)],
     query: Annotated[str | None, Query(max_length=128)] = None,
     status: Literal["ACTIVE", "DISABLED", "BANNED"] | None = None,
+    role_codes: Annotated[
+        list[Literal["SUPER_ADMIN", "TEACHER_ADMIN", "STUDENT_AFFAIRS_MANAGER"]] | None,
+        Query(max_length=3),
+    ] = None,
 ) -> dict:
     return success(
-        service.list_accounts(actor, params, query, status),
+        service.list_accounts(actor, params, query, status, role_codes=role_codes),
         getattr(request.state, "request_id", None),
     )
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../AppPagination.vue'
 import { listCourseTypes, type CourseType } from '../../api/campus'
 import { confirmGroupPlan } from '../../composables/confirmGroupAssignment'
 import { ref, watch, onMounted, computed, nextTick } from 'vue'
@@ -15,7 +16,7 @@ import {
   type SmartSampleResult
 } from '../../api/tasks'
 import {
-  listAdministrativeClasses,
+  administrativeClassOptions,
   getMasterTimetable,
   exportCourseSchedulesExcel,
   type AdministrativeClassItem,
@@ -40,6 +41,7 @@ const sessionStore = useSessionStore()
 
 const activeTab = ref<'dispatch' | 'master'>(props.mode === 'academic' ? 'master' : 'dispatch')
 const loading = ref(false)
+const dispatchError = ref('')
 const dispatchLoading = ref(false)
 const adminClasses = ref<AdministrativeClassItem[]>([])
 const selectedAdminClassId = ref<string>('')
@@ -47,6 +49,12 @@ const selectedAdminClassId = ref<string>('')
 // ---- 课次下发Tab状态 ----
 const occurrences = ref<CourseOccurrence[]>([])
 const weekTasks = ref<InspectionTaskItem[]>([])
+const occurrencePage = ref(1), occurrenceTotal = ref(0)
+const weekTaskPage = ref(1), weekTaskTotal = ref(0)
+const masterPage = ref(1), masterTotal = ref(0)
+const visibleMasterRows = computed(() => masterTimetableList.value)
+const rosterPage = ref(1)
+const visibleRosterRows = computed(() => filteredRosterStudents.value.slice((rosterPage.value - 1) * 50, rosterPage.value * 50))
 const selectedKeys = ref<string[]>([])
 const executionGroupId = ref('')
 const dispatchCourseTypeId = ref('')
@@ -210,30 +218,43 @@ let dispatchEpoch = 0
 const dispatchContext = () => JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId,
   sessionStore.currentSemesterId, sessionStore.currentWeekNo, selectedAdminClassId.value,
   executionGroupId.value, dispatchCourseTypeId.value, organizationMode.value])
-async function loadData() {
+async function loadData(reset = true) {
+  if (reset) { occurrencePage.value = 1; weekTaskPage.value = 1; selectedKeys.value = [] }
   const ticket = ++dispatchEpoch, context = dispatchContext()
   const current = () => ticket === dispatchEpoch && context === dispatchContext()
-  occurrences.value = []; selectionRevision.value = ''; selectionScope.value = {}; smartSampleResult.value = null
+  const previousRevision = selectionRevision.value
+  occurrences.value = []
+  weekTasks.value = []
+  // Keep totals during page requests; Element Plus clamps a non-first page when total becomes zero.
+  if (reset) { occurrenceTotal.value = 0; weekTaskTotal.value = 0 }
+  dispatchError.value = ''
+  if (reset) { selectionRevision.value = ''; selectionScope.value = {}; smartSampleResult.value = null }
   if (!sessionStore.currentSemesterId) return
   loading.value = true
-  selectedKeys.value = []
   try {
     // 1. 加载行政班列表（全校真实行政班）
     if (adminClasses.value.length === 0 && sessionStore.hasPermission('academic.read')) {
-      const adminRes = await listAdministrativeClasses({ page_size: 100 })
+      const adminRes = await administrativeClassOptions()
       if (!current()) return
       adminClasses.value = adminRes.items || []
     }
 
     // 2. 加载本周已有的查课任务（可按选中的行政班联动过滤）
-    const taskRes = sessionStore.hasPermission('inspection.read') ? await listTasks({
-      semester_id: sessionStore.currentSemesterId,
-      week_no: sessionStore.currentWeekNo,
-      administrative_class_id: selectedAdminClassId.value ? selectedAdminClassId.value : undefined,
-      page_size: 100
-    }) : { items: [] }
-    if (!current()) return
-    weekTasks.value = taskRes.items || []
+    try {
+      const taskRes = sessionStore.hasPermission('inspection.read') ? await listTasks({
+        semester_id: sessionStore.currentSemesterId,
+        week_no: sessionStore.currentWeekNo,
+        administrative_class_id: selectedAdminClassId.value ? selectedAdminClassId.value : undefined,
+        page: weekTaskPage.value, page_size: 50
+      }) : { items: [], total: 0 }
+      if (!current()) return
+      weekTasks.value = taskRes.items || []
+      weekTaskTotal.value = taskRes.total
+    } catch (err: unknown) {
+      if (!current()) return
+      weekTaskTotal.value = 0
+      dispatchError.value = `已有任务加载失败：${err instanceof Error ? err.message : '请稍后重试'}`
+    }
 
     // 3. 查询当周排课课次（支持按行政班精准过滤，或查当周全量课次）
     if (sessionStore.weekDateRange.start && sessionStore.weekDateRange.end && (!organizationMode.value || executionGroupId.value)) {
@@ -245,28 +266,35 @@ async function loadData() {
           date_from: sessionStore.weekDateRange.start,
           date_to: sessionStore.weekDateRange.end,
           administrative_class_id: selectedAdminClassId.value || undefined,
-          page_size: 500
+          page: occurrencePage.value, page_size: 50
         })
         if (!current()) return
         occurrences.value = occRes.items || []
+        occurrenceTotal.value = occRes.total
+        if (!reset && previousRevision && previousRevision !== occRes.selection_revision) {
+          selectedKeys.value = []; ElMessage.warning('课表或名单已变化，请重新选择课次')
+        }
         selectionRevision.value = occRes.selection_revision
         selectionScope.value = occRes.selection_scope || {}
       } catch (err: unknown) {
         if (!current()) return
-        ElMessage.error(err instanceof Error ? err.message : '加载排课课次失败')
+        occurrenceTotal.value = 0
+        dispatchError.value = [dispatchError.value, `排课课次加载失败：${err instanceof Error ? err.message : '请稍后重试'}`].filter(Boolean).join('；')
         occurrences.value = []
       }
     } else {
       occurrences.value = []
+      occurrenceTotal.value = 0
     }
   } catch (err: unknown) {
-    console.error('加载排班数据失败:', err)
+    if (current()) dispatchError.value = `查课安排加载失败：${err instanceof Error ? err.message : '请稍后重试'}`
   } finally {
     if (current()) loading.value = false
   }
 }
 
-async function loadMasterTimetableData() {
+async function loadMasterTimetableData(reset = true) {
+  if (reset) masterPage.value = 1
   if (!sessionStore.currentSemesterId) return
   if (masterWeekNo.value === '' && sessionStore.currentWeekNo) {
     masterWeekNo.value = sessionStore.currentWeekNo
@@ -274,10 +302,11 @@ async function loadMasterTimetableData() {
   masterLoading.value = true
   try {
     if (!adminClasses.value.length && sessionStore.hasPermission('academic.read')) {
-      const result = await listAdministrativeClasses({ page_size: 100 })
+      const result = await administrativeClassOptions()
       adminClasses.value = result.items || []
     }
     const res = await getMasterTimetable({
+      page: masterPage.value, page_size: 50,
       semester_id: sessionStore.currentSemesterId,
       weekday: masterWeekday.value ? Number(masterWeekday.value) : undefined,
       week_no: masterWeekNo.value ? Number(masterWeekNo.value) : undefined,
@@ -285,6 +314,7 @@ async function loadMasterTimetableData() {
       keyword: masterKeyword.value.trim() || undefined
     })
     masterTimetableList.value = res.items || []
+    masterTotal.value = res.total
   } catch (err: unknown) {
     console.error('加载总课表失败:', err)
     ElMessage.error('加载总课表库失败')
@@ -335,6 +365,8 @@ const filteredRosterStudents = computed(() => {
     (s.administrative_class_name && s.administrative_class_name.toLowerCase().includes(q))
   )
 })
+
+watch(() => [rosterSearch.value, rosterStudents.value], () => { rosterPage.value = 1 })
 
 async function openTeachingClassRoster(item: MasterTimetableItem) {
   currentRosterItem.value = item
@@ -472,9 +504,11 @@ async function triggerDispatch() {
 
   dispatchLoading.value = true
   try {
-    const selectedItems = occurrences.value.filter(o =>
-      selectedKeys.value.includes(`${o.course_schedule_id}_${o.inspection_date}`)
-    )
+    // Stable occurrence keys preserve selections across pages; the server revalidates the full revision.
+    const selectedItems = selectedKeys.value.map(key => {
+      const [course_schedule_id, inspection_date] = key.split('_')
+      return { course_schedule_id: course_schedule_id!, inspection_date: inspection_date! }
+    })
 
     const genRes = await generateExactTasks({
       execution_group_id: executionGroupId.value || undefined,
@@ -556,7 +590,7 @@ function openSelfStudyDialog() {
   selfStudyClassSearch.value = ''
   showSelfStudyDialog.value = true
   if (adminClasses.value.length === 0 && sessionStore.hasPermission('academic.read')) {
-    listAdministrativeClasses({ page_size: 100 }).then(res => {
+    administrativeClassOptions().then(res => {
       adminClasses.value = res.items || []
     })
   }
@@ -1040,7 +1074,7 @@ function applySmartSample() {
       <div v-if="occurrences.length > 0">
         <div class="table-header-bar flex items-center justify-between">
           <div class="section-title">
-            当周待下发课次（共 {{ occurrences.length }} 节<template v-if="selectedOccurrencesCount > 0">，已勾选 {{ selectedOccurrencesCount }} 节已置顶</template>）
+            当周待下发课次（共 {{ occurrenceTotal }} 节<template v-if="selectedOccurrencesCount > 0">，已勾选 {{ selectedOccurrencesCount }} 节已置顶</template>）
           </div>
           <div class="table-actions flex items-center gap-2 pr-6 py-2">
             <button
@@ -1049,7 +1083,7 @@ function applySmartSample() {
               class="btn btn-outline btn-xs"
               @click="toggleSelectAll"
             >
-              {{ isAllSelected ? '取消全选' : '全选所有可下发' }}
+              {{ isAllSelected ? '取消全选' : '全选本页可下发' }}
             </button>
             <button
               v-if="selectedKeys.length > 0"
@@ -1167,9 +1201,16 @@ function applySmartSample() {
         </table>
       </div>
 
+      <el-alert v-if="dispatchError" type="error" :closable="false" show-icon>
+        <template #title>{{ dispatchError }}</template>
+        <el-button :disabled="loading" @click="loadData(false)">重新加载</el-button>
+      </el-alert>
+      <AppPagination v-if="!dispatchError || occurrences.length" v-model:current-page="occurrencePage" :total="occurrenceTotal" @current-change="loadData(false)" />
+      <p v-if="selectedKeys.length" class="sub">已跨页勾选 {{ selectedKeys.length }} 节；切换页码保留勾选，修改筛选条件会清空。</p>
+
       <!-- 本周已生成的任务清单 -->
       <div v-if="weekTasks.length > 0" class="week-tasks">
-        <div class="section-title">本周数据库中已有查课任务（共 {{ weekTasks.length }} 条）</div>
+        <div class="section-title">本周数据库中已有查课任务（共 {{ weekTaskTotal }} 条）</div>
         <table class="tbl">
           <thead>
             <tr>
@@ -1196,10 +1237,11 @@ function applySmartSample() {
             </tr>
           </tbody>
         </table>
+        <AppPagination v-model:current-page="weekTaskPage" :total="weekTaskTotal" @current-change="loadData(false)" />
       </div>
 
       <!-- 空状态 -->
-      <div v-if="!loading && !hasData" class="empty-box">
+      <div v-if="!loading && !dispatchError && !hasData" class="empty-box">
         <div class="empty-icon flex justify-center mb-2">
           <AppIcon name="folder-open" :size="36" class="icon-mute" />
         </div>
@@ -1214,7 +1256,7 @@ function applySmartSample() {
       <div class="filter-bar">
         <div class="fgroup">
           <label>教学周</label>
-          <select v-model="masterWeekNo" class="input" @change="loadMasterTimetableData">
+          <select v-model="masterWeekNo" class="input" @change="loadMasterTimetableData()">
             <option :value="''">全部周次</option>
             <option v-for="w in sessionStore.totalWeeks" :key="w" :value="w">第 {{ w }} 周</option>
           </select>
@@ -1222,7 +1264,7 @@ function applySmartSample() {
         <div class="fsep"></div>
         <div class="fgroup">
           <label>星期</label>
-          <select v-model="masterWeekday" class="input" @change="loadMasterTimetableData">
+          <select v-model="masterWeekday" class="input" @change="loadMasterTimetableData()">
             <option :value="''">星期一至星期日</option>
             <option :value="1">星期一</option>
             <option :value="2">星期二</option>
@@ -1236,7 +1278,7 @@ function applySmartSample() {
         <div class="fsep"></div>
         <div class="fgroup">
           <label>行政班</label>
-          <select v-model="masterAdminClassId" class="input" @change="loadMasterTimetableData">
+          <select v-model="masterAdminClassId" class="input" @change="loadMasterTimetableData()">
             <option :value="''">全部行政班</option>
             <option v-for="c in adminClasses" :key="c.id" :value="c.id">
               {{ c.class_name }}
@@ -1251,9 +1293,9 @@ function applySmartSample() {
             type="text"
             class="input flex-1"
             placeholder="输入课程名称、教学班名、教室地点..."
-            @keyup.enter="loadMasterTimetableData"
+            @keyup.enter="loadMasterTimetableData()"
           />
-          <button class="btn btn-dark btn-sm" @click="loadMasterTimetableData">查询</button>
+          <button class="btn btn-dark btn-sm" @click="loadMasterTimetableData()">查询</button>
         </div>
       </div>
 
@@ -1263,7 +1305,7 @@ function applySmartSample() {
         <div v-if="masterTimetableList.length > 0">
           <div class="section-title flex justify-between items-center py-1">
             <div class="flex items-center gap-3">
-              <span>当前范围教务课表检索结果（共 {{ masterTimetableList.length }} 门排课）</span>
+              <span>当前范围教务课表检索结果（共 {{ masterTotal }} 门排课）</span>
               <span class="dim-note">
                 其中查课覆盖课次：{{ masterTimetableList.filter(m => m.is_inspectable).length }} 门
               </span>
@@ -1290,7 +1332,7 @@ function applySmartSample() {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in masterTimetableList" :key="item.id">
+              <tr v-for="item in visibleMasterRows" :key="item.id">
                 <td>
                   <div class="font-bold">周{{ item.weekday }}</div>
                   <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period) }}</div>
@@ -1357,6 +1399,7 @@ function applySmartSample() {
               </tr>
             </tbody>
           </table>
+          <AppPagination v-model:current-page="masterPage" :total="masterTotal" @current-change="loadMasterTimetableData(false)" />
         </div>
 
         <div v-if="!masterLoading && masterTimetableList.length === 0" class="empty-box">
@@ -1438,7 +1481,7 @@ function applySmartSample() {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
-              <tr v-for="(stu, idx) in filteredRosterStudents" :key="stu.id" class="hover:bg-slate-50">
+              <tr v-for="(stu, idx) in visibleRosterRows" :key="stu.id" class="hover:bg-slate-50">
                 <td class="py-2 px-3 text-center text-xs text-slate-400 font-mono">{{ idx + 1 }}</td>
                 <td class="py-2 px-3 font-mono text-xs text-slate-700">{{ stu.student_no }}</td>
                 <td class="py-2 px-3 font-medium text-slate-900">{{ stu.name }}</td>
@@ -1455,6 +1498,7 @@ function applySmartSample() {
             <p v-if="rosterSearch">未找到符合搜索条件的学生</p>
             <p v-else>该教学班尚未关联在籍学生名单</p>
           </div>
+          <AppPagination v-if="filteredRosterStudents.length" v-model:current-page="rosterPage" :total="filteredRosterStudents.length" />
         </div>
       </div>
       <template #footer>

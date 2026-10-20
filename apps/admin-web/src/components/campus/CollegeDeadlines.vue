@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../../components/PaginatedTable.vue'
 import { useCollegeDeadlines } from '../../composables/useCollegeDeadlines'
 import { formatBeijingTime } from '../../utils/datetime'
 
@@ -13,7 +14,7 @@ const state = useCollegeDeadlines(() => props.collegeId, () => props.canManage)
     <p>升级前任务继续使用学校历史截止，由超级管理员处理，修改本院记录不会影响这些任务。</p>
     <el-alert v-if="state.error.value" :title="state.error.value" type="error" :closable="false" />
     <el-button :disabled="state.busy.value || state.writing.value" @click="state.load">刷新</el-button>
-    <el-table :data="state.rows.value" v-loading="state.busy.value" empty-text="当前学期尚无本院截止记录，请先生成任务">
+    <PaginatedTable :data="state.rows.value" v-loading="state.busy.value" empty-text="当前学期尚无本院截止记录，请先生成任务">
       <el-table-column prop="inspection_date" label="查课日期" />
       <el-table-column label="当前截止（北京时间）" min-width="190">
         <template #default="{ row }">{{ formatBeijingTime(row.deadline_at, 'minute') }}</template>
@@ -29,15 +30,15 @@ const state = useCollegeDeadlines(() => props.collegeId, () => props.canManage)
           <el-button :disabled="state.busy.value" @click="state.showHistory(row.inspection_date)">历史</el-button>
         </template>
       </el-table-column>
-    </el-table>
+    </PaginatedTable>
     <template v-if="state.historyDate.value">
       <h3>{{ state.historyDate.value }} 的截止历史</h3>
-      <el-table :data="state.history.value">
+      <PaginatedTable :data="state.history.value">
         <el-table-column prop="version_no" label="版本" />
         <el-table-column label="截止"><template #default="{ row }">{{ formatBeijingTime(row.deadline_at, 'minute') }}</template></el-table-column>
         <el-table-column label="修改时间"><template #default="{ row }">{{ formatBeijingTime(row.created_at, 'minute') }}</template></el-table-column>
         <el-table-column prop="reason" label="说明" />
-      </el-table>
+      </PaginatedTable>
     </template>
   </section>
 </template>

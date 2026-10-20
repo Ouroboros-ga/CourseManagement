@@ -45,7 +45,9 @@ from app.modules.identity.models import (
     AuthSession,
     BindingTokenStatus,
     ClientType,
+    Role,
     UserAccount,
+    UserRole,
     UserStatus,
     WechatIdentity,
 )
@@ -493,8 +495,12 @@ class IdentityService:
         ):
             from app.modules.academic.enrollment_models import StudentManagerAppointment
             from app.modules.academic.enrollment_service import EnrollmentService
-            from app.modules.identity.role_scope import business_today, require_resource_scope, resolve_scope
             from app.modules.identity.policy import MANAGER_FUNCTION_CODES
+            from app.modules.identity.role_scope import (
+                business_today,
+                require_resource_scope,
+                resolve_scope,
+            )
 
             student = (
                 self._session.execute(
@@ -667,14 +673,76 @@ class IdentityService:
         return code, enabled, target.lock_version
 
     # ---- 受限目标选择器（只读，不加锁、不提交）----
-    def list_role_assignment_targets(
-        self, actor_user_id: int
-    ) -> tuple[list[RoleAssignmentTargetItem], list[str]]:
+    def _role_assignment_targets(
+        self,
+        actor_user_id: int,
+        *,
+        student_ids: list[int] | None = None,
+        params=None,
+        keyword=None,
+        role_code=None,
+        student_candidates=False,
+    ) -> tuple[list[RoleAssignmentTargetItem], list[str], int]:
         actor_roles = frozenset(self._repo.list_role_codes(actor_user_id))
         assignable = assignable_roles(actor_roles)
         from app.modules.identity.account_visibility import management_users
         visible = management_users(self._session, actor_user_id, "role.assign", college_id=self._college_id)
-        wechat_uids = set(self._session.scalars(select(WechatIdentity.user_id)).all())
+        if student_ids is not None:
+            visible = visible.where(UserAccount.student_id.in_(student_ids))
+        from sqlalchemy import func, or_
+
+        if keyword:
+            visible = visible.where(
+                or_(
+                    UserAccount.display_name.contains(keyword, autoescape=True),
+                    UserAccount.username.contains(keyword, autoescape=True),
+                    UserAccount.student_id.in_(
+                        select(Student.id).where(
+                            Student.student_no.contains(keyword, autoescape=True)
+                        )
+                    ),
+                )
+            )
+        if role_code:
+            visible = visible.where(
+                UserAccount.id.in_(
+                    select(UserRole.user_id).join(Role).where(Role.code == role_code)
+                )
+            )
+        if student_candidates:
+            visible = visible.where(
+                UserAccount.student_id.is_not(None),
+                UserAccount.id.not_in(
+                    select(UserRole.user_id)
+                    .join(Role)
+                    .where(Role.code == "STUDENT_AFFAIRS_MANAGER")
+                ),
+            )
+        total = (
+            int(
+                self._session.scalar(
+                    select(func.count()).select_from(
+                        visible.with_only_columns(UserAccount.id).subquery()
+                    )
+                )
+            )
+            if params
+            else 0
+        )
+        if params:
+            visible = visible.order_by(UserAccount.id).limit(params.limit).offset(params.offset)
+        users = self._repo.list_all_users(visible)
+        wechat_uids = (
+            set(
+                self._session.scalars(
+                    select(WechatIdentity.user_id).where(
+                        WechatIdentity.user_id.in_([u.id for u in users])
+                    )
+                )
+            )
+            if users
+            else set()
+        )
         items = [
             RoleAssignmentTargetItem(
                 id=str(user.id),
@@ -686,19 +754,39 @@ class IdentityService:
                 student_id=str(user.student_id) if user.student_id is not None else None,
                 has_wechat=user.id in wechat_uids,
             )
-            for user in self._repo.list_all_users(visible)
+            for user in users
         ]
+        return items, assignable, total if params else len(items)
+
+    def list_role_assignment_targets(self, actor_user_id, *, student_ids=None):
+        items, assignable, _ = self._role_assignment_targets(actor_user_id, student_ids=student_ids)
         return items, assignable
 
+    def role_assignment_target_page(self, actor_user_id, params, **filters):
+        items, assignable, total = self._role_assignment_targets(
+            actor_user_id, params=params, **filters
+        )
+        return {
+            "items": [row.model_dump() for row in items],
+            "assignable_roles": assignable,
+            "total": total,
+            "page": params.page,
+            "page_size": params.page_size,
+        }
+
     def list_optional_permission_targets(
-        self, actor_user_id: int
+        self, actor_user_id: int, *, user_ids: list[int] | None = None
     ) -> tuple[list[OptionalPermissionTargetItem], list[str]]:
         configurable = sorted(OPTIONAL_PERMISSION_CODES)
         items: list[OptionalPermissionTargetItem] = []
         from app.modules.identity.account_visibility import management_users
         visible = management_users(self._session, actor_user_id, "optional_permission.manage", college_id=self._college_id)
-        for user in self._repo.list_users_with_role(RoleCode.STUDENT_AFFAIRS_MANAGER.value, visible):
-            granted = set(self._repo.list_optional_grant_codes(user.id))
+        if user_ids is not None:
+            visible = visible.where(UserAccount.id.in_(user_ids))
+        users = self._repo.list_users_with_role(RoleCode.STUDENT_AFFAIRS_MANAGER.value, visible)
+        grants = self._repo.optional_grants_by_users([user.id for user in users])
+        for user in users:
+            granted = grants[user.id]
             items.append(
                 OptionalPermissionTargetItem(
                     id=str(user.id),

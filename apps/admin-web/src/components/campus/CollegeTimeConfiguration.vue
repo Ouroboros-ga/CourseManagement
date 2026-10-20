@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../PaginatedTable.vue'
 import TimeProfiles from './TimeProfiles.vue'
 import SchoolTimeDefaults from './SchoolTimeDefaults.vue'
 import type { CollegePeriodTime } from '../../api/collegeTime'
@@ -180,7 +181,7 @@ function updateConfirmation(value: boolean | string | number) {
 
     <h3>历史作息版本</h3>
     <el-empty v-if="!versions.length && !busy" description="暂无作息版本" />
-    <el-table v-else :data="versions" row-key="id" v-loading="busy">
+    <PaginatedTable v-else :data="versions" row-key="id" v-loading="busy">
       <el-table-column prop="version" label="版本" width="100" />
       <el-table-column prop="effective_from" label="生效日期" width="140" />
       <el-table-column label="节次数">
@@ -190,7 +191,7 @@ function updateConfirmation(value: boolean | string | number) {
         <template #default="scope">{{ scope.row.configuration.calendar.length }}</template>
       </el-table-column>
       <el-table-column prop="id" label="版本 ID" />
-    </el-table>
+    </PaginatedTable>
     <TimeProfiles v-if="semesterId" :key="`${collegeId}:${semesterId}`" :college-id="collegeId" :semester-id="semesterId" :default-configuration="form" />
   </section>
 </template>

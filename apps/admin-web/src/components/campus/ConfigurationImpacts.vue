@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../../components/AppPagination.vue'
 import { onUnmounted, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { listConfigurationImpacts, resolveConfigurationImpact, type ConfigurationImpactItem } from '../../api/configurationImpacts'
@@ -50,5 +51,5 @@ onUnmounted(() => epoch.invalidate())
       <el-button v-if="capabilities.includes('assignment.manage')" :disabled="busy || row.canceled" @click="resolve(row, 'REASSIGNED')">登记已改派</el-button>
     </template></template></el-table-column>
   </el-table>
-  <el-pagination v-model:current-page="page" :page-size="50" :total="total" layout="prev,pager,next,total" />
+  <AppPagination v-model:current-page="page" :page-size="50" :total="total" />
 </template>

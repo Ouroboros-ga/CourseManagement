@@ -1402,30 +1402,15 @@ class AcademicService:
         return VolunteerQualificationResponse.model_validate(vq)
 
     def list_volunteer_qualifications(
-        self, params: PageParams, *, semester_id: int | None, enabled: bool | None
+        self,
+        params: PageParams,
+        *,
+        semester_id: int | None,
+        enabled: bool | None,
+        student_ids: list[int] | None = None,
     ) -> dict:
-        if semester_id is not None:
-            qual_students = self._session.scalars(
-                select(VolunteerQualification.student_id).where(
-                    VolunteerQualification.semester_id == semester_id,
-                    VolunteerQualification.enabled.is_(True),
-                )
-            ).all()
-            changed = False
-            for sid in qual_students:
-                try:
-                    if self._grant_volunteer_role(sid):
-                        changed = True
-                except Exception as exc:
-                    logger.warning("Auto grant volunteer role failed for student %s: %s", sid, exc)
-            if changed:
-                try:
-                    self._session.commit()
-                except Exception as exc:
-                    logger.warning("Commit volunteer role grants failed: %s", exc)
-                    self._session.rollback()
         rows, total = self._repo.list_volunteer_qualifications(
-            params, semester_id=semester_id, enabled=enabled
+            params, semester_id=semester_id, enabled=enabled, student_ids=student_ids
         )
         return _page(
             [VolunteerQualificationResponse.model_validate(r) for r in rows], total, params
@@ -1559,7 +1544,6 @@ class AcademicService:
             sched_teacher = (cs.teacher or tc.teacher_name or "").strip()
             if sched_teacher in ("", "未指定", "None"):
                 sched_teacher = None
-            eff_teacher = sched_teacher
 
             if keyword:
                 kw = keyword.strip().lower()

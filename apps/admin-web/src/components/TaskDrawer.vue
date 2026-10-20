@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { useDisplayPage } from '../composables/useDisplayPage'
+import AppPagination from '../components/AppPagination.vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
+import { ContextEpoch } from '../utils/contextEpoch'
+import { collectPages } from '../utils/collectPages'
 import type { InspectionTaskItem } from '../api/tasks'
 import { getTaskRoster, listManagementSubmissions, type RosterStudentItem, type ManagementSubmissionItem } from '../api/submissions'
 import { listAttendance, correctAttendanceRecord, type AttendanceRecord, type AttendanceType } from '../api/attendance'
@@ -91,67 +95,34 @@ const enrichedStudents = computed<EnrichedRosterItem[]>(() => {
   })
 })
 
+const detailEpoch = new ContextEpoch(() => JSON.stringify([props.task?.id, props.task?.lock_version,
+  props.visible, sessionStore.currentUser?.id, sessionStore.workspaceCollegeId]))
+onUnmounted(() => detailEpoch.invalidate())
 async function loadTaskDetails(newTask: InspectionTaskItem) {
+  const ticket = detailEpoch.begin()
   loadingData.value = true
+  students.value = []; attendanceRecords.value = []; submission.value = null
   try {
-    // 1. 点名册
-    const rosterRes = await getTaskRoster(newTask.id)
-    students.value = rosterRes.items || rosterRes.students || []
-    rosterVersion.value = rosterRes.roster_version || 1
-    totalStudents.value = rosterRes.total_students || students.value.length
-
-    // 2. 查课提交信息（若已提交）
-    try {
-      const subRes = await listManagementSubmissions({
-        task_id: String(newTask.id),
-        page_size: 1
-      })
-      submission.value = subRes.items && subRes.items.length > 0 ? subRes.items[0] : null
-    } catch {
-      submission.value = null
-    }
-
-    // 3. 实际考勤认定（若已生成考勤）
-    try {
-      const attRes = await listAttendance({
-        task_id: Number(newTask.id),
-        page_size: 200
-      })
-      attendanceRecords.value = attRes.items || []
-    } catch {
-      attendanceRecords.value = []
-    }
-  } catch {
-    students.value = []
-    attendanceRecords.value = []
-    submission.value = null
-  } finally {
-    loadingData.value = false
-  }
+    const [roster, submissions, attendance] = await Promise.all([
+      getTaskRoster(newTask.id),
+      listManagementSubmissions({ task_id: newTask.id, page_size: 1 }).catch(() => ({ items: [] })),
+      collectPages((page, page_size) => listAttendance({ task_id: newTask.id, page, page_size }), ticket.isCurrent)
+    ])
+    if (!ticket.isCurrent()) return
+    students.value = roster.items || roster.students || []
+    rosterVersion.value = roster.roster_version || 1
+    totalStudents.value = roster.total_students || students.value.length
+    submission.value = submissions.items[0] || null
+    attendanceRecords.value = attendance
+  } catch (error) {
+    if (ticket.isCurrent()) ElMessage.error(error instanceof Error ? error.message : '任务资料读取失败，请重试')
+  } finally { if (ticket.isLatest()) loadingData.value = false }
 }
-
-watch(
-  () => props.task,
-  (newTask) => {
-    if (newTask && props.visible) {
-      loadTaskDetails(newTask)
-    } else {
-      students.value = []
-      attendanceRecords.value = []
-      submission.value = null
-    }
-  },
-  { immediate: true }
-)
-
-watch(
-  () => props.visible,
-  (visible) => {
-    if (visible && props.task) {
-      loadTaskDetails(props.task)
-    }
-  }
-)
+watch(() => [props.task, props.visible, sessionStore.currentUser?.id, sessionStore.workspaceCollegeId], () => {
+  detailEpoch.invalidate()
+  if (props.task && props.visible) void loadTaskDetails(props.task)
+  else { students.value = []; attendanceRecords.value = []; submission.value = null }
+}, { immediate: true })
 
 function openCorrectDialog(item: EnrichedRosterItem) {
   if (!item.attendance_record_id || item.current_version === undefined) return
@@ -212,6 +183,8 @@ function formatTypeTag(t?: AttendanceType): { label: string; cls: string } {
 const close = () => {
   emit('update:visible', false)
 }
+
+const { page: display0Page, rows: display0Rows, total: display0Total } = useDisplayPage(() => enrichedStudents.value)
 </script>
 
 <template>
@@ -389,7 +362,7 @@ const close = () => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="stu in enrichedStudents" :key="stu.student_id">
+                <tr v-for="stu in display0Rows" :key="stu.student_id">
                   <td class="cell-mono">{{ stu.student_no }}</td>
                   <td class="font-bold">{{ stu.name }}</td>
                   <td class="cell-sub">{{ stu.class_name }}</td>
@@ -415,6 +388,7 @@ const close = () => {
                 </tr>
               </tbody>
             </table>
+<AppPagination v-model:current-page="display0Page" :total="display0Total" />
           </div>
           <div v-else class="d-empty" style="background: var(--paper-deep); color: var(--ink-mute);">
             点名册学生数据暂未导入或名单为空

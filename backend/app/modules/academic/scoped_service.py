@@ -60,13 +60,22 @@ class ScopedAcademicService:
         scope = resolve_scope(self.db, self.actor, self.college_id, action, write=write)
         return ScopedAcademicRepository(self.db, scope)
 
-    def _dto(self, row, *, as_of=None, enrollment=None, week_nos=None):
+    def _dto(
+        self,
+        row,
+        *,
+        as_of=None,
+        enrollment=None,
+        week_nos=None,
+        enrollment_loaded=False,
+        class_names=None,
+    ):
         result = self.campus._dto(row)
         if row.__tablename__ == "student":
             from app.modules.identity.role_scope import business_today
 
             day = as_of or business_today()
-            if enrollment is None:
+            if enrollment is None and not enrollment_loaded:
                 from app.modules.academic.enrollment_service import EnrollmentService
 
                 enrollment = EnrollmentService(self.db).at(row.id, day)
@@ -92,9 +101,13 @@ class ScopedAcademicService:
                 else row.administrative_class_id
             )
             if ac_id:
-                ac = self.db.get(AdministrativeClass, ac_id)
-                if ac:
-                    result["administrative_class_name"] = ac.class_name
+                if class_names is not None:
+                    if ac_id in class_names:
+                        result["administrative_class_name"] = class_names[ac_id]
+                else:
+                    ac = self.db.get(AdministrativeClass, ac_id)
+                    if ac:
+                        result["administrative_class_name"] = ac.class_name
         if row.__tablename__ == "course_schedule":
             if week_nos is not None:
                 result["week_nos"] = week_nos
@@ -155,11 +168,26 @@ class ScopedAcademicService:
             for e in enrollments:
                 if e.student_id not in enrollment_map:
                     enrollment_map[e.student_id] = e
+            class_ids = {
+                enrollment_map[row.id].administrative_class_id
+                if row.id in enrollment_map and enrollment_map[row.id].administrative_class_id
+                else row.administrative_class_id
+                for row in rows
+            }
+            class_names = dict(
+                self.db.execute(
+                    select(AdministrativeClass.id, AdministrativeClass.class_name).where(
+                        AdministrativeClass.id.in_(class_ids)
+                    )
+                ).all()
+            )
             items = [
                 self._dto(
                     row,
                     as_of=filters.get("as_of"),
                     enrollment=enrollment_map.get(row.id),
+                    enrollment_loaded=True,
+                    class_names=class_names,
                 )
                 for row in rows
             ]

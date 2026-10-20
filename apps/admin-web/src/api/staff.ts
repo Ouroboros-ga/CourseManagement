@@ -29,6 +29,9 @@ export interface StaffPage { items: StaffProfile[]; total: number; page: number;
 
 export type StaffAnchor = 'LOCAL' | 'SHARED'
 export interface TeachingAssignmentRow {
+  staff_no?: string
+  staff_name?: string
+  class_name?: string | null
   id: string
   staff_id: string
   semester_id: string
@@ -41,6 +44,9 @@ export interface TeachingAssignmentRow {
 }
 export type StaffDuty = 'HEAD_TEACHER' | 'COUNSELOR'
 export interface ResponsibilityRow {
+  staff_no?: string
+  staff_name?: string
+  class_name?: string | null
   id: string
   staff_id: string
   administrative_class_id: string
@@ -78,6 +84,14 @@ export function issueBindingToken(cid: string, staffId: string, reason?: string 
 }
 export function revokeBindingToken(cid: string, tokenId: string, reason?: string | null) {
   return request<Record<string, unknown>>(path(cid, `/staff-binding-tokens/${encodeURIComponent(tokenId)}/revoke`), json('POST', { reason: reason ?? null }))
+}
+
+export interface RelationPage<T> { items: T[]; total: number; page: number; page_size: number }
+export function listTeachingAssignmentPage(cid: string, page: number, staffId?: string) {
+  return request<RelationPage<TeachingAssignmentRow>>(path(cid, `/teaching-staff-assignments${query({ paged: 'true', page, page_size: 50, staff_id: staffId })}`))
+}
+export function listResponsibilityPage(cid: string, page: number, staffId?: string) {
+  return request<RelationPage<ResponsibilityRow>>(path(cid, `/class-staff-responsibilities${query({ paged: 'true', page, page_size: 50, staff_id: staffId })}`))
 }
 
 export function listTeachingAssignments(cid: string, params: { staff_id?: string; teaching_class_id?: string } = {}) {

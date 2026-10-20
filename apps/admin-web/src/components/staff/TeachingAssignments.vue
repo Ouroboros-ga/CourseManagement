@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../AppPagination.vue'
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../../stores/session'
@@ -7,10 +8,9 @@ import PersonLinkReview from './PersonLinkReview.vue'
 import {
   createTeachingAssignment,
   endTeachingAssignment,
-  getScopedRow,
   listScopedOptions,
   listStaff,
-  listTeachingAssignments,
+  listTeachingAssignmentPage,
   type ScopedAcademicRow,
   type StaffAnchor,
   type StaffProfile,
@@ -24,37 +24,27 @@ const contextKey = computed(() => JSON.stringify([
   session.currentUser?.id || '', props.collegeId, session.workspace?.authorization_revision || ''
 ]))
 const teacherFilter = ref('')
-const { data: rows, busy, error, load } = useWorkspaceRead(
-  () => JSON.stringify([contextKey.value, teacherFilter.value]),
+const page = ref(1)
+const { data: relationData, busy, error, load } = useWorkspaceRead(
+  () => JSON.stringify([contextKey.value, teacherFilter.value, page.value]),
   () => !!props.collegeId,
-  () => listTeachingAssignments(props.collegeId, { staff_id: teacherFilter.value || undefined })
+  () => listTeachingAssignmentPage(props.collegeId, page.value, teacherFilter.value || undefined)
 )
+
+const rows = computed(() => relationData.value?.items || [])
+watch(teacherFilter, () => { page.value = 1 })
 
 // 名称投影：档案与教学班名称按需补齐，显示始终附原始 ID 便于核对。
 const staffLabelMap = ref<Record<string, string>>({})
 const classNameMap = ref<Record<string, string>>({})
 watch(rows, () => {
-  void resolveNames()
-})
-async function resolveNames() {
-  try {
-    const page = await listStaff(props.collegeId, { keyword: '', page_size: 200 })
-    for (const staff of Array.isArray(page?.items) ? page.items : []) {
-      if (!staffLabelMap.value[staff.id]) staffLabelMap.value[staff.id] = `${staff.staff_no} ${staff.name}`
-    }
-  } catch { /* 候选不可用时仅展示 ID */ }
-  for (const row of Array.isArray(rows.value) ? rows.value : []) {
-    if (row.anchor_type === 'LOCAL' && row.teaching_class_id && !classNameMap.value[row.teaching_class_id]) {
-      await loadClassName(row.teaching_class_id)
-    }
+  staffLabelMap.value = {}; classNameMap.value = {}
+  for (const row of rows.value) {
+    if (row.staff_name) staffLabelMap.value[row.staff_id] = `${row.staff_no || ''} ${row.staff_name}`.trim()
+    const classId = row.teaching_class_id
+    if (classId && row.class_name) classNameMap.value[classId] = row.class_name
   }
-}
-async function loadClassName(id: string) {
-  try {
-    const detail = await getScopedRow(props.collegeId, 'teaching-classes', id)
-    classNameMap.value[id] = String(detail.class_code || detail.class_name || '') || '—'
-  } catch { classNameMap.value[id] = '' }
-}
+})
 const staffLabel = (id: string) => staffLabelMap.value[id] || `教职工 ID ${id}`
 const anchorText = (row: TeachingAssignmentRow) => row.anchor_type === 'LOCAL' ? '本院教学班' : '共享课程身份'
 const targetText = (row: TeachingAssignmentRow) => row.anchor_type === 'LOCAL'
@@ -64,7 +54,7 @@ const semesterLabel = (id: string) => session.semesters.find(item => item.id ===
 
 async function loadStaffOptions(keyword = '', ids: string[] = []) {
   try {
-    staffOptions.value = await listStaff(props.collegeId, { keyword: keyword || undefined, page_size: 200 })
+    staffOptions.value = await listStaff(props.collegeId, { keyword: keyword || undefined, page_size: 50 })
     for (const staff of staffOptions.value.items) {
       if (ids.includes(staff.id)) staffLabelMap.value[staff.id] = `${staff.staff_no} ${staff.name}`
     }
@@ -72,7 +62,7 @@ async function loadStaffOptions(keyword = '', ids: string[] = []) {
     staffError.value = e instanceof Error ? e.message : '教职工候选加载失败'
   }
 }
-const staffOptions = ref<{ items: StaffProfile[]; total: number; page: number; page_size: number }>({ items: [], total: 0, page: 1, page_size: 200 })
+const staffOptions = ref<{ items: StaffProfile[]; total: number; page: number; page_size: number }>({ items: [], total: 0, page: 1, page_size: 50 })
 const staffError = ref('')
 
 const createOpen = ref(false)
@@ -95,7 +85,7 @@ async function loadClassOptions(keyword = '') {
   if (!semesterId) { classOptions.value = []; return }
   classLoading.value = true
   try {
-    const page = await listScopedOptions(props.collegeId, 'teaching-classes', { semester_id: semesterId, keyword, page_size: 200 })
+    const page = await listScopedOptions(props.collegeId, 'teaching-classes', { semester_id: semesterId, keyword, page_size: 50 })
     classOptions.value = (page?.items || []).filter((row: ScopedAcademicRow) => row.status === 'ACTIVE')
     for (const row of classOptions.value) classNameMap.value[row.id] = `${row.class_code || ''} ${row.class_name || ''}`.trim()
   } catch (e) {
@@ -169,7 +159,7 @@ async function submitEnd() {
     <el-alert title="导入课表时会按工号或唯一姓名关联教职工。这里查看关联结果、补充已有资料的关联，或处理换教师等特殊情况；不需要逐个教学班重复设置。" type="info" :closable="false" />
     <PersonLinkReview :college-id="collegeId" kind="teaching" @saved="void load()" />
     <div class="filters">
-      <el-select v-model="teacherFilter" filterable clearable placeholder="按教师筛选" style="max-width: 240px">
+      <el-select v-model="teacherFilter" filterable remote :remote-method="loadStaffOptions" @visible-change="(open: boolean) => { if (open) void loadStaffOptions() }" clearable placeholder="按教师筛选" style="max-width: 240px">
         <el-option v-for="staff in staffOptions.items" :key="staff.id" :value="staff.id" :label="`${staff.staff_no} ${staff.name}`" />
       </el-select>
       <el-button :loading="busy" @click="void load()">刷新</el-button>
@@ -188,6 +178,7 @@ async function submitEnd() {
         <template #default="{ row }"><el-button link @click="startEnd(row)">结束</el-button></template>
       </el-table-column>
     </el-table>
+    <AppPagination v-model:current-page="page" :total="relationData?.total || 0" />
 
     <el-dialog v-model="createOpen" title="建立授课任命" width="560px" :close-on-click-modal="false">
       <el-form label-width="112px">

@@ -171,9 +171,18 @@ def list_teaching_assignments(
     cid: ResourceId,
     service: ServiceDep,
     request: Request,
+    params: Annotated[PageParams, Depends(page_params)],
+    paged: bool = False,
     staff_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     teaching_class_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
 ):
+    if paged:
+        return success(
+            service.relation_page(
+                "teaching", params, staff_id=staff_id, teaching_class_id=teaching_class_id
+            ),
+            getattr(request.state, "request_id", None),
+        )
     return success(
         service.list_teaching_assignments(staff_id=staff_id, teaching_class_id=teaching_class_id),
         getattr(request.state, "request_id", None),
@@ -205,9 +214,21 @@ def list_responsibilities(
     cid: ResourceId,
     service: ServiceDep,
     request: Request,
+    params: Annotated[PageParams, Depends(page_params)],
+    paged: bool = False,
     staff_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     administrative_class_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
 ):
+    if paged:
+        return success(
+            service.relation_page(
+                "responsibility",
+                params,
+                staff_id=staff_id,
+                administrative_class_id=administrative_class_id,
+            ),
+            getattr(request.state, "request_id", None),
+        )
     return success(
         service.list_responsibilities(
             staff_id=staff_id, administrative_class_id=administrative_class_id

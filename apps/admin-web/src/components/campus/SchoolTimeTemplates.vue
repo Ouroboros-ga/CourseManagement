@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../../components/PaginatedTable.vue'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { listSchoolTimeTemplates, listTemplateVersions, saveSchoolTimeTemplate, setSchoolTemplateStatus, type SchoolTimeTemplate, type TemplateVersion } from '../../api/schoolTimeTemplates'
@@ -59,7 +60,7 @@ onUnmounted(() => epoch.invalidate())
     <el-button type="primary" :disabled="busy || !name.trim() || current?.status === 'INACTIVE'" @click="execute('save')">{{ current ? '保存为新版本' : '创建模板' }}</el-button>
     <el-button v-if="current" :disabled="busy" @click="execute('status')">{{ current.status === 'ACTIVE' ? '停用模板' : '恢复模板' }}</el-button>
     <el-button v-if="current" :disabled="busy" @click="execute('history')">查看历史版本</el-button>
-    <el-collapse v-if="history.length"><el-collapse-item v-for="version in history" :key="version.id" :title="`${version.name} · v${version.version}`"><el-table :data="version.periods"><el-table-column prop="period_no" label="节次" /><el-table-column prop="slot_id" label="稳定标识" /><el-table-column prop="name" label="名称" /><el-table-column prop="start_time" label="开始" /><el-table-column prop="end_time" label="结束" /></el-table></el-collapse-item></el-collapse>
+    <el-collapse v-if="history.length"><el-collapse-item v-for="version in history" :key="version.id" :title="`${version.name} · v${version.version}`"><PaginatedTable :data="version.periods"><el-table-column prop="period_no" label="节次" /><el-table-column prop="slot_id" label="稳定标识" /><el-table-column prop="name" label="名称" /><el-table-column prop="start_time" label="开始" /><el-table-column prop="end_time" label="结束" /></PaginatedTable></el-collapse-item></el-collapse>
   </section>
 </template>
 <style scoped>

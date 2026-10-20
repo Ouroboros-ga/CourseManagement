@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../../components/PaginatedTable.vue'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { importTemplateDraft, listCollegeTemplates, listTemplateUpdates, type SchoolTimeTemplate, type TemplateUpdate } from '../../api/schoolTimeTemplates'
@@ -53,7 +54,7 @@ onUnmounted(() => epoch.invalidate())
     <el-date-picker v-model="effective" type="date" value-format="YYYY-MM-DD" placeholder="本学期生效日期" :disabled="busy || disabled" />
     <el-button :disabled="busy || disabled || !current || !name.trim() || !effective" @click="importDraft">创建独立草稿</el-button>
     <el-button :disabled="busy || disabled" @click="load">刷新模板与提示</el-button>
-    <el-table v-if="current" :data="current.latest.periods"><el-table-column prop="period_no" label="节次" /><el-table-column prop="slot_id" label="稳定标识" /><el-table-column prop="name" label="名称" /><el-table-column prop="start_time" label="开始" /><el-table-column prop="end_time" label="结束" /></el-table>
+    <PaginatedTable v-if="current" :data="current.latest.periods"><el-table-column prop="period_no" label="节次" /><el-table-column prop="slot_id" label="稳定标识" /><el-table-column prop="name" label="名称" /><el-table-column prop="start_time" label="开始" /><el-table-column prop="end_time" label="结束" /></PaginatedTable>
   </section>
 </template>
 <style scoped>

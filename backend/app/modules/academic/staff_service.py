@@ -216,6 +216,49 @@ class StaffManagementService:
     # ------------------------------------------------------------------ #
     # 授课关系
     # ------------------------------------------------------------------ #
+    def relation_page(self, kind: str, params: PageParams, **filters) -> dict:
+        from app.modules.academic.models import AdministrativeClass, TeachingClass
+
+        self._authorize(write=False)
+        teaching = kind == "teaching"
+        model = TeachingStaffAssignment if teaching else ClassStaffResponsibility
+        rows, total = self.repo.relation_page(model, self.college_id, params, **filters)
+        staff = (
+            {
+                row.id: row
+                for row in self.db.scalars(
+                    select(FacultyStaff).where(FacultyStaff.id.in_({r.staff_id for r in rows}))
+                )
+            }
+            if rows
+            else {}
+        )
+        class_model = TeachingClass if teaching else AdministrativeClass
+        key = "teaching_class_id" if teaching else "administrative_class_id"
+        classes = (
+            {
+                row.id: row.class_name
+                for row in self.db.scalars(
+                    select(class_model).where(
+                        class_model.college_id == self.college_id,
+                        class_model.id.in_({getattr(r, key) for r in rows if getattr(r, key)}),
+                    )
+                )
+            }
+            if rows
+            else {}
+        )
+        items = [
+            {
+                **self._dto(row),
+                "staff_no": staff[row.staff_id].staff_no,
+                "staff_name": staff[row.staff_id].name,
+                "class_name": classes.get(getattr(row, key)),
+            }
+            for row in rows
+        ]
+        return {"items": items, "total": total, "page": params.page, "page_size": params.page_size}
+
     def list_teaching_assignments(
         self, *, staff_id: int | None = None, teaching_class_id: int | None = None
     ) -> list[dict[str, Any]]:

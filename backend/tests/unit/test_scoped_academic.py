@@ -23,6 +23,27 @@ def service(db, actor, cid):
     return ScopedAcademicService(db, actor, int(cid))
 
 
+def test_student_page_uses_batch_enrollment_and_class_names(campus, monkeypatch):
+    from app.modules.academic.enrollment_service import EnrollmentService
+
+    config, db, admin, teacher, a, b = campus
+    records(db, a, b)
+    grant(config, admin, teacher, a, ["student.read"])
+    monkeypatch.setattr(
+        EnrollmentService, "at", lambda *_: pytest.fail("已批量查询学籍，不应逐行补查")
+    )
+    original_get = db.get
+
+    def no_per_row_class(model, *args, **kwargs):
+        if model is AdministrativeClass:
+            pytest.fail("列表的班级名称应批量查询")
+        return original_get(model, *args, **kwargs)
+
+    monkeypatch.setattr(db, "get", no_per_row_class)
+    page = service(db, teacher, a["id"]).list_rows("students", PageParams(1, 50))
+    assert page["items"] and page["items"][0]["administrative_class_name"]
+
+
 def records(db, a, b):
     one, teaching, schedule, task = legacy(db)
     one.college_id = int(a["id"])
@@ -247,7 +268,11 @@ def test_http_scoped_read_write_and_old_url_gate(campus, monkeypatch):
 
     with TestClient(app) as client:
         base = f"/api/v1/colleges/{a['id']}/academic/administrative-classes"
-        assert client.get(base).json()["data"]["total"] == 1
+        first_page = client.get(base).json()["data"]
+        assert first_page["total"] == 1 and first_page["page_size"] == 50
+        second_page = client.get(base, params={"page": 2, "page_size": 50}).json()["data"]
+        assert second_page["items"] == [] and second_page["total"] == 1
+        assert client.get(base, params={"student_ids": -1}).status_code == 422
         assert client.get(f"{base}/{two.id}").status_code == 404
         assert client.get("/api/v1/academic/administrative-classes").status_code == 403
         assert (
@@ -307,3 +332,32 @@ def test_master_timetable_loads_with_in_memory_index(campus):
     assert item["teacher_name"] == "张授课老师"
     assert item["head_teacher"] == "郑班主任"
     assert one.class_name in item["administrative_classes"]
+
+
+def test_master_timetable_page_has_full_count_and_only_builds_page_rosters(campus):
+    from app.modules.academic.models import CourseSchedule, CourseScheduleWeek
+    from app.modules.academic.scoped_timetable import master_timetable
+
+    config, db, admin, teacher, a, b = campus
+    _, _, _, teaching, schedule, *_ = records(db, a, b)
+    for i in range(61):
+        row = CourseSchedule(
+            semester_id=schedule.semester_id,
+            teaching_class_id=teaching.id,
+            college_id=int(a["id"]),
+            weekday=i % 7 + 1,
+            start_period=1,
+            end_period=2,
+            status="ACTIVE",
+        )
+        db.add(row)
+        db.flush()
+        db.add(CourseScheduleWeek(schedule_id=row.id, week_no=i // 7 + 1))
+    db.commit()
+    grant(config, admin, teacher, a, ["academic.read"])
+    scoped = service(db, teacher, a["id"])
+    first = master_timetable(scoped, schedule.semester_id, params=PageParams(1, 50))
+    second = master_timetable(scoped, schedule.semester_id, params=PageParams(2, 50))
+    assert first["total"] == second["total"] == 62
+    assert len(first["items"]) == 50 and len(second["items"]) == 12
+    assert not ({r["id"] for r in first["items"]} & {r["id"] for r in second["items"]})

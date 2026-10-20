@@ -424,8 +424,11 @@ class AcademicRepository:
         *,
         semester_id: int | None,
         enabled: bool | None,
+        student_ids: list[int] | None = None,
     ) -> tuple[list[VolunteerQualification], int]:
         stmt = select(VolunteerQualification)
+        if student_ids is not None:
+            stmt = stmt.where(VolunteerQualification.student_id.in_(student_ids))
         if semester_id is not None:
             stmt = stmt.where(VolunteerQualification.semester_id == semester_id)
         if enabled is not None:

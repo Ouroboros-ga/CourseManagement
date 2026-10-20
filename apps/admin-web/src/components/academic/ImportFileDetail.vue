@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PaginatedTable from '../PaginatedTable.vue'
+import AppPagination from '../../components/AppPagination.vue'
 import { computed, ref, watch } from 'vue'
 import { previewSummary } from './importLabels'
 import { describeImportValue, groupIssues, personLinkNotice, type ReviewFile } from './importReviewPresentation'
@@ -8,7 +10,7 @@ const emit = defineEmits<{ close: [] }>()
 const page = ref(1)
 watch(() => props.file, () => { page.value = 1 })
 const issues = computed(() => props.file ? groupIssues(props.file) : { errors: [], warnings: [], people: [] })
-const changes = computed(() => props.file?.changes.slice((page.value - 1) * 30, page.value * 30) || [])
+const changes = computed(() => props.file?.changes.slice((page.value - 1) * 50, page.value * 50) || [])
 const labels = { CREATE: '新增', UPDATE: '修改', UNCHANGED: '无变化' }
 </script>
 
@@ -33,11 +35,11 @@ const labels = { CREATE: '新增', UPDATE: '修改', UNCHANGED: '无变化' }
         <summary>人员待关联 {{ issues.people.length }} 项 · 不影响课表保存</summary>
         <p class="section-note">{{ personLinkNotice(issues.people.length) }}</p>
         <p class="section-note">可先保存课表，再导入教职工档案并补齐关联。重名或工号不符时需核对，系统不会猜配。</p>
-        <el-table :data="issues.people" max-height="320">
+        <PaginatedTable :data="issues.people" max-height="320">
           <el-table-column prop="context" label="班级 / 课程" min-width="170" />
           <el-table-column prop="person" label="教师 / 责任人" min-width="100" />
           <el-table-column prop="reason" label="待处理原因" min-width="230" />
-        </el-table>
+        </PaginatedTable>
       </details>
       <h3 class="detail-heading">资料核对明细</h3>
       <p class="section-note">“无变化”表示与已有资料一致，确认后不会重复新增。</p>
@@ -51,7 +53,7 @@ const labels = { CREATE: '新增', UPDATE: '修改', UNCHANGED: '无变化' }
           <details v-if="row.action === 'UPDATE'" class="before-values"><summary>查看修改前</summary><pre class="business-fields">{{ describeImportValue(row.before) }}</pre></details>
         </template></el-table-column>
       </el-table>
-      <el-pagination v-model:current-page="page" :page-size="30" :total="file.changes.length" layout="prev, pager, next, total" />
+      <AppPagination v-model:current-page="page" :page-size="50" :total="file.changes.length" />
     </template>
   </el-dialog>
 </template>

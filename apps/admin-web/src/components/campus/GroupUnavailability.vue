@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../../components/AppPagination.vue'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { listUnavailability, createUnavailability, getUnavailabilityImpact, decideUnavailability, type Unavailability } from '../../api/unavailability'
@@ -6,7 +7,7 @@ import type { GroupMember } from '../../api/groupMembers'
 import { ContextEpoch, identityContext } from '../../utils/contextEpoch'
 import { useSessionStore } from '../../stores/session'
 import { formatBeijingTime } from '../../utils/datetime'
-const props = defineProps<{ collegeId: string; groupId: string; semesterId: string; members: GroupMember[]; canManage: boolean }>()
+const props = defineProps<{ collegeId: string; groupId: string; semesterId: string; members: GroupMember[]; canManage: boolean; expanded?: boolean }>()
 const session = useSessionStore()
 const rows = ref<Unavailability[]>([]), total = ref(0), page = ref(1), busy = ref(false), error = ref('')
 const form = reactive({ student_id: '', start: '', end: '', reason: '' })
@@ -50,7 +51,7 @@ watch(() => [props.collegeId, props.groupId, props.semesterId, identityContext(s
 onUnmounted(() => epoch.invalidate())
 </script>
 <template>
-  <el-collapse><el-collapse-item title="请假／不可用申请与审批" name="availability">
+  <el-collapse :model-value="expanded ? ['availability'] : undefined" :class="{ expanded }"><el-collapse-item title="请假／不可用申请与审批" name="availability">
     <p>获批后限制本人所有组的新排班；已有受派保留。列表时间统一为北京时间，结束时刻不包含在不可用区间内。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-form v-if="canManage" :disabled="busy" label-position="top">
@@ -71,6 +72,10 @@ onUnmounted(() => epoch.invalidate())
         <el-button v-if="row.status === 'PENDING' || row.status === 'APPROVED'" :disabled="busy" @click="decide(row, 'CANCELED')">撤销</el-button>
       </template></el-table-column>
     </el-table>
-    <el-pagination v-model:current-page="page" :page-size="50" :total="total" layout="prev,pager,next,total" />
+    <AppPagination v-model:current-page="page" :page-size="50" :total="total" />
   </el-collapse-item></el-collapse>
 </template>
+
+<style scoped>
+.expanded :deep(.el-collapse-item__header) { display: none; }
+</style>

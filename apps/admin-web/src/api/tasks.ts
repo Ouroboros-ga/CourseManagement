@@ -1,6 +1,7 @@
 import { request } from './workspaceHttp'
 
 export interface InspectionTaskItem {
+  week_no?: number
   deleted_at?: string | null
   college_id?: string | null
   group_id?: string | null
@@ -60,6 +61,8 @@ export interface InspectionTaskItem {
 }
 
 export interface TaskListQuery {
+  keyword?: string
+  pending_change?: boolean
   deleted_only?: boolean
   needs_attention?: 'unassigned' | 'roster'
   page?: number
@@ -115,7 +118,10 @@ export interface OccurrencesQueryResult {
   }
 }
 
-export async function listTasks(query: TaskListQuery): Promise<PaginatedResult<InspectionTaskItem>> {
+export interface TaskListResult extends PaginatedResult<InspectionTaskItem> {
+  summary?: { total: number; assigned: number; unassigned: number; reviewed: number; pending_change: number; dates: Record<string, number> }
+}
+function taskQueryParams(query: TaskListQuery) {
   const params = new URLSearchParams()
   if (query.deleted_only) params.set('deleted_only', 'true')
   if (query.needs_attention) params.set('needs_attention', query.needs_attention)
@@ -129,7 +135,15 @@ export async function listTasks(query: TaskListQuery): Promise<PaginatedResult<I
   if (query.administrative_class_id) params.set('administrative_class_id', String(query.administrative_class_id))
   if (query.include_canceled !== undefined) params.set('include_canceled', String(query.include_canceled))
 
-  return request<PaginatedResult<InspectionTaskItem>>(`/api/v1/inspection-tasks?${params.toString()}`)
+  if (query.keyword) params.set('keyword', query.keyword)
+  if (query.pending_change) params.set('pending_change', 'true')
+  return params
+}
+export async function listTasks(query: TaskListQuery): Promise<TaskListResult> {
+  return request<TaskListResult>(`/api/v1/inspection-tasks?${taskQueryParams(query)}`)
+}
+export async function exportTasks(query: TaskListQuery): Promise<{ items: InspectionTaskItem[]; total: number }> {
+  return request(`/api/v1/inspection-tasks/export?${taskQueryParams(query)}`)
 }
 
 export async function getTask(id: string): Promise<InspectionTaskItem> {
@@ -152,7 +166,7 @@ export async function queryCourseOccurrences(params: {
     date_from: params.date_from,
     date_to: params.date_to,
     page: String(params.page || 1),
-    page_size: String(params.page_size || 500)
+    page_size: String(params.page_size || 50)
   })
   if (params.administrative_class_id) {
     searchParams.set('administrative_class_id', String(params.administrative_class_id))

@@ -33,4 +33,10 @@ export const confirmHandover = (cid: string, gid: string, owner_user_id: string,
 export const myPermissionSources = (cid: string) => request<PermissionSource[]>(`/api/v1/colleges/${encodeURIComponent(cid)}/permission-sources/me`)
 export const previewPreparation = (cid: string, gid: string, sid: string, body: PreparationBody) => request<PreparationPreview>(`${root(cid, gid)}/semesters/${encodeURIComponent(sid)}/preparation/preview`, json(body))
 export const confirmPreparation = (cid: string, gid: string, sid: string, body: PreparationBody, revision: string) => request(`${root(cid, gid)}/semesters/${encodeURIComponent(sid)}/preparation/confirm`, json({ ...body, revision }))
-export const preparationSource = (cid: string, gid: string, sid: string, sourceSid: string) => request<PreparationSource>(`${root(cid, gid)}/semesters/${encodeURIComponent(sid)}/preparation/source/${encodeURIComponent(sourceSid)}`)
+export const preparationSource = (cid: string, gid: string, sid: string, sourceSid: string, includeTeachingClasses = true) => request<PreparationSource>(`${root(cid, gid)}/semesters/${encodeURIComponent(sid)}/preparation/source/${encodeURIComponent(sourceSid)}?include_teaching_classes=${includeTeachingClasses}`)
+
+export function organizationOverview(cid: string, semesterId: string, asOf?: string) {
+  const query = new URLSearchParams({ semester_id: semesterId })
+  if (asOf) query.set('as_of', asOf)
+  return request<{ items: Record<string, { configuration: GroupConfiguration | null; member_count: number; specific: boolean; error: string }> }>(`/api/v1/colleges/${encodeURIComponent(cid)}/volunteer-groups/semester-overview?${query}`)
+}

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../PaginatedTable.vue'
 import { computed, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { applyOwnership, listUnresolvedOwnership, previewOwnership, type College, type OwnershipItem, type OwnershipKind, type OwnershipMappings, type OwnershipPreview } from '../../api/campus'
@@ -93,7 +94,7 @@ async function confirm() {
     <el-button :disabled="busy" @click="after = '0'; load()">返回首批 / 刷新</el-button>
     <el-button :disabled="busy || !next" @click="after = next!; load()">下一批</el-button>
   </div>
-  <el-table :data="rows" v-loading="busy" empty-text="当前批次没有待核对资源">
+  <PaginatedTable :data="rows" v-loading="busy" empty-text="当前批次没有待核对资源">
     <el-table-column prop="id" label="ID" width="120" />
     <el-table-column prop="label" label="资源" />
     <el-table-column prop="legacy_college_text" label="旧学院文本（仅参考）" />
@@ -102,19 +103,19 @@ async function confirm() {
         <el-option v-for="college in activeColleges" :key="college.id" :value="college.id" :label="college.name" />
       </el-select></template>
     </el-table-column>
-  </el-table>
+  </PaginatedTable>
   <el-button :disabled="busy" @click="inspect">预览归属与关联影响</el-button>
   <template v-if="preview">
     <p>待回填 {{ preview.changes.length }} 条，冲突 {{ preview.conflicts.length }} 条。</p>
     <p>仍未确定：{{ Object.entries(preview.unresolved).map(([name, count]) => `${resourceLabels[name] || name} ${count} 条`).join('；') }}</p>
-    <el-table :data="preview.conflicts" v-if="preview.conflicts.length">
+    <PaginatedTable :data="preview.conflicts" v-if="preview.conflicts.length">
       <el-table-column label="资源类型"><template #default="{ row }">{{ resourceLabels[row.kind] || row.kind }}</template></el-table-column><el-table-column prop="id" label="ID" /><el-table-column label="冲突原因"><template #default="{ row }">{{ conflictLabels[row.reason] || row.reason }}</template></el-table-column>
-    </el-table>
-    <el-table :data="preview.changes" max-height="360">
+    </PaginatedTable>
+    <PaginatedTable :data="preview.changes" max-height="360">
       <el-table-column label="资源类型"><template #default="{ row }">{{ resourceLabels[row.kind] || row.kind }}</template></el-table-column><el-table-column prop="id" label="ID" /><el-table-column label="所属学院">
         <template #default="{ row }">{{ colleges.find(c => c.id === row.college_id)?.name || row.college_id }}</template>
       </el-table-column>
-    </el-table>
+    </PaginatedTable>
     <el-button type="primary" :disabled="busy || !preview.changes.length || !!preview.conflicts.length" @click="confirm">确认本次回填</el-button>
   </template>
 </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../../components/PaginatedTable.vue'
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 import type { CollegePeriodTime, CollegeTimeConfiguration } from '../../api/collegeTime'
 import { listCollegeTemplates } from '../../api/schoolTimeTemplates'
@@ -58,8 +59,8 @@ async function run(action: 'preview' | 'adopt' | 'publish') {
     <el-button :disabled="!selected || !effective || saving" @click="run('preview')">预览采用影响</el-button>
     <template v-if="preview">
       <p>保留 {{ preview.retained_college_exceptions.length }} 项学院例外；{{ preview.retained_future_task_ids.length }} 个未来任务保留原时间快照。</p>
-      <el-table :data="preview.configuration.periods"><el-table-column prop="period_no" label="节次" /><el-table-column prop="name" label="名称" /><el-table-column prop="start_time" label="开始" /><el-table-column prop="end_time" label="结束" /></el-table>
-      <el-table :data="preview.configuration.calendar"><el-table-column prop="date" label="日期" /><el-table-column prop="override_type" label="停课/补课" /><el-table-column prop="source_teaching_week" label="来源周" /><el-table-column prop="source_teaching_weekday" label="来源星期" /></el-table>
+      <PaginatedTable :data="preview.configuration.periods"><el-table-column prop="period_no" label="节次" /><el-table-column prop="name" label="名称" /><el-table-column prop="start_time" label="开始" /><el-table-column prop="end_time" label="结束" /></PaginatedTable>
+      <PaginatedTable :data="preview.configuration.calendar"><el-table-column prop="date" label="日期" /><el-table-column prop="override_type" label="停课/补课" /><el-table-column prop="source_teaching_week" label="来源周" /><el-table-column prop="source_teaching_weekday" label="来源星期" /></PaginatedTable>
       <el-checkbox v-if="preview.retained_future_task_ids.length" v-model="confirmed">已知晓未来已有任务保留快照，另行处置影响</el-checkbox>
       <el-button type="primary" :loading="saving" :disabled="!!preview.retained_future_task_ids.length && !confirmed" @click="run('adopt')">确认采用</el-button>
     </template>

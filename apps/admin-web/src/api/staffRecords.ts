@@ -97,7 +97,7 @@ const search = (params: Record<string, unknown>) => {
   return text ? `?${text}` : ''
 }
 
-export function listRecordCards(view: StaffView, filters: StaffRecordFilters = {}, page = 1, pageSize = 20) {
+export function listRecordCards(view: StaffView, filters: StaffRecordFilters = {}, page = 1, pageSize = 50) {
   return request<StaffRecordPage<StaffRecordCard>>(
     `/api/v1/me/inspection-records${search({ view, page, page_size: pageSize, ...filters })}`
   )
@@ -200,7 +200,7 @@ export function listTeachingOccurrences(
   dateFrom: string,
   dateTo: string,
   page = 1,
-  pageSize = 20,
+  pageSize = 50,
   teachingClassId?: string
 ) {
   return request<StaffTeachingOccurrencePage>(

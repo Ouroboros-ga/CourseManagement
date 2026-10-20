@@ -62,12 +62,14 @@ export interface OptionalPermissionTargetsResponse {
 }
 
 export async function listTeacherAccounts(params: {
+  role_codes?: string[]
   page?: number
   page_size?: number
   query?: string
   status?: string
 } = {}): Promise<ListTeacherAccountsResult> {
   const q = new URLSearchParams()
+  params.role_codes?.forEach(code => q.append('role_codes', code))
   if (params.page) q.set('page', String(params.page))
   if (params.page_size) q.set('page_size', String(params.page_size))
   if (params.query) q.set('query', params.query.trim())
@@ -140,8 +142,17 @@ export async function changeMyPassword(body: {
   })
 }
 
-export async function listRoleTargets(): Promise<{ items: RoleAssignmentTarget[]; assignable_roles: string[] }> {
-  return request<{ items: RoleAssignmentTarget[]; assignable_roles: string[] }>('/api/v1/role-assignment-targets')
+export function listRoleTargetPage(params: { page?: number; keyword?: string; role_code?: string; student_candidates?: boolean } = {}) {
+  const query = new URLSearchParams({ paged: 'true', page: String(params.page || 1), page_size: '50' })
+  if (params.keyword) query.set('keyword', params.keyword)
+  if (params.role_code) query.set('role_code', params.role_code)
+  if (params.student_candidates) query.set('student_candidates', 'true')
+  return request<{ items: RoleAssignmentTarget[]; assignable_roles: string[]; total: number }>(`/api/v1/role-assignment-targets?${query}`)
+}
+
+export async function listRoleTargets(studentIds?: string[]): Promise<{ items: RoleAssignmentTarget[]; assignable_roles: string[] }> {
+  if (studentIds?.length === 0) return { items: [], assignable_roles: [] }
+  return request<{ items: RoleAssignmentTarget[]; assignable_roles: string[] }>(`/api/v1/role-assignment-targets${studentIds ? '?' + new URLSearchParams(studentIds.map(id => ['student_ids', id])) : ''}`)
 }
 
 export async function updateUserRoles(
@@ -162,8 +173,9 @@ export async function updateUserRoles(
   })
 }
 
-export async function listOptionalPermissionTargets(): Promise<OptionalPermissionTargetsResponse> {
-  return request('/api/v1/optional-permission-targets')
+export async function listOptionalPermissionTargets(userIds?: string[]): Promise<OptionalPermissionTargetsResponse> {
+  if (userIds?.length === 0) return { items: [], configurable_codes: [] }
+  return request(`/api/v1/optional-permission-targets${userIds ? '?' + new URLSearchParams(userIds.map(id => ['user_ids', id])) : ''}`)
 }
 
 export async function updateOptionalPermission(

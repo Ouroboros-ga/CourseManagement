@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../../components/AppPagination.vue'
 import { computed, ref, watch } from 'vue'
 import { useSessionStore } from '../../stores/session'
 import { useWorkspaceRead } from '../../composables/useWorkspaceRead'
@@ -40,7 +41,7 @@ const statusLabel: Record<string, string> = { ENROLLED: '在籍', SUSPENDED: '�
       <el-table-column label="当时行政班" min-width="150"><template #default="{ row }">{{ row.enrollment_snapshot?.class_name || '未记录' }}</template></el-table-column>
       <el-table-column label="当时学籍状态" min-width="120"><template #default="{ row }">{{ statusLabel[row.enrollment_status] || row.enrollment_status }}</template></el-table-column>
     </el-table>
-    <el-pagination v-model:current-page="page" :page-size="20" :total="data?.total || 0" layout="prev, pager, next, total" />
+    <AppPagination v-model:current-page="page" :page-size="50" :total="data?.total || 0" />
   </section>
 </template>
 <style scoped>.filters { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0; }.filters .el-input { max-width: 260px; }.el-pagination { margin-top: 18px; }</style>

@@ -5,11 +5,13 @@ import { useRoute } from 'vue-router'
 import { assignmentWarnings } from '../utils/assignmentWarnings'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { ContextEpoch } from '../utils/contextEpoch'
+import AppPagination from '../components/AppPagination.vue'
 import TaskStatusTag from '../components/TaskStatusTag.vue'
 import TaskDrawer from '../components/TaskDrawer.vue'
 import AppIcon from '../components/AppIcon.vue'
 import {
   listTasks,
+  exportTasks,
   updateTask,
   previewTaskDeletion,
   restoreDeletedTask,
@@ -32,8 +34,10 @@ const sessionStore = useSessionStore()
 const route = useRoute()
 const needsAttention = computed(() => ['unassigned', 'roster'].includes(String(route.query.needs_attention)) ? route.query.needs_attention as 'unassigned' | 'roster' : undefined)
 const attentionPage = ref(1), attentionTotal = ref(0)
+const summary = ref({ total: 0, assigned: 0, unassigned: 0, reviewed: 0, pending_change: 0, dates: {} as Record<string, number> })
 const taskEpoch = new ContextEpoch(() => JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId,
-  sessionStore.currentSemesterId, sessionStore.currentWeekNo, needsAttention.value, attentionPage.value]))
+  sessionStore.currentSemesterId, sessionStore.currentWeekNo, needsAttention.value, attentionPage.value,
+  deletedOnly.value, searchQuery.value, selectedStatus.value, selectedDayFilter.value, filterOnlyChangeRequests.value]))
 onUnmounted(() => taskEpoch.invalidate())
 
 const loading = ref(false)
@@ -47,9 +51,7 @@ const selectedStatus = ref('')
 const selectedDayFilter = ref<string>('ALL')
 const filterOnlyChangeRequests = ref(false)
 
-const pendingChangeRequestsCount = computed(() =>
-  tasks.value.filter(t => (t as any).assignment?.change_request_status === 'PENDING').length
-)
+const pendingChangeRequestsCount = computed(() => summary.value.pending_change)
 
 function getTodayDateStr(): string {
   const d = new Date()
@@ -99,7 +101,7 @@ const weekDayOptions = computed(() => {
     const isoDate = `${curDate.getFullYear()}-${mStr}-${dStr}`
     const isToday = isoDate === todayStr
 
-    const count = tasks.value.filter(t => t.inspection_date === isoDate).length
+    const count = summary.value.dates[isoDate] || 0
     const todayMarker = isToday ? ' · 今天' : ''
 
     return {
@@ -115,22 +117,30 @@ const weekDayOptions = computed(() => {
   })
 })
 
+function taskQuery() { return {
+      deleted_only: deletedOnly.value,
+      semester_id: sessionStore.currentSemesterId,
+      week_no: needsAttention.value ? undefined : sessionStore.currentWeekNo,
+      needs_attention: needsAttention.value,
+      page: attentionPage.value,
+      page_size: 50,
+      keyword: searchQuery.value.trim() || undefined,
+      status: statusCodes[selectedStatus.value],
+      inspection_date: selectedDayFilter.value === 'ALL' ? undefined : weekDayOptions.value.find(d => d.value === selectedDayFilter.value)?.isoDate,
+      pending_change: filterOnlyChangeRequests.value || undefined
+    } }
+
 async function fetchTasks() {
   const ticket = taskEpoch.begin()
   if (!sessionStore.currentSemesterId) return
   loading.value = true
   try {
-    const res = await listTasks({
-      deleted_only: deletedOnly.value,
-      semester_id: sessionStore.currentSemesterId,
-      week_no: needsAttention.value ? undefined : sessionStore.currentWeekNo,
-      needs_attention: needsAttention.value,
-      page: needsAttention.value ? attentionPage.value : undefined,
-      page_size: needsAttention.value ? 50 : 200
-    })
+    const res = await listTasks(taskQuery())
     if (!ticket.isCurrent()) return
     tasks.value = res.items || []
     attentionTotal.value = res.total
+    summary.value = res.summary || summary.value
+    if (attentionPage.value > 1 && !res.items.length) attentionPage.value = Math.max(1, Math.ceil(res.total / 50))
   } catch (err: unknown) {
     if (ticket.isCurrent()) console.error('获取任务列表失败:', err)
   } finally {
@@ -138,71 +148,20 @@ async function fetchTasks() {
   }
 }
 
-watch(
-  () => [sessionStore.currentSemesterId, sessionStore.currentWeekNo],
-  () => {
-    selectedTaskIds.value = []
-    selectedDayFilter.value = 'ALL'
-    fetchTasks()
-  }
-)
-
-watch(selectedDayFilter, () => {
-  selectedTaskIds.value = []
+const statusCodes: Record<string, string> = { '待执行': 'NOT_STARTED', '已逾期': 'OVERDUE', '待审核': 'SUBMITTED', '已完成': 'REVIEWED', '已取消': 'CANCELLED' }
+const filteredTasks = computed(() => tasks.value)
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+watch([searchQuery, selectedStatus, selectedDayFilter, filterOnlyChangeRequests, deletedOnly, needsAttention,
+  () => sessionStore.currentSemesterId, () => sessionStore.currentWeekNo,
+  () => sessionStore.workspaceCollegeId, () => sessionStore.currentUser?.id], () => {
+  taskEpoch.invalidate()
+  selectedTaskIds.value = []; tasks.value = []; attentionPage.value = 1
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => void fetchTasks(), 250)
 })
-
-onMounted(() => {
-  fetchTasks()
-})
-watch([needsAttention, attentionPage], () => { selectedTaskIds.value = []; void fetchTasks() })
-
-const statusAliasMap: Record<string, string[]> = {
-  '待执行': ['待执行', 'NOT_STARTED'],
-  '已逾期': ['已逾期', 'OVERDUE'],
-  '待审核': ['待审核', 'SUBMITTED'],
-  '已完成': ['已完成', 'REVIEWED', '已审核'],
-  '已取消': ['已取消', 'CANCELLED']
-}
-
-// 过滤后的任务列表
-const filteredTasks = computed(() => {
-  return tasks.value.filter(t => {
-    // 0. 仅看换班申请
-    if (filterOnlyChangeRequests.value) {
-      if ((t as any).assignment?.change_request_status !== 'PENDING') return false
-    }
-
-    // 1. 日期 / 周几筛选
-    if (selectedDayFilter.value !== 'ALL') {
-      const targetWeekday = Number(selectedDayFilter.value)
-      if (getTaskWeekday(t.inspection_date) !== targetWeekday) return false
-    }
-
-    // 2. 状态筛选
-    if (selectedStatus.value) {
-      const allowed = statusAliasMap[selectedStatus.value] || [selectedStatus.value]
-      if (!allowed.includes(t.status)) return false
-    }
-
-    // 3. 关键字搜索
-    if (!searchQuery.value.trim()) return true
-    const q = searchQuery.value.trim().toLowerCase()
-    return (
-      (t.id && String(t.id).toLowerCase().includes(q)) ||
-      (t.course_name_snapshot && t.course_name_snapshot.toLowerCase().includes(q)) ||
-      (t.class_name_snapshot && t.class_name_snapshot.toLowerCase().includes(q)) ||
-      (t.classroom_snapshot && t.classroom_snapshot.toLowerCase().includes(q)) ||
-      (t.teacher_name_snapshot && t.teacher_name_snapshot.toLowerCase().includes(q)) ||
-      (t.effective_teacher && t.effective_teacher.toLowerCase().includes(q)) ||
-      (t.head_teacher && t.head_teacher.toLowerCase().includes(q)) ||
-      (t.counselor && t.counselor.toLowerCase().includes(q)) ||
-      (t.administrative_classes && t.administrative_classes.some(ac => ac.toLowerCase().includes(q))) ||
-      (t.assigned_volunteer_name && t.assigned_volunteer_name.toLowerCase().includes(q)) ||
-      ((t as any).assignment?.volunteer_name && (t as any).assignment.volunteer_name.toLowerCase().includes(q)) ||
-      ((t as any).assignment?.change_request_reason && (t as any).assignment.change_request_reason.toLowerCase().includes(q))
-    )
-  })
-})
+watch(attentionPage, () => { selectedTaskIds.value = []; clearTimeout(searchTimer); searchTimer = setTimeout(() => void fetchTasks(), 0) })
+onMounted(() => void fetchTasks())
+onUnmounted(() => clearTimeout(searchTimer))
 
 // 批量全选判定
 const isAllSelected = computed(() => {
@@ -236,15 +195,9 @@ function toggleSelectTask(id: string) {
 }
 
 // 统计数据
-const stats = computed(() => {
-  const total = tasks.value.length
-  const assigned = tasks.value.filter(t => t.assigned_volunteer_id || (t as any).assignment).length
-  const unassigned = total - assigned
-  const reviewed = tasks.value.filter(t => t.status === 'REVIEWED' || t.status === '已审核' || t.status === '已完成').length
-  const assignRate = total > 0 ? ((assigned / total) * 100).toFixed(1) + '%' : '0%'
-
-  return { total, assigned, unassigned, reviewed, assignRate }
-})
+const stats = computed(() => ({ ...summary.value,
+  assignRate: summary.value.total ? `${((summary.value.assigned / summary.value.total) * 100).toFixed(1)}%` : '0%'
+}))
 
 function openTaskDetail(task: InspectionTaskItem) {
   activeTask.value = task
@@ -253,7 +206,7 @@ function openTaskDetail(task: InspectionTaskItem) {
 
 // Deletion previews are bound to the current actor, workspace and exact task set.
 const deletionContext = () => `${sessionStore.currentUser?.id}:${sessionStore.workspaceCollegeId}:${sessionStore.currentSemesterId}:${sessionStore.currentWeekNo}:${deletedOnly.value}`
-watch(deletedOnly, () => { taskEpoch.invalidate(); selectedTaskIds.value = []; void fetchTasks() })
+
 async function deleteReviewedTasks(ids: string[]) {
   const context = deletionContext()
   try {
@@ -349,13 +302,21 @@ async function handleAutoAssign() {
 }
 
 // ==================== 导出排班表（CSV / Excel 兼容） ====================
-function handleExportTasks() {
-  if (filteredTasks.value.length === 0) {
+async function handleExportTasks() {
+  const exportContext = JSON.stringify(taskQuery())
+  const owner = deletionContext()
+  let exportRows: InspectionTaskItem[]
+  try {
+    const result = await exportTasks(taskQuery())
+    if (exportContext !== JSON.stringify(taskQuery()) || owner !== deletionContext()) return
+    exportRows = result.items
+  } catch (error) { ElMessage.error(error instanceof Error ? error.message : '导出失败'); return }
+  if (exportRows.length === 0) {
     ElMessage.warning('当前暂无可导出的排班任务')
     return
   }
   const headers = ['任务编号', '查课日期', '周次', '节次', '课程名称', '教学班级', '查课教室', '受派志愿者', '任务状态']
-  const rows = filteredTasks.value.map(t => {
+  const rows = exportRows.map(t => {
     const periodStr = formatPeriodText(t.start_period, t.end_period)
     const volName = t.assigned_volunteer_name || (t as any).assignment?.volunteer_name || '未指派'
     const statusMap: Record<string, string> = {
@@ -369,7 +330,7 @@ function handleExportTasks() {
     return [
       t.id,
       t.inspection_date || '',
-      `第${sessionStore.currentWeekNo}周`,
+      `第${t.week_no ?? sessionStore.currentWeekNo}周`,
       `"${periodStr.replace(/"/g, '""')}"`,
       `"${(t.course_name_snapshot || '').replace(/"/g, '""')}"`,
       `"${(t.class_name_snapshot || '').replace(/"/g, '""')}"`,
@@ -388,7 +349,7 @@ function handleExportTasks() {
   a.click()
   document.body.removeChild(a)
   window.URL.revokeObjectURL(url)
-  ElMessage.success(`成功导出 ${filteredTasks.value.length} 条查课排班记录！`)
+  ElMessage.success(`成功导出 ${exportRows.length} 条查课排班记录！`)
 }
 
 // ==================== 人工指派志愿者（支持按姓名搜索本学期已有志愿者） ====================
@@ -622,12 +583,12 @@ async function handleConfirmCancelFromEdit() {
     </header>
 
     <el-alert v-if="needsAttention" :title="`正在查看本学期${needsAttention === 'unassigned' ? '未排班' : '待核对名单'}任务，共 ${attentionTotal} 条；本视图不受顶部周次限制。`" type="info" :closable="false" />
-    <el-pagination v-if="needsAttention" v-model:current-page="attentionPage" :page-size="50" :total="attentionTotal" layout="prev, pager, next, total" />
+
 
     <!-- 统计分栏 -->
     <div class="stat-row">
       <div class="stat-cell">
-        <div class="label">{{ needsAttention ? '当前页待办任务' : '本周计划总任务' }}</div>
+        <div class="label">{{ needsAttention ? '全部待办任务' : '本周计划总任务' }}</div>
         <div class="value font-mono">{{ stats.total }}</div>
         <div class="note">数据库实时统计</div>
       </div>
@@ -668,7 +629,7 @@ async function handleConfirmCancelFromEdit() {
     <div class="tbl-wrap">
       <div class="tbl-head">
         <div class="tbl-head-title">
-          <h3>任务总览（{{ filteredTasks.length }} / {{ tasks.length }}）</h3>
+          <h3>任务总览（共 {{ attentionTotal }} 条）</h3>
           <div class="meta">按检查日期与节次排序 · 数据库真实数据</div>
         </div>
         <div class="tbl-tools">
@@ -714,7 +675,7 @@ async function handleConfirmCancelFromEdit() {
             @click="handleExportTasks"
           >
             <AppIcon name="download" :size="13" />
-            <span>导出排班</span>
+            <span>导出筛选结果</span>
           </button>
           <button class="btn btn-sm flex-shrink-0" @click="fetchTasks">⟳ 刷新</button>
         </div>
@@ -888,6 +849,7 @@ async function handleConfirmCancelFromEdit() {
             </tr>
           </tbody>
         </table>
+        <AppPagination v-model:current-page="attentionPage" :total="attentionTotal" />
       </div>
 
       <div v-else class="empty-box">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../../components/AppPagination.vue'
 import { onMounted, ref, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -62,7 +63,7 @@ onMounted(load)
   <section v-loading="busy" class="administrator-panel">
     <div class="toolbar"><div><h3>超级管理员账号</h3><p>这里列出全部超级管理员账号。标为「平台管理员」的可以维护本列表；只标为「超级管理员」的拥有同等的全校业务权限，但不能增删其他账号。系统保护最后一位有效超级管理员与最后一位平台管理员。</p></div><el-button type="primary" :disabled="busy" @click="creating = true">新增超级管理员</el-button></div>
     <AdministratorAccountTable :rows="rows" :busy="busy" @update="update" @reset="reset" />
-    <el-pagination v-model:current-page="page" :page-size="20" :total="total" layout="prev, pager, next, total" @current-change="load" />
+    <AppPagination v-model:current-page="page" :page-size="50" :total="total" @current-change="load" />
     <el-dialog v-model="creating" title="新增超级管理员" width="440px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy">
       <AdministratorCreateForm :busy="busy" @submit="create" @cancel="creating = false" />
     </el-dialog>

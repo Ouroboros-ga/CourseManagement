@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PaginatedTable from '../../components/PaginatedTable.vue'
 import { computed, ref, watch } from 'vue'
 import { campusDimensions, type CampusDimension, type CampusDimensions } from '../../api/campusManagement'
 import { useWorkspaceRead } from '../../composables/useWorkspaceRead'
@@ -54,7 +55,7 @@ const distribution = (row: CampusDimension) => `正常 ${row.result_distribution
         <el-radio-button value="cross">双轴交叉</el-radio-button>
       </el-radio-group>
       <p class="metrics">任务 {{ data.task_count }} · 已形成正式结果的任务 {{ data.checked_task_count }} · 查课记录 {{ data.check_person_times }}</p>
-      <el-table v-if="view === 'cross'" :data="rows">
+      <PaginatedTable v-if="view === 'cross'" :data="rows">
         <el-table-column prop="responsible_college_name" label="任务负责学院" min-width="160" show-overflow-tooltip />
         <el-table-column min-width="160" show-overflow-tooltip>
           <template #header>
@@ -66,14 +67,14 @@ const distribution = (row: CampusDimension) => `正常 ${row.result_distribution
         <el-table-column prop="distinct_student_count" label="涉及学生" />
         <el-table-column prop="distinct_student_occurrence_count" label="涉及课次" />
         <el-table-column label="结果分布（条数）"><template #default="{ row }">{{ distribution(row) }}</template></el-table-column>
-      </el-table>
-      <el-table v-else-if="view === 'owner'" :data="rows">
+      </PaginatedTable>
+      <PaginatedTable v-else-if="view === 'owner'" :data="rows">
         <el-table-column prop="responsible_college_name" label="任务负责学院" min-width="180" show-overflow-tooltip />
         <el-table-column prop="checked_task_count" label="已有结果的任务" />
         <el-table-column prop="check_person_times" label="查课记录" />
         <el-table-column label="结果分布（条数）"><template #default="{ row }">{{ distribution(row) }}</template></el-table-column>
-      </el-table>
-      <el-table v-else :data="rows">
+      </PaginatedTable>
+      <PaginatedTable v-else :data="rows">
         <el-table-column min-width="180" show-overflow-tooltip>
           <template #header>
             <span class="axis-head">学生学籍学院<el-tooltip content="查课时学生学籍所在的学院。" placement="top"><span class="hint">?</span></el-tooltip></span>
@@ -82,7 +83,7 @@ const distribution = (row: CampusDimension) => `正常 ${row.result_distribution
         </el-table-column>
         <el-table-column prop="check_person_times" label="查课记录" />
         <el-table-column label="结果分布（条数）"><template #default="{ row }">{{ distribution(row) }}</template></el-table-column>
-      </el-table>
+      </PaginatedTable>
       <p v-if="view !== 'cross'" class="baseline">涉及学生 / 涉及课次等去重口径只在“双轴交叉”视图给出，避免跨行合并时重复计数。</p>
       <el-collapse class="how">
         <el-collapse-item title="这次统计怎么算？">

@@ -62,7 +62,7 @@ export interface AttendanceVersionItem {
 }
 
 export interface ListAttendanceParams {
-  task_id?: number
+  task_id?: string | number
   semester_id?: string | number
   effective_type?: AttendanceType
   page?: number

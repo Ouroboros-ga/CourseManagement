@@ -230,7 +230,7 @@ class GroupPreparationService:
     def preview(self, data):
         return self._preview(data)[5]
 
-    def source(self, source_sid):
+    def source(self, source_sid, *, include_teaching_classes=True):
         _, group = self.members._group("volunteer.group.read")
         from app.modules.academic.models import Semester
 
@@ -240,17 +240,24 @@ class GroupPreparationService:
         if config is None:
             raise ConflictError(message="本组织尚无已发布规则")
         old_ids = [int(x) for x in config.configuration.get("teaching_class_overrides", {})]
-        teaching = list(
-            self.db.scalars(
-                select(TeachingClass)
-                .where(
-                    TeachingClass.college_id == self.cid,
-                    ((TeachingClass.semester_id == self.sid) & (TeachingClass.status == "ACTIVE"))
-                    | TeachingClass.id.in_(old_ids),
+        teaching = (
+            list(
+                self.db.scalars(
+                    select(TeachingClass)
+                    .where(
+                        TeachingClass.college_id == self.cid,
+                        (
+                            (TeachingClass.semester_id == self.sid)
+                            & (TeachingClass.status == "ACTIVE")
+                        )
+                        | TeachingClass.id.in_(old_ids),
+                    )
+                    .order_by(TeachingClass.id)
+                    .limit(5000)
                 )
-                .order_by(TeachingClass.id)
-                .limit(5000)
             )
+            if include_teaching_classes
+            else []
         )
         return {
             "configuration": config.configuration,

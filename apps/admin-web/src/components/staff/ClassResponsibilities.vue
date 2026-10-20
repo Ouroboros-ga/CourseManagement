@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../AppPagination.vue'
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../../stores/session'
@@ -7,8 +8,7 @@ import PersonLinkReview from './PersonLinkReview.vue'
 import {
   createResponsibility,
   endResponsibility,
-  getScopedRow,
-  listResponsibilities,
+  listResponsibilityPage,
   listScopedOptions,
   listStaff,
   responsibilityHandover,
@@ -25,11 +25,15 @@ const contextKey = computed(() => JSON.stringify([
   session.currentUser?.id || '', props.collegeId, session.workspace?.authorization_revision || ''
 ]))
 const staffFilter = ref('')
-const { data: rows, busy, error, load } = useWorkspaceRead(
-  () => JSON.stringify([contextKey.value, staffFilter.value]),
+const page = ref(1)
+const { data: relationData, busy, error, load } = useWorkspaceRead(
+  () => JSON.stringify([contextKey.value, staffFilter.value, page.value]),
   () => !!props.collegeId,
-  () => listResponsibilities(props.collegeId, { staff_id: staffFilter.value || undefined })
+  () => listResponsibilityPage(props.collegeId, page.value, staffFilter.value || undefined)
 )
+
+const rows = computed(() => relationData.value?.items || [])
+watch(staffFilter, () => { page.value = 1 })
 
 const dutyLabelMap: Record<string, string> = { HEAD_TEACHER: '班主任', COUNSELOR: '辅导员' }
 const dutyLabel = (duty: string) => dutyLabelMap[duty] || duty
@@ -38,28 +42,27 @@ const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai'
 const staffLabelMap = ref<Record<string, string>>({})
 const classNameMap = ref<Record<string, string>>({})
 const staffOptions = ref<StaffProfile[]>([])
-watch(rows, () => { void resolveNames() })
-async function resolveNames() {
-  try {
-    const page = await listStaff(props.collegeId, { keyword: '', page_size: 200 })
-    staffOptions.value = page.items
-    for (const staff of page.items) {
-      if (!staffLabelMap.value[staff.id]) staffLabelMap.value[staff.id] = `${staff.staff_no} ${staff.name}`
-    }
-  } catch { /* 名称缺失时显示原始 ID */ }
-  for (const row of Array.isArray(rows.value) ? rows.value : []) {
-    if (!classNameMap.value[row.administrative_class_id]) await loadClassName(row.administrative_class_id)
+watch(rows, () => {
+  staffLabelMap.value = {}; classNameMap.value = {}
+  for (const row of rows.value) {
+    if (row.staff_name) staffLabelMap.value[row.staff_id] = `${row.staff_no || ''} ${row.staff_name}`.trim()
+    const classId = row.administrative_class_id
+    if (classId && row.class_name) classNameMap.value[classId] = row.class_name
   }
-}
-async function loadClassName(id: string) {
-  try {
-    const detail = await getScopedRow(props.collegeId, 'administrative-classes', id)
-    classNameMap.value[id] = String(detail.class_name || detail.class_code || '') || '—'
-  } catch { classNameMap.value[id] = '' }
-}
+})
 const staffLabel = (id: string) => staffLabelMap.value[id] || `教职工 ID ${id}`
 const classLabel = (id: string) => classNameMap.value[id] || `行政班 ID ${id}`
 
+let staffQueryRevision = 0
+async function loadStaffOptions(keyword = '') {
+  const context = contextKey.value, ticket = ++staffQueryRevision
+  try {
+    const result = await listStaff(props.collegeId, { keyword, page_size: 50 })
+    if (context !== contextKey.value || ticket !== staffQueryRevision) return
+    staffOptions.value = result.items
+    for (const item of result.items) staffLabelMap.value[item.id] = `${item.staff_no} ${item.name}`
+  } catch { if (context === contextKey.value && ticket === staffQueryRevision) staffOptions.value = [] }
+}
 const createOpen = ref(false)
 const createError = ref('')
 const createBusy = ref(false)
@@ -71,16 +74,14 @@ async function openCreate() {
   createError.value = ''
   createOpen.value = true
   try {
-    const page = await listStaff(props.collegeId, { keyword: '', page_size: 200 })
-    staffOptions.value = page.items
-    for (const staff of page.items) staffLabelMap.value[staff.id] = `${staff.staff_no} ${staff.name}`
+    await loadStaffOptions()
   } catch { staffOptions.value = [] }
   void loadClassOptions()
 }
 async function loadClassOptions(keyword = '') {
   classLoading.value = true
   try {
-    const page = await listScopedOptions(props.collegeId, 'administrative-classes', { keyword, page_size: 200 })
+    const page = await listScopedOptions(props.collegeId, 'administrative-classes', { keyword, page_size: 50 })
     classOptions.value = (page?.items || []).filter((row: ScopedAcademicRow) => row.status === 'ACTIVE')
     for (const row of classOptions.value) classNameMap.value[row.id] = String(row.class_name || row.class_code || '')
   } catch (e) {
@@ -158,9 +159,7 @@ function startHandover(row: ResponsibilityRow) {
 }
 async function loadStaffForHandover() {
   try {
-    const page = await listStaff(props.collegeId, { keyword: '', page_size: 200 })
-    staffOptions.value = page.items
-    for (const staff of page.items) staffLabelMap.value[staff.id] = `${staff.staff_no} ${staff.name}`
+    await loadStaffOptions()
   } catch { staffOptions.value = [] }
 }
 async function submitHandover() {
@@ -193,7 +192,7 @@ async function submitHandover() {
     <el-alert title="导入班级责任表时会按工号或唯一姓名关联教职工。已有不同负责人时，请使用交接；这里可核对旧资料中尚未建立的关联。" type="info" :closable="false" />
     <PersonLinkReview :college-id="collegeId" kind="responsibility" @saved="void load()" />
     <div class="filters">
-      <el-select v-model="staffFilter" filterable clearable placeholder="按教师筛选" style="max-width: 240px">
+      <el-select v-model="staffFilter" filterable remote :remote-method="loadStaffOptions" @visible-change="(open: boolean) => { if (open) void loadStaffOptions() }" clearable placeholder="按教师筛选" style="max-width: 240px">
         <el-option v-for="staff in staffOptions" :key="staff.id" :value="staff.id" :label="`${staff.staff_no} ${staff.name}`" />
       </el-select>
       <el-button :loading="busy" @click="void load()">刷新</el-button>
@@ -213,11 +212,12 @@ async function submitHandover() {
         </template>
       </el-table-column>
     </el-table>
+    <AppPagination v-model:current-page="page" :total="relationData?.total || 0" />
 
     <el-dialog v-model="createOpen" title="建立班级责任任命" width="560px" :close-on-click-modal="false">
       <el-form label-width="112px">
         <el-form-item label="教职工" required>
-          <el-select v-model="createForm.staffId" filterable placeholder="选择本院教职工档案" style="width: 100%">
+          <el-select v-model="createForm.staffId" filterable remote :remote-method="loadStaffOptions" @visible-change="(open: boolean) => { if (open) void loadStaffOptions() }" placeholder="选择本院教职工档案" style="width: 100%">
             <el-option v-for="staff in staffOptions.filter(item => item.status === 'ACTIVE')" :key="staff.id" :value="staff.id" :label="`${staff.staff_no} ${staff.name}`" />
           </el-select>
         </el-form-item>
@@ -262,7 +262,7 @@ async function submitHandover() {
       <p v-if="handoverRow">{{ dutyLabel(handoverRow.duty) }}「{{ classLabel(handoverRow.administrative_class_id) }}」由 <strong>{{ staffLabel(handoverRow.staff_id) }}</strong> 移交新责任人；交接在同一事务内结束旧任命并建立新任命。</p>
       <el-form label-width="112px">
         <el-form-item label="接班人" required>
-          <el-select v-model="handoverForm.successorId" filterable placeholder="选择接班教职工档案（不自动预选）" style="width: 100%">
+          <el-select v-model="handoverForm.successorId" filterable remote :remote-method="loadStaffOptions" @visible-change="(open: boolean) => { if (open) void loadStaffOptions() }" placeholder="选择接班教职工档案（不自动预选）" style="width: 100%">
             <el-option v-for="staff in staffOptions.filter(item => item.status === 'ACTIVE' && item.id !== handoverRow?.staff_id)" :key="staff.id" :value="staff.id" :label="`${staff.staff_no} ${staff.name}`" />
           </el-select>
         </el-form-item>

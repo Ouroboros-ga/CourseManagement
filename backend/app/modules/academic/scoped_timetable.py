@@ -2,11 +2,17 @@
 
 from datetime import timedelta
 
-from sqlalchemy import or_, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import raiseload, selectinload
 
 from app.core.exceptions import ConflictError
-from app.modules.academic.models import AdministrativeClass, Course, CourseSchedule, TeachingClass
+from app.modules.academic.models import (
+    AdministrativeClass,
+    Course,
+    CourseSchedule,
+    CourseScheduleWeek,
+    TeachingClass,
+)
 from app.modules.academic.roster_index import RosterIndex
 from app.modules.academic.schemas import MasterTimetableItemResponse
 from app.modules.identity.role_scope import business_today
@@ -14,7 +20,14 @@ from app.modules.inspection.course_policy import is_physical_education
 
 
 def master_timetable(
-    service, semester_id, *, week_no=None, weekday=None, administrative_class_id=None, keyword=None
+    service,
+    semester_id,
+    *,
+    week_no=None,
+    weekday=None,
+    administrative_class_id=None,
+    keyword=None,
+    params=None,
 ):
     repo = service._repo("academic.read")
     semester = repo.get("semesters", semester_id)
@@ -22,7 +35,7 @@ def master_timetable(
         select(CourseSchedule, TeachingClass, Course)
         .join(TeachingClass, TeachingClass.id == CourseSchedule.teaching_class_id)
         .join(Course, Course.id == TeachingClass.course_id)
-        .options(selectinload(CourseSchedule.weeks))
+        .options(selectinload(CourseSchedule.weeks), raiseload("*"))
         .where(
             CourseSchedule.college_id == service.college_id,
             TeachingClass.college_id == service.college_id,
@@ -43,6 +56,22 @@ def master_timetable(
                 TeachingClass.class_name.contains(keyword, autoescape=True),
             )
         )
+    if week_no is not None:
+        statement = statement.where(CourseSchedule.weeks.any(CourseScheduleWeek.week_no == week_no))
+    statement = statement.order_by(
+        CourseSchedule.weekday, CourseSchedule.start_period, CourseSchedule.id
+    )
+    # 行政班筛选必须使用下方日期名单，不能用当前班级替代历史归属。
+    sql_paged = params is not None and administrative_class_id is None
+    total = (
+        int(
+            service.db.scalar(select(func.count()).select_from(statement.order_by(None).subquery()))
+        )
+        if sql_paged
+        else 0
+    )
+    if sql_paged:
+        statement = statement.limit(params.limit).offset(params.offset)
     rows = list(service.db.execute(statement))
     index = RosterIndex(service.db, [teaching.id for _, teaching, _ in rows])
     classes = {
@@ -137,4 +166,12 @@ def master_timetable(
         )
         result.append(item)
     result.sort(key=lambda row: (row["weekday"], row["start_period"], row["course_name"]))
-    return {"items": result, "total": len(result)}
+    if not sql_paged:
+        total = len(result)
+        if params is not None:
+            result = result[params.offset : params.offset + params.limit]
+    return {
+        "items": result,
+        "total": total,
+        **({"page": params.page, "page_size": params.page_size} if params is not None else {}),
+    }

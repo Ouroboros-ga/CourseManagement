@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../components/AppPagination.vue'
 import { computed, onMounted, onUnmounted, shallowRef, ref } from 'vue'
 import {
   AUDIT_WINDOW_MAX_DAYS, auditLogDetail, auditWindowDays, listAuditLogs,
@@ -124,10 +125,7 @@ onUnmounted(() => epoch.invalidate())
         <template #default="{ row }"><el-button link :disabled="busy" @click="openDetail(row)">查看</el-button></template>
       </el-table-column>
     </el-table>
-    <el-pagination
-      :current-page="page" :page-size="50" :total="total" layout="prev, pager, next, total"
-      :disabled="busy" @current-change="search"
-    />
+    <AppPagination v-model:current-page="page" :page-size="50" :total="total" @current-change="search" />
 
     <el-drawer v-model="detailVisible" title="操作详情" size="480px">
       <p v-if="detailBusy">正在读取…</p>

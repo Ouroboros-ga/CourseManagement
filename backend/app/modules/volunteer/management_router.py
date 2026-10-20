@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -24,6 +25,20 @@ router = APIRouter(
     tags=["organization-management"],
     dependencies=[Depends(require_campus_enabled), Depends(require_business_scoped_enabled)],
 )
+
+
+@router.get("/volunteer-groups/semester-overview")
+def group_semester_overview(
+    cid: ResourceId,
+    semester_id: Annotated[int, Query(gt=0, le=2**63 - 1)],
+    actor: CurrentUserDep,
+    db: Db,
+    as_of: date | None = None,
+):
+    from app.modules.identity.role_scope import business_today
+    from app.modules.volunteer.overview import semester_overview
+
+    return success(semester_overview(db, actor, cid, semester_id, as_of or business_today()))
 
 
 @router.post("/volunteer-groups/{gid}/handover/preview")
@@ -79,8 +94,13 @@ def preparation_source(
     source_sid: ResourceId,
     actor: CurrentUserDep,
     db: Db,
+    include_teaching_classes: bool = True,
 ):
-    return success(GroupPreparationService(db, actor, cid, gid, sid).source(source_sid))
+    return success(
+        GroupPreparationService(db, actor, cid, gid, sid).source(
+            source_sid, include_teaching_classes=include_teaching_classes
+        )
+    )
 
 
 @router.post("/volunteer-groups/{gid}/semesters/{sid}/preparation/confirm")

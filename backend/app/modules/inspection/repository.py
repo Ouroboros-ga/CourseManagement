@@ -15,7 +15,7 @@ from datetime import datetime
 
 from sqlalchemy import ColumnElement, Select, and_, case, func, or_, select, tuple_
 from sqlalchemy.dialects.mysql import insert as mysql_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, raiseload, selectinload
 
 from app.common.pagination import PageParams
 from app.modules.inspection.models import (
@@ -129,9 +129,8 @@ class InspectionRepository:
         stmt = stmt.where(InspectionTask.id == task_id)
         return self._session.execute(stmt).scalars().unique().one_or_none()
 
-    def list_tasks(
+    def task_list_statement(
         self,
-        params: PageParams,
         *,
         scope_filter: Select | None = None,
         semester_id: int | None = None,
@@ -144,7 +143,10 @@ class InspectionRepository:
         needs_attention: str | None = None,
         deleted_only: bool = False,
         include_deleted: bool = False,
-    ) -> tuple[list[InspectionTask], int]:
+        keyword: str | None = None,
+        status: str | None = None,
+        pending_change: bool = False,
+    ) -> Select:
         """按数据范围谓词 + 可选业务过滤列出任务。
 
         scope_filter 是由 Service 依数据范围（SYSTEM_WIDE / ALL_GRADES / ASSIGNED_TASK）
@@ -190,8 +192,65 @@ class InspectionRepository:
                     InspectionAssignment.revoked_at.is_(None))))
             elif needs_attention == "roster":
                 stmt = stmt.where(InspectionTask.roster_review_required.is_(True))
-        stmt = stmt.order_by(InspectionTask.inspection_date, InspectionTask.id)
+        from app.modules.inspection.list_queries import (
+            pending_change_expression,
+            task_search_expression,
+            task_status_expression,
+        )
+
+        if keyword and keyword.strip():
+            stmt = stmt.where(task_search_expression(keyword.strip()))
+        if status:
+            stmt = stmt.where(task_status_expression() == status)
+        if pending_change:
+            stmt = stmt.where(pending_change_expression())
+        return stmt.options(raiseload("*"))
+
+    def list_tasks(self, params: PageParams, **filters) -> tuple[list[InspectionTask], int]:
+        stmt = self.task_list_statement(**filters).order_by(
+            InspectionTask.inspection_date, InspectionTask.id
+        )
         return _paged(self._session, stmt, params)
+
+    def task_summary(self, **filters) -> dict:
+        from app.modules.inspection.list_queries import (
+            assigned_expression,
+            pending_change_expression,
+            task_status_expression,
+        )
+
+        # 日期、状态、受派分组最多是本期日期数 × 5 × 2；不装配学生名单或照片。
+        source = (
+            self.task_list_statement(**filters)
+            .with_only_columns(
+                InspectionTask.inspection_date.label("date"),
+                task_status_expression().label("status"),
+                assigned_expression().label("assigned"),
+                pending_change_expression().label("pending"),
+            )
+            .subquery()
+        )
+        rows = self._session.execute(
+            select(
+                source.c.date, source.c.status, source.c.assigned, source.c.pending, func.count()
+            ).group_by(source.c.date, source.c.status, source.c.assigned, source.c.pending)
+        )
+        out = {
+            "total": 0,
+            "assigned": 0,
+            "unassigned": 0,
+            "reviewed": 0,
+            "pending_change": 0,
+            "dates": {},
+        }
+        for day, status, assigned, pending, count in rows:
+            out["total"] += count
+            out["assigned" if assigned else "unassigned"] += count
+            out["reviewed"] += count if status == "REVIEWED" else 0
+            out["pending_change"] += count if pending else 0
+            key = day.isoformat()
+            out["dates"][key] = out["dates"].get(key, 0) + count
+        return out
 
     # ==================== 名单版本 / 成员 ====================
     def get_roster_version(self, task_id: int, version_no: int) -> TaskRosterVersion | None:
@@ -434,40 +493,41 @@ class InspectionRepository:
     def map_current_deadline_version_ids(
         self, days: Sequence[SubmissionDeadlineDay]
     ) -> dict[int, int]:
-        """批量解析每个日截止记录**当前生效版本**对应的版本行 id（day.id -> version.id）。
-
-        单次 IN 查询取全部历史版本，再在内存按 day.version 命中，避免逐日 N+1。
-        """
-        day_list = list(days)
-        day_ids = [d.id for d in day_list]
-        if not day_ids:
+        """仅查当前 (day_id, version_no)，不搬运整份截止版本历史。"""
+        keys = {(day.id, day.version) for day in days}
+        if not keys:
             return {}
-        vers = (
+        return dict(
             self._session.execute(
-                select(SubmissionDeadlineVersion).where(
-                    SubmissionDeadlineVersion.deadline_day_id.in_(day_ids)
+                select(
+                    SubmissionDeadlineVersion.deadline_day_id, SubmissionDeadlineVersion.id
+                ).where(
+                    tuple_(
+                        SubmissionDeadlineVersion.deadline_day_id,
+                        SubmissionDeadlineVersion.version_no,
+                    ).in_(keys)
                 )
-            )
-            .scalars()
-            .all()
+            ).all()
         )
-        by_day: dict[int, dict[int, int]] = {}
-        for v in vers:
-            by_day.setdefault(v.deadline_day_id, {})[v.version_no] = v.id
-        out: dict[int, int] = {}
-        for d in day_list:
-            vid = by_day.get(d.id, {}).get(d.version)
-            if vid is not None:
-                out[d.id] = vid
-        return out
 
-    def list_deadline_days_by_semester(self, semester_id: int, *, scope_ids=None) -> list[SubmissionDeadlineDay]:
+    def list_deadline_days_by_semester(
+        self, semester_id: int, *, scope_ids=None, dates=None
+    ) -> list[SubmissionDeadlineDay]:
         """一次取某学期全部日截止记录，供生成时为缺失日期批量补建（避免逐日查询）。"""
         return list(
             self._session.execute(
                 select(SubmissionDeadlineDay).where(
                     SubmissionDeadlineDay.semester_id == semester_id,
-                    SubmissionDeadlineDay.ownership_scope_id.in_(scope_ids if scope_ids is not None else {getattr(self, "deadline_scope_id", 0)})
+                    *(
+                        [SubmissionDeadlineDay.inspection_date.in_(dates)]
+                        if dates is not None
+                        else []
+                    ),
+                    SubmissionDeadlineDay.ownership_scope_id.in_(
+                        scope_ids
+                        if scope_ids is not None
+                        else {getattr(self, "deadline_scope_id", 0)}
+                    ),
                 )
             )
             .scalars()
@@ -707,16 +767,17 @@ class InspectionRepository:
         )
         return _paged(self._session, stmt, params)
 
-    def list_management_submissions(
+    def management_submission_statement(
         self,
-        params: PageParams,
         *,
         semester_id: int | None = None,
         date_from: date_ | None = None,
         date_to: date_ | None = None,
         task_id: int | None = None,
         review_status: str | None = None,
-    ) -> tuple[list[InspectionSubmission], int]:
+        keyword: str | None = None,
+        result: str | None = None,
+    ) -> Select:
         """管理审核列表；先在 SQL 中筛选、计数及分页，再装配提交明细。"""
         stmt = select(InspectionSubmission).join(
             InspectionTask, InspectionTask.id == InspectionSubmission.task_id
@@ -732,10 +793,51 @@ class InspectionRepository:
             stmt = stmt.where(InspectionSubmission.task_id == task_id)
         if review_status is not None:
             stmt = stmt.where(InspectionSubmission.review_status == review_status)
-        stmt = stmt.order_by(
+        if result:
+            stmt = stmt.where(InspectionSubmission.result == result)
+        if keyword and keyword.strip():
+            from sqlalchemy import String, cast
+
+            text = keyword.strip().lower()
+            stmt = stmt.where(
+                or_(
+                    *(
+                        func.lower(c).contains(text, autoescape=True)
+                        for c in (
+                            InspectionTask.course_name_snapshot,
+                            InspectionTask.class_name_snapshot,
+                            InspectionTask.classroom_snapshot,
+                            cast(InspectionSubmission.id, String),
+                            cast(InspectionSubmission.volunteer_user_id, String),
+                        )
+                    )
+                )
+            )
+        return stmt.options(selectinload(InspectionSubmission.abnormal_items), raiseload("*"))
+
+    def list_management_submissions(self, params: PageParams, **filters):
+        stmt = self.management_submission_statement(**filters).order_by(
             InspectionSubmission.submitted_at.desc(), InspectionSubmission.id.desc()
         )
         return _paged(self._session, stmt, params)
+
+    def management_submission_summary(self, **filters):
+        source = (
+            self.management_submission_statement(**filters)
+            .with_only_columns(InspectionSubmission.review_status, InspectionSubmission.result)
+            .subquery()
+        )
+        rows = self._session.execute(
+            select(source.c.review_status, source.c.result, func.count()).group_by(
+                source.c.review_status, source.c.result
+            )
+        )
+        out = {"pending": 0, "normal": 0, "abnormal": 0, "reviewed": 0}
+        for status, result, count in rows:
+            out["pending" if status == "PENDING" else "reviewed"] += count
+            if status == "PENDING":
+                out["normal" if result == "NORMAL" else "abnormal"] += count
+        return out
 
     def list_submission_roster_members(self, keys: set[tuple[int, int]]) -> list[TaskRosterMember]:
         """一次读取本页提交引用的所有历史名单版本。"""

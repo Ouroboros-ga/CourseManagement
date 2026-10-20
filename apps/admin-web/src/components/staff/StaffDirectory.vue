@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppPagination from '../../components/AppPagination.vue'
 import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../../stores/session'
@@ -34,7 +35,7 @@ const { data, busy, error, load } = useWorkspaceRead(
     keyword: appliedKeyword.value || undefined,
     status: statusFilter.value || undefined,
     page: page.value,
-    page_size: 20
+    page_size: 50
   })
 )
 function search() {
@@ -140,7 +141,7 @@ async function startAccount(row: StaffProfile) {
   accountLoading.value = true
   accountOptions.value = []
   try {
-    const page = await listTeacherAccounts({ page_size: 200 })
+    const page = await listTeacherAccounts({ page_size: 500 })
     accountOptions.value = page.items.filter(item => item.status === 'ACTIVE')
   } catch (e) {
     accountsFailed.value = true
@@ -245,7 +246,7 @@ const statusText: Record<string, string> = { ACTIVE: '在职', INACTIVE: '停用
         </template>
       </el-table-column>
     </el-table>
-    <el-pagination v-model:current-page="page" :page-size="20" :total="data?.total || 0" layout="prev, pager, next, total" />
+    <AppPagination v-model:current-page="page" :page-size="50" :total="data?.total || 0" />
 
     <el-dialog v-model="createOpen" title="新增教职工档案" width="480px" :close-on-click-modal="false">
       <el-form label-width="92px">
