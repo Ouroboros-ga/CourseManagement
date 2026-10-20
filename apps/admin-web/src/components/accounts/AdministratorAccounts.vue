@@ -36,8 +36,8 @@ async function finish(row: AdministratorAccount, revokedSelf: boolean) {
 }
 async function update(row: AdministratorAccount, operation: 'status' | 'platform') {
   if (busy.value) return
-  const label = operation === 'status' ? (row.status === 'ACTIVE' ? '停用账号' : '启用账号') : (row.can_manage_administrators ? '关闭平台管理能力' : '开启平台管理能力')
-  try { await ElMessageBox.confirm(`为 ${row.display_name}（${row.username}）${label}？`, '管理员维护', { type: 'warning' }) }
+  const label = operation === 'status' ? (row.status === 'ACTIVE' ? '停用账号' : '启用账号') : (row.can_manage_administrators ? '取消平台管理员' : '设为平台管理员')
+  try { await ElMessageBox.confirm(`确认对 ${row.display_name}（${row.username}）执行「${label}」？`, '管理员维护', { type: 'warning' }) }
   catch { return }
   busy.value = true
   try {
@@ -61,7 +61,7 @@ onMounted(load)
 
 <template>
   <section v-loading="busy" class="administrator-panel">
-    <div class="toolbar"><div><h3>管理员账号</h3><p>平台管理员可维护管理员账号。系统保护最后一位有效管理员与平台管理者。</p></div><el-button type="primary" :disabled="busy" @click="creating = true">新增管理员</el-button></div>
+    <div class="toolbar"><div><h3>管理员账号</h3><p>这里列出全部超级管理员账号。标为「平台管理员」的可以维护本列表；标为「管理员」的只有同等的全校业务权限，不能增删其他管理员。系统保护最后一位有效管理员与最后一位平台管理员。</p></div><el-button type="primary" :disabled="busy" @click="creating = true">新增管理员</el-button></div>
     <AdministratorAccountTable :rows="rows" :busy="busy" @update="update" @reset="reset" />
     <AppPagination v-model:current-page="page" :page-size="50" :total="total" @current-change="load" />
     <el-dialog v-model="creating" title="新增管理员" width="440px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy">

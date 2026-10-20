@@ -12,8 +12,8 @@ function submit() { emit('submit', { ...form, username: form.username.trim(), di
     <el-form-item label="账号"><el-input v-model="form.username" maxlength="64" autocomplete="off" /></el-form-item>
     <el-form-item label="姓名"><el-input v-model="form.display_name" maxlength="128" /></el-form-item>
     <el-form-item label="初始密码"><el-input v-model="form.initial_password" type="password" show-password autocomplete="new-password" maxlength="128" /></el-form-item>
-    <el-form-item label="管理管理员账号"><el-switch v-model="form.can_manage_administrators" /></el-form-item>
-    <p class="hint">开启后显示为平台管理员，继续拥有管理员的全校业务权限。</p>
+    <el-form-item label="平台管理员"><el-switch v-model="form.can_manage_administrators" /></el-form-item>
+    <p class="hint">开启后该账号可继续新增、停用其他超级管理员并重置其密码；不开启则为普通管理员。两者的全校业务权限完全相同。</p>
     <el-button :disabled="busy" @click="emit('cancel')">取消</el-button>
     <el-button type="primary" native-type="submit" :loading="busy" :disabled="!form.username.trim() || !form.display_name.trim() || form.initial_password.length < 6">创建</el-button>
   </el-form>
