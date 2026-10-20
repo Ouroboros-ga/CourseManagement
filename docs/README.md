@@ -52,3 +52,4 @@
 2026-10-19 主工作区未提交的 README 扩写、功能盘点及教职工身份讨论已收入 [工作区历史草稿](archive/2026-10-19-workspace/README.md)。这些资料包含旧部署状态与相互冲突的账号时序，不作为当前开发命令或联调合同；原始文件另有本地完整快照。
 
 - [2026-10-20 统一分页正式发布与成套回滚记录](development/LIST_PAGINATION_RELEASE_20261020.md)
+- [2026-10-20 全校操作日志查看页发布记录](development/AUDIT_LOG_VIEWER_RELEASE_20261020.md)
