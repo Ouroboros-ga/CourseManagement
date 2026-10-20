@@ -22,7 +22,7 @@ async function load() {
 }
 async function create(body: AdministratorCreate) {
   busy.value = true
-  try { await createAdministrator(body); creating.value = false; await load(); ElMessage.success('管理员已创建') }
+  try { await createAdministrator(body); creating.value = false; await load(); ElMessage.success('超级管理员已创建') }
   catch (error) { ElMessage.error(errorMessage(error)) }
   finally { busy.value = false }
 }
@@ -36,7 +36,7 @@ async function finish(row: AdministratorAccount, revokedSelf: boolean) {
 async function update(row: AdministratorAccount, operation: 'status' | 'platform') {
   if (busy.value) return
   const label = operation === 'status' ? (row.status === 'ACTIVE' ? '停用账号' : '启用账号') : (row.can_manage_administrators ? '取消平台管理员' : '设为平台管理员')
-  try { await ElMessageBox.confirm(`确认对 ${row.display_name}（${row.username}）执行「${label}」？`, '管理员维护', { type: 'warning' }) }
+  try { await ElMessageBox.confirm(`确认对 ${row.display_name}（${row.username}）执行「${label}」？`, '超级管理员维护', { type: 'warning' }) }
   catch { return }
   busy.value = true
   try {
@@ -48,7 +48,7 @@ async function update(row: AdministratorAccount, operation: 'status' | 'platform
 async function reset(row: AdministratorAccount) {
   if (busy.value) return
   let password: string
-  try { const result = await ElMessageBox.prompt(`为 ${row.username} 设置新密码`, '重置管理员密码', { inputType: 'password', inputPattern: /^.{6,128}$/, inputErrorMessage: '密码长度须为 6—128 位', closeOnClickModal: false }); password = result.value }
+  try { const result = await ElMessageBox.prompt(`为 ${row.username} 设置新密码`, '重置超级管理员密码', { inputType: 'password', inputPattern: /^.{6,128}$/, inputErrorMessage: '密码长度须为 6—128 位', closeOnClickModal: false }); password = result.value }
   catch { return }
   busy.value = true
   try { await resetAdministratorPassword(row.id, password, row.lock_version); await finish(row, true) }
@@ -60,10 +60,10 @@ onMounted(load)
 
 <template>
   <section v-loading="busy" class="administrator-panel">
-    <div class="toolbar"><div><h3>管理员账号</h3><p>这里列出全部超级管理员账号。标为「平台管理员」的可以维护本列表；标为「管理员」的只有同等的全校业务权限，不能增删其他管理员。系统保护最后一位有效管理员与最后一位平台管理员。</p></div><el-button type="primary" :disabled="busy" @click="creating = true">新增管理员</el-button></div>
+    <div class="toolbar"><div><h3>超级管理员账号</h3><p>这里列出全部超级管理员账号。标为「平台管理员」的可以维护本列表；只标为「超级管理员」的拥有同等的全校业务权限，但不能增删其他账号。系统保护最后一位有效超级管理员与最后一位平台管理员。</p></div><el-button type="primary" :disabled="busy" @click="creating = true">新增超级管理员</el-button></div>
     <AdministratorAccountTable :rows="rows" :busy="busy" @update="update" @reset="reset" />
     <el-pagination v-model:current-page="page" :page-size="20" :total="total" layout="prev, pager, next, total" @current-change="load" />
-    <el-dialog v-model="creating" title="新增管理员" width="440px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy">
+    <el-dialog v-model="creating" title="新增超级管理员" width="440px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy">
       <AdministratorCreateForm :busy="busy" @submit="create" @cancel="creating = false" />
     </el-dialog>
   </section>

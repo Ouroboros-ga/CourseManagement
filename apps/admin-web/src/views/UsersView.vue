@@ -45,7 +45,6 @@ const roleNameMap: Record<string, string> = {
   SUPER_ADMIN: '超级管理员',
   TEACHER_ADMIN: '教师管理员',
   STUDENT_AFFAIRS_MANAGER: '学生工作负责人',
-  COUNSELOR: '专职辅导员',
   VOLUNTEER: '查课志愿者',
   STUDENT: '学生'
 }
@@ -474,7 +473,7 @@ onMounted(async () => {
 
     <!-- 顶部 Tab 切换 -->
     <div class="tab-nav mb-4">
-      <button v-if="canManageAdministrators" class="tab-btn" :class="{ active: activeTab === 'administrators' }" @click="activeTab = 'administrators'">管理员账号</button>
+      <button v-if="canManageAdministrators" class="tab-btn" :class="{ active: activeTab === 'administrators' }" @click="activeTab = 'administrators'">超级管理员账号</button>
       <button
         class="tab-btn"
         :class="{ active: activeTab === 'teachers' }"

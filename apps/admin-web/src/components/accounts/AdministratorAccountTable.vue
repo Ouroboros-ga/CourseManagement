@@ -8,7 +8,7 @@ const emit = defineEmits<{ reset: [row: AdministratorAccount]; update: [row: Adm
   <el-table :data="rows" row-key="id">
     <el-table-column prop="username" label="账号" />
     <el-table-column prop="display_name" label="姓名" />
-    <el-table-column label="身份"><template #default="{ row }"><el-tag>{{ row.can_manage_administrators ? '平台管理员' : '管理员' }}</el-tag></template></el-table-column>
+    <el-table-column label="身份"><template #default="{ row }"><el-tag>{{ row.can_manage_administrators ? '平台管理员' : '超级管理员' }}</el-tag></template></el-table-column>
     <el-table-column label="状态"><template #default="{ row }">{{ row.status === 'ACTIVE' ? '启用' : '停用' }}</template></el-table-column>
     <el-table-column label="操作" min-width="340"><template #default="{ row }">
       <el-button link :disabled="busy" @click="emit('reset', row)">重置密码</el-button>

@@ -158,24 +158,22 @@ watch(workspaceKey, () => {
 })
 
 const userDisplayName = computed(() => {
-  return currentUser.value?.display_name || '教师管理员'
+  return currentUser.value?.display_name || '未命名账号'
 })
 
+// 只列 role 表里真实存在的五个角色；辅导员/班主任是教工职责（StaffDuty），不是登录角色。
 const roleNameMap: Record<string, string> = {
   SUPER_ADMIN: '超级管理员',
   TEACHER_ADMIN: '教师管理员',
-  COLLEGE_ADMIN: '学院管理员',
-  COUNSELOR: '专职辅导员',
-  STUDENT_VOLUNTEER: '查课志愿者',
+  STUDENT_AFFAIRS_MANAGER: '学生工作负责人',
   VOLUNTEER: '查课志愿者',
-  STUDENT: '学生',
-  TEACHER: '任课教师'
+  STUDENT: '学生'
 }
 
 const userRoleBadge = computed(() => {
   const roles = currentUser.value?.roles || []
-  const primary = roles[0] || 'TEACHER_ADMIN'
-  return roleNameMap[primary] || primary
+  const primary = roles[0] || ''
+  return roleNameMap[primary] || (primary ? primary : '未分配角色')
 })
 
 async function handleLogout() {
