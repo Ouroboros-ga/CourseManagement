@@ -10,6 +10,7 @@ const viewLoaders: Record<string, () => Promise<{ default: Component }>> = {
   inspections: () => import('../views/InspectionsView.vue'), attendance: () => import('../views/AttendanceView.vue'),
   reports: () => import('../views/ReportsView.vue'), school: () => import('../views/SchoolView.vue'),
   users: () => import('../views/UsersView.vue'), settings: () => import('../views/SettingsView.vue'),
+  audit: () => import('../views/AuditLogView.vue'),
   staff: () => import('../views/StaffView.vue'),
   help: () => import('../views/HelpView.vue')
 }
