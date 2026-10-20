@@ -59,3 +59,19 @@ test('successful retry removes the error and updates both page totals', async ()
   assert.equal(state.occurrenceTotal.value, 0)
   assert.match(source, /v-if="!loading && !dispatchError && !hasData"/)
 })
+
+test('page reload retains totals while pending so the pager does not clamp page two to one', async () => {
+  let release
+  const pending = new Promise(resolve => { release = resolve })
+  const { state, load } = setup({ listTasks: async () => { await pending; return { items: [], total: 99 } },
+    queryCourseOccurrences: async () => ({ items: [], total: 99, selection_revision: 'new' }) })
+  state.occurrencePage.value = state.weekTaskPage.value = 2
+  const request = load(false)
+  try {
+    assert.equal(state.occurrenceTotal.value, 99)
+    assert.equal(state.weekTaskTotal.value, 99)
+  } finally {
+    release()
+    await request
+  }
+})

@@ -224,9 +224,9 @@ async function loadData(reset = true) {
   const current = () => ticket === dispatchEpoch && context === dispatchContext()
   const previousRevision = selectionRevision.value
   occurrences.value = []
-  occurrenceTotal.value = 0
   weekTasks.value = []
-  weekTaskTotal.value = 0
+  // Keep totals during page requests; Element Plus clamps a non-first page when total becomes zero.
+  if (reset) { occurrenceTotal.value = 0; weekTaskTotal.value = 0 }
   dispatchError.value = ''
   if (reset) { selectionRevision.value = ''; selectionScope.value = {}; smartSampleResult.value = null }
   if (!sessionStore.currentSemesterId) return
@@ -252,6 +252,7 @@ async function loadData(reset = true) {
       weekTaskTotal.value = taskRes.total
     } catch (err: unknown) {
       if (!current()) return
+      weekTaskTotal.value = 0
       dispatchError.value = `已有任务加载失败：${err instanceof Error ? err.message : '请稍后重试'}`
     }
 
@@ -277,11 +278,13 @@ async function loadData(reset = true) {
         selectionScope.value = occRes.selection_scope || {}
       } catch (err: unknown) {
         if (!current()) return
+        occurrenceTotal.value = 0
         dispatchError.value = [dispatchError.value, `排课课次加载失败：${err instanceof Error ? err.message : '请稍后重试'}`].filter(Boolean).join('；')
         occurrences.value = []
       }
     } else {
       occurrences.value = []
+      occurrenceTotal.value = 0
     }
   } catch (err: unknown) {
     if (current()) dispatchError.value = `查课安排加载失败：${err instanceof Error ? err.message : '请稍后重试'}`
