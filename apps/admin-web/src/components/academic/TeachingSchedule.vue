@@ -71,6 +71,19 @@ watch(dispatchCourseTypeId, value => {
   const group = executionGroups.value.find(row => row.id === executionGroupId.value)
   if (value && group && !group.configuration?.course_type_ids.includes(value)) executionGroupId.value = ''
 })
+// 课程类型与执行组默认选中第一项；执行组优先选可用且包含当前课程类型的组。
+watch([dispatchCourseTypes, executionGroups, dispatchOptionsError], () => {
+  if (props.mode === 'academic' || dispatchOptionsError.value) return
+  if (!dispatchCourseTypeId.value) {
+    const active = dispatchCourseTypes.value.find(kind => kind.status === 'ACTIVE')
+    if (active) dispatchCourseTypeId.value = active.id
+  }
+  if (!executionGroupId.value && executionGroups.value.length > 0) {
+    const usable = executionGroups.value.find(row => row.status === 'ACTIVE' && !!row.config_version
+      && (!dispatchCourseTypeId.value || row.configuration?.course_type_ids.includes(dispatchCourseTypeId.value)))
+    executionGroupId.value = (usable ?? executionGroups.value[0]).id
+  }
+})
 const selectionRevision = ref<string>('')
 const selectionScope = ref<Record<string, unknown>>({})
 const hasData = computed(() => occurrences.value.length > 0 || weekTasks.value.length > 0)
@@ -957,10 +970,15 @@ function applySmartSample() {
       <div class="head-row">
         <div>
           <h2>{{ props.mode === 'academic' ? '正式课表与资料导入' : '具体课次选择与下发' }}</h2>
-          <p class="sub">
-            {{ props.mode === 'academic' ? '查看本院正式课表，按现有导入流程核对资料。导入不会自动发布给学生。' : '选择明确的实际课次，先生成任务，再确认排班。' }}
-          </p>
+          <p v-if="props.mode === 'academic'" class="sub">查看本院正式课表，按现有导入流程核对资料。导入不会自动发布给学生。</p>
         </div>
+
+        <DispatchFilters
+          v-if="activeTab === 'dispatch' && props.mode === 'inspection'"
+          v-model:course-type-id="dispatchCourseTypeId" v-model:group-id="executionGroupId"
+          :types="dispatchCourseTypes" :groups="executionGroups" :organization-mode="organizationMode" :error="dispatchOptionsError"
+          compact
+        />
 
         <div class="head-actions flex items-center gap-2">
           <button v-if="props.mode !== 'inspection' && (sessionStore.hasPermission('import.execute') || sessionStore.hasPermission('course_schedule.import'))" class="btn btn-outline" @click="openImportDialog">
@@ -1016,7 +1034,7 @@ function applySmartSample() {
       </button>
     </div>
 
-    <DispatchFilters v-if="activeTab === 'dispatch' && props.mode !== 'academic'"
+    <DispatchFilters v-if="activeTab === 'dispatch' && props.mode === 'legacy'"
       v-model:course-type-id="dispatchCourseTypeId" v-model:group-id="executionGroupId"
       :types="dispatchCourseTypes" :groups="executionGroups" :organization-mode="organizationMode" :error="dispatchOptionsError" />
     <!-- TAB 1: 课次勾选与下发 -->

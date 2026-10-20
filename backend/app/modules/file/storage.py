@@ -109,15 +109,31 @@ class LocalStorage(SignedDownload):
 
 
 @lru_cache(maxsize=8)
-def _oss_client(region: str, endpoint: str, role_name: str, timeout: float):
+def _oss_client(region: str, endpoint: str, role_name: str, timeout: float,
+                access_key_id: str = "", access_key_secret: str = ""):
     import alibabacloud_oss_v2 as oss
-    from alibabacloud_credentials.client import Client
-    from alibabacloud_credentials.models import Config
 
-    credentials = Client(Config(type="ecs_ram_role", role_name=role_name or None))
     lock = Lock()
+    if access_key_id and access_key_secret:
+        # 方案 A：跨云部署使用受限 RAM 子账号静态凭据（长时效，不开 STS 刷新）。
+        def load_credentials():
+            with lock:
+                return oss.credentials.Credentials(
+                    access_key_id, access_key_secret, None
+                )
+    else:
+        from alibabacloud_credentials.client import Client
+        from alibabacloud_credentials.models import Config
 
-    def load_credentials():
+        credentials = Client(Config(type="ecs_ram_role", role_name=role_name or None))
+
+        def load_credentials():
+            # 凭据库自动刷新 STS；多请求共享客户端时串行化凭据刷新。
+            with lock:
+                value = credentials.get_credential()
+                return oss.credentials.Credentials(
+                    value.access_key_id, value.access_key_secret, value.security_token
+                )
         # 凭据库自动刷新 STS；多请求共享客户端时串行化凭据刷新。
         with lock:
             value = credentials.get_credential()
@@ -149,6 +165,8 @@ class ObjectStorage(SignedDownload):
                 settings.oss_endpoint,
                 settings.oss_role_name,
                 settings.oss_timeout_seconds,
+                settings.oss_access_key_id,
+                settings.oss_access_key_secret,
             )
         )
 

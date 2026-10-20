@@ -13,6 +13,18 @@ from app.modules.importer.limits import MAX_BATCH_FILES
 from app.modules.importer.service import ImporterService
 
 
+def _schedule_conflict_message(after, old, source):
+    weeks = ",".join(str(w) for w in sorted(set(after["weeks"]) & set(old["weeks"])))
+    start = max(after["start_period"], old["start_period"])
+    end = min(after["end_period"], old["end_period"])
+    return (
+        f"同一教学班课表时间冲突：{after.get('course_name') or after.get('course_code')}，"
+        f"第{weeks}周，星期{after['weekday']}，节次{start}—{end}；"
+        f"与“{source['filename']}”第{source.get('row') or '?'}行重叠，"
+        "请核对周次、地点和教师"
+    )
+
+
 class ImportConfirmationSet:
     MAX_FILES = MAX_BATCH_FILES
 
@@ -142,7 +154,8 @@ class ImportConfirmationSet:
                         change["key"],
                     )
                     value = json.dumps(change["after"], sort_keys=True, default=str)
-                    if key in keys and (
+                    # 课表按周次交集和节次区间判断，不能把单/双周或分段周次当作覆盖。
+                    if change["entity"] != "schedule" and key in keys and (
                         keys[key][1] != value
                         or change["entity"] != "person_relation" and keys[key][0] != batch.id
                     ):
@@ -157,7 +170,7 @@ class ImportConfirmationSet:
                     keys[key] = (batch.id, value)
                     if change["entity"] == "schedule":
                         after = change["after"]
-                        for scope, old in schedules:
+                        for scope, old, old_source in schedules:
                             if scope == change["schedule_scope"] and (
                                 after["weekday"] == old["weekday"]
                                 and set(after["weeks"]).intersection(old["weeks"])
@@ -166,13 +179,15 @@ class ImportConfirmationSet:
                             ):
                                 issues.append(
                                     {
+                                        "code": "SCHEDULE_OVERLAP",
                                         "severity": "error",
                                         "filename": batch.filename,
                                         "row": change["source"].get("row"),
-                                        "message": "本次集合中存在同一教学班重叠课表，请先合并修正",
+                                        "message": _schedule_conflict_message(
+                                            after, old, old_source),
                                     }
                                 )
-                        schedules.append((change["schedule_scope"], after))
+                        schedules.append((change["schedule_scope"], after, change["source"]))
             seen_files.add(fingerprint)
             prepared[batch.id] = analysis["payload"]
             files.append(

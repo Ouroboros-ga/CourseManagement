@@ -17,11 +17,21 @@ OfferingId = Annotated[str, Field(min_length=1, max_length=32)]
 
 
 class StaffCreate(StrictModel):
-    staff_no: str = Field(min_length=1, max_length=64, pattern=r"^[0-9A-Za-z_-]{1,64}$")
+    staff_no: str = Field(
+        min_length=1, max_length=64, pattern=r"^[0-9A-Za-z_-]{1,64}$",
+        description="真实工号；TMP_ 为后台初始化保留前缀，不能通过普通建档使用",
+    )
     name: str = Field(min_length=1, max_length=128)
     phone: str | None = Field(default=None, min_length=1, max_length=32)
     status: Literal["ACTIVE", "INACTIVE"] = "ACTIVE"
     reason: str | None = Field(default=None, max_length=512)
+
+    @field_validator("staff_no")
+    @classmethod
+    def reserved_temporary_prefix(cls, value: str) -> str:
+        if value.upper().startswith("TMP_"):
+            raise ValueError("TMP_ 为后台初始化保留工号前缀")
+        return value
 
 
 class StaffUpdate(StrictModel):

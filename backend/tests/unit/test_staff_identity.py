@@ -320,6 +320,7 @@ def test_staff_binding_migration_matches_the_model():
     root = Path(__file__).parents[2] / "migrations/versions"
     foundation = runpy.run_path(str(root / "f26a1017s001_staff_foundation.py"))
     binding = runpy.run_path(str(root / "f26a1017s002_staff_binding.py"))
+    temporary = runpy.run_path(str(root / "f26a1019s007_staff_temporary_number.py"))
     assert binding["down_revision"] == foundation["revision"]
 
     foundation_tables = {
@@ -340,7 +341,9 @@ def test_staff_binding_migration_matches_the_model():
             assert set(inspect(db).get_table_names()) == before | foundation_tables
             binding["upgrade"]()
             assert set(inspect(db).get_table_names()) == before | staff_tables
+            temporary["upgrade"]()
             assert compare_metadata(MigrationContext.configure(db), Base.metadata) == []
+            temporary["downgrade"]()
             binding["downgrade"]()
             assert set(inspect(db).get_table_names()) == before | foundation_tables
     engine.dispose()

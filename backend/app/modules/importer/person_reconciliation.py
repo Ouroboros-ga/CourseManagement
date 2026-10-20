@@ -17,7 +17,8 @@ class PersonLinkReconciliation:
         self.service = service
         self.db = service._session
 
-    def _plan(self, kind, semester_id):
+    def source_payload(self, kind, semester_id):
+        """供后台初始化复用同一套正式课表/责任文字来源；调用者负责学院授权。"""
         if semester_id is not None and not 0 < semester_id < 2**63:
             raise AppError(ErrorCode.VALIDATION_ERROR, "学期 ID 不合法", 422)
         if kind not in {"teaching", "responsibility"}:
@@ -81,6 +82,10 @@ class PersonLinkReconciliation:
                 ]
             }
             target = "admin_roster"
+        return target, payload
+
+    def _plan(self, kind, semester_id):
+        target, payload = self.source_payload(kind, semester_id)
         links = plan_links(self.service, target, payload, semester_id)
         if len(links["links"]) + len(links["pending"]) > get_settings().import_max_rows:
             raise AppError(ErrorCode.VALIDATION_ERROR, "人员关联过多，请分批通过关系模板处理", 422)
@@ -88,7 +93,7 @@ class PersonLinkReconciliation:
             json.dumps(
                 {
                     "actor": self.service.actor.id,
-                    "college": cid,
+                    "college": self.service.cid,
                     "kind": kind,
                     "semester": semester_id,
                     "today": str(business_today()),

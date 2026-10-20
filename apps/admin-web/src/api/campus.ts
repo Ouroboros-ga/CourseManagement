@@ -34,6 +34,7 @@ export interface ScopedGrant {
   starts_at: string | null; expires_at: string | null; status: 'ACTIVE' | 'REVOKED'; lock_version: number
 }
 export const campusActionLabels: Record<string, string> = {
+  'staff.manage': '维护本院教职工档案与关系',
   'role.assign': '本院学生负责人任免',
   'optional_permission.manage': '本院负责人可选权限',
   'identity.binding.manage': '本院学生绑定管理',

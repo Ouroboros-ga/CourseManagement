@@ -37784,7 +37784,8 @@
             "type": "string",
             "maxLength": 64,
             "minLength": 1,
-            "title": "Staff No"
+            "title": "Staff No",
+            "description": "当前工号或该档案保留的临时工号，须与一次性绑定码同时核验"
           },
           "binding_code": {
             "type": "string",
@@ -37808,7 +37809,8 @@
             "maxLength": 64,
             "minLength": 1,
             "pattern": "^[0-9A-Za-z_-]{1,64}$",
-            "title": "Staff No"
+            "title": "Staff No",
+            "description": "真实工号；TMP_ 为后台初始化保留前缀，不能通过普通建档使用"
           },
           "name": {
             "type": "string",
@@ -40014,7 +40016,8 @@
             "type": "string",
             "maxLength": 64,
             "minLength": 1,
-            "title": "Username"
+            "title": "Username",
+            "description": "既有 Web 用户名；不支持临时工号登录，普通临时教师须先核对真实工号"
           },
           "password": {
             "type": "string",
