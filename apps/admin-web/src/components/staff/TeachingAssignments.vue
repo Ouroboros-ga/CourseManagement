@@ -106,7 +106,7 @@ async function loadClassOptions(keyword = '') {
 async function submitCreate() {
   const form = createForm.value
   if (!form.teacherId || !form.semesterId || !form.teachingClassId) {
-    createError.value = '请先明确选择教师、学期和本院教学班；共享身份任命请通过资料准备导入。'
+    createError.value = '请先明确选择教师、学期和本院教学班；共享身份任命请通过资料导入页导入。'
     return
   }
   createBusy.value = true

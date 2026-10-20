@@ -21,7 +21,7 @@ const collegeTimeReady = computed(() => !!session.campusRuntime?.business_scoped
 const tabs = computed(() => [
   ...(session.hasPermission('academic.read') ? [{ id: 'timetable', label: '正式课表' }, { id: 'classes', label: '教学班与分类' }] : []),
   ...(canManageStaff.value ? [{ id: 'teaching-assignments', label: '任课教师' }] : []),
-  ...(['import.execute', 'course_schedule.import'].some(p => session.hasPermission(p)) ? [{ id: 'imports', label: '资料准备' }] : []),
+  ...(['import.execute', 'course_schedule.import'].some(p => session.hasPermission(p)) ? [{ id: 'imports', label: '资料导入', alert: true }] : []),
   ...(session.hasPermission('academic.course_type.read') ? [{ id: 'types', label: '课程类型' }] : []),
   ...(session.hasPermission('academic.manage') && collegeTimeReady.value ? [{ id: 'time', label: '本院作息与校历' }] : []),
   ...(session.hasPermission('academic.manage') ? [{ id: 'publication', label: '发布给学生' }] : [])
@@ -51,7 +51,13 @@ watch(
 <template>
   <section>
     <header class="page-head"><h1>教务资料</h1><p class="sub">维护本院教务资料。导入与发布分别确认，学生个人修改不会被覆盖。</p></header>
-    <el-tabs v-model="tab"><el-tab-pane v-for="row in tabs" :key="row.id" :name="row.id" :label="row.label" /></el-tabs>
+    <el-tabs v-model="tab">
+      <el-tab-pane v-for="row in tabs" :key="row.id" :name="row.id">
+        <template #label>
+          <span :class="{ 'tab-label-alert': row.alert }">{{ row.label }}</span>
+        </template>
+      </el-tab-pane>
+    </el-tabs>
     <div class="tab-stage">
       <Transition name="tab-fade" mode="out-in">
         <ScheduleView v-if="tab === 'timetable'" key="timetable" mode="academic" :open-self-study="openSelfStudy" />
@@ -77,3 +83,9 @@ watch(
     </div>
   </section>
 </template>
+<style scoped>
+.tab-label-alert {
+  color: var(--el-color-danger);
+  font-weight: 600;
+}
+</style>
