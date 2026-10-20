@@ -81,6 +81,18 @@ def test_warn_requires_specific_confirmation_and_commit_is_idempotent(prepared):
     assert len(list(db.scalars(select(InspectionAssignment)))) == 1
 
 
+def test_automatic_and_manual_preview_agree_for_available_member_without_dispatch(prepared):
+    db, service, sem, tasks, user = prepared
+    automatic = service.preview({"semester_id": str(sem.id), "task_ids": tasks})
+    manual = service.preview({
+        "semester_id": str(sem.id), "task_ids": tasks,
+        "assignments": {str(tid): str(user.id) for tid in tasks},
+    })
+    assert automatic["assigned"] == manual["assigned"]
+    assert automatic["unassigned"] == manual["unassigned"] == []
+    assert db.scalar(select(InspectionAssignment)) is None  # A preview is not a dispatch.
+
+
 @pytest.mark.parametrize("change", ["task", "course"])
 def test_plan_rejects_task_changed_after_preview(prepared, change):
     db, service, sem, tasks, _ = prepared

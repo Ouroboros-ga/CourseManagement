@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { confirmGroupAssignment, confirmGroupPlan } from '../composables/confirmGroupAssignment'
+import { automaticAssignmentTargets, isUnassignedTask } from '../utils/automaticAssignmentTargets'
 import { formatBeijingTime } from '@/utils/datetime'
 import { useRoute } from 'vue-router'
 import { assignmentWarnings } from '../utils/assignmentWarnings'
@@ -238,67 +239,63 @@ async function handleRestoreDeleted(task: InspectionTaskItem) {
 // ==================== 智能自动排班（求解器防冲突算法） ====================
 const autoAssigning = ref(false)
 
-async function handleAutoAssign() {
-  if (!sessionStore.currentSemesterId) return
-  if (sessionStore.campusRuntime?.scheduling) {
-    if (!selectedTaskIds.value.length) { ElMessage.warning('请先勾选具体任务，再预览人员与规则警告'); return }
-    const selected = tasks.value.filter(task => selectedTaskIds.value.includes(task.id))
-    if (selected.length !== selectedTaskIds.value.length || selected.some(task => !task.group_id || !task.college_id)) {
-      ElMessage.warning('所选任务包含不可见或尚未明确执行组的旧任务，请刷新并处理组织归属'); return
-    }
-    autoAssigning.value = true
-    let count = 0
-    try {
-      const groups = new Map<string, InspectionTaskItem[]>()
-      for (const task of selected) groups.set(task.group_id!, [...(groups.get(task.group_id!) || []), task])
-      for (const [groupId, rows] of groups) {
-        const result = await confirmGroupPlan(rows[0]!.college_id!, groupId, {
-          semester_id: sessionStore.currentSemesterId, task_ids: rows.map(task => task.id)
-        })
-        if (!result) break
-        count += result.assigned_count
-      }
-      ElMessage.info(`已确认派发 ${count} 项；取消确认的组和未分配任务继续保留。`)
-      await fetchTasks()
-    } catch (error) { ElMessage.error(error instanceof Error ? error.message : '计划派发失败，请重新预览') }
-    finally { autoAssigning.value = false }
-    return
-  }
-  const isSelectedScope = selectedTaskIds.value.length > 0
-  const confirmText = isSelectedScope
-    ? `确定对表格中选中的 ${selectedTaskIds.value.length} 个任务执行智能自动排班？\n系统将自动运行防冲突算法，为其中尚未分配的任务匹配在册志愿者。`
-    : `确定对当前【${sessionStore.currentSemesterName}】第 ${sessionStore.currentWeekNo} 周所有未分配的查课任务执行智能自动排班？\n系统将自动结合在册有效志愿者进行防冲突排班。`
-
+let assignmentViewAlive = true
+onUnmounted(() => { assignmentViewAlive = false })
+async function handleAutoAssign(mode: 'filtered' | 'selected' = 'filtered') {
+  if (!sessionStore.currentSemesterId || deletedOnly.value) return
+  const semesterId = sessionStore.currentSemesterId
+  const query = { ...taskQuery() }
+  const selectedIds = [...selectedTaskIds.value]
+  const context = () => JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId,
+    sessionStore.workspace?.authorization_revision, sessionStore.currentSemesterId, taskQuery(), selectedTaskIds.value])
+  const captured = context()
+  const current = () => assignmentViewAlive && captured === context()
+  const scopeLabel = mode === 'selected' ? '仅本页明确勾选的未分配任务' : '当前筛选下全部未分配任务（跨全部分页）'
+  autoAssigning.value = true
   try {
-    await ElMessageBox.confirm(confirmText, '智能自动排班确认', {
-      confirmButtonText: '立即执行排班',
-      cancelButtonText: '取消',
-      type: 'info',
-      lockScroll: false
-    })
-    autoAssigning.value = true
-    const payload = isSelectedScope
-      ? {
-          semester_id: sessionStore.currentSemesterId,
-          task_ids: selectedTaskIds.value
-        }
-      : {
-          semester_id: sessionStore.currentSemesterId,
-          date_from: sessionStore.weekDateRange.start || undefined,
-          date_to: sessionStore.weekDateRange.end || undefined
-        }
-    const res = await triggerAutoAssign(payload)
-    ElMessage.success(`智能自动排班完成！已成功分配 ${res.assigned_count ?? 0} 个任务，待人工处理 ${res.unassigned_count ?? 0} 个`)
-    selectedTaskIds.value = []
-    await fetchTasks()
-  } catch (err: unknown) {
-    if (err !== 'cancel') {
-      const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '自动排班执行失败'
-      ElMessage.error(msg)
+    let targetRows: InspectionTaskItem[]
+    if (mode === 'selected') {
+      const selected = tasks.value.filter(task => selectedIds.includes(task.id))
+      if (selected.length !== selectedIds.length) throw new Error('勾选任务已变化，请刷新后重新选择')
+      targetRows = selected.filter(isUnassignedTask)
+    } else {
+      targetRows = await automaticAssignmentTargets(query, current)
     }
-  } finally {
-    autoAssigning.value = false
-  }
+    if (!current()) return
+    if (!targetRows.length) { ElMessage.info('当前范围没有未分配任务；已受派和已取消任务不会重复排班'); return }
+    const days = targetRows.map(task => task.inspection_date).sort()
+    if (sessionStore.campusRuntime?.scheduling) {
+      if (targetRows.some(task => !task.group_id || !task.college_id)) {
+        throw new Error('待排任务包含尚未明确执行组的旧任务，请先处理组织归属')
+      }
+      const groups = new Map<string, InspectionTaskItem[]>()
+      for (const task of targetRows) groups.set(task.group_id!, [...(groups.get(task.group_id!) || []), task])
+      let count = 0, unassigned = 0, stopped = false
+      for (const [groupId, rows] of groups) {
+        if (!current()) { stopped = true; break }
+        const result = await confirmGroupPlan(rows[0]!.college_id!, groupId, {
+          semester_id: semesterId, task_ids: rows.map(task => task.id)
+        }, { scopeLabel: `${scopeLabel}；本轮共${targetRows.length}项、${groups.size}个组，本次确认组 #${groupId}`,
+          tasks: rows, isCurrent: current })
+        if (!result) { stopped = true; break }
+        count += result.assigned_count
+        unassigned += result.unassigned_count
+      }
+      ElMessage.info(`本次实际派发 ${count} 项，已确认计划中未分配 ${unassigned} 项。${stopped ? '其余计划未确认，未派发。' : '已有受派保持不变。'}`)
+    } else {
+      await ElMessageBox.confirm(`${scopeLabel}：${targetRows.length}项，日期 ${days[0]} 至 ${days[days.length - 1]}。\n系统遵循资格、课程/任务冲突、本班回避及日周上限；已受派任务保持不变。`, '智能自动排班范围确认', {
+        confirmButtonText: '执行此范围排班', cancelButtonText: '返回调整', type: 'info', closeOnClickModal: false
+      })
+      if (!current()) return
+      const result = await triggerAutoAssign({ semester_id: semesterId, task_ids: targetRows.map(task => task.id) })
+      ElMessage.info(`实际派发 ${result.assigned_count} 项，未分配 ${result.unassigned_count} 项`)
+    }
+    if (current()) { selectedTaskIds.value = []; await fetchTasks() }
+  } catch (error) {
+    if (current() && error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error instanceof Error ? error.message : '自动排班失败，请重新预览')
+    }
+  } finally { autoAssigning.value = false }
 }
 
 // ==================== 导出排班表（CSV / Excel 兼容） ====================
@@ -640,7 +637,7 @@ async function handleConfirmCancelFromEdit() {
             placeholder="搜索课程 / 班级 / 教室…"
           />
           <select v-model="selectedDayFilter" class="input day-filter-select">
-            <option value="ALL">本周全部 ({{ tasks.length }} 节查课)</option>
+            <option value="ALL">本周全部 ({{ summary.total }} 节查课)</option>
             <option v-for="d in weekDayOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
           </select>
           <select v-model="selectedStatus" class="input status-select">
@@ -654,12 +651,14 @@ async function handleConfirmCancelFromEdit() {
           <button
             class="btn btn-sm btn-primary inline-flex items-center gap-1 shadow-sm flex-shrink-0"
               :disabled="autoAssigning || deletedOnly"
-            title="调用求解器防冲突算法，为当前未分配任务自动匹配在册志愿者"
-            @click="handleAutoAssign"
+            title="对当前筛选下全部分页的未分配任务生成计划，不局限本页50条"
+            @click="handleAutoAssign('filtered')"
           >
             <AppIcon name="sparkles" :size="13" class="text-amber-300" />
-            <span>{{ autoAssigning ? '排班中…' : '智能排班' }}</span>
+            <span>{{ autoAssigning ? '排班中…' : '智能排班（筛选全部）' }}</span>
           </button>
+          <button v-if="selectedTaskIds.length" class="btn btn-sm btn-ghost" :disabled="autoAssigning || deletedOnly"
+            title="仅处理本页已勾选且尚未分配的任务" @click="handleAutoAssign('selected')">排班已选（{{ selectedTaskIds.length }}）</button>
           <button
             class="btn btn-sm btn-danger inline-flex items-center gap-1 flex-shrink-0"
               :disabled="selectedTaskIds.length === 0 || deletedOnly"
