@@ -15,6 +15,35 @@ def fixture():
     yield from campus_fixture.__wrapped__()
 
 
+def test_linked_teaching_class_task_assembly_uses_sql_distinct(campus):
+    from app.modules.academic.models import AdministrativeClass, Student, TeachingClass, TeachingClassStudent
+    from app.modules.inspection.service import InspectionService
+    from sqlalchemy import event
+
+    db, _, a, _, own, _ = prepare(campus)
+    task = db.get(InspectionTask, own.task_id)
+    teaching = db.scalar(select(TeachingClass).where(TeachingClass.college_id == int(a["id"])))
+    task.teaching_class_id = teaching.id
+    db.add(TeachingClassStudent(teaching_class_id=teaching.id, student_id=own.student_id))
+    db.commit()
+    statements = []
+
+    def collect(_conn, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    event.listen(db.get_bind(), "before_cursor_execute", collect)
+    try:
+        rows = InspectionService(db)._assemble_tasks([task])
+    finally:
+        event.remove(db.get_bind(), "before_cursor_execute", collect)
+    expected = db.get(
+        AdministrativeClass, db.get(Student, own.student_id).administrative_class_id
+    ).class_name
+    assert len(rows) == 1 and rows[0].administrative_classes == [expected]
+    projections = [s for s in statements if "teaching_class_student" in s and "JOIN student" in s]
+    assert len(projections) == 1 and "SELECT DISTINCT" in projections[0]
+
+
 def test_task_search_count_summary_and_second_page(campus):
     db, _, a, _, own, _ = prepare(campus)
     source = db.get(InspectionTask, own.task_id)

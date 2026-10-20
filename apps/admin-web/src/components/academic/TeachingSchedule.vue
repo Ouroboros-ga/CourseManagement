@@ -41,6 +41,7 @@ const sessionStore = useSessionStore()
 
 const activeTab = ref<'dispatch' | 'master'>(props.mode === 'academic' ? 'master' : 'dispatch')
 const loading = ref(false)
+const dispatchError = ref('')
 const dispatchLoading = ref(false)
 const adminClasses = ref<AdministrativeClassItem[]>([])
 const selectedAdminClassId = ref<string>('')
@@ -223,6 +224,10 @@ async function loadData(reset = true) {
   const current = () => ticket === dispatchEpoch && context === dispatchContext()
   const previousRevision = selectionRevision.value
   occurrences.value = []
+  occurrenceTotal.value = 0
+  weekTasks.value = []
+  weekTaskTotal.value = 0
+  dispatchError.value = ''
   if (reset) { selectionRevision.value = ''; selectionScope.value = {}; smartSampleResult.value = null }
   if (!sessionStore.currentSemesterId) return
   loading.value = true
@@ -235,15 +240,20 @@ async function loadData(reset = true) {
     }
 
     // 2. 加载本周已有的查课任务（可按选中的行政班联动过滤）
-    const taskRes = sessionStore.hasPermission('inspection.read') ? await listTasks({
-      semester_id: sessionStore.currentSemesterId,
-      week_no: sessionStore.currentWeekNo,
-      administrative_class_id: selectedAdminClassId.value ? selectedAdminClassId.value : undefined,
-      page: weekTaskPage.value, page_size: 50
-    }) : { items: [], total: 0 }
-    if (!current()) return
-    weekTasks.value = taskRes.items || []
-    weekTaskTotal.value = taskRes.total
+    try {
+      const taskRes = sessionStore.hasPermission('inspection.read') ? await listTasks({
+        semester_id: sessionStore.currentSemesterId,
+        week_no: sessionStore.currentWeekNo,
+        administrative_class_id: selectedAdminClassId.value ? selectedAdminClassId.value : undefined,
+        page: weekTaskPage.value, page_size: 50
+      }) : { items: [], total: 0 }
+      if (!current()) return
+      weekTasks.value = taskRes.items || []
+      weekTaskTotal.value = taskRes.total
+    } catch (err: unknown) {
+      if (!current()) return
+      dispatchError.value = `已有任务加载失败：${err instanceof Error ? err.message : '请稍后重试'}`
+    }
 
     // 3. 查询当周排课课次（支持按行政班精准过滤，或查当周全量课次）
     if (sessionStore.weekDateRange.start && sessionStore.weekDateRange.end && (!organizationMode.value || executionGroupId.value)) {
@@ -267,14 +277,14 @@ async function loadData(reset = true) {
         selectionScope.value = occRes.selection_scope || {}
       } catch (err: unknown) {
         if (!current()) return
-        ElMessage.error(err instanceof Error ? err.message : '加载排课课次失败')
+        dispatchError.value = [dispatchError.value, `排课课次加载失败：${err instanceof Error ? err.message : '请稍后重试'}`].filter(Boolean).join('；')
         occurrences.value = []
       }
     } else {
       occurrences.value = []
     }
   } catch (err: unknown) {
-    console.error('加载排班数据失败:', err)
+    if (current()) dispatchError.value = `查课安排加载失败：${err instanceof Error ? err.message : '请稍后重试'}`
   } finally {
     if (current()) loading.value = false
   }
@@ -1188,7 +1198,11 @@ function applySmartSample() {
         </table>
       </div>
 
-      <AppPagination v-model:current-page="occurrencePage" :total="occurrenceTotal" @current-change="loadData(false)" />
+      <el-alert v-if="dispatchError" type="error" :closable="false" show-icon>
+        <template #title>{{ dispatchError }}</template>
+        <el-button :disabled="loading" @click="loadData(false)">重新加载</el-button>
+      </el-alert>
+      <AppPagination v-if="!dispatchError || occurrences.length" v-model:current-page="occurrencePage" :total="occurrenceTotal" @current-change="loadData(false)" />
       <p v-if="selectedKeys.length" class="sub">已跨页勾选 {{ selectedKeys.length }} 节；切换页码保留勾选，修改筛选条件会清空。</p>
 
       <!-- 本周已生成的任务清单 -->
@@ -1224,7 +1238,7 @@ function applySmartSample() {
       </div>
 
       <!-- 空状态 -->
-      <div v-if="!loading && !hasData" class="empty-box">
+      <div v-if="!loading && !dispatchError && !hasData" class="empty-box">
         <div class="empty-icon flex justify-center mb-2">
           <AppIcon name="folder-open" :size="36" class="icon-mute" />
         </div>

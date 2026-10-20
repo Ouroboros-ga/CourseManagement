@@ -1024,8 +1024,8 @@ class InspectionService:
                         TeachingClassStudent.teaching_class_id.in_(tc_ids),
                         Student.status == "ACTIVE",
                     )
+                    .distinct()
                 )
-                .distinct()
                 .all()
             )
             for tid, ac_name, ht, co in stu_rows:
