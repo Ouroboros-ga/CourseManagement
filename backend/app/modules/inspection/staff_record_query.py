@@ -422,6 +422,7 @@ class StaffRecordQueryService:
             teaching_class_id=str(task.teaching_class_id) if task.teaching_class_id else None,
             occurrence_key=occurrence_key,
             course_name=task.course_name_snapshot or "",
+            class_name_snapshot=task.class_name_snapshot,
             responsible_college=college_brief,
             inspection_date=task.inspection_date.isoformat(),
             starts_at=task.activity_start_at.isoformat() if task.activity_start_at else None,
