@@ -48,7 +48,7 @@ const selectedTaskIds = ref<string[]>([])
 const drawerVisible = ref(false)
 const activeTask = ref<InspectionTaskItem | null>(null)
 const searchQuery = ref('')
-const selectedStatus = ref('')
+const selectedStatus = ref(needsAttention.value === 'unassigned' ? '未分配' : '')
 const selectedDayFilter = ref<string>('ALL')
 const filterOnlyChangeRequests = ref(false)
 
@@ -118,18 +118,26 @@ const weekDayOptions = computed(() => {
   })
 })
 
-function taskQuery() { return {
-      deleted_only: deletedOnly.value,
-      semester_id: sessionStore.currentSemesterId,
-      week_no: needsAttention.value ? undefined : sessionStore.currentWeekNo,
-      needs_attention: needsAttention.value,
-      page: attentionPage.value,
-      page_size: 50,
-      keyword: searchQuery.value.trim() || undefined,
-      status: statusCodes[selectedStatus.value],
-      inspection_date: selectedDayFilter.value === 'ALL' ? undefined : weekDayOptions.value.find(d => d.value === selectedDayFilter.value)?.isoDate,
-      pending_change: filterOnlyChangeRequests.value || undefined
-    } }
+function taskQuery() {
+  const isUnassigned = selectedStatus.value === '未分配'
+  const activeNeedsAttention = isUnassigned
+    ? 'unassigned'
+    : (selectedStatus.value ? undefined : needsAttention.value)
+  const activeWeekNo = (needsAttention.value && !selectedStatus.value) ? undefined : sessionStore.currentWeekNo
+
+  return {
+    deleted_only: deletedOnly.value,
+    semester_id: sessionStore.currentSemesterId,
+    week_no: activeWeekNo,
+    needs_attention: activeNeedsAttention,
+    page: attentionPage.value,
+    page_size: 50,
+    keyword: searchQuery.value.trim() || undefined,
+    status: isUnassigned ? undefined : statusCodes[selectedStatus.value],
+    inspection_date: selectedDayFilter.value === 'ALL' ? undefined : weekDayOptions.value.find(d => d.value === selectedDayFilter.value)?.isoDate,
+    pending_change: filterOnlyChangeRequests.value || undefined
+  }
+}
 
 async function fetchTasks() {
   const ticket = taskEpoch.begin()
@@ -149,7 +157,7 @@ async function fetchTasks() {
   }
 }
 
-const statusCodes: Record<string, string> = { '待执行': 'NOT_STARTED', '已逾期': 'OVERDUE', '待审核': 'SUBMITTED', '已完成': 'REVIEWED', '已取消': 'CANCELLED' }
+const statusCodes: Record<string, string> = { '待执行': 'NOT_STARTED', '已逾期': 'OVERDUE', '已取消': 'CANCELLED', '已完成': 'REVIEWED' }
 const filteredTasks = computed(() => tasks.value)
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 watch([searchQuery, selectedStatus, selectedDayFilter, filterOnlyChangeRequests, deletedOnly, needsAttention,
@@ -643,10 +651,10 @@ async function handleConfirmCancelFromEdit() {
           <select v-model="selectedStatus" class="input status-select">
             <option value="">全部状态</option>
             <option value="待执行">待执行</option>
+            <option value="未分配">未分配</option>
             <option value="已逾期">已逾期</option>
-            <option value="待审核">待审核</option>
-            <option value="已完成">已完成</option>
             <option value="已取消">已取消</option>
+            <option value="已完成">已完成</option>
           </select>
           <button
             class="btn btn-sm btn-primary inline-flex items-center gap-1 shadow-sm flex-shrink-0"
