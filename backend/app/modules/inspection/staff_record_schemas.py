@@ -47,6 +47,7 @@ class StaffInspectionRecordCard(BaseModel):
     teaching_class_id: str | None = None
     occurrence_key: str
     course_name: str
+    class_name_snapshot: str | None = None
     responsible_college: CollegeBrief
     inspection_date: str
     starts_at: str | None = None

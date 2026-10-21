@@ -21,7 +21,23 @@
   --amber-soft: #F7EEDC;
   --blue: #3A5A8C;
   --blue-soft: #E3EAF3;
+
+  /* 圆角：2px 小控件 / 3px 基础容器 / 4px 弹层内容 / 20px 胶囊 */
+  --radius-sm: 2px;
   --radius: 3px;
+  --radius-md: 4px;
+  --radius-pill: 20px;
+
+  /* 字号阶梯：页面标题 22 / 区块标题 18 / 卡片标题 16 / 强调正文 14
+     正文 13 / 辅助说明 12 / 标签与表头 11 */
+  --text-caption: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
+  --text-hero: 24px;
 
   /* Element Plus 主题令牌覆盖 */
   --el-color-primary: #1C1B1A;
@@ -83,13 +99,76 @@ body.el-popup-parent--hidden {
 .font-serif { font-family: 'Noto Serif SC', serif; }
 .font-mono { font-family: 'JetBrains Mono', monospace; }
 
+/* ---------- 全局排版基线 ----------
+   标题层级只由这里定义：h1 22 / h2 18 / h3 16 / h4 14。
+   页面和组件不要再为同类标题另设字号，特殊情况用工具类。 */
+h1, h2, h3, h4 {
+  font-family: 'Noto Serif SC', serif;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+}
+h1 { font-size: var(--text-2xl); }
+h2 { font-size: var(--text-xl); }
+h3 { font-size: var(--text-lg); }
+h4 { font-size: var(--text-md); }
+
+.hint {
+  font-size: var(--text-xs);
+  color: var(--ink-mute);
+  line-height: 1.7;
+}
+.meta {
+  font-size: var(--text-xs);
+  color: var(--ink-mute);
+}
+.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 统一折叠区块 ----------
+   <details class="disclosure"> 与 el-collapse 共用同一视觉语言。 */
+.disclosure {
+  margin: 14px 0;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper-deep);
+}
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+  list-style: none;
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before {
+  content: '+';
+  width: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: var(--text-sm);
+  color: var(--ink-mute);
+}
+.disclosure[open] > summary::before { content: '−'; }
+.disclosure[open] > summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+}
+.disclosure > *:not(summary):last-child { margin-bottom: 12px; }
+
 /* ---------- 按钮 ---------- */
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 10px 20px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   font-family: inherit;
   color: var(--ink);
@@ -97,7 +176,7 @@ body.el-popup-parent--hidden {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--dur-m) var(--ease);
   white-space: nowrap;
 }
 .btn:hover { border-color: var(--ink); }
@@ -131,7 +210,7 @@ body.el-popup-parent--hidden {
 }
 .btn-danger-line:hover { background: var(--accent-soft); border-color: var(--accent); }
 
-.btn-sm { padding: 6px 14px; font-size: 12px; }
+.btn-sm { padding: 6px 14px; font-size: var(--text-xs); }
 
 /* ---------- 状态标签 ---------- */
 .tag {
@@ -139,10 +218,10 @@ body.el-popup-parent--hidden {
   align-items: center;
   gap: 5px;
   padding: 3px 10px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 600;
   letter-spacing: 0.02em;
-  border-radius: 20px;
+  border-radius: var(--radius-pill);
   white-space: nowrap;
 }
 .tag::before {
@@ -177,11 +256,11 @@ body.el-popup-parent--hidden {
 }
 .tbl-head h3 {
   font-family: 'Noto Serif SC', serif;
-  font-size: 16px;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 .tbl-head .meta {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--ink-mute);
   margin-top: 2px;
 }
@@ -190,12 +269,12 @@ body.el-popup-parent--hidden {
 .tbl {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .tbl thead th {
   text-align: left;
   padding: 12px 24px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 600;
   color: var(--ink-mute);
   letter-spacing: 0.05em;
@@ -213,20 +292,20 @@ body.el-popup-parent--hidden {
 .tbl tbody tr:hover { background: var(--paper-deep); }
 
 .cell-main { font-weight: 600; color: var(--ink); }
-.cell-sub { font-size: 12px; color: var(--ink-mute); margin-top: 2px; }
-.cell-mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.cell-sub { font-size: var(--text-xs); color: var(--ink-mute); margin-top: 2px; }
+.cell-mono { font-family: 'JetBrains Mono', monospace; font-size: var(--text-xs); }
 
 /* ---------- 表单 ---------- */
 .input {
   padding: 8px 12px;
   border: 1px solid var(--line-strong);
   background: var(--paper);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-family: inherit;
   color: var(--ink);
   border-radius: var(--radius);
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color var(--dur-f) ease;
 }
 .input:focus { border-color: var(--ink); }
 .input::placeholder { color: var(--ink-mute); }
@@ -238,12 +317,12 @@ select.input { cursor: pointer; }
   width: 16px;
   height: 16px;
   border: 1px solid var(--line-strong);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
   position: relative;
-  transition: all 0.2s;
+  transition: all var(--dur-f) ease;
   vertical-align: middle;
   background: var(--paper);
 }
@@ -277,7 +356,7 @@ select.input { cursor: pointer; }
   padding: 14px 18px;
 }
 .stat-cell .label {
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 600;
   color: var(--ink-mute);
   letter-spacing: 0.05em;
@@ -286,13 +365,13 @@ select.input { cursor: pointer; }
 }
 .stat-cell .value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 24px;
+  font-size: var(--text-hero);
   font-weight: 600;
   line-height: 1;
   margin-bottom: 4px;
 }
-.stat-cell .note { font-size: 11px; color: var(--ink-mute); }
-.stat-cell .trend { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; }
+.stat-cell .note { font-size: var(--text-caption); color: var(--ink-mute); }
+.stat-cell .trend { font-family: 'JetBrains Mono', monospace; font-size: var(--text-caption); font-weight: 600; }
 .trend-up { color: var(--green); }
 .trend-down { color: var(--accent); }
 
@@ -315,14 +394,14 @@ select.input { cursor: pointer; }
 }
 .page-head h1 {
   font-family: 'Noto Serif SC', serif;
-  font-size: 22px;
+  font-size: var(--text-2xl);
   font-weight: 700;
   letter-spacing: 0.02em;
   margin-bottom: 4px;
   line-height: 1.25;
 }
 .page-head .sub {
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   color: var(--ink-mute);
   max-width: 680px;
   line-height: 1.5;
@@ -350,7 +429,7 @@ select.input { cursor: pointer; }
   padding: 32px;
 }
 .panel-title {
-  font-size: 12px;
+  font-size: var(--text-caption);
   font-weight: 600;
   color: var(--ink-mute);
   letter-spacing: 0.05em;
@@ -445,7 +524,7 @@ select.input { cursor: pointer; }
 }
 .el-drawer__title {
   font-family: 'Noto Serif SC', serif;
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 700;
 }
 .el-message-box {
@@ -481,7 +560,7 @@ select.input { cursor: pointer; }
 }
 .el-dialog__title {
   font-family: 'Noto Serif SC', serif;
-  font-size: 17px;
+  font-size: var(--text-xl);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--ink);
@@ -540,7 +619,7 @@ select.input { cursor: pointer; }
   height: 38px;
   line-height: 38px;
   padding: 0 16px !important;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 500;
   font-family: inherit;
   color: var(--ink-mute);
@@ -609,7 +688,7 @@ select.input { cursor: pointer; }
   font-family: inherit;
 }
 .el-alert__title {
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   font-weight: 500;
   color: var(--ink-soft);
   line-height: 1.6;
@@ -628,7 +707,7 @@ select.input { cursor: pointer; }
 .el-empty { padding: 44px 0; }
 .el-empty__description p {
   color: var(--ink-mute);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-family: inherit;
 }
 .el-empty__image svg .fill {
@@ -638,7 +717,7 @@ select.input { cursor: pointer; }
 .el-divider__text {
   background: var(--paper);
   color: var(--ink-mute);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-family: inherit;
 }
 
@@ -646,7 +725,7 @@ select.input { cursor: pointer; }
   border-radius: var(--radius);
   font-family: inherit;
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   border-color: var(--line-strong);
   color: var(--ink);
   background: var(--paper);
@@ -686,7 +765,7 @@ select.input { cursor: pointer; }
 
 /* ---------- el-tag 语义色对齐设计令牌 ---------- */
 .el-tag {
-  border-radius: 20px;
+  border-radius: var(--radius-pill);
   font-family: inherit;
   font-weight: 600;
 }
@@ -723,7 +802,7 @@ select.input { cursor: pointer; }
   background: var(--paper);
 }
 .el-table th.el-table__cell {
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -731,6 +810,47 @@ select.input { cursor: pointer; }
 }
 .el-table .el-table__cell {
   padding: 12px 0;
+}
+
+/* ---------- el-collapse 与 .disclosure 同一视觉语言 ---------- */
+.el-collapse {
+  --el-collapse-border-color: var(--line);
+  --el-collapse-header-bg-color: var(--paper-deep);
+  --el-collapse-content-bg-color: var(--paper);
+  border-top: none;
+  border-bottom: none;
+}
+.el-collapse-item__header {
+  height: auto;
+  min-height: 0;
+  padding: 12px 14px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-family: inherit;
+  line-height: 1.6;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.el-collapse-item.is-active > .el-collapse-item__header {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.el-collapse-item__wrap {
+  border: 1px solid var(--line);
+  border-top: none;
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+  background: var(--paper);
+}
+.el-collapse-item__content {
+  padding: 14px;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+.el-collapse-item {
+  margin-bottom: 8px;
 }
 
 /* ---------- el-pagination / el-select / el-input 细节 ---------- */

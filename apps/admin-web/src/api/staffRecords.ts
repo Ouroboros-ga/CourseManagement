@@ -27,6 +27,7 @@ export interface StaffRecordCard {
   teaching_class_id?: string | null
   occurrence_key: string
   course_name: string
+  class_name_snapshot?: string | null
   responsible_college: StaffCollegeBrief
   inspection_date: string
   starts_at?: string | null

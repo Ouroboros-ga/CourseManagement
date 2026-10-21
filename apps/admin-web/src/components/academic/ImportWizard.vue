@@ -107,10 +107,10 @@ function classesOpened(value: boolean) { if (value) void searchClasses('') }
         <input ref="folderInput" class="native-file" type="file" webkitdirectory multiple aria-label="选择导入文件夹" @change="selectFiles" /><input ref="zipInput" class="native-file" type="file" accept=".zip" multiple aria-label="选择 ZIP 压缩包" @change="selectFiles" /><input ref="fileInput" class="native-file" type="file" accept=".xlsx,.xls,.csv" multiple aria-label="选择多个表格" @change="selectFiles" />
         <p class="hint">支持子文件夹；ZIP 内请放同一种资料。每批最多 100 个表格，单表格 10 MiB、ZIP 50 MiB。</p>
       </div>
-      <el-alert v-if="selectingError" :title="selectingError" type="warning" :closable="false" /><details v-if="skippedFiles.length" class="hint"><summary>{{ skippedFiles.length }} 个非表格或临时文件未选入</summary><p v-for="name in skippedFiles" :key="name">{{ name }}</p></details>
+      <el-alert v-if="selectingError" :title="selectingError" type="warning" :closable="false" /><details v-if="skippedFiles.length" class="disclosure"><summary>{{ skippedFiles.length }} 个非表格或临时文件未选入</summary><p v-for="name in skippedFiles" :key="name">{{ name }}</p></details>
       <div v-if="files.length && !hasPreview" class="selected-files"><strong>已选择 {{ files.length }} 个文件{{ files.some(f => /\.zip$/i.test(f.name)) ? '（压缩包将在下一步展开）' : '' }}</strong><ul><li v-for="(file, index) in files" :key="index">{{ file.webkitRelativePath || file.name }}</li></ul></div>
       <div v-if="target === 'roster' && !hasPreview" class="setting-row"><label>对应教学班</label><el-select v-model="teachingClassId" filterable remote :remote-method="searchClasses" :loading="classBusy" placeholder="搜索本学期教学班" @visible-change="classesOpened"><el-option v-for="row in teachingClasses" :key="row.id" :value="row.id" :label="String(row.class_name || row.class_code || row.id)" /></el-select><p v-if="classError" role="alert">{{ classError }}</p></div>
-      <details v-if="isTimetable && !hasPreview" class="advanced"><summary>其他格式与课程类型</summary><div v-if="!embedded" class="setting-row"><span>文件格式</span><el-radio-group v-model="target"><el-radio value="grid_timetable">教务系统原表</el-radio><el-radio value="timetable">按平台模板填写的表格</el-radio></el-radio-group></div><div class="setting-row"><span>课程类型</span><el-select v-model="courseTypeId" placeholder="普通课（系统默认）" clearable><el-option v-for="row in courseTypes" :key="row.id" :value="row.id" :label="row.name" /></el-select></div><p v-if="courseTypeError" role="alert">{{ courseTypeError }}</p></details>
+      <details v-if="isTimetable && !hasPreview" class="advanced disclosure"><summary>其他格式与课程类型</summary><div v-if="!embedded" class="setting-row"><span>文件格式</span><el-radio-group v-model="target"><el-radio value="grid_timetable">教务系统原表</el-radio><el-radio value="timetable">按平台模板填写的表格</el-radio></el-radio-group></div><div class="setting-row"><span>课程类型</span><el-select v-model="courseTypeId" placeholder="普通课（系统默认）" clearable><el-option v-for="row in courseTypes" :key="row.id" :value="row.id" :label="row.name" /></el-select></div><p v-if="courseTypeError" role="alert">{{ courseTypeError }}</p></details>
       <el-alert v-if="error" :title="error" type="error" :closable="false" /><div v-if="!hasPreview" class="parse-action"><el-button type="primary" size="large" :disabled="!canUpload || busy || !!selectingError" @click="uploadAndReview">读取文件并预览</el-button><span class="hint">这一步只读取文件，不会保存正式资料。</span></div>
       <ImportReview v-if="hasPreview" :plan="plan" :drafts="drafts" :upload-errors="uploadErrors" :failures-excluded="failuresExcluded" :busy="busy" :can-confirm="canConfirm" @remove="removeFile" @retry="review" @restart="restart" @confirm="confirm" @exclude-failures="state.excludeUploadFailures" /><el-alert v-for="message in !hasPreview ? uploadErrors : []" :key="message" :title="message" type="error" :closable="false" />
     </template>
@@ -121,5 +121,75 @@ function classesOpened(value: boolean) { if (value) void searchClasses('') }
 </template>
 
 <style scoped>
-.import-context,.pick-actions,.parse-action,.setting-row { display:flex;align-items:center;gap:12px;flex-wrap:wrap; }.import-context { margin:12px 0 20px; }.import-context label { font-weight:600; }.hint { color:var(--ink-mute);font-size:12px; }.upload-area { background:var(--paper);border:1px dashed var(--line-strong);padding:26px; }.upload-area h2 { font-size:18px;margin-bottom:6px; }.upload-area p { color:var(--ink-soft); }.pick-actions { margin:18px 0 12px; }.native-file { display:none; }.selected-files { margin:16px 0; }.selected-files ul { max-height:150px;overflow:auto;list-style:disc;padding-left:22px;margin-top:8px; }.selected-files li { font-size:13px;line-height:1.8;overflow-wrap:anywhere; }.advanced { margin:18px 0;color:var(--ink-soft);font-size:13px; }.advanced summary { cursor:pointer; }.setting-row { margin:14px 0; }.parse-action { margin:20px 0; }.el-alert { margin:12px 0; }@media(max-width:700px) { .upload-area { padding:18px; }.pick-actions { align-items:stretch; }.pick-actions .el-button { margin-left:0; } }
+.import-context,
+.pick-actions,
+.parse-action,
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.import-context {
+  margin: 12px 0 20px;
+}
+.import-context label {
+  font-weight: 600;
+}
+.upload-area {
+  padding: 26px;
+  border: 1px dashed var(--line-strong);
+  background: var(--paper);
+}
+.upload-area h2 {
+  margin-bottom: 6px;
+}
+.upload-area p {
+  color: var(--ink-soft);
+}
+.pick-actions {
+  margin: 18px 0 12px;
+}
+.native-file {
+  display: none;
+}
+.selected-files {
+  margin: 16px 0;
+}
+.selected-files ul {
+  max-height: 150px;
+  overflow: auto;
+  margin-top: 8px;
+  padding-left: 22px;
+  list-style: disc;
+}
+.selected-files li {
+  font-size: var(--text-sm);
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.advanced {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+.setting-row {
+  margin: 14px 0;
+}
+.parse-action {
+  margin: 20px 0;
+}
+.el-alert {
+  margin: 12px 0;
+}
+@media (max-width: 700px) {
+  .upload-area {
+    padding: 18px;
+  }
+  .pick-actions {
+    align-items: stretch;
+  }
+  .pick-actions .el-button {
+    margin-left: 0;
+  }
+}
 </style>

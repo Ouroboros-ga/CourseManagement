@@ -163,6 +163,7 @@ def staff_records_db():
             end_period=2,
             teaching_class_id=1,
             course_name_snapshot="高等数学A",
+            class_name_snapshot="高数1班",
             classroom_snapshot="教101",
             expected_count_snapshot=3,
             expected_count_current=3,
@@ -359,6 +360,8 @@ def test_teaching_view_local_anchor_does_not_expand_to_shared_views(staff_record
         task_ids = [item["task_id"] for item in data["items"]]
         assert "1" in task_ids
         assert "2" not in task_ids
+        task1 = next(item for item in data["items"] if item["task_id"] == "1")
+        assert task1["class_name_snapshot"] == "高数1班"
 
         # 2. 单条详情读取：Task 1 允许，Task 2 拒绝 (404)
         assert client.get("/api/v1/me/inspection-records/1?view=teaching").status_code == 200
