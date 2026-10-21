@@ -30757,6 +30757,16 @@
                 "type": "null"
               }
             ]
+          },
+          "student": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudentAppSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -33341,6 +33351,30 @@
                 "type": "null"
               }
             ]
+          },
+          "student_no": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student No",
+            "description": "已绑定学生的学号，保留前导零"
+          },
+          "college_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College Name",
+            "description": "已绑定学生当前所属学院名称，仅供展示"
           }
         },
         "type": "object",
@@ -38895,6 +38929,84 @@
         "type": "object",
         "title": "StaffWorkViews",
         "description": "本人当前有效职责视图；不代表任何写入授权。"
+      },
+      "StudentAppSummary": {
+        "properties": {
+          "student_id": {
+            "type": "string",
+            "title": "Student Id"
+          },
+          "student_no": {
+            "type": "string",
+            "title": "Student No"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "administrative_class_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Administrative Class Id"
+          },
+          "administrative_class_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Administrative Class Name"
+          },
+          "college_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College Id"
+          },
+          "college_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College Name"
+          },
+          "enrollment_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enrollment Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id",
+          "student_no",
+          "name"
+        ],
+        "title": "StudentAppSummary"
       },
       "StudentBatchDeleteRequest": {
         "properties": {
