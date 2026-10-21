@@ -31,7 +31,7 @@ const labels = { CREATE: '新增', UPDATE: '修改', UNCHANGED: '无变化' }
           {{ issue.row ? `第 ${issue.row} 行 · ` : '' }}{{ issue.field || '' }} {{ issue.message }}
         </p>
       </section>
-      <details v-if="issues.people.length" class="person-links">
+      <details v-if="issues.people.length" class="person-links disclosure">
         <summary>人员待关联 {{ issues.people.length }} 项 · 不影响课表保存</summary>
         <p class="section-note">{{ personLinkNotice(issues.people.length) }}</p>
         <p class="section-note">可先保存课表，再导入教职工档案并补齐关联。重名或工号不符时需核对，系统不会猜配。</p>
@@ -59,15 +59,47 @@ const labels = { CREATE: '新增', UPDATE: '修改', UNCHANGED: '无变化' }
 </template>
 
 <style scoped>
-.file-summary { margin-bottom: 16px; }
-.blocking-section, .warning-section { margin: 16px 0; }
-.problem { color: var(--red, #b42318); margin: 8px 0; }
-.warning { color: var(--amber, #946200); margin: 8px 0; }
-.section-note { color: var(--ink-mute); font-size: 13px; margin: 8px 0 12px; }
-.person-links { padding: 14px 16px; margin: 16px 0; background: var(--paper-deep, #f6f5f2); border: 1px solid var(--line); border-radius: 4px; }
-.person-links > summary { cursor: pointer; font-weight: 600; line-height: 1.6; }
-.detail-heading { margin-top: 22px; }
-.business-fields { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 13px; line-height: 1.8; }
-.before-values { margin-top: 8px; }
-.el-pagination { margin-top: 16px; }
+.file-summary {
+  margin-bottom: 16px;
+}
+.blocking-section,
+.warning-section {
+  margin: 16px 0;
+}
+.problem {
+  color: var(--accent);
+  margin: 8px 0;
+}
+.warning {
+  color: var(--amber);
+  margin: 8px 0;
+}
+.section-note {
+  margin: 8px 0 12px;
+  font-size: var(--text-sm);
+  color: var(--ink-mute);
+}
+.person-links {
+  margin: 16px 0;
+}
+.person-links > summary {
+  font-weight: 600;
+  line-height: 1.6;
+}
+.detail-heading {
+  margin-top: 22px;
+}
+.business-fields {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.8;
+}
+.before-values {
+  margin-top: 8px;
+}
+.el-pagination {
+  margin-top: 16px;
+}
 </style>

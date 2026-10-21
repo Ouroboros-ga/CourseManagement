@@ -8,7 +8,7 @@ const scoped = (path: string, tab?: string) => ({ path, query: {
 </script>
 
 <template>
-  <details class="conflict-help">
+  <details class="conflict-help disclosure">
     <summary>重名、编号不符或缺少档案，怎么处理？</summary>
     <p>学生按学号、教师按工号关联。姓名相同不会合并，不能默认选择本学院的同名教师。</p>
     <ol>
@@ -29,5 +29,18 @@ const scoped = (path: string, tab?: string) => ({ path, query: {
 </template>
 
 <style scoped>
-.conflict-help { margin:18px 0;padding:16px;border:1px solid var(--line);font-size:13px;line-height:1.8; }.conflict-help summary { cursor:pointer;font-weight:600; }.conflict-help ol { padding-left:22px; }.help-links { display:flex;gap:16px;flex-wrap:wrap;margin-top:10px; }.hint { color:var(--ink-mute); }
+.conflict-help {
+  margin: 18px 0;
+  font-size: var(--text-sm);
+  line-height: 1.8;
+}
+.conflict-help ol {
+  padding-left: 22px;
+}
+.help-links {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
 </style>
