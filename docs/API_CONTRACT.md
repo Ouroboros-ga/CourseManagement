@@ -1,3 +1,14 @@
+## 2026-10-21 管理端考勤分组
+
+- 新增 GET `/api/v1/attendance/groups` 与 `/api/v1/colleges/{cid}/attendance/groups`。前者仅供旧全校管理模式；正式学院模式继续关闭旧入口。后者复用 `attendance.read`、学院与资源范围，任职本人入口和学生小程序入口不扩权。
+- `group_by=task|administrative_class`，默认 task；`semester_id/page/page_size/effective_type` 与原管理列表一致，默认50组。课次按具体任务ID分组，合班课、重复任务与不同负责学院不按课程名混并。行政班按名单中的历史ID分组，不关联当前学籍猜补；未知ID单列“历史班级待核对”。班级标签取已有历史名称，不据当前班级改写。
+- 分组和管理列表共享新增过滤：`start_date/end_date`（含首尾）、`keyword`（姓名/学号/历史班级/课程/教学班/教室）、`administrative_class_id`、`unknown_class`、`abnormal_only`；原 `course_type_id/group_id/teaching_class_id` 维度继续可用。日期倒置返回422；过滤只收窄原授权范围。
+- 返回 `items/total/page/page_size/group_by/summary`。total为组数；summary及各组含 `record_count/task_count/normal_count/late_count/absent_count/leave_count`，按完整筛选范围的当前有效考勤计算。记录数不是学生去重人数，不生成缺乏依据的应到分母或出勤率；状态/仅异常过滤会先筛记录，再计算汇总。
+- 课次项含 `task_id/course_name/teaching_class_name/inspection_date/start_period/end_period/classroom/volunteer_name`；执行人取最后通过提交的账号对应姓名，无可靠提交时明确待核对。行政班项含 `administrative_class_id/class_name`；null ID可用 `unknown_class=true` 下钻。
+- 管理列表/详情增加 `administrative_class_id/administrative_class_name`。历史名单优先取最后通过提交的 roster_version，无通过提交时回退任务版本；名单唯一连接避免多版本放大计数。学生个人响应不新增学院或管理字段，照片仍使用既有授权签名入口。
+
+Web按课次默认展示；行政班进入该班各次查课，再打开名单与照片，名单按需分页。新Web与后端需成套发布，细节与状态见 [实施记录](development/ATTENDANCE_GROUPING_20261021.md)。
+
 ## 2026-10-21 排班预览展示资料
 
 `POST /api/v1/colleges/{cid}/groups/{gid}/inspection/assignment-plans/preview` 的响应新增 `data.display`，原请求和确认提交契约不变，不新增路由或权限。

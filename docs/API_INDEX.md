@@ -1,5 +1,7 @@
 # API 路由索引
 
+2026-10-21：新增 GET `/attendance/groups` 及 `/colleges/{cid}/attendance/groups`（均带 `/api/v1`），按具体查课任务或历史行政班汇总；管理列表增加同口径检索条件。352个路径、413个操作，契约与边界见 [API契约](API_CONTRACT.md)。
+
 2026-10-21：排班计划 preview 响应新增 `display`（组/学期名称、任务资料、拟派发人员姓名/学号/当前班级），无新增路由。确认契约保持不变，详见 [API 契约](API_CONTRACT.md) 与 [改版记录](development/ASSIGNMENT_PREVIEW_REDESIGN_20261021.md)。
 
 2026-10-20，依据当前 app.main OpenAPI 生成：350 个路径、411 个操作。新增统一分页、任务筛选/摘要/导出、人员批量读取、任职分页及组织学期摘要；本轮尚未提交部署，状态见 [当前实施状态](development/IMPLEMENTATION_STATUS.md)，参数见 [API 契约](API_CONTRACT.md) 和 [查询整改说明](development/LIST_PAGINATION_QUERY_AUDIT_20261020.md)。

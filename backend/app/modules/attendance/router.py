@@ -20,9 +20,11 @@ from app.common.pagination import PageParams, page_params
 from app.common.responses import success
 from app.core.database import get_db
 from app.core.permissions import PermissionCode
+from app.modules.attendance.browse import FiltersDep
 from app.modules.attendance.schemas import (
     AttendanceCorrectionRequest,
     AttendanceDetailEnvelope,
+    AttendanceGroupEnvelope,
     AttendanceListEnvelope,
     ManagementAttendanceListEnvelope,
 )
@@ -75,6 +77,7 @@ def list_attendance(
     request: Request,
     params: Annotated[PageParams, Depends(page_params)],
     dimensions: DimensionsDep,
+    filters: FiltersDep,
     task_id: Annotated[int | None, Query(ge=1)] = None,
     semester_id: Annotated[int | None, Query(ge=1)] = None,
     effective_type: Annotated[str | None, Query(max_length=16)] = None,
@@ -86,8 +89,24 @@ def list_attendance(
         semester_id=semester_id,
         dimensions=dimensions,
         effective_type=effective_type,
+        filters=filters,
     )
     return success(data, _rid(request))
+
+
+@router.get("/attendance/groups", response_model=AttendanceGroupEnvelope)
+def list_attendance_groups(
+    actor: AttendanceReadDep, service: ServiceDep, request: Request,
+    params: Annotated[PageParams, Depends(page_params)],
+    filters: FiltersDep, dimensions: DimensionsDep,
+    group_by: Annotated[str, Query(pattern="^(task|administrative_class)$")] = "task",
+    semester_id: Annotated[int | None, Query(gt=0)] = None,
+    effective_type: Annotated[str | None, Query(pattern="^(NORMAL|LATE|ABSENT|LEAVE)$")] = None,
+):
+    """完整管理范围按具体查课任务或历史行政班汇总，分页单位为组。"""
+    return success(service.list_groups(actor, params, group_by=group_by,
+        semester_id=semester_id, effective_type=effective_type,
+        filters=filters, dimensions=dimensions), _rid(request))
 
 
 # ---- 单条考勤详情（按范围鉴权）----

@@ -86,6 +86,8 @@ class AttendanceResponse(BaseModel):
 
 class ManagementAttendanceResponse(AttendanceResponse):
     task: ManagementAttendanceTaskBrief | None
+    administrative_class_id: OptIdStr = None
+    administrative_class_name: str | None = None
 
 
 class AttendancePageResponse(BaseModel):
@@ -116,6 +118,42 @@ class ManagementAttendanceListEnvelope(BaseModel):
 
 class ManagementAttendanceDetailEnvelope(BaseModel):
     data: ManagementAttendanceResponse
+    requestId: str | None = None
+
+
+class AttendanceCounts(BaseModel):
+    record_count: int
+    task_count: int
+    normal_count: int
+    late_count: int
+    absent_count: int
+    leave_count: int
+
+
+class AttendanceGroup(AttendanceCounts):
+    task_id: OptIdStr = None
+    course_name: str | None = None
+    teaching_class_name: str | None = None
+    inspection_date: date | None = None
+    start_period: int | None = None
+    end_period: int | None = None
+    classroom: str | None = None
+    volunteer_name: str | None = None
+    administrative_class_id: OptIdStr = None
+    class_name: str | None = None
+
+
+class AttendanceGroupPage(BaseModel):
+    items: list[AttendanceGroup]
+    total: int
+    page: int
+    page_size: int
+    group_by: Literal["task", "administrative_class"]
+    summary: AttendanceCounts
+
+
+class AttendanceGroupEnvelope(BaseModel):
+    data: AttendanceGroupPage
     requestId: str | None = None
 
 

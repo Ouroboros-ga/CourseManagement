@@ -10,8 +10,10 @@ from app.common.responses import success
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.exceptions import AppError, ErrorCode
+from app.modules.attendance.browse import FiltersDep
 from app.modules.attendance.schemas import (
     AttendanceCorrectionRequest,
+    AttendanceGroupEnvelope,
     ManagementAttendanceDetailEnvelope,
     ManagementAttendanceListEnvelope,
 )
@@ -48,6 +50,7 @@ def list_attendance(
     request: Request,
     params: Annotated[PageParams, Depends(page_params)],
     dimensions: DimensionsDep,
+    filters: FiltersDep,
     task_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     semester_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
     effective_type: Annotated[str | None, Query(max_length=16)] = None,
@@ -60,9 +63,25 @@ def list_attendance(
             semester_id=semester_id,
             dimensions=dimensions,
             effective_type=effective_type,
+            filters=filters,
         ),
         getattr(request.state, "request_id", None),
     )
+
+
+@router.get("/colleges/{cid}/attendance/groups", response_model=AttendanceGroupEnvelope)
+def grouped_attendance(
+    cid: ResourceId, actor: CurrentUserDep, service: Service, request: Request,
+    params: Annotated[PageParams, Depends(page_params)],
+    filters: FiltersDep, dimensions: DimensionsDep,
+    group_by: Annotated[str, Query(pattern="^(task|administrative_class)$")] = "task",
+    semester_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
+    effective_type: Annotated[str | None, Query(pattern="^(NORMAL|LATE|ABSENT|LEAVE)$")] = None,
+):
+    """在 attendance.read 的任务归属范围内统计，历史班级未知时明确单列。"""
+    return success(service.list_groups(actor, params, group_by=group_by,
+        semester_id=semester_id, effective_type=effective_type,
+        filters=filters, dimensions=dimensions), getattr(request.state, "request_id", None))
 
 
 @router.get("/colleges/{cid}/attendance/{rid}", response_model=ManagementAttendanceDetailEnvelope)

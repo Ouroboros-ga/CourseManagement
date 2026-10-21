@@ -126,6 +126,7 @@ class AttendanceService:
         semester_id: int | None,
         effective_type: str | None,
         dimensions: TaskDimensions | None = None,
+        filters=None,
     ) -> dict:
         """管理范围考勤列表（GET /attendance）：仅管理类角色，越权 403。"""
         self._require(actor.id, perms.ATTENDANCE_READ_PERMISSION)
@@ -139,6 +140,7 @@ class AttendanceService:
             semester_id=semester_id,
             effective_type=effective_type,
             dimensions=dimensions,
+            filters=filters,
         )
         dto = self._assemble(rows)
         return {
@@ -147,6 +149,15 @@ class AttendanceService:
             "page_size": params.page_size,
             "total": total,
         }
+
+    def list_groups(self, actor, params, *, group_by, semester_id, effective_type,
+                    filters, dimensions=None):
+        self._require(actor.id, perms.ATTENDANCE_READ_PERMISSION)
+        self._legacy_manage_gate()
+        if not self._can_manage(actor):
+            raise PermissionDeniedError("仅管理角色可查看分组考勤")
+        return self._repo.list_groups(params, group_by=group_by, filters=filters,
+            semester_id=semester_id, effective_type=effective_type, dimensions=dimensions)
 
     def list_my_attendance(
         self,
@@ -328,9 +339,7 @@ class AttendanceService:
                 select(Semester).where(Semester.id.in_({t.semester_id for t in tasks.values()}))
             )
         }
-        version_by_task = {tid: t.roster_version for tid, t in tasks.items()}
-        pairs = [(r.task_id, r.student_id) for r in records]
-        display = self._repo.map_roster_display(pairs, version_by_task)
+        history = self._repo.map_history([r.id for r in records])
 
         # 批量查所涉考勤记录的异议信息（取最新一条，禁 N+1）
         record_ids = [r.id for r in records]
@@ -349,7 +358,9 @@ class AttendanceService:
         out: list[ManagementAttendanceResponse] = []
         for r in records:
             task: InspectionTask | None = tasks.get(r.task_id)
-            sno, name = display.get((r.task_id, r.student_id), (None, None))
+            snapshot = history.get(r.id)
+            sno, name = ((snapshot.student_no, snapshot.name) if snapshot is not None
+                         else (None, None))
 
             # 任务时段与教室简报
             period_text = (
@@ -410,6 +421,10 @@ class AttendanceService:
                     name=name,
                     effective_type=r.effective_type,
                     current_version=r.current_version,
+                    administrative_class_id=(snapshot.administrative_class_id
+                                             if snapshot is not None else None),
+                    administrative_class_name=(snapshot.class_name
+                                               if snapshot is not None else None),
                     source_submission_item_id=r.source_submission_item_id,
                     photo_file_ids=photos_by_record.get(r.id, []),
                     task=task_brief,

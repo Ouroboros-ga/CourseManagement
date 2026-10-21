@@ -80,6 +80,7 @@ class AttendanceRepository:
         semester_id: int | None = None,
         effective_type: str | None = None,
         dimensions: TaskDimensions | None = None,
+        filters=None,
     ) -> tuple[list[AttendanceRecord], int]:
         """按数据范围取当前考勤。
 
@@ -87,8 +88,20 @@ class AttendanceRepository:
         任务/学期过滤经关联 inspection_task（考勤本身不存学期，随任务归属，技术方案 9.2）。
         """
         stmt = self._records()
+        if filters is not None:
+            from app.modules.attendance.browse import facts
+
+            selected = facts(self._records().with_only_columns(AttendanceRecord.id), filters,
+                semester_id=semester_id, task_id=task_id, effective_type=effective_type,
+                dimensions=dimensions).subquery()
+            stmt = stmt.where(AttendanceRecord.id.in_(select(selected.c.record_id)))
+            if student_id is not None:
+                stmt = stmt.where(AttendanceRecord.student_id == student_id)
+            return _paged(self._session, stmt.order_by(AttendanceRecord.id.desc()), params)
         if dimensions is not None:
-            stmt = stmt.where(AttendanceRecord.task_id.in_(select(InspectionTask.id).where(*dimensions.conditions())))
+            stmt = stmt.where(AttendanceRecord.task_id.in_(
+                select(InspectionTask.id).where(*dimensions.conditions())
+            ))
         if student_id is not None:
             stmt = stmt.where(AttendanceRecord.student_id == student_id)
         if effective_type is not None:
@@ -100,6 +113,21 @@ class AttendanceRepository:
             stmt = stmt.where(AttendanceRecord.task_id.in_(task_subq))
         stmt = stmt.order_by(AttendanceRecord.id.desc())
         return _paged(self._session, stmt, params)
+
+    def list_groups(self, params, *, group_by, filters, **kwargs):
+        from app.modules.attendance.browse import facts, grouped_page
+
+        statement = facts(self._records().with_only_columns(AttendanceRecord.id), filters, **kwargs)
+        return grouped_page(self._session, statement, params, group_by)
+
+    def map_history(self, record_ids):
+        from app.modules.attendance.browse import AttendanceFilters, facts
+
+        if not record_ids:
+            return {}
+        statement = facts(self._records().with_only_columns(AttendanceRecord.id).where(
+            AttendanceRecord.id.in_(record_ids)), AttendanceFilters())
+        return {row.record_id: row for row in self._session.execute(statement)}
 
     # ---- 历史版本（随记录可见性由 Service 先鉴范围，再取版本）----
     def list_versions(self, record_id: int) -> list[AttendanceRecordVersion]:

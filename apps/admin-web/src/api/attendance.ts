@@ -47,6 +47,8 @@ export interface AttendanceRecord {
   objection_summary?: AttendanceObjectionBrief | null
   period?: string | null
   classroom?: string | null
+  administrative_class_id?: string | null
+  administrative_class_name?: string | null
 }
 
 export interface AttendanceVersionItem {
@@ -67,6 +69,36 @@ export interface ListAttendanceParams {
   effective_type?: AttendanceType
   page?: number
   page_size?: number
+  start_date?: string
+  end_date?: string
+  keyword?: string
+  course_type_id?: string
+  administrative_class_id?: string
+  unknown_class?: boolean
+  abnormal_only?: boolean
+}
+
+export interface AttendanceCounts {
+  record_count: number; task_count: number; normal_count: number
+  late_count: number; absent_count: number; leave_count: number
+}
+export interface AttendanceGroup extends AttendanceCounts {
+  task_id?: string; course_name?: string | null; teaching_class_name?: string | null
+  inspection_date?: string; start_period?: number; end_period?: number; classroom?: string | null
+  volunteer_name?: string | null; administrative_class_id?: string | null; class_name?: string | null
+}
+export type AttendanceGroupBy = 'task' | 'administrative_class'
+export const attendanceLabels: Record<AttendanceType, string> = { NORMAL: '正常', LEAVE: '请假', LATE: '迟到', ABSENT: '旷课' }
+export function attendanceQuery(params: ListAttendanceParams): string {
+  const query = new URLSearchParams()
+  for (const [name, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') query.set(name, String(value))
+  }
+  return query.toString()
+}
+export function listAttendanceGroups(groupBy: AttendanceGroupBy, params: ListAttendanceParams) {
+  return request<{ items: AttendanceGroup[]; total: number; page: number; page_size: number; summary: AttendanceCounts }>(
+    `/api/v1/attendance/groups?${attendanceQuery(params)}&group_by=${groupBy}`)
 }
 
 export async function listAttendance(params: ListAttendanceParams = {}): Promise<{
@@ -75,14 +107,7 @@ export async function listAttendance(params: ListAttendanceParams = {}): Promise
   page_size: number
   total: number
 }> {
-  const query = new URLSearchParams()
-  if (params.task_id) query.set('task_id', String(params.task_id))
-  if (params.semester_id) query.set('semester_id', String(params.semester_id))
-  if (params.effective_type) query.set('effective_type', params.effective_type)
-  if (params.page) query.set('page', String(params.page))
-  if (params.page_size) query.set('page_size', String(params.page_size))
-
-  const qs = query.toString()
+  const qs = attendanceQuery(params)
   return request<{ items: AttendanceRecord[]; page: number; page_size: number; total: number }>(
     `/api/v1/attendance${qs ? `?${qs}` : ''}`
   )
