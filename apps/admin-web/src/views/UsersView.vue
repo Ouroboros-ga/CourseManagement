@@ -574,12 +574,12 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
               <td style="text-align: right;">
                 <div class="flex items-center justify-end gap-3">
                   <template v-if="isSuperAdmin && !teacher.roles?.includes('SUPER_ADMIN')">
-                    <button class="btn-text text-xs text-blue-700 hover:underline" @click="handleResetPassword(teacher)">
+                    <button class="btn-text text-xs t-blue hover:underline" @click="handleResetPassword(teacher)">
                       重置密码
                     </button>
                     <button
                       class="btn-text text-xs hover:underline"
-                      :class="teacher.status === 'ACTIVE' ? 'text-amber-700' : 'text-green-700'"
+                      :class="teacher.status === 'ACTIVE' ? 't-amber' : 't-green'"
                       @click="handleToggleStatus(teacher)"
                     >
                       {{ teacher.status === 'ACTIVE' ? '停用账号' : '启用账号' }}
@@ -676,7 +676,7 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
                     {{ getOptionalPermState(manager.id, 'statistics.read') ? '已开通看板' : '未开启' }}
                   </span>
                   <button
-                    class="btn-text text-xs text-blue-700 hover:underline"
+                    class="btn-text text-xs t-blue hover:underline"
                     @click="handleToggleOptionalPermission(manager, 'statistics.read', getOptionalPermState(manager.id, 'statistics.read'))"
                   >
                     {{ getOptionalPermState(manager.id, 'statistics.read') ? '关闭' : '开启' }}
@@ -686,14 +686,14 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
               <td style="text-align: right;">
                 <div class="flex items-center justify-end gap-3">
                   <button
-                    class="btn-text text-xs text-blue-700 hover:underline"
+                    class="btn-text text-xs t-blue hover:underline"
                     title="为该学生负责人设置/重置 PC Web 后台登录密码"
                     @click="handleResetManagerPassword(manager)"
                   >
                     设置Web密码
                   </button>
                   <button
-                    class="btn-text text-xs text-amber-800 hover:underline"
+                    class="btn-text text-xs t-amber hover:underline"
                     @click="handleToggleManagerRole(manager, false)"
                   >
                     撤销角色
@@ -741,7 +741,7 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
             class="input w-full font-mono"
             placeholder="默认 Teacher@123456"
           />
-          <p class="text-[11px] text-[var(--ink-mute)] mt-1">初始密码将提供给教师首次登录，登录后教师可自行修改。</p>
+          <p class="text-xs text-[var(--ink-mute)] mt-1">初始密码将提供给教师首次登录，登录后教师可自行修改。</p>
         </div>
       </div>
       <template #footer>
@@ -755,7 +755,7 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
     </el-dialog>
 
     <!-- 弹窗 2: 全员修改本人密码 -->
-    <el-dialog v-model="changePwdDialogVisible" title="修改我的登录密码" width="440px">
+    <el-dialog v-model="changePwdDialogVisible" title="修改我的登录密码" width="480px">
       <div class="space-y-4">
         <div>
           <label class="block text-xs font-bold text-[var(--ink)] mb-1">当前旧密码 *</label>
@@ -796,7 +796,7 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
     </el-dialog>
 
     <!-- 弹窗 3: 委任学生工作负责人 -->
-    <el-dialog v-model="showAppointDialog" @open="managerCandidates = []; findManagerCandidates()" title="委任学生工作负责人" width="520px">
+    <el-dialog v-model="showAppointDialog" @open="managerCandidates = []; findManagerCandidates()" title="委任学生工作负责人" width="640px">
       <div class="space-y-4">
         <p class="text-xs text-[var(--ink-soft)] leading-relaxed">
           从已在系统内绑定学生身份的用户中，选择并委任为<b>学生工作负责人（STUDENT_AFFAIRS_MANAGER）</b>：
@@ -806,7 +806,7 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
           <el-select v-model="selectedStudentToAppoint" value-key="id" filterable remote :remote-method="findManagerCandidates" :loading="candidateBusy" placeholder="按姓名或账号搜索学生，最多显示 50 位" style="width:100%">
             <el-option v-for="stu in eligibleStudentsForManager" :key="stu.id" :value="stu" :label="`${stu.display_name}（${stu.username || '未登记账号'}）`" />
           </el-select>
-          <p class="text-[11px] text-[var(--ink-mute)] mt-1.5">
+          <p class="text-xs text-[var(--ink-mute)] mt-1.5">
             * 仅列出已完成学生绑定的账号。委任后该学生将拥有管理端访问权限与学院业务协助权限。
           </p>
         </div>
@@ -849,7 +849,7 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease);
 }
 .tab-btn:hover { color: var(--ink); }
 .tab-btn.active { color: var(--ink); border-bottom-color: var(--ink); }

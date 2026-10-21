@@ -183,14 +183,14 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
 .header, .class-heading, .actions, .range-fields { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .header h2, .class-heading h3, .result-panel h3 { margin: 0; }
 .header p, .result-panel p { color: var(--el-text-color-secondary); margin: 6px 0 0; }
-button { border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-bg-color); color: inherit; padding: 8px 12px; cursor: pointer; }
-button.primary { border-color: var(--el-color-primary); background: var(--el-color-primary); color: #fff; }
+button { border: 1px solid var(--el-border-color); border-radius: var(--radius-md); background: var(--el-bg-color); color: inherit; padding: 8px 12px; cursor: pointer; }
+button.primary { border-color: var(--el-color-primary); background: var(--el-color-primary); color: var(--paper); }
 button:disabled { cursor: not-allowed; opacity: .55; }
-.configuration, .result-panel { min-width: 0; border: 1px solid var(--el-border-color); border-radius: 8px; padding: 16px; }
+.configuration, .result-panel { min-width: 0; border: 1px solid var(--el-border-color); border-radius: var(--radius-md); padding: 16px; }
 .configuration legend { padding: 0 6px; font-weight: 600; }
 .range-fields { justify-content: flex-start; margin-bottom: 18px; }
 .range-fields > label, .count-field { display: grid; gap: 5px; color: var(--el-text-color-secondary); font-size: 13px; }
-input[type="date"], input[type="number"] { min-height: 34px; width: 150px; border: 1px solid var(--el-border-color); border-radius: 5px; padding: 4px 8px; background: var(--el-bg-color); color: var(--el-text-color-primary); }
+input[type="date"], input[type="number"] { min-height: 34px; width: 150px; border: 1px solid var(--el-border-color); border-radius: var(--radius-md); padding: 4px 8px; background: var(--el-bg-color); color: var(--el-text-color-primary); }
 .photo-option { display: flex !important; align-items: center; gap: 8px !important; min-height: 36px; }
 .class-heading { margin-bottom: 8px; }
 .class-heading span, .muted { color: var(--el-text-color-secondary); font-size: 13px; }
@@ -201,7 +201,7 @@ input[type="date"], input[type="number"] { min-height: 34px; width: 150px; borde
 .count-field { display: flex; align-items: center; }
 .count-field input { width: 84px; }
 .actions { justify-content: flex-start; }
-.notice { margin: 0; padding: 9px 12px; border-radius: 6px; }
+.notice { margin: 0; padding: 9px 12px; border-radius: var(--radius-md); }
 .notice.error { color: var(--el-color-danger); background: var(--el-color-danger-light-9); }
 .notice.success { color: var(--el-color-success); background: var(--el-color-success-light-9); }
 .result-panel { display: grid; gap: 12px; }

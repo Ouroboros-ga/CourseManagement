@@ -469,10 +469,10 @@ const decisionOptions: DecisionOption[] = [
     </div>
 
     <!-- 无数据状态 -->
-    <div v-if="objections.length === 0" class="panel empty-box">
-      <div class="empty-icon font-mono">∅</div>
-      <h3 class="font-serif">暂无符合条件的考勤异议记录</h3>
-      <p class="cell-sub">当前学期或当前筛选状态下没有任何学生提交考勤异议申诉。</p>
+    <div v-if="objections.length === 0" class="panel empty-box empty-state">
+      <AppIcon name="check-circle" :size="32" class="e-icon" />
+      <div class="e-main">暂无符合条件的考勤异议记录</div>
+      <div class="e-sub">当前学期或当前筛选状态下没有任何学生提交考勤异议申诉。</div>
     </div>
 
     <!-- 主展示区：左侧列表 + 右侧详情 -->
@@ -836,7 +836,7 @@ const decisionOptions: DecisionOption[] = [
   color: var(--ink-soft);
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: all 0.15s ease;
+  transition: color var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease);
 }
 .tab-btn:hover { color: var(--ink); }
 .tab-btn.on {
@@ -846,10 +846,8 @@ const decisionOptions: DecisionOption[] = [
 }
 
 .empty-box {
-  text-align: center;
   padding: 64px 24px;
 }
-.empty-icon { font-size: 40px; color: var(--ink-mute); margin-bottom: 12px; }
 
 /* 左右分栏布局 */
 .obj-layout {
@@ -884,11 +882,11 @@ const decisionOptions: DecisionOption[] = [
   padding: 14px 16px;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-f) var(--ease);
 }
 .obj-card:hover { background: var(--paper-deep); }
 .obj-card.active {
-  background: #fdfbf7;
+  background: var(--paper);
   border-left: 3px solid var(--ink);
 }
 .card-top {
@@ -910,7 +908,7 @@ const decisionOptions: DecisionOption[] = [
 .desired-tag {
   background: var(--paper-deep);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   color: var(--ink-soft);
 }
 .card-time { color: var(--ink-mute); }
@@ -930,7 +928,7 @@ const decisionOptions: DecisionOption[] = [
   margin-bottom: 24px;
 }
 .tag-row { display: flex; gap: 8px; margin-bottom: 8px; }
-.obj-title { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+.obj-title { font-size: var(--text-2xl); font-weight: 600; margin-bottom: 6px; }
 .obj-sub-no { font-size: 14px; color: var(--ink-soft); }
 .obj-sub-class { font-size: 14px; color: var(--ink-mute); }
 .obj-time { text-align: right; font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
@@ -947,8 +945,8 @@ const decisionOptions: DecisionOption[] = [
   margin-bottom: 28px;
 }
 .fact { background: var(--paper); padding: 16px; }
-.fact.ok { background: #f0fdf4; }
-.fact.warn { background: #fff1f2; }
+.fact.ok { background: var(--green-soft); }
+.fact.warn { background: var(--accent-soft); }
 .f-label {
   display: block;
   font-size: 11px;
@@ -965,7 +963,7 @@ const decisionOptions: DecisionOption[] = [
   margin-top: 6px;
   padding: 6px 8px;
   border-left: 3px solid var(--accent);
-  background: rgba(220, 38, 38, 0.06);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 .review-notice {
   font-size: 12px;
@@ -973,7 +971,7 @@ const decisionOptions: DecisionOption[] = [
   margin: 0 0 10px;
   padding: 8px 10px;
   border-left: 3px solid var(--accent);
-  background: rgba(220, 38, 38, 0.06);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 .f-reason { font-size: 12px; color: var(--ink-soft); line-height: 1.5; margin-bottom: 10px; font-style: italic; }
 
@@ -993,11 +991,11 @@ const decisionOptions: DecisionOption[] = [
   padding: 0;
   cursor: zoom-in;
   overflow: hidden;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-f) var(--ease), box-shadow var(--dur-f) var(--ease);
 }
 .proof-thumb:hover {
   border-color: var(--ink);
-  box-shadow: 0 2px 8px rgba(28, 27, 26, 0.12);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 12%, transparent);
 }
 .proof-thumb img {
   width: 100%;
@@ -1013,7 +1011,7 @@ const decisionOptions: DecisionOption[] = [
   gap: 4px;
   height: 100%;
   color: var(--ink-mute);
-  font-size: 10px;
+  font-size: var(--text-caption);
 }
 .proof-zoom {
   position: absolute;
@@ -1021,14 +1019,14 @@ const decisionOptions: DecisionOption[] = [
   bottom: 5px;
   width: 20px;
   height: 20px;
-  border-radius: 3px;
-  background: rgba(28, 27, 26, 0.72);
-  color: #faf8f5;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--ink) 72%, transparent);
+  color: var(--paper);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-f) var(--ease);
 }
 .proof-thumb:hover .proof-zoom { opacity: 1; }
 .proof-hint {
@@ -1054,7 +1052,7 @@ const decisionOptions: DecisionOption[] = [
   position: fixed;
   inset: 0;
   z-index: 3000;
-  background: rgba(28, 27, 26, 0.92);
+  background: color-mix(in srgb, var(--ink) 92%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1070,10 +1068,10 @@ const decisionOptions: DecisionOption[] = [
 }
 .lb-frame {
   max-height: 76vh;
-  border: 1px solid rgba(250, 248, 245, 0.25);
+  border: 1px solid color-mix(in srgb, var(--paper) 25%, transparent);
   border-radius: var(--radius);
   overflow: hidden;
-  background: rgba(250, 248, 245, 0.06);
+  background: color-mix(in srgb, var(--paper) 6%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1086,14 +1084,14 @@ const decisionOptions: DecisionOption[] = [
 }
 .lb-broken {
   padding: 60px 40px;
-  color: rgba(250, 248, 245, 0.6);
+  color: color-mix(in srgb, var(--paper) 60%, transparent);
   font-size: 13px;
 }
 .lb-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: rgba(250, 248, 245, 0.75);
+  color: color-mix(in srgb, var(--paper) 75%, transparent);
   font-size: 12px;
   flex-wrap: wrap;
   justify-content: center;
@@ -1102,16 +1100,16 @@ const decisionOptions: DecisionOption[] = [
 .lb-open {
   margin-left: 10px;
   background: none;
-  border: 1px solid rgba(250, 248, 245, 0.35);
-  color: rgba(250, 248, 245, 0.85);
+  border: 1px solid color-mix(in srgb, var(--paper) 35%, transparent);
+  color: color-mix(in srgb, var(--paper) 85%, transparent);
   font-size: 11px;
   font-family: inherit;
   padding: 4px 10px;
-  border-radius: 3px;
+  border-radius: var(--radius);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-f) var(--ease);
 }
-.lb-open:hover { background: rgba(250, 248, 245, 0.12); }
+.lb-open:hover { background: color-mix(in srgb, var(--paper) 12%, transparent); }
 .lb-close {
   position: absolute;
   top: 20px;
@@ -1119,30 +1117,30 @@ const decisionOptions: DecisionOption[] = [
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  border: 1px solid rgba(250, 248, 245, 0.35);
+  border: 1px solid color-mix(in srgb, var(--paper) 35%, transparent);
   background: transparent;
-  color: rgba(250, 248, 245, 0.85);
+  color: color-mix(in srgb, var(--paper) 85%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-f) var(--ease);
 }
-.lb-close:hover { background: rgba(250, 248, 245, 0.12); }
+.lb-close:hover { background: color-mix(in srgb, var(--paper) 12%, transparent); }
 .lb-nav {
   flex-shrink: 0;
   width: 40px;
   height: 64px;
-  border: 1px solid rgba(250, 248, 245, 0.3);
+  border: 1px solid color-mix(in srgb, var(--paper) 30%, transparent);
   border-radius: var(--radius);
   background: transparent;
-  color: rgba(250, 248, 245, 0.85);
+  color: color-mix(in srgb, var(--paper) 85%, transparent);
   font-size: 26px;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-f) var(--ease);
 }
-.lb-nav:hover { background: rgba(250, 248, 245, 0.12); }
+.lb-nav:hover { background: color-mix(in srgb, var(--paper) 12%, transparent); }
 .f-ok-note { font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
 .f-meta { font-size: 11px; margin-top: 6px; }
 .initial-actions { display: flex; gap: 8px; margin-top: 8px; }
@@ -1209,16 +1207,16 @@ const decisionOptions: DecisionOption[] = [
   font-family: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: border-color var(--dur-f) var(--ease), box-shadow var(--dur-f) var(--ease), background var(--dur-f) var(--ease);
 }
 .d-option:hover { border-color: var(--ink); }
 .d-option.selected {
   border-color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--ink), 0 2px 8px rgba(28, 27, 26, 0.1);
+  box-shadow: inset 0 0 0 1px var(--ink), 0 2px 8px color-mix(in srgb, var(--ink) 10%, transparent);
   background: var(--paper);
 }
 .do-label { font-size: 14px; font-weight: 700; color: var(--ink); }
-.do-en { font-size: 10px; color: var(--ink-mute); letter-spacing: 0.08em; }
+.do-en { font-size: var(--text-caption); color: var(--ink-mute); letter-spacing: 0.08em; }
 .do-desc { font-size: 11px; color: var(--ink-mute); line-height: 1.5; margin-top: 4px; }
 
 /* 语义色：顶部色条 + 选中态标签色 */
@@ -1231,7 +1229,7 @@ const decisionOptions: DecisionOption[] = [
   height: 3px;
   border-radius: var(--radius) var(--radius) 0 0;
   background: var(--line);
-  transition: background 0.15s;
+  transition: background var(--dur-f) var(--ease);
 }
 .d-option.blue::before { background: var(--blue); }
 .d-option.green::before { background: var(--green); }
@@ -1256,7 +1254,7 @@ const decisionOptions: DecisionOption[] = [
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition: background var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease), color var(--dur-f) var(--ease);
 }
 .d-option.selected .do-check {
   background: var(--ink);
@@ -1269,12 +1267,12 @@ const decisionOptions: DecisionOption[] = [
   position: absolute;
   top: -8px;
   left: 8px;
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 700;
   padding: 1px 6px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
-  color: #faf8f5;
+  color: var(--paper);
   letter-spacing: 0.04em;
 }
 
@@ -1340,9 +1338,9 @@ const decisionOptions: DecisionOption[] = [
 
 .text-accent { color: var(--accent); }
 .text-green { color: var(--green); }
-.text-red { color: #dc2626; }
-.tag-mute { background: #e5e7eb; color: #4b5563; }
-.tag-blue { background: #eff6ff; color: #1d4ed8; }
+.text-red { color: var(--accent); }
+.tag-mute { background: var(--paper-deep); color: var(--ink-mute); }
+.tag-blue { background: var(--blue-soft); color: var(--blue); }
 
 @media (max-width: 1100px) {
   .obj-layout { grid-template-columns: 1fr; }

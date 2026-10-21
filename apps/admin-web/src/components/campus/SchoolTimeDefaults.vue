@@ -74,6 +74,6 @@ async function run(action: 'preview' | 'adopt' | 'publish') {
   </section>
 </template>
 <style scoped>
-.school-defaults { margin: 16px 0; padding: 16px; border: 1px solid var(--el-border-color); border-radius: 8px; }
+.school-defaults { margin: 16px 0; padding: 16px; border: 1px solid var(--el-border-color); border-radius: var(--radius-md); }
 .school-defaults :deep(.el-select), .school-defaults :deep(.el-input) { max-width: 320px; margin: 8px; }
 </style>

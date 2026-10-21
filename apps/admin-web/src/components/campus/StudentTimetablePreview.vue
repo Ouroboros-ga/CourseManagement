@@ -263,14 +263,14 @@ onMounted(() => {
             >
               <div class="flex items-center justify-between">
                 <span>{{ c.class_name }}</span>
-                <span class="text-xs text-gray-400 font-mono">{{ c.class_code }}</span>
+                <span class="text-xs t-mute font-mono">{{ c.class_code }}</span>
               </div>
             </el-option>
           </el-select>
         </div>
 
         <!-- 切换周次 -->
-        <div class="control-item flex items-center gap-1 bg-slate-100 p-1 rounded">
+        <div class="control-item flex items-center gap-1 bg-deep p-1 rounded">
           <button
             class="week-nav-btn"
             :disabled="selectedWeek <= 1"
@@ -318,19 +318,19 @@ onMounted(() => {
     </div>
 
     <!-- 课表状态与数据统计栏 -->
-    <div class="timetable-meta-bar flex items-center justify-between text-xs px-4 py-2 bg-slate-50 border-y border-[var(--line)]">
+    <div class="timetable-meta-bar flex items-center justify-between text-xs px-4 py-2 bg-deep border-y border-[var(--line)]">
       <div class="flex items-center gap-2">
-        <span class="font-bold text-slate-700">
+        <span class="font-bold t-soft">
           {{ currentAdminClass?.class_name || '未选定班级' }}
         </span>
-        <span v-if="currentAdminClass?.head_teacher" class="text-slate-500">
+        <span v-if="currentAdminClass?.head_teacher" class="t-mute">
           班主任: {{ currentAdminClass.head_teacher }}
         </span>
-        <span v-if="currentAdminClass?.counselor" class="text-slate-500">
+        <span v-if="currentAdminClass?.counselor" class="t-mute">
           辅导员: {{ currentAdminClass.counselor }}
         </span>
-        <span class="text-slate-300">|</span>
-        <span class="font-mono text-slate-600">
+        <span class="t-mute">|</span>
+        <span class="font-mono t-soft">
           第 {{ selectedWeek }} 周（{{ currentWeekCourses.length }} 门课）
         </span>
       </div>
@@ -405,7 +405,7 @@ onMounted(() => {
                   left: block.styleLeft,
                   width: block.styleWidth,
                   backgroundColor: block.color.bg,
-                  borderColor: block.isConflict ? '#EF4444' : block.color.border,
+                  borderColor: block.isConflict ? 'var(--accent)' : block.color.border,
                   color: block.color.text
                 }"
                 :title="`${block.courseName} (${formatPeriodText(block.startPeriod, block.endPeriod)})`"
@@ -437,11 +437,11 @@ onMounted(() => {
         class="empty-week-overlay"
       >
         <div class="empty-box">
-          <AppIcon name="book" :size="32" class="text-slate-300 mb-2" />
-          <div class="text-sm font-bold text-slate-600">
+          <AppIcon name="book" :size="32" class="e-icon" />
+          <div class="e-main font-bold">
             {{ currentAdminClass?.class_name || '当前班级' }}在第 {{ selectedWeek }} 周暂无排课
           </div>
-          <div class="text-xs text-slate-400 mt-1">
+          <div class="e-sub">
             该班级在整个学期共安排了 {{ semesterCourses.length }} 门排课，您可以切换周次查看。
           </div>
         </div>
@@ -458,57 +458,57 @@ onMounted(() => {
     >
       <div v-if="activeCourse" class="space-y-3.5 text-sm">
         <div class="p-3 rounded-lg border" :style="{
-          backgroundColor: MORANDI_PALETTE[getCourseColorIndex(activeCourse.course_name)]?.bg || '#F8FAFC',
-          borderColor: MORANDI_PALETTE[getCourseColorIndex(activeCourse.course_name)]?.border || '#E2E8F0',
-          color: MORANDI_PALETTE[getCourseColorIndex(activeCourse.course_name)]?.text || '#1E293B'
+          backgroundColor: MORANDI_PALETTE[getCourseColorIndex(activeCourse.course_name)]?.bg || 'var(--paper-deep)',
+          borderColor: MORANDI_PALETTE[getCourseColorIndex(activeCourse.course_name)]?.border || 'var(--line)',
+          color: MORANDI_PALETTE[getCourseColorIndex(activeCourse.course_name)]?.text || 'var(--ink)'
         }">
           <div class="text-lg font-bold font-serif">{{ activeCourse.course_name }}</div>
           <div class="text-xs font-mono opacity-80 mt-0.5">代码: {{ activeCourse.course_code || '未设置' }}</div>
         </div>
 
         <div class="grid grid-cols-2 gap-3 text-xs">
-          <div class="bg-slate-50 p-2.5 rounded border border-slate-100">
-            <span class="text-slate-400 block mb-0.5">任课教师</span>
-            <span class="font-bold text-slate-700">{{ activeCourse.teacher_name || '未指定教师' }}</span>
+          <div class="bg-deep p-2.5 rounded border border-[var(--line)]">
+            <span class="t-mute block mb-0.5">任课教师</span>
+            <span class="font-bold t-soft">{{ activeCourse.teacher_name || '未指定教师' }}</span>
           </div>
-          <div class="bg-slate-50 p-2.5 rounded border border-slate-100">
-            <span class="text-slate-400 block mb-0.5">上课地点</span>
-            <span class="font-bold text-slate-700">{{ activeCourse.classroom || '未排教室' }}</span>
+          <div class="bg-deep p-2.5 rounded border border-[var(--line)]">
+            <span class="t-mute block mb-0.5">上课地点</span>
+            <span class="font-bold t-soft">{{ activeCourse.classroom || '未排教室' }}</span>
           </div>
-          <div class="bg-slate-50 p-2.5 rounded border border-slate-100">
-            <span class="text-slate-400 block mb-0.5">上课时间</span>
-            <span class="font-bold text-slate-700">周{{ activeCourse.weekday }} {{ formatPeriodText(activeCourse.start_period, activeCourse.end_period) }}</span>
+          <div class="bg-deep p-2.5 rounded border border-[var(--line)]">
+            <span class="t-mute block mb-0.5">上课时间</span>
+            <span class="font-bold t-soft">周{{ activeCourse.weekday }} {{ formatPeriodText(activeCourse.start_period, activeCourse.end_period) }}</span>
           </div>
-          <div class="bg-slate-50 p-2.5 rounded border border-slate-100">
-            <span class="text-slate-400 block mb-0.5">生效周次</span>
-            <span class="font-bold font-mono text-slate-700">{{ formatWeeksText(activeCourse.weeks) }}</span>
+          <div class="bg-deep p-2.5 rounded border border-[var(--line)]">
+            <span class="t-mute block mb-0.5">生效周次</span>
+            <span class="font-bold font-mono t-soft">{{ formatWeeksText(activeCourse.weeks) }}</span>
           </div>
         </div>
 
         <div class="text-xs space-y-1.5 pt-1">
           <div class="flex items-start gap-2">
-            <span class="text-slate-400 shrink-0">所属教学班：</span>
-            <span class="font-medium text-slate-700">{{ activeCourse.teaching_class_name }}</span>
+            <span class="t-mute shrink-0">所属教学班：</span>
+            <span class="font-medium t-soft">{{ activeCourse.teaching_class_name }}</span>
           </div>
           <div v-if="activeCourse.administrative_classes && activeCourse.administrative_classes.length > 0" class="flex items-start gap-2">
-            <span class="text-slate-400 shrink-0">合班行政班：</span>
-            <span class="text-slate-700">{{ activeCourse.administrative_classes.join('、') }}</span>
+            <span class="t-mute shrink-0">合班行政班：</span>
+            <span class="t-soft">{{ activeCourse.administrative_classes.join('、') }}</span>
           </div>
           <div v-if="activeCourse.head_teacher || currentAdminClass?.head_teacher" class="flex items-center gap-2">
-            <span class="text-slate-400 shrink-0">班级班主任：</span>
-            <span class="text-slate-700">{{ activeCourse.head_teacher || currentAdminClass?.head_teacher }}</span>
+            <span class="t-mute shrink-0">班级班主任：</span>
+            <span class="t-soft">{{ activeCourse.head_teacher || currentAdminClass?.head_teacher }}</span>
           </div>
           <div v-if="activeCourse.counselor || currentAdminClass?.counselor" class="flex items-center gap-2">
-            <span class="text-slate-400 shrink-0">年级辅导员：</span>
-            <span class="text-slate-700">{{ activeCourse.counselor || currentAdminClass?.counselor }}</span>
+            <span class="t-mute shrink-0">年级辅导员：</span>
+            <span class="t-soft">{{ activeCourse.counselor || currentAdminClass?.counselor }}</span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-slate-400 shrink-0">查课与名单：</span>
-            <span v-if="activeCourse.is_physical_education" class="text-slate-500">体育课 · 免查</span>
-            <span v-else-if="activeCourse.enrolled_student_count > 0" class="text-emerald-700 font-semibold">
+            <span class="t-mute shrink-0">查课与名单：</span>
+            <span v-if="activeCourse.is_physical_education" class="t-mute">体育课 · 免查</span>
+            <span v-else-if="activeCourse.enrolled_student_count > 0" class="t-green font-semibold">
               需查课 · 选课名单已导入 ({{ activeCourse.enrolled_student_count }} 人)
             </span>
-            <span v-else class="text-amber-600 font-medium">暂无学生名单（仅排课框架）</span>
+            <span v-else class="t-amber font-medium">暂无学生名单（仅排课框架）</span>
           </div>
         </div>
       </div>
@@ -523,7 +523,7 @@ onMounted(() => {
 .student-preview-card {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--paper);
   margin-top: 16px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
   overflow: hidden;
@@ -542,9 +542,9 @@ onMounted(() => {
 .preview-badge {
   font-size: 11px;
   padding: 2px 8px;
-  background: #3B82F6;
-  color: #ffffff;
-  border-radius: 12px;
+  background: var(--blue);
+  color: var(--paper);
+  border-radius: var(--radius-pill);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -557,14 +557,14 @@ onMounted(() => {
   justify-content: center;
   background: transparent;
   border: none;
-  font-size: 16px;
+  font-size: var(--text-lg);
   font-weight: bold;
   color: var(--ink-soft);
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 .week-nav-btn:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--paper-deep);
   color: var(--ink);
 }
 .week-nav-btn:disabled {
@@ -575,15 +575,15 @@ onMounted(() => {
 /* 核心课表视窗 */
 .timetable-viewport {
   position: relative;
-  background: #ffffff;
+  background: var(--paper);
   overflow-x: auto;
 }
 
 /* 星期与公历表头 */
 .date-header-row {
   display: flex;
-  border-bottom: 1px solid #E2E8F0;
-  background: #F8FAFC;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-deep);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -597,17 +597,17 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   padding: 6px 0;
-  border-right: 1px solid #E2E8F0;
-  background: #F1F5F9;
+  border-right: 1px solid var(--line);
+  background: var(--paper-deep);
 }
 .corner-year {
-  font-size: 10px;
-  color: #64748B;
+  font-size: var(--text-caption);
+  color: var(--ink-mute);
   line-height: 1.1;
 }
 .corner-week {
   font-size: 11px;
-  color: #3B82F6;
+  color: var(--blue);
   line-height: 1.2;
 }
 
@@ -619,25 +619,25 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   padding: 8px 0;
-  border-right: 1px solid #F1F5F9;
+  border-right: 1px solid var(--paper-deep);
 }
 .day-header-cell:last-child {
   border-right: none;
 }
 .day-header-cell.is-today {
-  background: #EFF6FF;
+  background: var(--blue-soft);
 }
 .day-header-cell.is-today .day-name,
 .day-header-cell.is-today .day-date {
-  color: #2563EB;
+  color: var(--blue);
 }
 .day-name {
   font-size: 12px;
-  color: #1E293B;
+  color: var(--ink);
 }
 .day-date {
   font-size: 11px;
-  color: #94A3B8;
+  color: var(--ink-mute);
   margin-top: 2px;
 }
 
@@ -652,8 +652,8 @@ onMounted(() => {
 .period-sidebar {
   width: 74px;
   flex-shrink: 0;
-  border-right: 1px solid #E2E8F0;
-  background: #F8FAFC;
+  border-right: 1px solid var(--line);
+  background: var(--paper-deep);
 }
 
 .period-cell {
@@ -662,18 +662,18 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px dashed #E2E8F0;
+  border-bottom: 1px dashed var(--line);
   padding: 2px 0;
   box-sizing: border-box;
 }
 .period-num {
   font-size: 13px;
-  color: #1E293B;
+  color: var(--ink);
   line-height: 1.2;
 }
 .period-time {
-  font-size: 10px;
-  color: #94A3B8;
+  font-size: var(--text-caption);
+  color: var(--ink-mute);
   line-height: 1.2;
 }
 
@@ -688,7 +688,7 @@ onMounted(() => {
   flex: 1;
   min-width: 110px;
   position: relative;
-  border-right: 1px solid #F1F5F9;
+  border-right: 1px solid var(--paper-deep);
   box-sizing: border-box;
 }
 .day-column:last-child {
@@ -703,7 +703,7 @@ onMounted(() => {
 
 .bg-cell {
   height: 70px;
-  border-bottom: 1px dashed #F1F5F9;
+  border-bottom: 1px dashed var(--paper-deep);
   box-sizing: border-box;
 }
 
@@ -720,7 +720,7 @@ onMounted(() => {
 .course-card {
   position: absolute;
   box-sizing: border-box;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border-width: 1px;
   border-style: solid;
   padding: 6px;
@@ -728,7 +728,7 @@ onMounted(() => {
   pointer-events: auto;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  transition: transform var(--dur-f) var(--ease), box-shadow var(--dur-f) var(--ease);
   user-select: none;
 }
 .course-card:hover {
@@ -737,7 +737,7 @@ onMounted(() => {
   z-index: 5;
 }
 .course-card.is-conflict {
-  box-shadow: 0 0 0 1px #EF4444;
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .card-inner {
@@ -758,7 +758,7 @@ onMounted(() => {
 }
 
 .card-teacher {
-  font-size: 10px;
+  font-size: var(--text-caption);
   opacity: 0.85;
   margin-top: 3px;
   white-space: nowrap;
@@ -767,7 +767,7 @@ onMounted(() => {
 }
 
 .card-room {
-  font-size: 10px;
+  font-size: var(--text-caption);
   opacity: 0.85;
   margin-top: 2px;
   white-space: nowrap;
@@ -777,11 +777,11 @@ onMounted(() => {
 
 .conflict-tag {
   align-self: flex-start;
-  font-size: 9px;
-  background: #EF4444;
-  color: #ffffff;
+  font-size: var(--text-caption);
+  background: var(--red);
+  color: var(--paper);
   padding: 1px 4px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   font-weight: bold;
   margin-top: auto;
 }
@@ -796,7 +796,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--paper) 70%, transparent);
   backdrop-filter: blur(2px);
   pointer-events: none;
 }

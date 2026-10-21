@@ -180,7 +180,7 @@ async function submitEnd() {
     </el-table>
     <AppPagination v-model:current-page="page" :total="relationData?.total || 0" />
 
-    <el-dialog v-model="createOpen" title="建立授课任命" width="560px" :close-on-click-modal="false">
+    <el-dialog v-model="createOpen" title="建立授课任命" width="640px" :close-on-click-modal="false">
       <el-form label-width="112px">
         <el-form-item label="教师" required>
           <el-select v-model="createForm.teacherId" filterable remote :remote-method="loadStaffOptions" placeholder="选择本院教职工（按档案，不按姓名）" style="width: 100%">

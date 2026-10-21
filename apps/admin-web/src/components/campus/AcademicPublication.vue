@@ -15,8 +15,8 @@ watch(() => session.currentSemesterId, value => { semesterId.value = value }, { 
     <!-- 发布状态与操作栏 -->
     <div class="publication-header-card">
       <div class="header-intro">
-        <h3 class="font-serif font-bold text-base text-[var(--ink)]">发布学期正式课表</h3>
-        <p class="text-xs text-[var(--ink-mute)] mt-1">
+        <h3>发布学期正式课表</h3>
+        <p class="hint mt-1">
           发布本院正式课表供学生初始化小程序个人副本。导入与编辑不会自动发布；再次发布仅展示更新通知，不覆盖学生已有个人自选修改。
         </p>
       </div>
@@ -30,7 +30,7 @@ watch(() => session.currentSemesterId, value => { semesterId.value = value }, { 
 
       <div class="publication-actions">
         <div class="flex items-center gap-2">
-          <span class="text-xs font-semibold text-[var(--ink-soft)]">当前学期：</span>
+          <span class="text-xs font-semibold t-soft">当前学期：</span>
           <span class="badge badge-subtle font-mono text-xs">{{ session.currentSemesterName || '未选定学期' }}</span>
         </div>
         <el-button
@@ -45,20 +45,20 @@ watch(() => session.currentSemesterId, value => { semesterId.value = value }, { 
 
       <!-- 预览诊断结果提示区 -->
       <transition name="el-zoom-in-top">
-        <div v-if="previewResult" class="preview-result-panel mt-4 p-4 rounded-lg bg-blue-50/60 border border-blue-200">
+        <div v-if="previewResult" class="preview-result-panel info-box mt-4">
           <div class="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <div class="flex items-center gap-2">
-                <span class="font-bold text-sm text-slate-800">{{ previewResult.semester_name }}</span>
-                <span class="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-mono">
+                <span class="font-bold text-sm t-ink">{{ previewResult.semester_name }}</span>
+                <span class="chip-blue font-mono">
                   当前已发布至第 {{ previewResult.current_version }} 版
                 </span>
               </div>
-              <div class="text-xs text-slate-600 mt-1.5 flex items-center gap-4">
-                <span>正式排课条目：<strong class="font-mono text-slate-800">{{ previewResult.schedule_count }}</strong> 条</span>
-                <span>名单覆盖学生：<strong class="font-mono text-slate-800">{{ previewResult.student_count }}</strong> 人</span>
+              <div class="text-xs t-soft mt-1.5 flex items-center gap-4">
+                <span>正式排课条目：<strong class="font-mono t-ink">{{ previewResult.schedule_count }}</strong> 条</span>
+                <span>名单覆盖学生：<strong class="font-mono t-ink">{{ previewResult.student_count }}</strong> 人</span>
               </div>
-              <div class="text-xs mt-2 font-medium" :class="previewResult.changed ? 'text-amber-700' : 'text-slate-500'">
+              <div class="text-xs mt-2 font-medium" :class="previewResult.changed ? 't-amber' : 't-mute'">
                 {{ previewResult.changed ? '● 本次内容较上一版有变动，确认后将发布并生成新版本通知。' : '○ 内容与当前线上版本一致，重复确认不会递增版本号或重复发送通知。' }}
               </div>
             </div>

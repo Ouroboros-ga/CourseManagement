@@ -11,4 +11,4 @@
     <el-card><h2>准备状态和排班人数怎么看</h2><p>工作台依据实际资料显示状态，并仅展示你有权查看的项目。零条课表表示尚无可见条目，不代表解析失败；正式发布版本与导入结果分开查看。</p><p>组织成员按有效期计算并去重，有效资格按当前日期和学籍核对；二者都不是“可排班人数”。具体能安排谁，请选择课次后看排班预览，它还会核对本人课程、请假、跨组占用和配额。组负责人只会看到获授权组的数据。</p></el-card>
   </section>
 </template>
-<style scoped>.el-card { margin: 18px 0; }h2 { font-size: 18px; }li,p { line-height: 2; }</style>
+<style scoped>.el-card { margin: 18px 0; }li,p { line-height: 2; }</style>

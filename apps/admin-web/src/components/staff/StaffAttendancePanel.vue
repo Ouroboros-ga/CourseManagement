@@ -575,7 +575,7 @@ function revisionText(card: StaffRecordCard) {
       </div>
     </div>
 
-    <el-dialog v-model="detailOpen" title="名单与当前认定" width="820px">
+    <el-dialog v-model="detailOpen" title="名单与当前认定" width="min(820px, 94vw)">
       <p class="hint">
         {{ selected?.course_name }} · {{ selected?.inspection_date }} ·
         {{ selected?.responsible_college?.name }}
@@ -669,7 +669,7 @@ function revisionText(card: StaffRecordCard) {
       </PaginatedTable>
     </el-dialog>
 
-    <el-dialog v-model="locationOpen" title="更换本节教室" width="520px">
+    <el-dialog v-model="locationOpen" title="更换本节教室" width="640px">
       <template v-if="locationInfo">
         <p class="hint">{{ locationTarget?.label }}</p>
         <p class="hint">
@@ -705,13 +705,13 @@ function revisionText(card: StaffRecordCard) {
 
 <style scoped>
 .filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-.scope { color: var(--ink-mute); font-size: 13px; margin: 0 0 8px; }
-.metrics { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; margin-bottom: 12px; color: var(--ink-mute); }
-.hint { color: var(--ink-mute); font-size: 12px; line-height: 1.7; }
-.tag { color: var(--blue); font-size: 12px; margin-left: 6px; }
-.photos { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; }
+.scope { color: var(--ink-mute); font-size: var(--text-sm); margin: 0 0 8px; }
+.metrics { display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--text-sm); margin-bottom: 12px; color: var(--ink-mute); }
+.hint { color: var(--ink-mute); font-size: var(--text-xs); line-height: 1.7; }
+.tag { color: var(--blue); font-size: var(--text-xs); margin-left: 6px; }
+.photos { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; font-size: var(--text-sm); }
 .roster-pager { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
-.occurrences { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line, #e5e7eb); }
+.occurrences { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
 .occ-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
-.occ-head h3 { margin: 0; font-size: 15px; }
+.occ-head h3 { margin: 0; }
 </style>

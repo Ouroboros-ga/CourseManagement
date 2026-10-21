@@ -45,6 +45,6 @@ const state = useCollegeDeadlines(() => props.collegeId, () => props.canManage)
 
 <style scoped>
 p { color: var(--el-text-color-secondary); line-height: 1.6; }
-input { padding: 6px; border: 1px solid var(--el-border-color); border-radius: 4px; color: inherit; background: var(--el-bg-color); }
+input { padding: 6px; border: 1px solid var(--el-border-color); border-radius: var(--radius-md); color: inherit; background: var(--el-bg-color); }
 .el-button { margin: 8px 4px 8px 0; }
 </style>

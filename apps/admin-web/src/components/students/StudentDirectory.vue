@@ -790,7 +790,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
           </p>
         </div>
         <div class="head-actions flex items-center gap-2">
-          <router-link to="/dashboard/tasks" class="btn btn-ghost inline-flex items-center gap-1.5 text-xs text-slate-700">
+          <router-link to="/dashboard/tasks" class="btn btn-ghost inline-flex items-center gap-1.5 text-xs t-soft">
             <AppIcon name="external-link" :size="13" />
             <span>前往查课安排</span>
           </router-link>
@@ -809,7 +809,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
     <!-- 流程全景指引卡片 -->
     <div v-if="props.mode === 'legacy'" class="guide-banner">
       <div class="g-title flex items-center gap-1.5">
-        <AppIcon name="info" :size="15" class="text-blue-600" />
+        <AppIcon name="info" :size="15" class="t-blue" />
         <span>教务查课端到端全流程闭环指引</span>
       </div>
       <div class="g-steps font-mono">
@@ -856,17 +856,17 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
           <!-- 批量操作栏（有选中时显示） -->
           <div
             v-if="!showsQualification && selectedStudentIds.length > 0"
-            class="batch-bar flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-800 px-3 py-1 rounded"
+            class="batch-bar alert-bar"
           >
             <span class="text-xs font-bold font-mono">已选中 {{ selectedStudentIds.length }} 人</span>
             <button
-              class="btn btn-sm bg-rose-600 hover:bg-rose-700 text-white font-semibold py-0.5 px-2.5 rounded shadow-sm inline-flex items-center gap-1"
+              class="btn btn-sm btn-accent inline-flex items-center gap-1"
               @click="handleBatchDeleteStudents"
             >
               <AppIcon name="trash" :size="12" />
               <span>批量删除学生</span>
             </button>
-            <button class="btn btn-xs btn-ghost text-rose-700" @click="selectedStudentIds = []">
+            <button class="btn btn-xs btn-ghost t-accent" @click="selectedStudentIds = []">
               取消选择
             </button>
           </div>
@@ -892,7 +892,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
 
           <!-- 班级管理按钮 -->
           <button
-            class="btn btn-sm btn-ghost border border-slate-300 hover:bg-slate-50 inline-flex items-center gap-1"
+            class="btn btn-sm btn-ghost border border-[var(--line-strong)] inline-flex items-center gap-1"
             v-if="!showsQualification"
             title="查看所有行政班级，支持整班清理"
             @click="adminClassDialogVisible = true"
@@ -903,7 +903,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
 
           <button
             v-if="!showsQualification && selectedAdminClassId && canManageClasses"
-            class="btn btn-sm text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 inline-flex items-center gap-1"
+            class="btn btn-sm btn-danger-line inline-flex items-center gap-1"
             title="整班删除选中的行政班及其名下学生"
             @click="() => { const cls = adminClasses.find(c => String(c.id) === selectedAdminClassId); if (cls) handleDeleteAdminClass(cls) }"
           >
@@ -932,7 +932,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
 
           <button
             v-if="selectedAdminClassId || searchQuery || filterOnlyVolunteers"
-            class="btn btn-sm btn-ghost text-amber-700"
+            class="btn btn-sm btn-ghost t-amber"
             @click="handleResetFilters"
           >
             重置
@@ -978,34 +978,34 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
                 </span>
                 <div
                   v-if="adminClassObjMap.get(String(stu.administrative_class_id)) && (adminClassObjMap.get(String(stu.administrative_class_id))?.head_teacher || adminClassObjMap.get(String(stu.administrative_class_id))?.counselor)"
-                  class="text-[11px] text-gray-500 flex items-center gap-1.5 flex-wrap"
+                  class="meta flex items-center gap-1.5 flex-wrap"
                 >
                   <span
                     v-if="adminClassObjMap.get(String(stu.administrative_class_id))?.head_teacher"
-                    class="text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-100"
+                    class="chip-green"
                     title="行政班班主任"
                   >
                     班主任: {{ adminClassObjMap.get(String(stu.administrative_class_id))?.head_teacher }}
                   </span>
                   <span
                     v-if="adminClassObjMap.get(String(stu.administrative_class_id))?.counselor"
-                    class="text-blue-700 bg-blue-50 px-1 py-0.2 rounded border border-blue-100"
+                    class="chip-blue"
                     title="责任区辅导员"
                   >
                     辅导员: {{ adminClassObjMap.get(String(stu.administrative_class_id))?.counselor }}
                   </span>
                 </div>
               </div>
-              <span v-else-if="stu.administrative_class_id" class="text-xs text-slate-400 font-mono">
+              <span v-else-if="stu.administrative_class_id" class="text-xs t-mute font-mono">
                 行政班 #{{ stu.administrative_class_id }}
               </span>
-              <span v-else class="text-xs text-slate-400 italic">
+              <span v-else class="text-xs t-mute italic">
                 未指定班级
               </span>
             </td>
             <td>
               <span v-if="boundUserMap.get(stu.id)?.has_wechat" class="tag tag-green inline-flex items-center gap-1">
-                <AppIcon name="check-circle" :size="12" class="text-emerald-600" />
+                <AppIcon name="check-circle" :size="12" class="t-green" />
                 <span>微信已绑定</span>
               </span>
               <span
@@ -1013,11 +1013,11 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
                 class="tag tag-amber inline-flex items-center gap-1"
                 title="该学生已有系统账号，尚未在微信小程序完成绑定；受派仍需符合资格与规则"
               >
-                <AppIcon name="warning" :size="12" class="text-amber-600" />
+                <AppIcon name="warning" :size="12" class="t-amber" />
                 <span>尚未绑定微信</span>
               </span>
               <span v-else class="tag tag-gray inline-flex items-center gap-1">
-                <AppIcon name="close" :size="10" class="text-slate-400" />
+                <AppIcon name="close" :size="10" class="t-mute" />
                 <span>未绑定微信小程序</span>
               </span>
             </td>
@@ -1046,7 +1046,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
 
                 <button
                   v-if="canBind && boundUserMap.get(stu.id)"
-                  class="btn btn-sm btn-ghost text-amber-600 hover:bg-amber-50 inline-flex items-center gap-0.5"
+                  class="btn btn-sm btn-ghost t-amber inline-flex items-center gap-0.5"
                   title="解除微信小程序的账号绑定"
                   @click="handleUnbindStudent(stu)"
                 >
@@ -1054,7 +1054,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
                   <span>解绑</span>
                 </button>
                 <button
-                  class="btn btn-sm btn-ghost text-rose-600 hover:bg-rose-50 inline-flex items-center gap-0.5"
+                  class="btn btn-sm btn-ghost t-accent inline-flex items-center gap-0.5"
                   v-if="!showsQualification && canManageStudents" title="删除此学生底册档案"
                   @click="handleDeleteStudent(stu)"
                 >
@@ -1077,7 +1077,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
     <el-dialog
       v-model="tokenDialogVisible"
       title="一次性小程序绑定码已签发"
-      width="540px"
+      width="640px"
       append-to-body
       destroy-on-close
     >
@@ -1156,7 +1156,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
     <el-dialog
       v-model="addDialogVisible"
       title="添加志愿者 / 录入学生档案"
-      width="520px"
+      width="640px"
       append-to-body
       destroy-on-close
     >
@@ -1257,7 +1257,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
     <el-dialog
       v-model="batchExportDialogVisible"
       title="批量生成学生 6 位绑定码并导出 Excel"
-      width="540px"
+      width="640px"
       append-to-body
       destroy-on-close
     >
@@ -1268,7 +1268,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
         </p>
 
         <div class="form-item">
-          <label class="form-label font-bold text-xs text-slate-700">绑定码有效期：</label>
+          <label class="form-label">绑定码有效期：</label>
           <el-radio-group v-model="batchExportDays">
             <el-radio :value="14">14 天</el-radio>
             <el-radio :value="30">30 天 (推荐)</el-radio>
@@ -1278,15 +1278,15 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
         </div>
 
         <div class="form-item">
-          <label class="form-label font-bold text-xs text-slate-700">签发范围：</label>
+          <label class="form-label">签发范围：</label>
           <el-radio-group v-model="batchExportScope">
             <el-radio value="all">全校在籍学生 (共 {{ stats.total }} 人)</el-radio>
             <el-radio value="volunteers">仅当前学期志愿者 (共 {{ stats.volunteers }} 人)</el-radio>
           </el-radio-group>
         </div>
 
-        <div class="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs text-blue-900 flex items-start gap-2">
-          <AppIcon name="info" :size="15" class="text-blue-600 shrink-0 mt-0.5" />
+        <div class="info-box flex items-start gap-2">
+          <AppIcon name="info" :size="15" class="t-blue shrink-0 mt-0.5" />
           <div class="leading-relaxed">
             <b>说明</b>：微信小程序端仅供学生绑定；获得志愿者资格的学生登录后将自动叠加查课工作台权限。
             导出的 Excel 表格可直接发送至各班级大群或由辅导员分发。
@@ -1309,12 +1309,12 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
     <el-dialog
       v-model="adminClassDialogVisible"
       title="行政班级管理与责任人配置"
-      width="780px"
+      width="min(820px, 94vw)"
       append-to-body
     >
       <div class="space-y-4">
         <div class="flex items-center justify-between">
-          <div class="p-2.5 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900 leading-relaxed flex-1 mr-3">
+          <div class="warn-box flex-1 mr-3">
             <b>责任区与整班管理说明</b>：支持手动维护各行政班的班主任与责任区辅导员，或整班清理底册数据。<br />
             若班内学生已有正式考勤记录，系统将严格阻止误删保护历史数据。
           </div>
@@ -1327,9 +1327,9 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
           </button>
         </div>
 
-        <div class="max-h-[420px] overflow-y-auto border border-slate-200 rounded">
+        <div class="max-h-[420px] overflow-y-auto border border-[var(--line)] rounded">
           <table class="w-full text-left text-sm">
-            <thead class="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase font-mono">
+            <thead class="bg-deep border-b border-[var(--line)] text-xs t-mute uppercase font-mono">
               <tr>
                 <th class="p-2.5">班级名称</th>
                 <th class="p-2.5">班级代码</th>
@@ -1339,33 +1339,33 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
                 <th class="p-2.5 text-right" style="min-width: 140px;">操作</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="cls in classRows" :key="cls.id" class="hover:bg-slate-50">
-                <td class="p-2.5 font-bold text-slate-800">{{ cls.class_name }}</td>
-                <td class="p-2.5 font-mono text-xs text-slate-600">{{ cls.class_code }}</td>
+            <tbody class="divide-y divide-[var(--line)]">
+              <tr v-for="cls in classRows" :key="cls.id" class="hover:bg-[var(--paper-deep)]">
+                <td class="p-2.5 font-bold t-ink">{{ cls.class_name }}</td>
+                <td class="p-2.5 font-mono text-xs t-soft">{{ cls.class_code }}</td>
                 <td class="p-2.5 text-xs">
-                  <span v-if="cls.head_teacher" class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 font-medium">
+                  <span v-if="cls.head_teacher" class="chip-green font-medium">
                     {{ cls.head_teacher }}
                   </span>
-                  <span v-else class="text-slate-400 italic">未指定</span>
+                  <span v-else class="t-mute italic">未指定</span>
                 </td>
                 <td class="p-2.5 text-xs">
-                  <span v-if="cls.counselor" class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-medium">
+                  <span v-if="cls.counselor" class="chip-blue font-medium">
                     {{ cls.counselor }}
                   </span>
-                  <span v-else class="text-slate-400 italic">未指定</span>
+                  <span v-else class="t-mute italic">未指定</span>
                 </td>
-                <td class="p-2.5 text-xs text-slate-500">{{ cls.college || '默认' }} {{ cls.grade_year ? `(${cls.grade_year}级)` : '' }}</td>
+                <td class="p-2.5 text-xs t-mute">{{ cls.college || '默认' }} {{ cls.grade_year ? `(${cls.grade_year}级)` : '' }}</td>
                 <td class="p-2.5 text-right space-x-1.5">
                   <button
-                    class="btn btn-xs btn-ghost border border-slate-200 inline-flex items-center gap-1 text-slate-700 hover:bg-slate-100"
+                    class="btn btn-xs btn-ghost border border-[var(--line)] inline-flex items-center gap-1 t-soft"
                     @click="openEditAdminClassDialog(cls)"
                   >
                     <AppIcon name="edit" :size="11" />
                     <span>编辑</span>
                   </button>
                   <button
-                    class="btn btn-xs text-rose-600 hover:bg-rose-50 border border-rose-200 inline-flex items-center gap-1"
+                    class="btn btn-xs btn-danger-line inline-flex items-center gap-1"
                     :disabled="deletingClassId === String(cls.id)"
                     @click="handleDeleteAdminClass(cls)"
                   >
@@ -1375,7 +1375,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
                 </td>
               </tr>
               <tr v-if="adminClasses.length === 0">
-                <td colspan="6" class="p-4 text-center text-slate-400">暂无行政班级数据</td>
+                <td colspan="6" class="p-4 text-center t-mute">暂无行政班级数据</td>
               </tr>
             </tbody>
           </table>
@@ -1393,7 +1393,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
     <el-dialog
       v-model="adminClassFormVisible"
       :title="editingAdminClassId ? '编辑行政班级信息与责任人' : '新建行政班级'"
-      width="500px"
+      width="480px"
       append-to-body
     >
       <div v-loading="savingAdminClass" class="space-y-3.5">
@@ -1415,7 +1415,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
             :disabled="!!editingAdminClassId"
             placeholder="例如：24AI01"
           />
-          <div v-if="editingAdminClassId" class="text-[11px] text-slate-400 mt-1">班级唯一代码不可修改</div>
+          <div v-if="editingAdminClassId" class="meta mt-1">班级唯一代码不可修改</div>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-item">
@@ -1510,7 +1510,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
   margin-bottom: 4px;
 }
 .stat-cell .value {
-  font-size: 24px;
+  font-size: var(--text-hero);
   font-weight: 700;
   color: var(--ink);
   line-height: 1.2;
@@ -1550,7 +1550,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
   padding: 10px 14px;
   background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   min-width: 140px;
   text-decoration: none;
 }
@@ -1563,8 +1563,8 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
 }
 .g-step .num { font-size: 11px; font-weight: 700; color: var(--blue); margin-bottom: 2px; }
 .g-step .name { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 2px; }
-.g-step .desc { font-size: 10px; color: var(--ink-mute); }
-.g-arrow { font-size: 16px; color: var(--line-strong); }
+.g-step .desc { font-size: var(--text-caption); color: var(--ink-mute); }
+.g-arrow { font-size: var(--text-lg); color: var(--line-strong); }
 
 .filter-chk {
   display: inline-flex;
@@ -1598,7 +1598,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
   border: 2px dashed var(--blue);
   color: var(--blue);
   padding: 16px;
-  font-size: 20px;
+  font-size: var(--text-2xl);
   font-weight: 700;
   letter-spacing: 0.1em;
   word-break: break-all;
@@ -1685,9 +1685,9 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
 .class-badge {
   display: inline-block;
   padding: 2px 8px;
-  background: #f1f5f9;
+  background: var(--paper-deep);
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 600;
   color: var(--ink);

@@ -665,13 +665,13 @@ async function handleBatchSubmitSelfStudy() {
     ElMessageBox.alert(
       `<div>
         <p style="font-weight:700;color:var(--green);margin-bottom:6px;">批量生成排课成功！</p>
-        <div style="font-size:12px;color:var(--ink-soft);background:var(--green-soft);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--line);border-left:3px solid var(--green);line-height:1.7;">
+        <div style="font-size:var(--text-xs);color:var(--ink-soft);background:var(--green-soft);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--line);border-left:3px solid var(--green);line-height:1.7;">
           <div>覆盖行政班：<strong>${res.classes_count}</strong> 个</div>
           <div>新建教学班：<strong>${res.classes_created}</strong> 个</div>
           <div>生成课次排期：<strong>${res.schedules_created}</strong> 门</div>
           <div>同步关联学生：<strong>${res.students_linked}</strong> 人次</div>
         </div>
-        <p style="font-size:11px;color:var(--ink-mute);margin-top:8px;">已生成自习课表，可前往教务总课表查看或在此进行课次下发。</p>
+        <p style="font-size:var(--text-caption);color:var(--ink-mute);margin-top:8px;">已生成自习课表，可前往教务总课表查看或在此进行课次下发。</p>
       </div>`,
       '批量自习排课完成',
       { dangerouslyUseHTMLString: true, confirmButtonText: '知道了' }
@@ -794,7 +794,7 @@ async function confirmImport() {
     ElMessageBox.alert(
       `本次文件导入成功！<br/><br/>
       <b>数据概要：</b><br/>
-      <pre style="background:var(--paper-deep);border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;font-size:12px;font-family:'JetBrains Mono',monospace;">${JSON.stringify(res.summary, null, 2)}</pre>`,
+      <pre style="background:var(--paper-deep);border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;font-size:var(--text-xs);font-family:'JetBrains Mono',monospace;">${JSON.stringify(res.summary, null, 2)}</pre>`,
       '导入落库成功',
       {
         dangerouslyUseHTMLString: true,
@@ -1243,12 +1243,10 @@ function applySmartSample() {
       </div>
 
       <!-- 空状态 -->
-      <div v-if="!loading && !dispatchError && !hasData" class="empty-box">
-        <div class="empty-icon flex justify-center mb-2">
-          <AppIcon name="folder-open" :size="36" class="icon-mute" />
-        </div>
-        <div class="empty-text">当前周次（第 {{ sessionStore.currentWeekNo }} 周）暂无可下发课次及已有任务</div>
-        <div class="empty-sub">您可以点击右上角“批量导入教务数据”录入班级花名册与课表</div>
+      <div v-if="!loading && !dispatchError && !hasData" class="empty-box empty-state">
+        <AppIcon name="folder-open" :size="32" class="e-icon" />
+        <div class="e-main">当前周次（第 {{ sessionStore.currentWeekNo }} 周）暂无可下发课次及已有任务</div>
+        <div class="e-sub">您可以点击右上角“批量导入教务数据”录入班级花名册与课表</div>
       </div>
     </div>
 
@@ -1404,12 +1402,10 @@ function applySmartSample() {
           <AppPagination v-model:current-page="masterPage" :total="masterTotal" @current-change="loadMasterTimetableData(false)" />
         </div>
 
-        <div v-if="!masterLoading && masterTimetableList.length === 0" class="empty-box">
-          <div class="empty-icon flex justify-center mb-2">
-            <AppIcon name="book" :size="36" class="icon-mute" />
-          </div>
-          <div class="empty-text">未检索到符合条件的排课记录</div>
-          <div class="empty-sub">请检查筛选条件，或使用上方“批量导入教务数据”导入网格课表</div>
+        <div v-if="!masterLoading && masterTimetableList.length === 0" class="empty-box empty-state">
+          <AppIcon name="book" :size="32" class="e-icon" />
+          <div class="e-main">未检索到符合条件的排课记录</div>
+          <div class="e-sub">请检查筛选条件，或使用上方“批量导入教务数据”导入网格课表</div>
         </div>
       </div>
     </div>
@@ -1443,22 +1439,22 @@ function applySmartSample() {
     <el-dialog
       v-model="showRosterDialog"
       :title="`教学班学生名单 · ${currentRosterItem?.course_name || ''}`"
-      width="680px"
+      width="min(820px, 94vw)"
       :append-to-body="true"
       class="roster-dialog"
     >
       <div v-if="currentRosterItem" class="roster-dialog-content">
         <!-- 头部概览信息 -->
-        <div class="roster-meta-grid mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm grid grid-cols-2 gap-2">
-          <div><span class="text-slate-500">教学班：</span><span class="font-medium text-slate-800">{{ currentRosterItem.teaching_class_name }}</span></div>
-          <div><span class="text-slate-500">任课教师：</span><span class="font-medium text-slate-800">{{ currentRosterItem.teacher_name || '未指定' }}</span></div>
-          <div><span class="text-slate-500">关联行政班：</span><span class="text-slate-700">{{ currentRosterItem.administrative_classes?.join(', ') || '未关联' }}</span></div>
-          <div><span class="text-slate-500">当前名单：</span><span class="font-semibold text-emerald-600">{{ rosterStudents.length }} 人</span></div>
+        <div class="roster-meta-grid mb-4 p-3 bg-deep border border-[var(--line)] rounded-lg text-sm grid grid-cols-2 gap-2">
+          <div><span class="t-mute">教学班：</span><span class="font-medium t-ink">{{ currentRosterItem.teaching_class_name }}</span></div>
+          <div><span class="t-mute">任课教师：</span><span class="font-medium t-ink">{{ currentRosterItem.teacher_name || '未指定' }}</span></div>
+          <div><span class="t-mute">关联行政班：</span><span class="t-soft">{{ currentRosterItem.administrative_classes?.join(', ') || '未关联' }}</span></div>
+          <div><span class="t-mute">当前名单：</span><span class="font-semibold t-green">{{ rosterStudents.length }} 人</span></div>
         </div>
 
         <!-- 搜索过滤 -->
         <div class="flex items-center justify-between mb-3 gap-2">
-          <div class="text-xs text-slate-500">
+          <div class="text-xs t-mute">
             共找到 {{ filteredRosterStudents.length }} 名学生
           </div>
           <el-input
@@ -1474,7 +1470,7 @@ function applySmartSample() {
         <div v-loading="rosterLoading" style="min-height: 180px; max-height: 400px; overflow-y: auto;">
           <table v-if="filteredRosterStudents.length > 0" class="w-full text-left border-collapse text-sm">
             <thead>
-              <tr class="border-b border-slate-200 bg-slate-100 text-xs text-slate-600 font-medium">
+              <tr class="border-b border-[var(--line-strong)] bg-deep text-xs t-soft font-medium">
                 <th class="py-2 px-3 w-12 text-center">#</th>
                 <th class="py-2 px-3">学号</th>
                 <th class="py-2 px-3">姓名</th>
@@ -1482,23 +1478,23 @@ function applySmartSample() {
                 <th class="py-2 px-3 w-20 text-center">状态</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="(stu, idx) in visibleRosterRows" :key="stu.id" class="hover:bg-slate-50">
-                <td class="py-2 px-3 text-center text-xs text-slate-400 font-mono">{{ idx + 1 }}</td>
-                <td class="py-2 px-3 font-mono text-xs text-slate-700">{{ stu.student_no }}</td>
-                <td class="py-2 px-3 font-medium text-slate-900">{{ stu.name }}</td>
-                <td class="py-2 px-3 text-xs text-slate-600">{{ stu.administrative_class_name || currentRosterItem.administrative_classes?.[0] || '-' }}</td>
+            <tbody class="divide-y divide-[var(--line)]">
+              <tr v-for="(stu, idx) in visibleRosterRows" :key="stu.id" class="hover:bg-[var(--paper-deep)]">
+                <td class="py-2 px-3 text-center text-xs t-mute font-mono">{{ idx + 1 }}</td>
+                <td class="py-2 px-3 font-mono text-xs t-soft">{{ stu.student_no }}</td>
+                <td class="py-2 px-3 font-medium t-ink">{{ stu.name }}</td>
+                <td class="py-2 px-3 text-xs t-soft">{{ stu.administrative_class_name || currentRosterItem.administrative_classes?.[0] || '-' }}</td>
                 <td class="py-2 px-3 text-center">
-                  <span class="inline-block px-1.5 py-0.5 text-xs rounded bg-emerald-50 text-emerald-700 border border-emerald-200">在籍</span>
+                  <span class="tag tag-green">在籍</span>
                 </td>
               </tr>
             </tbody>
           </table>
 
-          <div v-else-if="!rosterLoading" class="py-8 text-center text-slate-400 text-sm">
-            <AppIcon name="users" :size="32" class="mx-auto mb-2 text-slate-300" />
-            <p v-if="rosterSearch">未找到符合搜索条件的学生</p>
-            <p v-else>该教学班尚未关联在籍学生名单</p>
+          <div v-else-if="!rosterLoading" class="empty-state">
+            <AppIcon name="users" :size="32" class="e-icon" />
+            <p v-if="rosterSearch" class="e-main">未找到符合搜索条件的学生</p>
+            <p v-else class="e-main">该教学班尚未关联在籍学生名单</p>
           </div>
           <AppPagination v-if="filteredRosterStudents.length" v-model:current-page="rosterPage" :total="filteredRosterStudents.length" />
         </div>
@@ -1512,7 +1508,7 @@ function applySmartSample() {
     <el-dialog
       v-model="showImportDialog"
       title="导入教务数据"
-      width="720px"
+      width="min(820px, 94vw)"
       :close-on-click-modal="false"
       :append-to-body="true"
       class="import-dialog"
@@ -1571,7 +1567,7 @@ function applySmartSample() {
         <div v-if="!bulkResult" class="step-block" style="margin-bottom: 14px;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <div class="step-label font-mono">课程类型（课表自动分类）</div>
-            <span v-if="loadingCourseTypes" style="font-size:12px; color:var(--ink-mute);">加载学院配置中…</span>
+            <span v-if="loadingCourseTypes" style="font-size:var(--text-xs); color:var(--ink-mute);">加载学院配置中…</span>
           </div>
           <select v-model="selectedCourseTypeId" class="input dlg-select" style="margin-top:6px;">
             <option v-for="t in collegeCourseTypes" :key="t.id" :value="t.id">
@@ -1730,7 +1726,7 @@ function applySmartSample() {
         <div v-if="importTarget !== 'admin_roster' && !importPreview" class="step-block">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <div class="step-label font-mono">STEP 1.5 · 课程类型</div>
-            <span v-if="loadingCourseTypes" style="font-size:12px; color:var(--ink-mute);">加载学院配置中…</span>
+            <span v-if="loadingCourseTypes" style="font-size:var(--text-xs); color:var(--ink-mute);">加载学院配置中…</span>
           </div>
           <select v-model="selectedCourseTypeId" class="input dlg-select" style="margin-top:6px;">
             <option v-for="t in collegeCourseTypes" :key="t.id" :value="t.id">
@@ -2067,7 +2063,7 @@ function applySmartSample() {
     <el-dialog
       v-model="showSelfStudyDialog"
       title="批量生成早/晚自习排课"
-      width="720px"
+      width="min(820px, 94vw)"
       :close-on-click-modal="false"
       :append-to-body="true"
       class="self-study-dialog"
@@ -2279,14 +2275,14 @@ function applySmartSample() {
 }
 .import-only-title {
   font-family: 'Noto Serif SC', serif;
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--ink);
   margin-bottom: 8px;
 }
 .import-only-desc {
   color: var(--ink-soft);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.8;
   margin-bottom: 20px;
 }
@@ -2295,8 +2291,8 @@ function applySmartSample() {
   justify-content: center;
   gap: 10px;
 }
-.sel-info { font-size: 13px; color: var(--ink-mute); }
-.sel-info strong { color: var(--ink); font-size: 15px; }
+.sel-info { font-size: var(--text-sm); color: var(--ink-mute); }
+.sel-info strong { color: var(--ink); font-size: var(--text-lg); }
 
 .tab-nav {
   display: flex;
@@ -2315,7 +2311,7 @@ function applySmartSample() {
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease);
 }
 .tab-btn:hover {
   color: var(--ink);
@@ -2356,7 +2352,7 @@ function applySmartSample() {
 .selectable-row {
   cursor: pointer;
   user-select: none;
-  transition: background-color 0.12s ease;
+  transition: background-color var(--dur-f) var(--ease);
 }
 
 .selectable-row:hover:not(.row-disabled) {
@@ -2403,10 +2399,10 @@ function applySmartSample() {
 .checkbox-lg {
   width: 18px;
   height: 18px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   accent-color: var(--ink);
   cursor: pointer;
-  transition: transform 0.1s ease;
+  transition: transform var(--dur-f) var(--ease);
 }
 
 .checkbox-lg:hover:not(:disabled) {
@@ -2419,12 +2415,7 @@ function applySmartSample() {
 
 .empty-box {
   padding: 60px 20px;
-  text-align: center;
-  color: var(--ink-mute);
 }
-.empty-icon { font-size: 32px; margin-bottom: 8px; }
-.empty-text { font-size: 14px; font-weight: 600; color: var(--ink-soft); margin-bottom: 4px; }
-.empty-sub { font-size: 12px; }
 
 /* ============================================================
    弹窗共用（导入 / 智能抽查）
@@ -2468,12 +2459,12 @@ function applySmartSample() {
   flex-direction: column;
   gap: 1px;
   font-family: inherit;
-  transition: background 0.15s;
+  transition: background var(--dur-f) var(--ease);
 }
 .mode-tab:hover { background: var(--paper); }
 .mode-tab.active { background: var(--paper); box-shadow: inset 0 2px 0 var(--ink); }
 .mode-no {
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--ink-mute);
   letter-spacing: 0.1em;
   margin-bottom: 3px;
@@ -2516,7 +2507,7 @@ function applySmartSample() {
   padding: 30px 20px;
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color var(--dur-m) var(--ease), background var(--dur-m) var(--ease);
   margin-bottom: 14px;
 }
 .drop-zone.slim { padding: 22px 20px; margin-bottom: 0; }
@@ -2566,7 +2557,7 @@ function applySmartSample() {
   color: var(--ink-mute);
   cursor: pointer;
   font-family: inherit;
-  transition: color 0.15s;
+  transition: color var(--dur-f) var(--ease);
 }
 .fp-clear:hover { color: var(--accent); }
 .fp-list { max-height: 168px; overflow-y: auto; }
@@ -2597,8 +2588,8 @@ function applySmartSample() {
   border: none;
   color: var(--ink-mute);
   cursor: pointer;
-  border-radius: 2px;
-  transition: color 0.15s, background 0.15s;
+  border-radius: var(--radius-sm);
+  transition: color var(--dur-f) var(--ease), background var(--dur-f) var(--ease);
   flex-shrink: 0;
 }
 .fp-del:hover { color: var(--accent); background: var(--accent-soft); }
@@ -2606,7 +2597,7 @@ function applySmartSample() {
 /* ---------- 步骤块（单文件导入） ---------- */
 .step-block { margin-bottom: 16px; }
 .step-label {
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 600;
   color: var(--ink-mute);
   letter-spacing: 0.1em;
@@ -2656,16 +2647,16 @@ function applySmartSample() {
 .rb-stat { background: var(--paper); padding: 12px 14px; }
 .rb-stat.span2 { grid-column: span 2; }
 .rb-stat .s-label {
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 600;
   color: var(--ink-mute);
   letter-spacing: 0.05em;
   margin-bottom: 6px;
 }
-.rb-stat .s-value { font-size: 20px; font-weight: 600; line-height: 1; color: var(--ink); }
+.rb-stat .s-value { font-size: var(--text-2xl); font-weight: 600; line-height: 1; color: var(--ink); }
 .rb-stat .s-value em {
   font-style: normal;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 400;
   color: var(--ink-mute);
   margin-left: 3px;
@@ -2785,7 +2776,7 @@ function applySmartSample() {
 }
 .param .input { width: 100%; }
 .param .hint {
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--ink-mute);
   margin-top: 5px;
   line-height: 1.5;
@@ -2804,7 +2795,7 @@ function applySmartSample() {
   padding: 10px 14px;
   cursor: pointer;
   border-bottom: 1px solid var(--line);
-  transition: background 0.15s;
+  transition: background var(--dur-f) var(--ease);
 }
 .opt-row:last-child { border-bottom: none; }
 .opt-row:hover { background: var(--paper-deep); }
@@ -2863,7 +2854,7 @@ function applySmartSample() {
   color: var(--ink-soft);
   border-radius: calc(var(--radius) - 2px);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-f) var(--ease), color var(--dur-f) var(--ease), box-shadow var(--dur-f) var(--ease);
 }
 .scope-tab.active {
   background: var(--paper);
@@ -2919,9 +2910,9 @@ function applySmartSample() {
   border: none;
   background: transparent;
   color: var(--ink-mute);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-f) var(--ease), color var(--dur-f) var(--ease);
 }
 .btn-remove-class:hover {
   background: var(--accent-soft);
@@ -2940,7 +2931,6 @@ function applySmartSample() {
 .week-tasks { margin-top: 24px; }
 .btn-xs { padding: 2px 6px; font-size: 11px; border-radius: var(--radius); }
 
-.icon-mute { color: var(--line-strong); }
 .dim { color: var(--ink-mute); }
 .dim-note { font-size: 11px; color: var(--ink-mute); }
 
@@ -2953,7 +2943,7 @@ function applySmartSample() {
   font-size: 11px;
   font-weight: 600;
   line-height: 1.5;
-  border-radius: 20px;
+  border-radius: var(--radius-pill);
   white-space: nowrap;
 }
 .chip-blue { background: var(--blue-soft); color: var(--blue); }
@@ -2978,7 +2968,7 @@ function applySmartSample() {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   cursor: pointer;
-  transition: all var(--dur-f) ease;
+  transition: background var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease), color var(--dur-f) var(--ease), opacity var(--dur-f) var(--ease);
   white-space: nowrap;
 }
 .row-action:hover { border-color: var(--ink); color: var(--ink); }
@@ -3051,7 +3041,7 @@ function applySmartSample() {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   cursor: pointer;
-  transition: border-color var(--dur-f) ease, box-shadow var(--dur-f) ease;
+  transition: border-color var(--dur-f) var(--ease), box-shadow var(--dur-f) var(--ease);
 }
 .radio-card:hover { border-color: var(--ink); }
 .radio-card.selected { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
@@ -3084,7 +3074,7 @@ function applySmartSample() {
   cursor: pointer;
   border: 1px solid transparent;
   border-radius: var(--radius);
-  transition: all var(--dur-f) ease;
+  transition: background var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease);
 }
 .class-pick-item:hover { background: var(--paper); border-color: var(--line-strong); }
 .class-pick-item input { accent-color: var(--ink); }
@@ -3108,7 +3098,7 @@ function applySmartSample() {
   border-radius: var(--radius);
   cursor: pointer;
   user-select: none;
-  transition: all var(--dur-f) ease;
+  transition: background var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease), color var(--dur-f) var(--ease);
 }
 .day-pick:hover { border-color: var(--ink); color: var(--ink); }
 .day-pick.selected {
@@ -3140,7 +3130,7 @@ function applySmartSample() {
 }
 .inspection-head-row .head-title h2 {
   font-family: 'Noto Serif SC', serif;
-  font-size: 17px;
+  font-size: var(--text-lg);
   font-weight: 700;
   margin: 0;
   line-height: 32px;
@@ -3157,7 +3147,7 @@ function applySmartSample() {
 .inspection-head-row .head-actions .btn {
   height: 32px;
   padding: 0 12px;
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   line-height: 32px;
   white-space: nowrap;
   display: inline-flex;
@@ -3175,7 +3165,7 @@ function applySmartSample() {
     gap: 8px;
   }
   .inspection-head-row .head-title h2 {
-    font-size: 15.5px;
+    font-size: var(--text-md);
   }
   .inspection-head-row .btn-text-full {
     display: none;

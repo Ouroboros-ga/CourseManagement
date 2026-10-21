@@ -36,7 +36,7 @@ async function restore(row: typeof rows.value[number]) {
 </script>
 <template>
   <el-button link @click="open = true; load()">已删除记录</el-button>
-  <el-dialog v-model="open" title="已删除记录（历史保留）" width="560px" :show-close="!busy" :close-on-click-modal="false">
+  <el-dialog v-model="open" title="已删除记录（历史保留）" width="640px" :show-close="!busy" :close-on-click-modal="false">
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <PaginatedTable :data="rows" v-loading="busy" empty-text="没有可恢复记录；彻底删除的未使用数据不在此处显示">
       <el-table-column prop="name" label="名称" /><el-table-column label="操作" width="100"><template #default="{ row }"><el-button link :disabled="busy" @click="restore(row)">恢复</el-button></template></el-table-column>

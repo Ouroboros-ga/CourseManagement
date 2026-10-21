@@ -15,7 +15,7 @@ const labels = { CREATE: '新增', UPDATE: '修改', UNCHANGED: '无变化' }
 </script>
 
 <template>
-  <el-dialog :model-value="!!file" :title="file?.filename || '文件内容'" width="min(980px, 94vw)" @close="emit('close')">
+  <el-dialog :model-value="!!file" :title="file?.filename || '文件内容'" width="min(1120px, 94vw)" @close="emit('close')">
     <template v-if="file">
       <p class="file-summary">{{ previewSummary(file.target, file.summary) || `${file.changes.length} 项核对内容` }}</p>
       <section v-if="issues.errors.length" class="blocking-section">
@@ -50,7 +50,7 @@ const labels = { CREATE: '新增', UPDATE: '修改', UNCHANGED: '无变化' }
         </template></el-table-column>
         <el-table-column label="资料内容" min-width="260"><template #default="{ row }">
           <pre class="business-fields">{{ describeImportValue(row.after) }}</pre>
-          <details v-if="row.action === 'UPDATE'" class="before-values"><summary>查看修改前</summary><pre class="business-fields">{{ describeImportValue(row.before) }}</pre></details>
+          <details v-if="row.action === 'UPDATE'" class="before-values disclosure"><summary>查看修改前</summary><pre class="business-fields">{{ describeImportValue(row.before) }}</pre></details>
         </template></el-table-column>
       </el-table>
       <AppPagination v-model:current-page="page" :page-size="50" :total="file.changes.length" />

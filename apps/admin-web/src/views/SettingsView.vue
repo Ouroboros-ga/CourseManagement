@@ -605,16 +605,16 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
       <div class="stat-cell">
         <div class="label flex items-center justify-between">
           <span>当前工作学期</span>
-          <span v-if="semesters.length > 1" class="text-[11px] text-[var(--ink-mute)] font-normal">
+          <span v-if="semesters.length > 1" class="meta font-normal">
             共 {{ semesters.length }} 个学期
           </span>
         </div>
-        <div class="value" style="font-size: 20px;">
+        <div class="value" style="font-size: var(--text-2xl);">
           {{ selectedSemester?.name || sessionStore.currentSemesterName }}
         </div>
         <div class="note">
           代码：{{ selectedSemester?.code || '—' }} · 
-          <span :class="selectedSemester?.status === 'ACTIVE' ? 'text-green-700 font-medium' : 'text-gray-500'">
+          <span :class="selectedSemester?.status === 'ACTIVE' ? 't-green font-medium' : 't-mute'">
             {{ selectedSemester?.status === 'ACTIVE' ? '正常激活' : '已归档' }}
           </span>
         </div>
@@ -626,7 +626,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
       </div>
       <div class="stat-cell">
         <div class="label">第一教学周周一</div>
-        <div class="value" style="font-size: 20px;">{{ selectedSemester?.first_monday || '—' }}</div>
+        <div class="value" style="font-size: var(--text-2xl);">{{ selectedSemester?.first_monday || '—' }}</div>
         <div class="note">
           <template v-if="selectedSemester?.start_date === selectedSemester?.first_monday">
             与开学首日完全对齐 · 排课基准日
@@ -641,7 +641,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
           <span>节次作息定义</span>
           <button
             v-if="periods.length === 0"
-            class="text-[11px] text-blue-700 hover:underline font-normal cursor-pointer"
+            class="text-xs t-blue hover:underline font-normal cursor-pointer"
             title="一键为当前学期生成高校标准1至12节上下课作息"
             @click="handleInitDefaultPeriods"
           >
@@ -656,7 +656,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
             {{ periodCoverageText }}
           </template>
           <template v-else>
-            <span class="text-amber-700">尚未定义节次（点击右上角一键生成）</span>
+            <span class="t-amber">尚未定义节次（点击右上角一键生成）</span>
           </template>
         </div>
       </div>
@@ -748,7 +748,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
                 <div class="flex items-center justify-end gap-3">
                   <button
                     v-if="sem.id !== sessionStore.currentSemesterId"
-                    class="btn-text text-xs text-blue-700 hover:underline"
+                    class="btn-text text-xs t-blue hover:underline"
                     @click="handleSwitchSemester(sem.id)"
                   >
                     切换为此学期
@@ -761,7 +761,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
                   </button>
                   <button
                     class="btn-text text-xs hover:underline"
-                    :class="sem.status === 'ACTIVE' ? 'text-amber-700' : 'text-green-700'"
+                    :class="sem.status === 'ACTIVE' ? 't-amber' : 't-green'"
                     @click="handleToggleArchive(sem)"
                   >
                     {{ sem.status === 'ACTIVE' ? '归档' : '恢复激活' }}
@@ -900,7 +900,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
               <td class="cell-sub">45 分钟标准学时</td>
               <td style="text-align: right;">
                 <div class="flex items-center justify-end gap-3">
-                  <button class="btn-text text-xs text-blue-700 hover:underline" @click="openEditPeriodDialog(p)">
+                  <button class="btn-text text-xs t-blue hover:underline" @click="openEditPeriodDialog(p)">
                     编辑作息
                   </button>
                   <button class="btn-text text-xs text-[var(--accent)] hover:underline" @click="handleDeletePeriod(p)">
@@ -938,7 +938,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
             </div>
             <span class="tag tag-blue">系统默认全局策略</span>
           </div>
-          <div class="text-[11px] text-[var(--ink-mute)]">
+          <div class="text-xs text-[var(--ink-mute)]">
             * 超过 22:00 提交的记录将被标记为【迟交】，并在次日早报与统计报表中予以提示。
           </div>
         </div>
@@ -975,7 +975,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
     </div>
 
     <!-- 弹窗 1: 开启新学期 -->
-    <el-dialog v-model="showCreateSemesterDialog" title="开启新学期与初始化教学日历" width="540px">
+    <el-dialog v-model="showCreateSemesterDialog" title="开启新学期与初始化教学日历" width="640px">
       <div class="space-y-4">
         <div>
           <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期代码 (唯一英数字识别码) *</label>
@@ -1013,7 +1013,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
         <!-- 日期对齐校准提示 -->
         <div
           v-if="semesterCreateForm.start_date && semesterCreateForm.first_monday && semesterCreateForm.start_date !== semesterCreateForm.first_monday"
-          class="p-2.5 rounded bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-center justify-between"
+          class="info-box flex items-center justify-between"
         >
           <div class="leading-relaxed">
             <b>💡 教学周基准提示</b>：开学日（{{ semesterCreateForm.start_date }}）与首周一（{{ semesterCreateForm.first_monday }}）不同，系统将以首周一为全校排课基准。
@@ -1021,7 +1021,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
           <div class="flex items-center gap-1.5 shrink-0 ml-2">
             <button
               type="button"
-              class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-white"
+              class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-[var(--paper)]"
               title="根据开学日期自动推导所在周周一"
               @click="semesterCreateForm.first_monday = getMondayOfDate(semesterCreateForm.start_date)"
             >
@@ -1047,7 +1047,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
     </el-dialog>
 
     <!-- 弹窗 2: 编辑学期信息 -->
-    <el-dialog v-model="showEditSemesterDialog" title="编辑学期信息" width="520px">
+    <el-dialog v-model="showEditSemesterDialog" title="编辑学期信息" width="640px">
       <div class="space-y-4">
         <div>
           <label class="block text-xs font-bold text-[var(--ink)] mb-1">学期代码 (系统识别码)</label>
@@ -1085,7 +1085,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
         <!-- 日期对齐校准提示 -->
         <div
           v-if="semesterEditForm.start_date && semesterEditForm.first_monday && semesterEditForm.start_date !== semesterEditForm.first_monday"
-          class="p-2.5 rounded bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-center justify-between"
+          class="info-box flex items-center justify-between"
         >
           <div class="leading-relaxed">
             <b>💡 教学周基准提示</b>：开学日（{{ semesterEditForm.start_date }}）与首周一（{{ semesterEditForm.first_monday }}）不同，系统将以首周一为全校排课基准。
@@ -1093,7 +1093,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
           <div class="flex items-center gap-1.5 shrink-0 ml-2">
             <button
               type="button"
-              class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-white"
+              class="btn btn-sm btn-outline text-xs py-0.5 px-2 bg-[var(--paper)]"
               title="根据开学日期自动推导所在周周一"
               @click="semesterEditForm.first_monday = getMondayOfDate(semesterEditForm.start_date)"
             >
@@ -1120,7 +1120,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
     </el-dialog>
 
     <!-- 弹窗 3: 高危重置确认 -->
-    <el-dialog v-model="showResetSemesterDialog" title="高危操作：重置当前学期排课与任务数据" width="560px">
+    <el-dialog v-model="showResetSemesterDialog" title="高危操作：重置当前学期排课与任务数据" width="640px">
       <p v-if="resetPreviewLoading">正在读取本院重置预览…</p>
       <p v-if="resetPreview">本次影响：{{ resetPreview.tasks }} 项任务、{{ resetPreview.schedules }} 条排课、{{ resetPreview.teaching_classes }} 个教学班、{{ resetPreview.qualifications }} 项资格。预览后资料变化将整批拒绝。</p>
       <div class="space-y-3 text-sm">
@@ -1207,7 +1207,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
           <label class="block text-xs font-bold text-[var(--ink)] mb-1">规则说明 / 节日名称</label>
           <input v-model="overrideForm.reason" class="input w-full" placeholder="例如: 国庆节放假停课 或 补上周二课" />
         </div>
-        <div v-if="overrideForm.override_type === 'STOP'" class="p-2.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-xs leading-relaxed">
+        <div v-if="overrideForm.override_type === 'STOP'" class="warn-box leading-relaxed">
           <b>⚡ 联动保护：</b>若该停课日期在系统内已下发查课任务，系统将自动联动取消这些任务，避免志愿者到期未查被判逾期。
         </div>
       </div>
@@ -1222,7 +1222,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
     </el-dialog>
 
     <!-- 弹窗 5: 节次作息设置 -->
-    <el-dialog v-model="showPeriodDialog" :title="`设置第 ${periodForm.period_no} 节作息时间`" width="420px">
+    <el-dialog v-model="showPeriodDialog" :title="`设置第 ${periodForm.period_no} 节作息时间`" width="480px">
       <div class="space-y-4">
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -1277,7 +1277,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease);
 }
 .tab-btn:hover { color: var(--ink); }
 .tab-btn.active { color: var(--ink); border-bottom-color: var(--ink); }

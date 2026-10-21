@@ -278,7 +278,7 @@ const statusText: Record<string, string> = { ACTIVE: '在职', INACTIVE: '停用
       </template>
     </el-dialog>
 
-    <el-dialog v-model="accountOpen" title="关联登录账号" width="520px" :close-on-click-modal="false">
+    <el-dialog v-model="accountOpen" title="关联登录账号" width="640px" :close-on-click-modal="false">
       <el-form label-width="92px">
         <el-form-item label="教职工">
           <span>{{ accountRow?.staff_no }} {{ accountRow?.name }}</span>
@@ -314,6 +314,6 @@ const statusText: Record<string, string> = { ACTIVE: '在职', INACTIVE: '停用
 <style scoped>
 .filters { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0; }
 .el-pagination { margin-top: 18px; }
-.muted { color: var(--ink-mute, #888); font-size: 12px; margin-left: 8px; }
-.code-line { display: flex; align-items: center; gap: 10px; font-size: 16px; letter-spacing: 1px; }
+.muted { color: var(--ink-mute); font-size: 12px; margin-left: 8px; }
+.code-line { display: flex; align-items: center; gap: 10px; font-size: var(--text-lg); letter-spacing: 1px; }
 </style>

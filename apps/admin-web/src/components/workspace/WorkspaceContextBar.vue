@@ -87,7 +87,7 @@ select {
   padding: 0 10px;
   border: 1px solid var(--line);
   background: var(--paper);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;

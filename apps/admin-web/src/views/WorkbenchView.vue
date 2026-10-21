@@ -50,11 +50,11 @@ const selfEntries = computed(() => [
 </template>
 <style scoped>
 .entry-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-top: 24px; }
-.entry-card { border: 1px solid var(--line); border-radius: 8px; padding: 24px; text-decoration: none; color: var(--ink); background: var(--paper); }
+.entry-card { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 24px; text-decoration: none; color: var(--ink); background: var(--paper); }
 .entry-card:hover { border-color: var(--blue); }
 .entry-card.self { background: var(--paper); border-left: 3px solid var(--blue); }
 .self-block { margin-top: 24px; }
-.block-title { font-size: 16px; margin: 0; }
-.block-sub { color: var(--ink-mute); font-size: 12px; margin: 4px 0 0; }
-h2 { font-size: 18px; } p, .hint { color: var(--ink-mute); font-size: 13px; line-height: 1.8; } span { font-size: 12px; color: var(--blue); }
+.block-title { margin: 0; }
+.block-sub { color: var(--ink-mute); font-size: var(--text-xs); margin: 4px 0 0; }
+p, .hint { color: var(--ink-mute); font-size: var(--text-sm); line-height: 1.8; } span { font-size: var(--text-xs); color: var(--blue); }
 </style>

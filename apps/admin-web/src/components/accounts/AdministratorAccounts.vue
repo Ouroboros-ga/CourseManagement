@@ -64,7 +64,7 @@ onMounted(load)
     <div class="toolbar"><div><h3>超级管理员账号</h3><p>这里列出全部超级管理员账号。标为「平台管理员」的可以维护本列表；只标为「超级管理员」的拥有同等的全校业务权限，但不能增删其他账号。系统保护最后一位有效超级管理员与最后一位平台管理员。</p></div><el-button type="primary" :disabled="busy" @click="creating = true">新增超级管理员</el-button></div>
     <AdministratorAccountTable :rows="rows" :busy="busy" @update="update" @reset="reset" />
     <AppPagination v-model:current-page="page" :page-size="50" :total="total" @current-change="load" />
-    <el-dialog v-model="creating" title="新增超级管理员" width="440px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy">
+    <el-dialog v-model="creating" title="新增超级管理员" width="480px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy">
       <AdministratorCreateForm :busy="busy" @submit="create" @cancel="creating = false" />
     </el-dialog>
   </section>
@@ -74,5 +74,5 @@ onMounted(load)
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .toolbar h3 { margin: 0 0 8px; }
 .toolbar p { color: var(--ink-mute); font-size: 13px; }
-.administrator-panel { padding: 20px; background: var(--paper, #fff); border: 1px solid var(--line); }
+.administrator-panel { padding: 20px; background: var(--paper); border: 1px solid var(--line); }
 </style>

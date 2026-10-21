@@ -662,7 +662,7 @@ async function handleConfirmCancelFromEdit() {
             title="对当前筛选下全部分页的未分配任务生成计划，不局限本页50条"
             @click="handleAutoAssign('filtered')"
           >
-            <AppIcon name="sparkles" :size="13" class="text-amber-300" />
+            <AppIcon name="sparkles" :size="13" class="t-amber" />
             <span>{{ autoAssigning ? '排班中…' : '智能排班（筛选全部）' }}</span>
           </button>
           <button v-if="selectedTaskIds.length" class="btn btn-sm btn-ghost" :disabled="autoAssigning || deletedOnly"
@@ -741,7 +741,7 @@ async function handleConfirmCancelFromEdit() {
                   <span>{{ task.class_name_snapshot || '—' }}</span>
                   <span
                     v-if="task.effective_teacher || task.teacher_name_snapshot"
-                    class="px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-normal"
+                    class="chip-blue font-normal"
                     :title="task.head_teacher && (task.effective_teacher === task.head_teacher) ? '优先采用班主任兜底呈现' : '任课教师'"
                   >
                     {{ task.effective_teacher || task.teacher_name_snapshot }}
@@ -749,12 +749,12 @@ async function handleConfirmCancelFromEdit() {
                 </div>
               </td>
               <td>
-                <div class="cell-main font-medium text-slate-800">
+                <div class="cell-main font-medium t-ink">
                   {{ task.head_teacher || '—' }}
                 </div>
                 <div
                   v-if="task.counselor"
-                  class="cell-sub text-xs text-blue-600 mt-0.5 truncate max-w-[130px]"
+                  class="cell-sub text-xs t-blue mt-0.5 truncate max-w-[130px]"
                   :title="`责任区辅导员: ${task.counselor}`"
                 >
                   辅导员: {{ task.counselor }}
@@ -762,17 +762,17 @@ async function handleConfirmCancelFromEdit() {
               </td>
               <td>
                 <template v-if="(task as any).assignment?.volunteer_user_id || task.assigned_volunteer_id">
-                  <div class="cell-main font-bold text-slate-800">
+                  <div class="cell-main font-bold t-ink">
                     {{ (task as any).assignment?.volunteer_name || task.assigned_volunteer_name || '志愿者' }}
                   </div>
                   <div
                     v-if="(task as any).assignment?.volunteer_class_name"
-                    class="cell-sub text-xs text-slate-500 truncate"
+                    class="cell-sub text-xs t-mute truncate"
                     :title="(task as any).assignment?.volunteer_class_name"
                   >
                     {{ (task as any).assignment.volunteer_class_name }}
                   </div>
-                  <div v-else class="cell-sub text-xs text-slate-400">
+                  <div v-else class="cell-sub text-xs t-mute">
                     已指派
                   </div>
                   <!-- 换班申请待处理高亮标签 -->
@@ -781,8 +781,7 @@ async function handleConfirmCancelFromEdit() {
                     class="mt-1"
                   >
                     <span
-                      class="tag cursor-pointer font-bold inline-flex items-center gap-1"
-                      style="background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; font-size: 11px; padding: 1px 6px;"
+                      class="tag tag-amber cursor-pointer"
                       :title="`志愿者申请调班：${(task as any).assignment?.change_request_reason || '未填写理由'}`"
                       @click="handleOpenAssignDialog(task)"
                     >
@@ -790,7 +789,7 @@ async function handleConfirmCancelFromEdit() {
                     </span>
                     <div
                       v-if="(task as any).assignment?.change_request_reason"
-                      class="text-xs text-amber-700 truncate max-w-[135px] mt-0.5"
+                      class="text-xs t-amber truncate max-w-[135px] mt-0.5"
                       :title="(task as any).assignment?.change_request_reason"
                     >
                       {{ (task as any).assignment.change_request_reason }}
@@ -798,8 +797,8 @@ async function handleConfirmCancelFromEdit() {
                   </div>
                 </template>
                 <template v-else>
-                  <div class="unassigned text-slate-400">未分配</div>
-                  <div class="cell-sub cell-mono text-xs text-slate-400">可人工指定</div>
+                  <div class="unassigned t-mute">未分配</div>
+                  <div class="cell-sub cell-mono text-xs t-mute">可人工指定</div>
                 </template>
               </td>
               <td>
@@ -807,7 +806,7 @@ async function handleConfirmCancelFromEdit() {
                 <el-tag v-if="task.roster_review_required || task.expected_count_review_required" type="warning">学籍异动待复核</el-tag>
                 <div
                   v-if="task.cancel_reason"
-                  class="cell-sub text-xs text-amber-700 mt-1 max-w-[140px] truncate"
+                  class="cell-sub text-xs t-amber mt-1 max-w-[140px] truncate"
                   :title="task.cancel_reason"
                 >
                   停课: {{ task.cancel_reason }}
@@ -819,7 +818,7 @@ async function handleConfirmCancelFromEdit() {
                   <template v-else>
                   <button
                     class="btn btn-action"
-                    :style="(task as any).assignment?.change_request_status === 'PENDING' ? 'background: #d97706; color: #fff; border-color: #d97706; font-weight: 600;' : ''"
+                    :style="(task as any).assignment?.change_request_status === 'PENDING' ? 'background: var(--amber); color: var(--paper); border-color: var(--amber); font-weight: 600;' : ''"
                     @click="handleOpenAssignDialog(task)"
                   >
                     {{ (task as any).assignment?.change_request_status === 'PENDING' ? '处理调班' : ((task as any).assignment || task.assigned_volunteer_id ? '改派' : '人工指派') }}
@@ -833,8 +832,7 @@ async function handleConfirmCancelFromEdit() {
                     <span>编辑</span>
                   </button>
                   <button
-                    class="btn btn-ghost btn-action text-blue-700 inline-flex items-center gap-1"
-                    style="color: var(--blue);"
+                    class="btn btn-ghost btn-action t-blue inline-flex items-center gap-1"
                     title="展开查课任务详情与点名册卡片"
                     @click="openTaskDetail(task)"
                   >
@@ -842,8 +840,7 @@ async function handleConfirmCancelFromEdit() {
                     <span>详情与点名册</span>
                   </button>
                   <button
-                    class="btn btn-ghost btn-action text-red-600 inline-flex items-center gap-1"
-                    style="color: #dc2626;"
+                    class="btn btn-ghost btn-action t-accent inline-flex items-center gap-1"
                     title="删除此查课任务"
                     @click="handleDeleteSingleTask(task)"
                   >
@@ -859,12 +856,10 @@ async function handleConfirmCancelFromEdit() {
         <AppPagination v-model:current-page="attentionPage" :total="attentionTotal" />
       </div>
 
-      <div v-else class="empty-box">
-        <div class="empty-icon flex justify-center mb-2">
-          <AppIcon name="folder-open" :size="36" class="text-gray-300" />
-        </div>
-        <div class="empty-text">当前周次（第 {{ sessionStore.currentWeekNo }} 周）暂无查课任务</div>
-        <div class="empty-sub">您可以前往「01 课次勾选与下发」下发任务，或切换学期/周次</div>
+      <div v-else class="empty-box empty-state">
+        <AppIcon name="folder-open" :size="32" class="e-icon" />
+        <div class="e-main">当前周次（第 {{ sessionStore.currentWeekNo }} 周）暂无查课任务</div>
+        <div class="e-sub">您可以前往「01 课次勾选与下发」下发任务，或切换学期/周次</div>
       </div>
     </div>
 
@@ -872,7 +867,7 @@ async function handleConfirmCancelFromEdit() {
     <el-dialog
       v-model="assignDialogVisible"
       :title="((assigningTask as any)?.assignment?.change_request_status === 'PENDING' ? '处理调班申请 · 任务 #' : '人工指派志愿者 · 任务 #') + (assigningTask?.id || '')"
-      width="600px"
+      width="640px"
       :lock-scroll="false"
       destroy-on-close
     >
@@ -883,18 +878,18 @@ async function handleConfirmCancelFromEdit() {
           class="change-req-card"
         >
           <div class="cr-head">
-            <span class="tag font-bold" style="background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;">
+            <span class="tag font-bold" style="background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber);">
               ⚠️ 志愿者发起换班申请
             </span>
-            <span class="font-mono text-xs text-slate-500">
+            <span class="font-mono text-xs t-mute">
               {{ (assigningTask as any)?.assignment?.change_request_at ? formatBeijingTime((assigningTask as any)?.assignment?.change_request_at, 'minute') : '' }}
             </span>
           </div>
           <div class="cr-body">
             <div class="cr-row">
               <span class="cr-label">原受派人：</span>
-              <span class="font-bold text-slate-800">{{ (assigningTask as any)?.assignment?.volunteer_name || '原志愿者' }}</span>
-              <span class="text-xs text-slate-500 font-mono">
+              <span class="font-bold t-ink">{{ (assigningTask as any)?.assignment?.volunteer_name || '原志愿者' }}</span>
+              <span class="text-xs t-mute font-mono">
                 ({{ (assigningTask as any)?.assignment?.volunteer_student_no || '—' }} · {{ (assigningTask as any)?.assignment?.volunteer_class_name || '未分班' }})
               </span>
             </div>
@@ -924,7 +919,7 @@ async function handleConfirmCancelFromEdit() {
         <!-- 志愿者搜索与选择 -->
         <div class="form-group" style="margin-top: 18px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <label class="form-label font-bold" style="font-size: 13px; margin: 0;">
+            <label class="form-label font-bold" style="font-size: var(--text-sm); margin: 0;">
               {{ (assigningTask as any)?.assignment?.change_request_status === 'PENDING' ? '选择顶班 / 新受派志愿者：' : '选择受派志愿者：' }}
             </label>
             <button
@@ -954,7 +949,7 @@ async function handleConfirmCancelFromEdit() {
             >
               <div class="vol-option-row">
                 <div>
-                  <span class="vol-option-name" :class="{ 'text-slate-400': 'eligible' in v && !(v as any).eligible }">{{ v.name }}</span>
+                  <span class="vol-option-name" :class="{ 't-mute': 'eligible' in v && !(v as any).eligible }">{{ v.name }}</span>
                   <span class="vol-option-sub font-mono">{{ v.student_no }} · {{ v.class_name || '未分班' }}</span>
                 </div>
                 <div class="vol-option-tags">
@@ -996,7 +991,7 @@ async function handleConfirmCancelFromEdit() {
 
         <!-- 改派说明 -->
         <div class="form-group" style="margin-top: 14px;">
-          <label class="form-label" style="display: block; margin-bottom: 6px; font-size: 12px; color: var(--ink-soft);">
+          <label class="form-label" style="display: block; margin-bottom: 6px; font-size: var(--text-xs); color: var(--ink-soft);">
             审批 / 改派说明（审计备查，选填）：
           </label>
           <input
@@ -1015,7 +1010,7 @@ async function handleConfirmCancelFromEdit() {
             <button
               v-if="(assigningTask as any)?.assignment?.change_request_status === 'PENDING'"
               class="btn btn-ghost"
-              style="color: #dc2626; border-color: #fecaca;"
+              style="color: var(--accent); border-color: var(--accent-soft);"
               :disabled="rejectSubmitting || assignSubmitting"
               @click="handleRejectChangeRequest"
             >
@@ -1045,12 +1040,12 @@ async function handleConfirmCancelFromEdit() {
       destroy-on-close
     >
       <div v-loading="editSubmitting" class="edit-dialog-body">
-        <p style="font-size: 12px; color: var(--ink-mute); margin-bottom: 16px;">
+        <p style="font-size: var(--text-xs); color: var(--ink-mute); margin-bottom: 16px;">
           直接调整当天的查课任务信息（如任课老师临时调换教室或节次变更）。修改后将实时同步至志愿者的查课小程序端。
         </p>
 
         <div style="margin-bottom: 14px;">
-          <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">教室地点：</label>
+          <label style="display: block; font-size: var(--text-xs); font-weight: 600; margin-bottom: 6px;">教室地点：</label>
           <input
             v-model="editForm.classroom"
             type="text"
@@ -1061,7 +1056,7 @@ async function handleConfirmCancelFromEdit() {
         </div>
 
         <div style="margin-bottom: 14px;">
-          <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">课程节次时段：</label>
+          <label style="display: block; font-size: var(--text-xs); font-weight: 600; margin-bottom: 6px;">课程节次时段：</label>
           <el-select v-model="editPeriodPreset" @change="onPeriodPresetChange" style="width: 100%;">
             <el-option
               v-for="opt in periodOptions"
@@ -1075,17 +1070,17 @@ async function handleConfirmCancelFromEdit() {
 
         <div v-if="editPeriodPreset === 0" style="display: flex; gap: 12px; margin-bottom: 14px;">
           <div style="flex: 1;">
-            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">开始节次（1–{{ periodLimit }}）：</label>
+            <label style="display: block; font-size: var(--text-xs); font-weight: 600; margin-bottom: 6px;">开始节次（1–{{ periodLimit }}）：</label>
             <el-input-number v-model="editForm.start_period" :min="1" :max="periodLimit" style="width: 100%;" />
           </div>
           <div style="flex: 1;">
-            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">结束节次（1–{{ periodLimit }}）：</label>
+            <label style="display: block; font-size: var(--text-xs); font-weight: 600; margin-bottom: 6px;">结束节次（1–{{ periodLimit }}）：</label>
             <el-input-number v-model="editForm.end_period" :min="editForm.start_period" :max="periodLimit" style="width: 100%;" />
           </div>
         </div>
 
         <div style="margin-bottom: 14px;">
-          <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">课程名称（快照）：</label>
+          <label style="display: block; font-size: var(--text-xs); font-weight: 600; margin-bottom: 6px;">课程名称（快照）：</label>
           <input
             v-model="editForm.course_name"
             type="text"
@@ -1096,7 +1091,7 @@ async function handleConfirmCancelFromEdit() {
         </div>
 
         <div style="margin-bottom: 14px;">
-          <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px;">修改原因（审计备查）：</label>
+          <label style="display: block; font-size: var(--text-xs); font-weight: 600; margin-bottom: 6px;">修改原因（审计备查）：</label>
           <input
             v-model="editForm.reason"
             type="text"
@@ -1107,35 +1102,35 @@ async function handleConfirmCancelFromEdit() {
         </div>
 
         <!-- 停课免计整合操作区 -->
-        <div class="mt-4 pt-3 border-t border-slate-200">
-          <div v-if="editingTask?.status === '已取消' || editingTask?.status === 'CANCELLED'" class="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs text-gray-600 flex items-center gap-2">
-            <AppIcon name="info" :size="14" class="text-amber-600 shrink-0" />
+        <div class="mt-4 pt-3 border-t border-[var(--line)]">
+          <div v-if="editingTask?.status === '已取消' || editingTask?.status === 'CANCELLED'" class="note-box flex items-center gap-2">
+            <AppIcon name="info" :size="14" class="t-amber shrink-0" />
             <span>当前任务已标记为停课免计（原因：{{ editingTask?.cancel_reason || '未备注' }}）</span>
           </div>
           <div v-else>
             <div class="flex items-center justify-between">
               <div>
-                <span class="text-xs font-bold text-amber-800 flex items-center gap-1">
-                  <AppIcon name="slash" :size="13" class="text-amber-600" />
+                <span class="text-xs font-bold t-amber flex items-center gap-1">
+                  <AppIcon name="slash" :size="13" class="t-amber" />
                   停课 / 特殊免计
                 </span>
-                <p class="text-[11.5px] text-slate-500 mt-0.5">
+                <p class="meta mt-0.5">
                   若本节课教师临时请假或班级外出，可直接标记为停课免计（不计入到课率与考勤统计）。
                 </p>
               </div>
               <button
                 v-if="!showCancelSectionInEdit"
                 type="button"
-                class="btn btn-outline btn-xs text-amber-700 border-amber-300 hover:bg-amber-50"
+                class="btn btn-outline btn-xs t-amber"
                 @click="showCancelSectionInEdit = true"
               >
                 办理停课免计
               </button>
             </div>
 
-            <div v-if="showCancelSectionInEdit" class="p-3 bg-amber-50/70 border border-amber-200 rounded-lg space-y-2.5 mt-2.5">
+            <div v-if="showCancelSectionInEdit" class="warn-box space-y-2.5 mt-2.5">
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">选择停课 / 免查原因 *</label>
+                <label class="form-label">选择停课 / 免查原因 *</label>
                 <select v-model="cancelPresetReason" class="input w-full text-xs" @change="onPresetReasonChange">
                   <option value="教师临时请假/停课">教师临时请假 / 停课</option>
                   <option value="班级外出实训/活动免查">班级外出实训 / 活动免查</option>
@@ -1145,7 +1140,7 @@ async function handleConfirmCancelFromEdit() {
                 </select>
               </div>
               <div v-if="cancelPresetReason === 'CUSTOM'">
-                <label class="block text-xs font-semibold text-slate-700 mb-1">自定义原因说明 *</label>
+                <label class="form-label">自定义原因说明 *</label>
                 <input
                   v-model="cancelCustomReason"
                   type="text"
@@ -1156,14 +1151,14 @@ async function handleConfirmCancelFromEdit() {
               <div class="flex justify-end gap-2 pt-1">
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs text-slate-500"
+                  class="btn btn-ghost btn-xs t-mute"
                   @click="showCancelSectionInEdit = false"
                 >
                   收起
                 </button>
                 <button
                   type="button"
-                  class="btn btn-sm text-xs bg-amber-600 hover:bg-amber-700 text-white border-none"
+                  class="btn btn-sm btn-accent"
                   :disabled="cancelSubmitting"
                   @click="handleConfirmCancelFromEdit"
                 >
@@ -1231,7 +1226,7 @@ async function handleConfirmCancelFromEdit() {
   max-width: 195px;
   box-sizing: border-box;
   flex-shrink: 0;
-  transition: border-color 0.15s ease;
+  transition: border-color var(--dur-f) var(--ease);
 }
 .status-select {
   width: 95px;
@@ -1272,16 +1267,16 @@ async function handleConfirmCancelFromEdit() {
 }
 
 .row-selected {
-  background-color: #f0fdf4 !important;
+  background-color: var(--green-soft) !important;
 }
 
 .btn-danger {
-  background-color: #dc2626;
-  color: #fff;
-  border: 1px solid #dc2626;
+  background-color: var(--red);
+  color: var(--paper);
+  border: 1px solid var(--red);
 }
 .btn-danger:hover:not(:disabled) {
-  background-color: #b91c1c;
+  background-color: var(--accent-dark);
 }
 .btn-danger:disabled {
   opacity: 0.5;
@@ -1290,18 +1285,13 @@ async function handleConfirmCancelFromEdit() {
 
 .empty-box {
   padding: 60px 20px;
-  text-align: center;
-  color: var(--ink-mute);
 }
-.empty-icon { font-size: 32px; margin-bottom: 8px; }
-.empty-text { font-size: 14px; font-weight: 600; color: var(--ink-soft); margin-bottom: 4px; }
-.empty-sub { font-size: 12px; }
 
 /* 任务指派弹窗样式 */
 .task-info-card {
   background: var(--paper-deep);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 12px 16px;
 }
 .task-info-title {
@@ -1349,9 +1339,9 @@ async function handleConfirmCancelFromEdit() {
 .selected-vol-card {
   margin-top: 14px;
   padding: 12px 16px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1361,11 +1351,11 @@ async function handleConfirmCancelFromEdit() {
   height: 36px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--paper);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: var(--text-lg);
 }
 .vol-meta-info {
   flex: 1;
@@ -1394,9 +1384,9 @@ async function handleConfirmCancelFromEdit() {
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-left: 4px solid #f59e0b;
+  background: var(--amber-soft);
+  border: 1px solid var(--amber);
+  border-left: 4px solid var(--amber);
   border-radius: var(--radius);
   margin-bottom: 14px;
 }
@@ -1405,7 +1395,7 @@ async function handleConfirmCancelFromEdit() {
   align-items: center;
   gap: 10px;
   font-size: 13px;
-  color: #92400e;
+  color: var(--amber);
 }
 .cr-badge {
   display: inline-flex;
@@ -1413,16 +1403,16 @@ async function handleConfirmCancelFromEdit() {
   justify-content: center;
   width: 22px;
   height: 22px;
-  background: #f59e0b;
-  color: #fff;
+  background: var(--amber);
+  color: var(--paper);
   border-radius: 50%;
   font-size: 12px;
   font-weight: 700;
 }
 .change-req-card {
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 6px;
+  background: var(--amber-soft);
+  border: 1px solid var(--amber);
+  border-radius: var(--radius-md);
   padding: 12px 16px;
   margin-bottom: 14px;
 }
@@ -1441,16 +1431,16 @@ async function handleConfirmCancelFromEdit() {
   gap: 6px;
 }
 .cr-label {
-  color: #78350f;
+  color: var(--amber);
   flex-shrink: 0;
   font-weight: 600;
 }
 .cr-reason-text {
-  background: #fff;
-  border: 1px solid #fef3c7;
+  background: var(--paper);
+  border: 1px solid var(--line);
   padding: 4px 10px;
-  border-radius: 4px;
-  color: #92400e;
+  border-radius: var(--radius-md);
+  color: var(--amber);
   font-weight: 500;
   flex: 1;
 }

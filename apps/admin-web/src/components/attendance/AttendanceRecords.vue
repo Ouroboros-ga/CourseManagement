@@ -81,16 +81,16 @@ onUnmounted(() => epoch.invalidate())
     <AttendanceGroupTable v-else :rows="groups" :group-by="groupBy" :busy="busy" @open="openGroup" />
     <AppPagination v-model:current-page="page" :total="total" />
     <AttendanceRecordDetail :record="selectedRecord" @close="selectedRecord = null" @updated="load" />
-    <el-dialog v-if="selectedTask" :model-value="true" :title="selectedTask.course_name || '本次查课结果'" width="min(1240px, 95vw)" top="5vh" @update:model-value="selectedTask = null">
+    <el-dialog v-if="selectedTask" :model-value="true" :title="selectedTask.course_name || '本次查课结果'" width="min(1120px, 94vw)" top="5vh" @update:model-value="selectedTask = null">
       <AttendanceTaskResults :key="selectedTask.task_id" :task="selectedTask" :filters="filters" @updated="load" />
     </el-dialog>
   </section>
 </template>
 <style scoped>
 .attendance-browser__heading { display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:12px 0 22px; }
-.attendance-browser__heading h2 { font-size:20px;margin:0 0 7px; }.attendance-browser__heading p { margin:0;font-size:13px;color:var(--ink-mute); }
+.attendance-browser__heading h2 { margin:0 0 7px; }.attendance-browser__heading p { margin:0;font-size:var(--text-sm);color:var(--ink-mute); }
 .attendance-browser__filters { display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px; }
 .attendance-browser__filters :deep(.el-date-editor) { max-width:280px;flex:none; }.attendance-browser__filters .el-select { width:140px; }.attendance-browser__filters .el-input { width:240px; }.attendance-browser__filters .el-button + .el-button { margin-left:0; }
-.attendance-browser__summary { display:flex;align-items:center;flex-wrap:wrap;gap:14px 28px;padding:17px 20px;border:1px solid var(--line);background:white;font-size:13px; }.attendance-browser__summary b { font-size:22px;margin:0 5px; }.normal { color:var(--green); }.late { color:var(--amber); }.absent { color:var(--red); }
-.attendance-browser__hint { margin:14px 0;color:var(--ink-mute);font-size:12px; }.attendance-browser__breadcrumb { display:flex;align-items:center;gap:8px;margin:12px 0; }
+.attendance-browser__summary { display:flex;align-items:center;flex-wrap:wrap;gap:14px 28px;padding:17px 20px;border:1px solid var(--line);background:white;font-size:var(--text-sm); }.attendance-browser__summary b { font-size:var(--text-2xl);margin:0 5px; }.normal { color:var(--green); }.late { color:var(--amber); }.absent { color:var(--red); }
+.attendance-browser__hint { margin:14px 0;color:var(--ink-mute);font-size:var(--text-xs); }.attendance-browser__breadcrumb { display:flex;align-items:center;gap:8px;margin:12px 0; }
 </style>

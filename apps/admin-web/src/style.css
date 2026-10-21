@@ -21,6 +21,8 @@
   --amber-soft: #F7EEDC;
   --blue: #3A5A8C;
   --blue-soft: #E3EAF3;
+  --red: #B42318;
+  --gold: #B9973B;
 
   /* 圆角：2px 小控件 / 3px 基础容器 / 4px 弹层内容 / 20px 胶囊 */
   --radius-sm: 2px;
@@ -127,6 +129,106 @@ h4 { font-size: var(--text-md); }
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------- 语义色工具 ----------
+   模板中不再使用 Tailwind 色值类（slate/blue/green…），统一走令牌。 */
+.t-ink { color: var(--ink); }
+.t-soft { color: var(--ink-soft); }
+.t-mute { color: var(--ink-mute); }
+.t-accent { color: var(--accent); }
+.t-green { color: var(--green); }
+.t-amber { color: var(--amber); }
+.t-blue { color: var(--blue); }
+.bg-deep { background: var(--paper-deep); }
+
+/* 蓝系说明框（需要图标横排时在模板上配合 flex 布局类使用） */
+.info-box {
+  padding: 10px 12px;
+  border: 1px solid var(--blue);
+  border-radius: var(--radius);
+  background: var(--blue-soft);
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+}
+
+/* 琥珀警示框（停课/高风险操作说明） */
+.warn-box {
+  padding: 10px 12px;
+  border: 1px solid var(--amber);
+  border-radius: var(--radius);
+  background: var(--amber-soft);
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+}
+
+/* 中性说明框（已取消/不可用状态） */
+.note-box {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+}
+
+/* 强调操作条（批量选择等） */
+.alert-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+
+/* 蓝系小标记（归属/关联提示） */
+.chip-blue {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--blue);
+  border-radius: var(--radius-sm);
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: var(--text-caption);
+}
+
+/* 绿系小标记（班主任/正向归属提示） */
+.chip-green {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--green);
+  border-radius: var(--radius-sm);
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: var(--text-caption);
+}
+
+/* 弹窗表单字段标签 */
+.form-label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+/* ---------- 统一空态 ---------- */
+.empty-state {
+  padding: 32px 0;
+  text-align: center;
+  color: var(--ink-mute);
+}
+.empty-state .e-icon { margin: 0 auto 8px; color: var(--ink-mute); opacity: 0.6; }
+.empty-state .e-main { font-size: var(--text-md); color: var(--ink-soft); }
+.empty-state .e-sub { margin-top: 4px; font-size: var(--text-xs); color: var(--ink-mute); }
+
 /* ---------- 统一折叠区块 ----------
    <details class="disclosure"> 与 el-collapse 共用同一视觉语言。 */
 .disclosure {
@@ -176,7 +278,7 @@ h4 { font-size: var(--text-md); }
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   cursor: pointer;
-  transition: all var(--dur-m) var(--ease);
+  transition: background var(--dur-m) var(--ease), border-color var(--dur-m) var(--ease), color var(--dur-m) var(--ease), opacity var(--dur-m) var(--ease);
   white-space: nowrap;
 }
 .btn:hover { border-color: var(--ink); }
@@ -288,7 +390,7 @@ h4 { font-size: var(--text-md); }
   vertical-align: top;
 }
 .tbl tbody tr:last-child td { border-bottom: none; }
-.tbl tbody tr { transition: background 0.15s; }
+.tbl tbody tr { transition: background var(--dur-f) var(--ease); }
 .tbl tbody tr:hover { background: var(--paper-deep); }
 
 .cell-main { font-weight: 600; color: var(--ink); }
@@ -305,7 +407,7 @@ h4 { font-size: var(--text-md); }
   color: var(--ink);
   border-radius: var(--radius);
   outline: none;
-  transition: border-color var(--dur-f) ease;
+  transition: border-color var(--dur-f) var(--ease);
 }
 .input:focus { border-color: var(--ink); }
 .input::placeholder { color: var(--ink-mute); }
@@ -322,7 +424,7 @@ select.input { cursor: pointer; }
   appearance: none;
   -webkit-appearance: none;
   position: relative;
-  transition: all var(--dur-f) ease;
+  transition: background var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease), opacity var(--dur-f) var(--ease);
   vertical-align: middle;
   background: var(--paper);
 }
@@ -335,7 +437,7 @@ select.input { cursor: pointer; }
   align-items: center;
   justify-content: center;
   color: var(--paper);
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 700;
 }
 .chk:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -441,7 +543,7 @@ select.input { cursor: pointer; }
   width: 80px;
   height: 3px;
   background: var(--line);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   display: inline-block;
   vertical-align: middle;
@@ -451,7 +553,7 @@ select.input { cursor: pointer; }
   display: block;
   height: 100%;
   background: var(--ink);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 /* ---------- 横幅 ---------- */
@@ -501,13 +603,13 @@ select.input { cursor: pointer; }
 
 /* ---------- 滚动条 ---------- */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-thumb { background-color: var(--line-strong); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background-color: var(--line-strong); border-radius: var(--radius-md); }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* ---------- 路由过渡 ---------- */
-.fade-enter-active { transition: opacity 0.25s ease, transform 0.25s ease; }
+.fade-enter-active { transition: opacity var(--dur-m) var(--ease), transform var(--dur-m) var(--ease); }
 .fade-enter-from { opacity: 0; transform: translateY(8px); }
-.fade-leave-active { transition: opacity 0.15s ease; }
+.fade-leave-active { transition: opacity var(--dur-f) var(--ease); }
 .fade-leave-to { opacity: 0; }
 
 /* ---------- Element Plus 细节适配 ---------- */
@@ -601,7 +703,7 @@ select.input { cursor: pointer; }
   transform: translateY(6px);
 }
 .tab-fade-leave-active {
-  transition: opacity var(--dur-f) ease;
+  transition: opacity var(--dur-f) var(--ease);
 }
 .tab-fade-leave-to {
   opacity: 0;
@@ -623,7 +725,7 @@ select.input { cursor: pointer; }
   font-weight: 500;
   font-family: inherit;
   color: var(--ink-mute);
-  transition: color var(--dur-f) ease;
+  transition: color var(--dur-f) var(--ease);
 }
 .el-tabs__item:first-child { padding-left: 4px !important; }
 .el-tabs__item:hover { color: var(--ink); }
@@ -666,7 +768,7 @@ select.input { cursor: pointer; }
 .el-loading-mask {
   background: rgba(250, 248, 245, 0.72);
   backdrop-filter: blur(1px);
-  transition: opacity var(--dur-m) ease;
+  transition: opacity var(--dur-m) var(--ease);
 }
 .el-loading-spinner .path {
   stroke: var(--ink);
@@ -729,7 +831,7 @@ select.input { cursor: pointer; }
   border-color: var(--line-strong);
   color: var(--ink);
   background: var(--paper);
-  transition: all var(--dur-m) var(--ease);
+  transition: background var(--dur-m) var(--ease), border-color var(--dur-m) var(--ease), color var(--dur-m) var(--ease);
 }
 .el-button:hover {
   border-color: var(--ink);

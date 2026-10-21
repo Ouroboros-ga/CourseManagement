@@ -28,7 +28,7 @@ async function save() {
 </script>
 <template>
   <el-button link :loading="busy" @click="open">本院功能设置</el-button>
-  <el-dialog v-model="visible" title="学生负责人功能设置" width="560px" destroy-on-close>
+  <el-dialog v-model="visible" title="学生负责人功能设置" width="640px" destroy-on-close>
     <p>仅适用于本人当前在读学院；转院或离校后结束原任命。</p>
     <el-checkbox-group v-if="state" v-model="state.allowed_actions"><el-checkbox v-for="action in state.configurable_actions" :key="action" :value="action">{{ labels[action] || action }}</el-checkbox></el-checkbox-group>
     <template #footer><el-button @click="visible = false">取消</el-button><el-button type="primary" :loading="busy" @click="save">保存</el-button></template>

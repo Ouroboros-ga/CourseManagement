@@ -31,7 +31,7 @@ async function correct() {
 }
 </script>
 <template>
-  <el-dialog :model-value="!!record" title="考勤记录与现场照片" width="min(760px, 94vw)" append-to-body @update:model-value="emit('close')">
+  <el-dialog :model-value="!!record" title="考勤记录与现场照片" width="min(820px, 94vw)" append-to-body @update:model-value="emit('close')">
     <template v-if="record">
       <p><strong>{{ record.name }} · {{ record.student_no }}</strong> · {{ attendanceLabels[record.effective_type] }}</p>
       <p>{{ record.administrative_class_name || '历史班级待核对' }} · {{ record.task?.course_name_snapshot }} · {{ record.task?.inspection_date }}</p>

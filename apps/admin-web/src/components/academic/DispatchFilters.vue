@@ -28,11 +28,11 @@ const emit = defineEmits<{ 'update:courseTypeId': [value: string]; 'update:group
 <style scoped>
 .dispatch-filters { display:flex; flex-wrap:wrap; gap:12px 24px; padding:16px; border:1px solid var(--line); margin-bottom:16px; }
 .dispatch-filters.compact { display:inline-flex; align-items:center; gap:10px; padding:0; border:none; margin-bottom:0; flex-shrink:1; min-width:0; }
-.dispatch-filters.compact label { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; white-space:nowrap; flex-shrink:0; color:var(--ink-soft); }
+.dispatch-filters.compact label { display:inline-flex; align-items:center; gap:6px; font-size:var(--text-xs); white-space:nowrap; flex-shrink:0; color:var(--ink-soft); }
 .dispatch-filters.compact .el-select { width:130px; min-width:90px; flex-shrink:1; }
-.dispatch-filters.compact .filter-error-inline { font-size:12px; color:var(--el-color-danger); white-space:nowrap; }
-.dispatch-filters label { display:flex; gap:10px; align-items:center; font-size:14px; }
+.dispatch-filters.compact .filter-error-inline { font-size:var(--text-xs); color:var(--el-color-danger); white-space:nowrap; }
+.dispatch-filters label { display:flex; gap:10px; align-items:center; font-size:var(--text-md); }
 .dispatch-filters .el-select { width:240px; }
-.dispatch-filters p { flex-basis:100%; margin:0; color:var(--ink-mute); font-size:13px; }
+.dispatch-filters p { flex-basis:100%; margin:0; color:var(--ink-mute); font-size:var(--text-sm); }
 .dispatch-filters [role=alert] { color:var(--el-color-danger); }
 </style>
