@@ -210,6 +210,12 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 错误：`404 NOT_FOUND`（账号/学号不存在）；`422 VALIDATION_ERROR`（码无效 / 码与学号不匹配）；`409 STATE_CONFLICT`（码已用 / 码过期 / 账号已绑定 / 学生已被他人绑定）。
 并发：对同一码的并发核销以绑定码行 `SELECT … FOR UPDATE` 串行，仅一人成功，另一人 `409`。
 
+2026-10-21 补充：认领已有学生账号时，只允许唯一微信身份的空白账号迁入，目标必须启用且未被其他微信占用，不含教师管理员/超管或教工档案。只迁移有效微信会话；已撤销会话不复活，源Web会话撤销，源账号不删除。迁移后旧JWT的sub/sid不再匹配，客户端使用原刷新凭证换取目标UID令牌，或重新微信登录。原学生UID下的任务、提交和角色不搬迁。
+
+### 3.7 `DELETE /me/student-binding` — 微信重新绑定
+
+成功 `200` 仍返回 `{revoked_sessions, lock_version}`。写事务内重新核验当前会话，保留原学生账号的 `student_id`、角色、可选授权和业务事实，只把唯一微信身份移至新建的无口令/无角色空白账号，并撤销原账号全部会话。客户端清理旧令牌、重新微信登录后进入绑定流程。无学生身份、微信身份不唯一、包含管理或教工身份返回409；会话已撤销返回401。历史错误归属不会由此自动恢复。
+
 ## 4. 端点明细（授权管理闭环，P1）
 
 ### 4.1 `GET /role-assignment-targets` — 角色分配目标选择器
@@ -255,7 +261,7 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 请求：`{"new_student_no"?: string|null, "reason"?: string}`。`new_student_no` 为字符串则换绑到该学号；`null`/省略则解绑。
 成功 `200`：`data = {user_id, student_id|null, revoked_sessions, lock_version}`。
 行为：同事务锁定操作者与目标（按 ID 固定顺序），改绑保持/授予 STUDENT，解绑收回 STUDENT，并撤销目标全部有效会话（下一次请求需重新登录）。
-错误：`403`；`404 NOT_FOUND`（学号不存在）；`409 STATE_CONFLICT`（该学生已被其他账号绑定）。
+错误：`403`；`404 NOT_FOUND`（学号不存在）；`409 STATE_CONFLICT`（该学生已被其他账号绑定，或账号已有受派/提交历史而试图清除或更换学生归属）。有查课历史时应使用微信重新绑定流程；尚未投入该业务的原管理纠错流程保留。
 
 ## 6. PRE_BINDING 受限会话语义（PERMISSIONS.md 1.6）
 

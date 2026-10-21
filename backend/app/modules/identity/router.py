@@ -239,12 +239,14 @@ def bind_student(
     user: CurrentUserDep,
     service: ServiceDep,
     request: Request,
+    session_id: SessionIdDep,
 ) -> dict[str, object]:
     sid, sno, name = service.bind_student(
         user.id,
         body.student_no,
         body.binding_code,
         request_id=getattr(request.state, "request_id", None),
+        session_id=session_id,
     )
     result = StudentBindingResult(student_id=str(sid), student_no=sno, name=name)
     return success(result.model_dump(), getattr(request.state, "request_id", None))
@@ -255,11 +257,13 @@ def unbind_student(
     user: CurrentUserDep,
     service: ServiceDep,
     request: Request,
+    session_id: SessionIdDep,
 ) -> dict[str, object]:
-    """前端重新绑定入口：清空自己的学号绑定，并撤销当前所有会话。"""
+    """前端重新绑定入口：迁出微信登录身份，保留原学生业务账号并撤销会话。"""
     revoked, version = service.student_self_unbind(
         user.id,
         request_id=getattr(request.state, "request_id", None),
+        session_id=session_id,
     )
     return success(
         {"revoked_sessions": revoked, "lock_version": version},

@@ -242,8 +242,22 @@ class IdentityService:
             self._session.flush()  # 取得主键以关联微信身份
             self._repo.add_wechat_identity(user.id, appid, outcome.openid)
             created = True
-        elif not user.is_active:
-            raise UnauthenticatedError("账号未启用")
+        else:
+            # 与解绑/认领共用账号→微信身份锁序，禁止旧快照在迁移后签发旧UID会话。
+            user = self._repo.get_user_by_id_for_update(user.id)
+            identity = self._session.scalar(
+                select(WechatIdentity)
+                .where(
+                    WechatIdentity.appid == appid,
+                    WechatIdentity.openid == outcome.openid,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if user is None or identity is None or identity.user_id != user.id:
+                raise ConflictError(message="微信绑定已变化，请重新登录")
+            if not user.is_active:
+                raise UnauthenticatedError("账号未启用")
 
         # 新账号的可用性已由构造保证；既有账号已在上分支校验。
         _session, access, refresh = self._issue_session(user, ClientType.WECHAT)
@@ -271,6 +285,18 @@ class IdentityService:
         if current is None:
             raise UnauthenticatedError("刷新凭证无效")
 
+        # 账号锁串行化刷新与解绑；持锁后必须重读会话，不能从已撤销快照续签。
+        source_uid = current.user_id
+        user = self._repo.get_user_by_id_for_update(source_uid)
+        current = self._session.scalar(
+            select(AuthSession)
+            .where(AuthSession.id == current.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if current is None or current.user_id != source_uid:
+            raise UnauthenticatedError("身份已变化，请重新登录")
+
         # 重放检测：已撤销的凭证被再次使用 → 撤销整个刷新族。
         if current.revoked_at is not None:
             self._revoke_family(current.refresh_family_id)
@@ -280,7 +306,6 @@ class IdentityService:
         if current.expires_at <= utcnow():
             raise UnauthenticatedError("会话已过期")
 
-        user = self._repo.get_user_by_id(current.user_id)
         if user is None or not user.is_active:
             raise UnauthenticatedError("账号不可用")
 
@@ -1038,6 +1063,12 @@ class IdentityService:
             if before_student is None:
                 raise PermissionDeniedError("无本院学生绑定的账号须由校级账号管理处理")
             ScopedAcademicRepository(self._session, self._binding_scope).get("students", before_student, lock=True)
+        if before_student is not None and self._has_inspection_history(target_user_id):
+            original = self._session.get(Student, before_student)
+            if new_student_no is None or original is None or new_student_no != original.student_no:
+                raise ConflictError(
+                    message="账号已有查课历史，不能更改学号归属；请使用微信重新绑定流程"
+                )
         before_roles = self._repo.list_role_codes(target_user_id)
 
         new_student_id: int | None
@@ -1112,6 +1143,48 @@ class IdentityService:
     # ------------------------------------------------------------------ #
     # 学生绑定（原子：核销绑定码 + 写入绑定）
     # ------------------------------------------------------------------ #
+    def _has_inspection_history(self, user_id: int) -> bool:
+        from app.modules.inspection.models import InspectionAssignment, InspectionSubmission
+
+        return any(
+            self._session.scalar(
+                select(model.id)
+                .where(
+                    model.volunteer_user_id == user_id,
+                )
+                .limit(1)
+            )
+            is not None
+            for model in (InspectionAssignment, InspectionSubmission)
+        )
+
+    def _check_binding_session(self, user_id: int, session_id: int | None) -> None:
+        if session_id is None:  # 后台内部调用没有HTTP会话，仍须通过其余身份校验。
+            return
+        session = self._session.scalar(
+            select(AuthSession)
+            .where(
+                AuthSession.id == session_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if session is None or session.user_id != user_id or not session.is_valid:
+            raise UnauthenticatedError("会话已失效，请重新登录")
+
+    def _require_student_identity_only(self, user: UserAccount) -> None:
+        from app.modules.academic.staff_models import FacultyStaff
+
+        allowed = {
+            RoleCode.STUDENT.value,
+            RoleCode.VOLUNTEER.value,
+            RoleCode.STUDENT_AFFAIRS_MANAGER.value,
+        }
+        if set(self._repo.list_role_codes(user.id)) - allowed or self._session.scalar(
+            select(FacultyStaff.id).where(FacultyStaff.user_id == user.id)
+        ):
+            raise ConflictError(message="该账号包含管理或教工身份，请由管理员核验关联")
+
     def bind_student(
         self,
         user_id: int,
@@ -1119,13 +1192,24 @@ class IdentityService:
         binding_code: str,
         *,
         request_id: str | None = None,
+        session_id: int | None = None,
     ) -> tuple[int, str, str]:
         # 与管理换绑、停用保持账号→学生→绑定码顺序；锁后读取最新绑定状态。
         self._session.rollback()
-        self._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
-        user = self._repo.get_user_by_id_for_update(user_id)
-        if user is None:
-            raise NotFoundError("账号不存在")
+        if self._session.get_bind().dialect.name == "mysql":
+            self._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
+        # 预读只确定锁集合；账号按ID排序加锁后，再锁学生并重新核验归属。
+        hint = self._session.scalar(
+            select(UserAccount.id)
+            .join(
+                Student,
+                UserAccount.student_id == Student.id,
+            )
+            .where(Student.student_no == student_no)
+        )
+        users = self._lock_accounts_ordered(user_id, hint or user_id)
+        user = users[user_id]
+        self._check_binding_session(user_id, session_id)
         if not user.is_active:
             raise UnauthenticatedError("账号已停用")
         # 尽早给出友好错误：已绑定者应走管理端换绑，而非再次自助核销。
@@ -1134,6 +1218,10 @@ class IdentityService:
             raise ConflictError(
                 ErrorCode.STATE_CONFLICT,
                 "该账号已绑定学生，如需换绑请走管理端流程",
+            )
+        if self._has_inspection_history(user.id):
+            raise ConflictError(
+                message="账号已有未核实归属的查课历史，请联系管理员核验，不能直接绑定其他学号"
             )
 
         student = self._session.execute(
@@ -1179,23 +1267,47 @@ class IdentityService:
                 UserAccount.student_id == student.id, UserAccount.id != user.id
             )
         ).scalar_one_or_none()
+        if existing is not None and existing.id != hint:
+            raise ConflictError(message="学生账号已变化，请重试绑定")
         if existing is not None:
-            existing_wechat = self._session.execute(
-                select(WechatIdentity).where(WechatIdentity.user_id == existing.id)
-            ).scalar_one_or_none()
-            if existing_wechat is not None:
+            if not existing.is_active:
+                raise ConflictError(message="学生账号已停用，不能认领")
+            self._require_student_identity_only(existing)
+            self._require_student_identity_only(user)
+            if user.username or user.password_hash or self._repo.list_role_codes(user.id):
+                raise ConflictError(message="仅空白微信账号可认领已有学生账号")
+            existing_wechat = self._session.scalars(
+                select(WechatIdentity)
+                .where(WechatIdentity.user_id == existing.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).all()
+            if existing_wechat:
                 raise ConflictError(ErrorCode.STATE_CONFLICT, "该学生已被其他账号绑定")
             # 预置系统账号关联：将当前微信登录身份与会话平滑关联至已有系统账号
-            user_wechat = self._session.execute(
-                select(WechatIdentity).where(WechatIdentity.user_id == user.id)
-            ).scalar_one_or_none()
-            if user_wechat is not None:
-                user_wechat.user_id = existing.id
+            source_wechat = self._session.scalars(
+                select(WechatIdentity)
+                .where(WechatIdentity.user_id == user.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).all()
+            if len(source_wechat) != 1:
+                raise ConflictError(
+                    message="当前账号没有唯一可迁移的微信身份，请重新微信登录或联系管理员"
+                )
+            user_wechat = source_wechat[0]
+            user_wechat.user_id = existing.id
             self._session.execute(
                 update(AuthSession)
-                .where(AuthSession.user_id == user.id)
+                .where(
+                    AuthSession.user_id == user.id,
+                    AuthSession.client_type == ClientType.WECHAT.value,
+                    AuthSession.revoked_at.is_(None),
+                    AuthSession.expires_at > now,
+                )
                 .values(user_id=existing.id)
             )
+            self._repo.revoke_active_sessions(user.id, now)
             student_role = self._repo.get_or_create_role(
                 RoleCode.STUDENT.value, RoleCode.STUDENT.value
             )
@@ -1205,12 +1317,8 @@ class IdentityService:
             token.used_at = now
             existing.display_name = student.name
             existing.lock_version += 1
-            try:
-                with self._session.begin_nested():
-                    self._session.delete(user)
-                    self._session.flush()
-            except Exception:
-                pass
+            # 空白账号保留为审计锚点；不删除、不搬迁历史或复活已撤销会话。
+            user.lock_version += 1
             target_user = existing
         else:
             user.student_id = student.id
@@ -1250,31 +1358,45 @@ class IdentityService:
         user_id: int,
         *,
         request_id: str | None = None,
+        session_id: int | None = None,
     ) -> tuple[int, int]:
-        """前端自助解绑（供测试或特殊场景）：清除当前账号的 student_id 并撤销会话。"""
+        """解除微信登录钥匙；学生业务UID及其全部事实、角色保持不变。"""
         self._session.rollback()
-        self._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
+        if self._session.get_bind().dialect.name == "mysql":
+            self._session.connection(execution_options={"isolation_level": "READ COMMITTED"})
         user = self._repo.get_user_by_id_for_update(user_id)
         if user is None:
             raise NotFoundError("账号不存在")
         if not user.is_active:
             raise UnauthenticatedError("账号已停用")
+        self._check_binding_session(user_id, session_id)
         before_roles = self._repo.list_role_codes(user_id)
-        if user.student_id is None and not before_roles:
-            raise ConflictError(ErrorCode.STATE_CONFLICT, "当前账号尚未绑定任何身份")
+        if user.student_id is None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "当前账号尚未绑定学生身份")
+        self._require_student_identity_only(user)
 
         before_student = user.student_id
 
-        user.student_id = None
-
-        # 解绑时必须清除该账号关联的所有角色（user_role 表的记录）
-        # 只有确保其角色被清空，下次微信登录时 need_binding 才能正确返回 true
-        for role_code in before_roles:
-            role = self._repo.get_role_by_code(role_code)
-            if role is not None:
-                self._repo.revoke_role(user_id, role.id)
-
-        self._repo.clear_optional_grants(user_id)
+        identities = self._session.scalars(
+            select(WechatIdentity)
+            .where(
+                WechatIdentity.user_id == user_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).all()
+        if len(identities) != 1:
+            raise ConflictError(message="当前账号没有唯一微信身份，请由管理员核验解绑")
+        shell = UserAccount(
+            username=None,
+            password_hash=None,
+            student_id=None,
+            display_name="微信用户",
+            status=UserStatus.ACTIVE.value,
+        )
+        self._session.add(shell)
+        self._session.flush()
+        identities[0].user_id = shell.id
 
         revoked = self._repo.revoke_active_sessions(user_id, utcnow())
         user.lock_version += 1
@@ -1291,7 +1413,8 @@ class IdentityService:
                 "lock_version": user.lock_version - 1,
             },
             after={
-                "student_id": None,
+                "student_id": before_student,
+                "detached_wechat_account_id": str(shell.id),
                 "roles": after_roles,
                 "lock_version": user.lock_version,
                 "revoked_sessions": revoked,
