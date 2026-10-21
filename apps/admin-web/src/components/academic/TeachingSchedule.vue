@@ -980,8 +980,8 @@ function applySmartSample() {
     <template v-if="!props.importOnly">
     <el-alert v-if="props.openImport" title="整包按文件依次处理：成功文件会保存，失败文件可修正后重试。需要先核对时，请选择单文件分步导入。" type="info" :closable="false" />
     <header class="page-head">
-      <div class="head-row">
-        <div>
+      <div class="head-row inspection-head-row">
+        <div class="head-title">
           <h2>{{ props.mode === 'academic' ? '正式课表与资料导入' : '具体课次选择与下发' }}</h2>
           <p v-if="props.mode === 'academic'" class="sub">查看本院正式课表，按现有导入流程核对资料。导入不会自动发布给学生。</p>
         </div>
@@ -3114,5 +3114,36 @@ function applySmartSample() {
   color: var(--paper);
   border-color: var(--ink);
   font-weight: 700;
+}
+
+.inspection-head-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.inspection-head-row .head-title {
+  flex-shrink: 0;
+}
+.inspection-head-row .head-actions {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+@media (max-width: 1440px) {
+  .inspection-head-row {
+    row-gap: 12px;
+  }
+  .inspection-head-row .head-title {
+    order: 1;
+  }
+  .inspection-head-row .head-actions {
+    order: 2;
+  }
+  .inspection-head-row :deep(.dispatch-filters.compact) {
+    order: 3;
+    width: 100%;
+    padding-top: 4px;
+  }
 }
 </style>

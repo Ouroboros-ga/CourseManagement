@@ -26,10 +26,10 @@ const emit = defineEmits<{ 'update:courseTypeId': [value: string]; 'update:group
 </template>
 <style scoped>
 .dispatch-filters { display:flex; flex-wrap:wrap; gap:12px 24px; padding:16px; border:1px solid var(--line); margin-bottom:16px; }
-.dispatch-filters.compact { flex-wrap:nowrap; align-items:center; flex:1; min-width:0; padding:0; border:none; margin-bottom:0; }
-.dispatch-filters.compact label { gap:8px; font-size:13px; white-space:nowrap; }
+.dispatch-filters.compact { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; padding:0; border:none; margin-bottom:0; }
+.dispatch-filters.compact label { display:inline-flex; align-items:center; gap:8px; font-size:13px; white-space:nowrap; }
 .dispatch-filters.compact .el-select { width:190px; }
-.dispatch-filters.compact p { flex-basis:auto; font-size:12px; }
+.dispatch-filters.compact p { flex-basis:100%; font-size:12px; margin:0; }
 .dispatch-filters label { display:flex; gap:10px; align-items:center; font-size:14px; }
 .dispatch-filters .el-select { width:240px; }
 .dispatch-filters p { flex-basis:100%; margin:0; color:var(--ink-mute); font-size:13px; }
