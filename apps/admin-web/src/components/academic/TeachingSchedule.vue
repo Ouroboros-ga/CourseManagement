@@ -1012,7 +1012,8 @@ function applySmartSample() {
             @click="openSmartSampleDialog"
           >
             <AppIcon name="sparkles" :size="14" />
-            <span>智能抽查推荐</span>
+            <span class="btn-text-full">智能抽查推荐</span>
+            <span class="btn-text-short">智能抽查</span>
           </button>
           <button
             v-if="activeTab === 'dispatch'"
@@ -1021,7 +1022,8 @@ function applySmartSample() {
             @click="triggerDispatch"
           >
             <AppIcon name="send" :size="14" />
-            <span>{{ dispatchLoading ? '正在下发…' : `确认下发并排班 (${selectedKeys.length})` }}</span>
+            <span class="btn-text-full">{{ dispatchLoading ? '正在下发…' : `确认下发并排班 (${selectedKeys.length})` }}</span>
+            <span class="btn-text-short">{{ dispatchLoading ? '下发中…' : `下发排班 (${selectedKeys.length})` }}</span>
           </button>
         </div>
       </div>
@@ -3120,30 +3122,70 @@ function applySmartSample() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 12px;
+  flex-wrap: nowrap;
+  width: 100%;
+  min-height: 36px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.inspection-head-row::-webkit-scrollbar {
+  display: none;
 }
 .inspection-head-row .head-title {
   flex-shrink: 0;
+  white-space: nowrap;
+}
+.inspection-head-row .head-title h2 {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+  line-height: 32px;
+  white-space: nowrap;
 }
 .inspection-head-row .head-actions {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
   margin-left: auto;
 }
-@media (max-width: 1440px) {
+.inspection-head-row .head-actions .btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  line-height: 32px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.inspection-head-row .btn-text-short {
+  display: none;
+}
+.inspection-head-row .btn-text-full {
+  display: inline;
+}
+@media (max-width: 1100px) {
   .inspection-head-row {
-    row-gap: 12px;
+    gap: 8px;
   }
-  .inspection-head-row .head-title {
-    order: 1;
+  .inspection-head-row .head-title h2 {
+    font-size: 15.5px;
   }
-  .inspection-head-row .head-actions {
-    order: 2;
+  .inspection-head-row .btn-text-full {
+    display: none;
   }
-  .inspection-head-row :deep(.dispatch-filters.compact) {
-    order: 3;
-    width: 100%;
-    padding-top: 4px;
+  .inspection-head-row .btn-text-short {
+    display: inline;
+  }
+  .inspection-head-row .head-actions .btn {
+    padding: 0 9px;
+    font-size: 12px;
   }
 }
 </style>
