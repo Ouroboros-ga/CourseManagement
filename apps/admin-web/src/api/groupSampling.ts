@@ -74,6 +74,23 @@ export interface AssignmentPlan {
   expires_at: string
   assigned: { task_id: string; volunteer_user_id: string; warning_codes: string[] }[]
   unassigned: { task_id: string; reason_code: string; message: string }[]
+  display?: {
+    group_name: string
+    semester_name: string
+    tasks: Record<string, {
+      course_name: string | null
+      teaching_class_name: string | null
+      classroom: string | null
+      inspection_date: string
+      start_period: number
+      end_period: number
+    }>
+    volunteers: Record<string, {
+      name: string
+      student_no: string | null
+      administrative_class_name: string | null
+    }>
+  }
 }
 
 const collegePath = (collegeId: string) => `/api/v1/colleges/${encodeURIComponent(collegeId)}`

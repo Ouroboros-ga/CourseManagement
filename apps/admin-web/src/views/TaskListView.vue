@@ -275,7 +275,7 @@ async function handleAutoAssign(mode: 'filtered' | 'selected' = 'filtered') {
         if (!current()) { stopped = true; break }
         const result = await confirmGroupPlan(rows[0]!.college_id!, groupId, {
           semester_id: semesterId, task_ids: rows.map(task => task.id)
-        }, { scopeLabel: `${scopeLabel}；本轮共${targetRows.length}项、${groups.size}个组，本次确认组 #${groupId}`,
+        }, { scopeLabel: `${scopeLabel}；本轮共${targetRows.length}项，分${groups.size}个组确认`,
           tasks: rows, isCurrent: current })
         if (!result) { stopped = true; break }
         count += result.assigned_count

@@ -93,6 +93,57 @@ def test_automatic_and_manual_preview_agree_for_available_member_without_dispatc
     assert db.scalar(select(InspectionAssignment)) is None  # A preview is not a dispatch.
 
 
+def test_preview_projects_authorized_names_without_changing_confirmations(prepared):
+    from app.modules.academic.models import AdministrativeClass, Student
+    from app.modules.inspection.assignment_plan_models import AssignmentConfirmationPlan
+
+    db, service, sem, tasks, user = prepared
+    student = db.get(Student, user.student_id)
+    student.name, student.student_no = "张同学", "00123456"
+    classroom = db.get(AdministrativeClass, student.administrative_class_id)
+    classroom.class_name = "计算机2601"
+    unrelated = UserAccount(display_name="不应出现在预览的账号", status="ACTIVE")
+    db.add(unrelated)
+    db.commit()
+    preview = service.preview({"semester_id": str(sem.id), "task_ids": tasks})
+    display = preview["display"]
+    assert display["group_name"]
+    assert display["semester_name"] == sem.name
+    assert display["volunteers"] == {str(user.id): {
+        "name": "张同学", "student_no": "00123456", "administrative_class_name": "计算机2601",
+    }}
+    assert set(display["tasks"]) == set(map(str, tasks))
+    task = db.get(InspectionTask, int(tasks[0]))
+    assert display["tasks"][str(task.id)]["course_name"] == task.course_name_snapshot
+    assert display["tasks"][str(task.id)]["inspection_date"] == task.inspection_date.isoformat()
+    saved = db.get(AssignmentConfirmationPlan, preview["id"])
+    # Display fields cannot alter frozen confirmation semantics.
+    assert "display" not in saved.payload
+    assert set(preview["assigned"][0]) == {"task_id", "volunteer_user_id", "warning_codes"}
+    assert db.scalar(select(InspectionAssignment)) is None
+
+
+def test_preview_name_projection_is_one_query_for_many_assignments(prepared):
+    from app.modules.inspection.assignment_plan_display import plan_display
+    from sqlalchemy import event
+
+    db, service, sem, tasks, user = prepared
+    group = db.get(VolunteerGroup, service.gid)
+    task = db.get(InspectionTask, int(tasks[0]))
+    statements = []
+
+    def collect(_conn, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    event.listen(db.get_bind(), "before_cursor_execute", collect)
+    try:
+        result = plan_display(db, sem, group, [task], {index: user.id for index in range(120)})
+    finally:
+        event.remove(db.get_bind(), "before_cursor_execute", collect)
+    assert len(statements) == 1
+    assert set(result["volunteers"]) == {str(user.id)}
+
+
 @pytest.mark.parametrize("change", ["task", "course"])
 def test_plan_rejects_task_changed_after_preview(prepared, change):
     db, service, sem, tasks, _ = prepared

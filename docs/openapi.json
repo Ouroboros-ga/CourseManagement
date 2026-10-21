@@ -13679,6 +13679,7 @@
           "group-inspection"
         ],
         "summary": "Preview Assignment Plan",
+        "description": "预览具体排班，不创建受派。\n\n返回 display（组/学期名称、授权任务资料、仅拟派发志愿者的姓名/学号/当前班级）。\ndisplay 是展示投影，不参与确认；提交仍使用原 plan_id、revision 和精确警告确认。",
         "operationId": "preview_assignment_plan_api_v1_colleges__cid__groups__gid__inspection_assignment_plans_preview_post",
         "security": [
           {

@@ -12,6 +12,7 @@ from app.modules.academic.models import Semester, VolunteerQualification
 from app.modules.identity.models import Role, UserAccount, UserRole
 from app.modules.identity.resource_scope import resolve_scope
 from app.modules.inspection.assignment_fingerprint import fingerprint
+from app.modules.inspection.assignment_plan_display import plan_display
 from app.modules.inspection.assignment_plan_models import AssignmentConfirmationPlan
 from app.modules.inspection.assignment_plan_schemas import (
     AssignmentPlanCommit,
@@ -229,6 +230,7 @@ class AssignmentPlanService:
             "expires_at": row.expires_at.isoformat() + "Z",
             "assigned": assigned,
             "unassigned": payload["unassigned"],
+            "display": plan_display(self.db, semester, group, tasks, assignments),
         }
         self.db.commit()
         return response

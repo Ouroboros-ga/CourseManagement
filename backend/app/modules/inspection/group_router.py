@@ -7,14 +7,17 @@ from app.common.responses import success
 from app.core.database import get_db
 from app.modules.academic.time_router import require_scheduling_enabled
 from app.modules.identity.deps import CurrentUserDep
+from app.modules.inspection.assignment_plan_schemas import (
+    AssignmentPlanCommit,
+    AssignmentPlanPreview,
+)
+from app.modules.inspection.assignment_plan_service import AssignmentPlanService
 from app.modules.inspection.group_sampling import (
     GroupAssignRequest,
     GroupSampleConfirm,
     GroupSampleRequest,
     GroupSamplingService,
 )
-from app.modules.inspection.assignment_plan_service import AssignmentPlanService
-from app.modules.inspection.assignment_plan_schemas import AssignmentPlanCommit, AssignmentPlanPreview
 from app.modules.organization.router import require_campus_enabled
 
 router = APIRouter(
@@ -29,13 +32,20 @@ ResourceId = Annotated[int, Path(gt=0, le=2**63 - 1)]
 @router.post("/assignment-plans/preview")
 def preview_assignment_plan(cid: ResourceId, gid: ResourceId, body: AssignmentPlanPreview,
                             actor: CurrentUserDep, db: Db, request: Request):
+    """预览具体排班，不创建受派。
+
+    返回 display（组/学期名称、授权任务资料、仅拟派发志愿者的姓名/学号/当前班级）。
+    display 是展示投影，不参与确认；提交仍使用原 plan_id、revision 和精确警告确认。
+    """
     return success(AssignmentPlanService(db, actor, cid, gid).preview(body.model_dump()),
                    getattr(request.state, "request_id", None))
 
 
 @router.post("/assignment-plans/{plan_id}/commit")
-def commit_assignment_plan(cid: ResourceId, gid: ResourceId, plan_id: str,
-                           body: AssignmentPlanCommit, actor: CurrentUserDep, db: Db, request: Request):
+def commit_assignment_plan(
+    cid: ResourceId, gid: ResourceId, plan_id: str,
+    body: AssignmentPlanCommit, actor: CurrentUserDep, db: Db, request: Request,
+):
     return success(AssignmentPlanService(db, actor, cid, gid).commit(
         plan_id, body.model_dump(), getattr(request.state, "request_id", None)),
         getattr(request.state, "request_id", None))

@@ -13,15 +13,21 @@ function load(path, imports) {
 }
 function setup(plan, confirm) {
   const session = { currentUser: { id: '1' }, workspaceCollegeId: '2', currentSemesterId: '3', workspace: { authorization_revision: 1 } }
-  let commits = 0, message = ''
+  let commits = 0, message = '', review
   const api = { previewAssignment: async () => plan, commitAssignment: async () => { commits++; return { assigned_count: plan.assigned.length } } }
   const { confirmGroupPlan } = load('../src/composables/confirmGroupAssignment.ts', {
     vue: { h: (_tag, _props, text) => text },
     'element-plus': { ElMessageBox: { confirm: async value => { message = value; await confirm?.(session) }, alert: async value => { message = value } } },
     '../api/groupSampling': { groupSamplingApi: api }, '../stores/session': { useSessionStore: () => session },
-    '../utils/assignmentWarnings': { assignmentWarnings: () => '' }
+    '../utils/assignmentWarnings': { assignmentWarnings: () => '' },
+    './useAssignmentPlanDialog': { openAssignmentPlanReview: async value => {
+      review = value
+      message = `目标 ${value.targetCount} ${value.plan.unassigned.map(row => row.message).join('；')}`
+      await confirm?.(session)
+      return value.plan.assigned.length > 0
+    } }
   })
-  return { confirmGroupPlan, session, get commits() { return commits }, get message() { return message } }
+  return { confirmGroupPlan, session, get review() { return review }, get commits() { return commits }, get message() { return message } }
 }
 const body = { semester_id: '3', task_ids: ['10', '11'] }
 const plan = { id: 'p', revision: 'r', assigned: [{ task_id: '10', volunteer_user_id: '8', warning_codes: [] }],
@@ -44,6 +50,16 @@ test('zero assignment plans show reasons without a misleading commit', async () 
   await state.confirmGroupPlan('2', '4', body)
   assert.equal(state.commits, 0)
   assert.match(state.message, /本学期无有效志愿者资格/)
+})
+
+test('resolved names and the exact frozen plan reach the structured dialog', async () => {
+  const named = { ...plan, display: { group_name: '普通课查课组', semester_name: '2026秋', tasks: {},
+    volunteers: { '8': { name: '张同学', student_no: '00123456', administrative_class_name: '计算机2601' } } } }
+  const state = setup(named, () => { throw new Error('cancel') })
+  await state.confirmGroupPlan('2', '4', body)
+  assert.equal(state.review?.plan.display.volunteers['8'].name, '张同学')
+  assert.equal(state.review?.targetCount, 2)
+  assert.equal(state.commits, 0)
 })
 
 function targetLoader() {

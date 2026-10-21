@@ -1,3 +1,15 @@
+## 2026-10-21 排班预览展示资料
+
+`POST /api/v1/colleges/{cid}/groups/{gid}/inspection/assignment-plans/preview` 的响应新增 `data.display`，原请求和确认提交契约不变，不新增路由或权限。
+
+- `group_name/semester_name`：本次执行组、学期名称。
+- `tasks`：以字符串任务 ID 为键，值包含 `course_name/teaching_class_name/classroom/inspection_date/start_period/end_period`；来源为已通过原范围校验的目标任务快照。
+- `volunteers`：以字符串账号 ID 为键，值包含 `name/student_no/administrative_class_name`。仅查询本次拟派发人员，单次批量列投影，不返回完整候选池或账号敏感字段。班级为当前档案班级，不作为历史考勤快照或排班输入。
+- `display` 仅供展示，不写入冻结确认集合，不参与 revision，也不增加 `assigned` 项字段。确认仍提交原 `plan_id/revision/confirmations`，按精确任务、人员及警告校验。预览不创建正式受派。
+- Web 支持拟派发/未分配分栏、姓名/学号搜索与每页50项展示。筛选与翻页不改变计划、总派发数；取消、零分配或上下文过期不提交。新 Web 与后端建议成套发布；旧响应缺少展示资料时明确显示“姓名暂不可用”，不把编号冒充姓名。
+
+实现、验证与部署状态见 [排班预览改版记录](development/ASSIGNMENT_PREVIEW_REDESIGN_20261021.md)。
+
 > **2026-10-19 查课与组织修复候选（尚未部署）：**
 > - `GET /api/v1/inspection-course-occurrences` 及学院别名新增可选 `course_type_id`；`POST .../smart-sample` 同名字段可选。按数据库课程类型 ID 筛选，不按课程名猜测；类型进入精确课次范围和修订摘要，确认时重算，过期选择拒绝。旧调用不传字段仍保持原范围。
 > - 组织模式的课次查询/推荐向执行组校验传递 semester_id，使用学期有效规则；组织排班关闭时，显式传 execution_group_id 返回 409，不能悄悄忽略组并使用旧全院候选池。
