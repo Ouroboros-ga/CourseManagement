@@ -980,8 +980,8 @@ function applySmartSample() {
     <template v-if="!props.importOnly">
     <el-alert v-if="props.openImport" title="整包按文件依次处理：成功文件会保存，失败文件可修正后重试。需要先核对时，请选择单文件分步导入。" type="info" :closable="false" />
     <header class="page-head">
-      <div class="head-row">
-        <div>
+      <div class="head-row inspection-head-row">
+        <div class="head-title">
           <h2>{{ props.mode === 'academic' ? '正式课表与资料导入' : '具体课次选择与下发' }}</h2>
           <p v-if="props.mode === 'academic'" class="sub">查看本院正式课表，按现有导入流程核对资料。导入不会自动发布给学生。</p>
         </div>
@@ -1012,7 +1012,8 @@ function applySmartSample() {
             @click="openSmartSampleDialog"
           >
             <AppIcon name="sparkles" :size="14" />
-            <span>智能抽查推荐</span>
+            <span class="btn-text-full">智能抽查推荐</span>
+            <span class="btn-text-short">智能抽查</span>
           </button>
           <button
             v-if="activeTab === 'dispatch'"
@@ -1021,7 +1022,8 @@ function applySmartSample() {
             @click="triggerDispatch"
           >
             <AppIcon name="send" :size="14" />
-            <span>{{ dispatchLoading ? '正在下发…' : `确认下发并排班 (${selectedKeys.length})` }}</span>
+            <span class="btn-text-full">{{ dispatchLoading ? '正在下发…' : `确认下发并排班 (${selectedKeys.length})` }}</span>
+            <span class="btn-text-short">{{ dispatchLoading ? '下发中…' : `下发排班 (${selectedKeys.length})` }}</span>
           </button>
         </div>
       </div>
@@ -3114,5 +3116,76 @@ function applySmartSample() {
   color: var(--paper);
   border-color: var(--ink);
   font-weight: 700;
+}
+
+.inspection-head-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  width: 100%;
+  min-height: 36px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.inspection-head-row::-webkit-scrollbar {
+  display: none;
+}
+.inspection-head-row .head-title {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.inspection-head-row .head-title h2 {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+  line-height: 32px;
+  white-space: nowrap;
+}
+.inspection-head-row .head-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+.inspection-head-row .head-actions .btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  line-height: 32px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.inspection-head-row .btn-text-short {
+  display: none;
+}
+.inspection-head-row .btn-text-full {
+  display: inline;
+}
+@media (max-width: 1100px) {
+  .inspection-head-row {
+    gap: 8px;
+  }
+  .inspection-head-row .head-title h2 {
+    font-size: 15.5px;
+  }
+  .inspection-head-row .btn-text-full {
+    display: none;
+  }
+  .inspection-head-row .btn-text-short {
+    display: inline;
+  }
+  .inspection-head-row .head-actions .btn {
+    padding: 0 9px;
+    font-size: 12px;
+  }
 }
 </style>
