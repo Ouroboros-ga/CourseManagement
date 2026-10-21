@@ -141,8 +141,15 @@ async function startAccount(row: StaffProfile) {
   accountLoading.value = true
   accountOptions.value = []
   try {
-    const page = await listTeacherAccounts({ page_size: 500 })
-    accountOptions.value = page.items.filter(item => item.status === 'ACTIVE')
+    // 后端 page_size 上限为 200，按页取全量在职管理账号，避免超限导致候选列表整体不可用
+    const collected: TeacherAccountItem[] = []
+    const pageSize = 200
+    for (let page = 1; page <= 10; page += 1) {
+      const result = await listTeacherAccounts({ status: 'ACTIVE', page, page_size: pageSize })
+      collected.push(...result.items)
+      if (result.items.length < pageSize || collected.length >= result.total) break
+    }
+    accountOptions.value = collected
   } catch (e) {
     accountsFailed.value = true
     accountError.value = '账号候选列表不可用：' + (e instanceof Error ? e.message : '加载失败')
