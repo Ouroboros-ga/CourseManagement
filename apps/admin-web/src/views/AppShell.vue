@@ -365,10 +365,10 @@ async function handleLogout() {
   text-decoration: none;
   font-size: 13px;
   font-weight: 500;
-  transition: all 0.2s;
+  transition: color var(--dur-m) var(--ease), background var(--dur-m) var(--ease);
   position: relative;
 }
-.side-link .idx { font-size: 10px; font-weight: 500; opacity: 0.6; transition: color 0.2s; }
+.side-link .idx { font-size: var(--text-caption); font-weight: 500; opacity: 0.6; transition: color var(--dur-m) var(--ease); }
 .side-link:hover { color: var(--ink); background: var(--paper-deep); }
 .side-link.on {
   color: var(--ink);
@@ -387,10 +387,10 @@ async function handleLogout() {
 }
 .side-link .badge {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 600;
   padding: 2px 7px;
-  border-radius: 10px;
+  border-radius: var(--radius-pill);
   align-self: center;
 }
 .badge-red { background: var(--accent-soft); color: var(--accent); }
@@ -402,11 +402,11 @@ async function handleLogout() {
   padding-top: 10px;
 }
 .nav-group {
-  font-size: 10px;
+  font-size: var(--text-caption);
   letter-spacing: 0.12em;
   color: var(--ink-mute);
 }
-.side-link-aux { padding-top: 9px; padding-bottom: 9px; font-size: 12.5px; }
+.side-link-aux { padding-top: 9px; padding-bottom: 9px; font-size: var(--text-xs); }
 
 .side-user {
   padding: 16px 20px;
@@ -437,7 +437,7 @@ async function handleLogout() {
   color: var(--blue);
   background: var(--blue-soft);
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius);
   width: fit-content;
   font-weight: 500;
   line-height: 1.35;
@@ -451,8 +451,8 @@ async function handleLogout() {
   color: var(--ink-mute);
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: 4px;
-  transition: all 0.2s;
+  border-radius: var(--radius-md);
+  transition: color var(--dur-m) var(--ease), background var(--dur-m) var(--ease);
   white-space: nowrap;
 }
 .side-user .u-logout:hover {
@@ -474,7 +474,7 @@ async function handleLogout() {
   font-weight: 500;
   cursor: pointer;
   user-select: none;
-  transition: opacity 0.2s;
+  transition: opacity var(--dur-m) var(--ease);
 }
 .side-foot .status:hover {
   opacity: 0.8;
@@ -484,7 +484,7 @@ async function handleLogout() {
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-  transition: background-color 0.3s ease;
+  transition: background-color var(--dur-m) var(--ease);
 }
 .side-foot .dot-healthy {
   background: var(--green);
@@ -551,7 +551,7 @@ async function handleLogout() {
     font-weight: 600;
     color: var(--ink);
     cursor: pointer;
-    transition: border-color 0.15s;
+    transition: border-color var(--dur-f) var(--ease);
   }
   .mobile-menu:hover { border-color: var(--ink); }
   .mobile-nav a.on { font-weight: 700; color: var(--accent); }

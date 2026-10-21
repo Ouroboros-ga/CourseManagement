@@ -464,7 +464,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
           title="一键通过所有到课清点全勤（0异常）的待审核提交，其余异常项保留人工复查"
           @click="handleBatchApproveNormal"
         >
-          <AppIcon name="sparkles" :size="13" class="text-emerald-300" />
+          <AppIcon name="sparkles" :size="13" />
           <span>⚡ 通过本页全勤待审</span>
         </button>
 
@@ -699,7 +699,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
 
               <!-- 全勤清爽提示 -->
               <div v-else class="normal-tip flex items-center gap-2">
-                <AppIcon name="check-circle" :size="18" class="text-emerald-700 shrink-0" />
+                <AppIcon name="check-circle" :size="18" class="t-green shrink-0" />
                 <div>
                   <strong>全勤到齐：</strong>
                   <span>志愿者现场核对无缺勤，所有在册学生均已按时应到。</span>
@@ -719,7 +719,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
               <div v-if="currentSubmission.file_ids.length > 0" class="photo-box">
                 <div v-for="fid in currentSubmission.file_ids" :key="fid" class="photo-placeholder">
                   <div class="photo-icon flex justify-center mb-1">
-                    <AppIcon name="camera" :size="24" class="text-slate-400" />
+                    <AppIcon name="camera" :size="24" class="t-mute" />
                   </div>
                   <div class="photo-id font-mono">证明文件 ID: #{{ fid }}</div>
                 </div>
@@ -764,12 +764,12 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
                 </div>
 
                 <div v-else-if="currentSubmission.review_status === 'APPROVED'" class="decision-done success">
-                  <AppIcon name="check-circle" :size="16" class="text-emerald-700" />
+                  <AppIcon name="check-circle" :size="16" class="t-green" />
                   <span>已审核通过 · 考勤记录已固化落库</span>
                 </div>
 
                 <div v-else-if="currentSubmission.review_status === 'REJECTED'" class="decision-done rejected">
-                  <AppIcon name="close" :size="16" class="text-red-700" />
+                  <AppIcon name="close" :size="16" class="t-accent" />
                   <span>已驳回 · 理由与历史已留痕归档</span>
                 </div>
               </div>
@@ -777,20 +777,18 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
           </div>
         </template>
 
-        <div v-else class="detail-empty">
-          <AppIcon name="info" :size="32" class="text-slate-300 mb-2" />
-          <div class="text-sm font-semibold text-slate-500">请选择左侧待审提交查看详情</div>
+        <div v-else class="detail-empty empty-state">
+          <AppIcon name="info" :size="32" class="e-icon" />
+          <div class="e-main">请选择左侧待审提交查看详情</div>
         </div>
       </main>
     </div>
 
     <!-- 无数据状态 -->
-    <div v-else-if="!loading" class="empty-box">
-      <div class="empty-icon flex justify-center mb-2">
-        <AppIcon name="check-circle" :size="36" class="text-gray-300" />
-      </div>
-      <div class="empty-text">当前筛选条件下暂无查课提交记录</div>
-      <div class="empty-sub">切换上方标签或清空搜索词可查看其他记录</div>
+    <div v-else-if="!loading" class="empty-box empty-state">
+      <AppIcon name="check-circle" :size="32" class="e-icon" />
+      <div class="e-main">当前筛选条件下暂无查课提交记录</div>
+      <div class="e-sub">切换上方标签或清空搜索词可查看其他记录</div>
     </div>
   </div>
 </template>
@@ -808,7 +806,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   border: 1px solid var(--line);
   padding: 12px 18px;
   border-radius: var(--radius);
-  transition: border-color 0.2s;
+  transition: border-color var(--dur-m) var(--ease);
 }
 .stat-cell.stat-focus {
   border-left: 3px solid var(--amber);
@@ -822,7 +820,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   margin-bottom: 4px;
 }
 .stat-cell .value {
-  font-size: 24px;
+  font-size: var(--text-hero);
   font-weight: 700;
   line-height: 1.1;
   margin-bottom: 4px;
@@ -853,9 +851,9 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   color: var(--ink-soft);
   font-size: 12px;
   font-weight: 500;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background var(--dur-m) var(--ease), border-color var(--dur-m) var(--ease), color var(--dur-m) var(--ease);
 }
 .tab-btn:hover {
   background: var(--paper);
@@ -892,14 +890,15 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
 
 /* ⚡ 一键全勤通过特殊按钮风格 */
 .btn-flash {
-  background: #1e4620;
-  border: 1px solid #153217;
-  color: #f0fdf4;
+  background: var(--green);
+  border: 1px solid var(--green);
+  color: var(--paper);
   font-weight: 600;
 }
 .btn-flash:hover:not(:disabled) {
-  background: #285e2b;
-  color: #ffffff;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
 }
 .btn-flash:disabled {
   opacity: 0.45;
@@ -943,7 +942,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   color: var(--ink);
 }
 .kbd-hint {
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--ink-mute);
 }
 
@@ -964,21 +963,21 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   padding: 12px;
   background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.15s ease-in-out;
+  transition: background var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease);
 }
 .queue-card:hover {
   background: var(--paper-deep);
   border-color: var(--line-strong);
 }
 .queue-card.active {
-  background: #ffffff;
+  background: var(--paper);
   border-color: var(--blue);
   box-shadow: 0 0 0 1px var(--blue);
 }
 .queue-card.checked {
-  background: #fbfbfd;
+  background: var(--paper-deep);
 }
 
 .card-left-check {
@@ -1004,7 +1003,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   margin-left: auto;
   background: var(--paper-deep);
   padding: 1px 6px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .card-course-title {
@@ -1044,11 +1043,11 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: var(--text-caption);
   background: var(--paper-deep);
   border: 1px solid var(--line);
   color: var(--ink-soft);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 /* 右栏：详情展卷 */
@@ -1069,7 +1068,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   gap: 20px;
 }
 .detail-title {
-  font-size: 22px;
+  font-size: var(--text-2xl);
   font-weight: 700;
   color: var(--ink);
   margin-bottom: 6px;
@@ -1115,12 +1114,12 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   border: 1px solid var(--line);
 }
 .mini-stat .l {
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--ink-mute);
   margin-bottom: 2px;
 }
 .mini-stat .v {
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 700;
 }
 .mini-stat.bad .v {
@@ -1149,7 +1148,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   border-left: 2px solid var(--line-strong);
 }
 .note-label {
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--ink-mute);
   margin-bottom: 4px;
 }
@@ -1206,7 +1205,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   margin-bottom: 4px;
 }
 .r-meta {
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--ink-mute);
 }
 
@@ -1240,7 +1239,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   display: flex;
   align-items: center;
   gap: 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 .decision-done.success {
   background: var(--green-soft);
@@ -1263,15 +1262,10 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
 /* 空白视图 */
 .empty-box {
   padding: 80px 20px;
-  text-align: center;
-  color: var(--ink-mute);
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
-.empty-icon { font-size: 32px; color: var(--green); margin-bottom: 8px; }
-.empty-text { font-size: 14px; font-weight: 600; color: var(--ink-soft); margin-bottom: 4px; }
-.empty-sub { font-size: 12px; }
 
 /* 滚动条细化 */
 .custom-scroll::-webkit-scrollbar {
@@ -1280,7 +1274,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
 }
 .custom-scroll::-webkit-scrollbar-thumb {
   background: var(--line-strong);
-  border-radius: 3px;
+  border-radius: var(--radius);
 }
 .custom-scroll::-webkit-scrollbar-track {
   background: transparent;

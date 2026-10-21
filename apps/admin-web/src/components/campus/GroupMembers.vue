@@ -128,10 +128,10 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
       </div>
     </div>
 
-    <el-dialog v-if="compact" v-model="leaveOpen" title="本组成员请假与不可用" width="min(960px, 94vw)" destroy-on-close append-to-body>
+    <el-dialog v-if="compact" v-model="leaveOpen" title="本组成员请假与不可用" width="min(1120px, 94vw)" destroy-on-close append-to-body>
       <GroupUnavailability v-if="leaveOpen" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" :members="state.members.value" :can-manage="canManage" expanded />
     </el-dialog>
-    <el-dialog v-if="compact" v-model="batchOpen" title="粘贴学号批量加入本组" width="min(700px, 94vw)" destroy-on-close append-to-body>
+    <el-dialog v-if="compact" v-model="batchOpen" title="粘贴学号批量加入本组" width="min(820px, 94vw)" destroy-on-close append-to-body>
       <GroupMemberBatch v-if="batchOpen" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" @changed="state.load" />
     </el-dialog>
     <p v-if="state.loading.value" class="loading">正在读取成员记录…</p>
@@ -157,7 +157,7 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
       <AppPagination v-model:current-page="memberPage" :total="allVisibleRows.length" />
     </div>
   </section>
-  <el-dialog v-model="importing" title="导入当前组成员" width="780px" destroy-on-close :close-on-click-modal="false">
+  <el-dialog v-model="importing" title="导入当前组成员" width="min(820px, 94vw)" destroy-on-close :close-on-click-modal="false">
     <GroupMemberImport v-if="importing" :key="`${collegeId}:${groupId}:${semesterId}`" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" @changed="state.load" />
   </el-dialog>
 </template>
@@ -167,14 +167,14 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
 .toolbar, .toolbar-actions, .tabs, .editor-actions, .row-actions { display: flex; align-items: center; gap: 8px; }
 .toolbar { justify-content: space-between; flex-wrap: wrap; }
 .secondary-actions { display: flex; gap: 16px; flex-wrap: wrap; }
-.tabs button, .toolbar button, .editor button, .row-actions button { border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-bg-color); color: inherit; padding: 7px 12px; cursor: pointer; }
+.tabs button, .toolbar button, .editor button, .row-actions button { border: 1px solid var(--el-border-color); border-radius: var(--radius-md); background: var(--el-bg-color); color: inherit; padding: 7px 12px; cursor: pointer; }
 .tabs button.active, button.primary { border-color: var(--el-color-primary); background: var(--el-color-primary); color: white; }
 button:disabled { opacity: .55; cursor: not-allowed; }
-.editor { display: grid; gap: 14px; border: 1px solid var(--el-border-color); border-radius: 8px; padding: 16px; }
-.editor h3 { margin: 0; font-size: 16px; }
+.editor { display: grid; gap: 14px; border: 1px solid var(--el-border-color); border-radius: var(--radius-md); padding: 16px; }
+.editor h3 { margin: 0; }
 .candidate-search, .date-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
-label { display: grid; gap: 5px; color: var(--el-text-color-secondary); font-size: 13px; }
-input, select { min-height: 34px; border: 1px solid var(--el-border-color); border-radius: 5px; padding: 4px 8px; color: var(--el-text-color-primary); background: var(--el-bg-color); }
+label { display: grid; gap: 5px; color: var(--el-text-color-secondary); font-size: var(--text-sm); }
+input, select { min-height: 34px; border: 1px solid var(--el-border-color); border-radius: var(--radius-md); padding: 4px 8px; color: var(--el-text-color-primary); background: var(--el-bg-color); }
 .candidate-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .candidate-list button { text-align: left; }
 .candidate-list button.selected { border-color: var(--el-color-primary); color: var(--el-color-primary); }
@@ -184,14 +184,14 @@ input, select { min-height: 34px; border: 1px solid var(--el-border-color); bord
 .confirmation { display: flex; align-items: center; gap: 8px; color: var(--el-text-color-primary); }
 .confirmation input { min-height: unset; }
 .editor-actions { justify-content: flex-end; }
-.notice { margin: 0; padding: 9px 12px; border-radius: 6px; }
+.notice { margin: 0; padding: 9px 12px; border-radius: var(--radius-md); }
 .notice.error { color: var(--el-color-danger); background: var(--el-color-danger-light-9); }
 .notice.success { color: var(--el-color-success); background: var(--el-color-success-light-9); }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { border-bottom: 1px solid var(--el-border-color-lighter); padding: 10px 12px; text-align: left; white-space: nowrap; }
 th { color: var(--el-text-color-secondary); font-weight: 600; }
-.status { border-radius: 999px; padding: 3px 8px; }
+.status { border-radius: var(--radius-pill); padding: 3px 8px; }
 .status.active { color: var(--el-color-success); background: var(--el-color-success-light-9); }
 .status.inactive { color: var(--el-text-color-secondary); background: var(--el-fill-color-light); }
 .empty, .loading { padding: 20px; text-align: center; color: var(--el-text-color-secondary); }

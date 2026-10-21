@@ -34,8 +34,8 @@ const statusLabel = { ACTION_REQUIRED: '待处理', COMPLETE: '当前无待办',
   </section>
 </template>
 <style scoped>
-.overview { margin-top: 24px; }.heading { display: flex; align-items: center; justify-content: space-between; }h2 { font-size: 18px; }
+.overview { margin-top: 24px; }.heading { display: flex; align-items: center; justify-content: space-between; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }
-.metric { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line); border-radius: 6px; padding: 18px; color: var(--ink); text-decoration: none; }
-.metric strong { font-size: 25px; }.metric small,p { color: var(--ink-mute); font-size: 12px; }.pending { border-color: var(--gold); }
+.metric { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 18px; color: var(--ink); text-decoration: none; }
+.metric strong { font-size: var(--text-hero); }.metric small,p { color: var(--ink-mute); font-size: var(--text-xs); }.pending { border-color: var(--gold); }
 </style>

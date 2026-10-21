@@ -214,7 +214,7 @@ async function submitHandover() {
     </el-table>
     <AppPagination v-model:current-page="page" :total="relationData?.total || 0" />
 
-    <el-dialog v-model="createOpen" title="建立班级责任任命" width="560px" :close-on-click-modal="false">
+    <el-dialog v-model="createOpen" title="建立班级责任任命" width="640px" :close-on-click-modal="false">
       <el-form label-width="112px">
         <el-form-item label="教职工" required>
           <el-select v-model="createForm.staffId" filterable remote :remote-method="loadStaffOptions" @visible-change="(open: boolean) => { if (open) void loadStaffOptions() }" placeholder="选择本院教职工档案" style="width: 100%">
@@ -258,7 +258,7 @@ async function submitHandover() {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="handoverOpen" title="责任交接" width="520px" :close-on-click-modal="false">
+    <el-dialog v-model="handoverOpen" title="责任交接" width="640px" :close-on-click-modal="false">
       <p v-if="handoverRow">{{ dutyLabel(handoverRow.duty) }}「{{ classLabel(handoverRow.administrative_class_id) }}」由 <strong>{{ staffLabel(handoverRow.staff_id) }}</strong> 移交新责任人；交接在同一事务内结束旧任命并建立新任命。</p>
       <el-form label-width="112px">
         <el-form-item label="接班人" required>

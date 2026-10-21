@@ -51,7 +51,7 @@ async function save() {
 </script>
 <template>
   <el-button link @click="start">所属组织</el-button>
-  <el-dialog v-model="open" :title="`${name} · 学期组织成员`" width="540px" append-to-body :close-on-click-modal="false" :show-close="!busy" @closed="epoch++">
+  <el-dialog v-model="open" :title="`${name} · 学期组织成员`" width="640px" append-to-body :close-on-click-modal="false" :show-close="!busy" @closed="epoch++">
     <p>学期资格表示可以参与查课；加入组织决定由哪个组排班。允许加入多个组，新增不会退出其他组，也不会自动下发任务。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-form label-width="110px">

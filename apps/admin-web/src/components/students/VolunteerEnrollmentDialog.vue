@@ -53,7 +53,7 @@ async function save() {
 }
 </script>
 <template>
-  <el-dialog :model-value="modelValue" title="添加志愿者并选择组织" width="580px" append-to-body :close-on-click-modal="false" :show-close="!busy" :close-on-press-escape="!busy" @update:model-value="emit('update:modelValue', $event)">
+  <el-dialog :model-value="modelValue" title="添加志愿者并选择组织" width="640px" append-to-body :close-on-click-modal="false" :show-close="!busy" :close-on-press-escape="!busy" @update:model-value="emit('update:modelValue', $event)">
     <p>先选择组织，再从已有有效学籍中选人；一次保存开通本学期资格并加入该组。不创建学生、不退出其他组、不自动排班。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-form label-width="130px" :disabled="busy">

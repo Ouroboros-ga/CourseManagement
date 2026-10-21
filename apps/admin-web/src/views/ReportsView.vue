@@ -1147,7 +1147,7 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
     <el-drawer
       v-model="showClassDetailDrawer"
       direction="rtl"
-      size="740px"
+      size="min(820px, 94vw)"
       :lock-scroll="false"
       destroy-on-close
     >
@@ -1403,7 +1403,7 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   background: var(--paper);
 }
 .wp-label {
-  font-size: 10px;
+  font-size: var(--text-caption);
   letter-spacing: 0.1em;
   color: var(--ink-mute);
 }
@@ -1439,12 +1439,12 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
 .tier-strip {
   display: flex;
   height: 3px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   gap: 2px;
   margin: 12px 0 10px;
 }
-.ts { display: block; height: 100%; border-radius: 1px; }
+.ts { display: block; height: 100%; border-radius: var(--radius-sm); }
 .ts-green { background: var(--green); }
 .ts-blue { background: var(--blue); }
 .ts-amber { background: var(--amber); }
@@ -1472,20 +1472,20 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--dur-f) var(--ease);
 }
 .tab-btn:hover { color: var(--ink); }
 .tab-btn.active { color: var(--ink); border-bottom-color: var(--ink); }
 .tab-no {
-  font-size: 10px;
+  font-size: var(--text-caption);
   letter-spacing: 0.08em;
   color: var(--ink-mute);
 }
 .tab-btn.active .tab-no { color: var(--accent); }
 .tab-count {
-  font-size: 10px;
+  font-size: var(--text-caption);
   padding: 1px 7px;
-  border-radius: 10px;
+  border-radius: var(--radius-pill);
   background: var(--paper-deep);
   color: var(--ink-soft);
 }
@@ -1554,7 +1554,7 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
 .ta-c { text-align: center; }
 .fw-600 { font-weight: 600; }
 .rank { color: var(--ink-mute); }
-.empty-text { padding: 48px 0; text-align: center; font-size: 12px; color: var(--ink-mute); }
+.empty-text { padding: 32px 0; text-align: center; font-size: var(--text-xs); color: var(--ink-mute); }
 
 .rate-cell { display: flex; align-items: center; gap: 10px; }
 .rate-val { font-size: 12px; min-width: 48px; text-align: right; }
@@ -1565,13 +1565,13 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   background: var(--paper-deep);
   border: 1px solid var(--line);
   padding: 2px 7px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   color: var(--ink-soft);
 }
 
 
 /* ---------- 版本表 ---------- */
-.role-tag { margin-left: 8px; font-size: 10px; }
+.role-tag { margin-left: 8px; font-size: var(--text-caption); }
 .reason-cell {
   max-width: 200px;
   overflow: hidden;
@@ -1603,7 +1603,7 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
 /* ---------- 行政班列表行可点击 ---------- */
 .clickable-row {
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: background-color var(--dur-f) var(--ease);
 }
 .clickable-row:hover {
   background-color: var(--paper-deep);
@@ -1617,7 +1617,7 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   font-size: 11px;
   color: var(--ink-mute);
   opacity: 0.6;
-  transition: opacity 0.15s, color 0.15s;
+  transition: opacity var(--dur-f) var(--ease), color var(--dur-f) var(--ease);
 }
 .clickable-row:hover .class-click-hint {
   opacity: 1;
@@ -1630,11 +1630,11 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   color: var(--blue);
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: 4px;
-  transition: background-color 0.15s, color 0.15s;
+  border-radius: var(--radius-md);
+  transition: background-color var(--dur-f) var(--ease), color var(--dur-f) var(--ease);
 }
 .btn-text:hover {
-  background-color: rgba(59, 130, 246, 0.08);
+  background-color: var(--blue-soft);
   color: var(--ink);
 }
 
@@ -1650,7 +1650,7 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   gap: 10px;
 }
 .dh-title {
-  font-size: 20px;
+  font-size: var(--text-2xl);
   font-weight: 700;
   color: var(--ink);
 }
@@ -1689,19 +1689,19 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   gap: 4px;
 }
 .d-kpi-card.card-warn {
-  border-color: rgba(239, 68, 68, 0.3);
-  background: rgba(239, 68, 68, 0.03);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
 }
 .d-kpi-card.card-amber {
-  border-color: rgba(245, 158, 11, 0.3);
-  background: rgba(245, 158, 11, 0.03);
+  border-color: color-mix(in srgb, var(--amber) 30%, transparent);
+  background: color-mix(in srgb, var(--amber) 3%, transparent);
 }
 .dk-label {
   font-size: 11px;
   color: var(--ink-mute);
 }
 .dk-val {
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 700;
   color: var(--ink);
 }
@@ -1735,7 +1735,7 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   align-items: center;
   gap: 6px;
   margin-bottom: -1px;
-  transition: all 0.15s;
+  transition: color var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease);
 }
 .d-tab-btn:hover {
   color: var(--ink);
@@ -1745,9 +1745,9 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   border-bottom-color: var(--ink);
 }
 .d-tab-badge {
-  font-size: 11px;
+  font-size: var(--text-caption);
   padding: 1px 6px;
-  border-radius: 10px;
+  border-radius: var(--radius-pill);
   background: var(--line);
   color: var(--ink-soft);
 }
@@ -1756,10 +1756,10 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   color: var(--paper);
 }
 .d-tab-warn {
-  font-size: 10px;
+  font-size: var(--text-caption);
   padding: 1px 6px;
-  border-radius: 10px;
-  background: rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
   color: var(--accent);
   font-weight: 700;
 }
@@ -1770,8 +1770,8 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.04);
-  border: 1px solid rgba(239, 68, 68, 0.18);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   border-left: 3px solid var(--accent);
   border-radius: var(--radius);
   font-size: 12px;
@@ -1831,9 +1831,9 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   font-size: 11px;
   font-weight: 500;
   padding: 5px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background var(--dur-f) var(--ease), border-color var(--dur-f) var(--ease);
 }
 .chip-btn:hover {
   background: var(--paper);
@@ -1847,12 +1847,12 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
 .chip-btn.chip-warn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--paper);
 }
 .chip-btn.chip-ok.active {
   background: var(--green);
   border-color: var(--green);
-  color: #fff;
+  color: var(--paper);
 }
 
 .d-loading {
@@ -1873,11 +1873,11 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--paper);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-f) var(--ease), box-shadow var(--dur-f) var(--ease);
 }
 .stu-card-abnormal {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(239, 68, 68, 0.02);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 2%, transparent);
   border-left: 3px solid var(--accent);
 }
 .stu-top {
@@ -1898,9 +1898,9 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
 }
 .stu-pin-index.pin-active {
   color: var(--accent);
-  background: rgba(239, 68, 68, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius);
 }
 .stu-name {
   font-size: 14px;
@@ -1923,33 +1923,33 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   gap: 6px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px dashed rgba(239, 68, 68, 0.15);
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 15%, transparent);
 }
 .violation-pill {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 5px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-size: 11px;
   line-height: 1.4;
   background: var(--paper-deep);
   border: 1px solid var(--line);
 }
 .violation-pill.vp-red {
-  background: rgba(239, 68, 68, 0.06);
-  border-color: rgba(239, 68, 68, 0.25);
-  color: #991b1b;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--accent);
 }
 .violation-pill.vp-amber {
-  background: rgba(245, 158, 11, 0.06);
-  border-color: rgba(245, 158, 11, 0.25);
-  color: #92400e;
+  background: color-mix(in srgb, var(--amber) 6%, transparent);
+  border-color: color-mix(in srgb, var(--amber) 25%, transparent);
+  color: var(--amber);
 }
 .violation-pill.vp-blue {
-  background: rgba(59, 130, 246, 0.06);
-  border-color: rgba(59, 130, 246, 0.25);
-  color: #1e40af;
+  background: color-mix(in srgb, var(--blue) 6%, transparent);
+  border-color: color-mix(in srgb, var(--blue) 25%, transparent);
+  color: var(--blue);
 }
 .vp-date {
   font-weight: 700;
@@ -1970,8 +1970,8 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
   margin-left: auto;
   font-weight: 700;
   padding: 1px 6px;
-  border-radius: 2px;
-  background: rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius-sm);
+  background: var(--line);
 }
 .stu-ok-hint {
   font-size: 11px;

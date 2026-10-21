@@ -149,8 +149,8 @@ async function handleLogin() {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(250, 248, 245, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(250, 248, 245, 0.02) 1px, transparent 1px);
+    linear-gradient(color-mix(in srgb, var(--paper) 2%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--paper) 2%, transparent) 1px, transparent 1px);
   background-size: 48px 48px;
   pointer-events: none;
 }
@@ -167,13 +167,13 @@ async function handleLogin() {
   height: 48px;
   border-radius: 50%;
   object-fit: cover;
-  background: #ffffff;
+  background: var(--paper);
   padding: 1px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   flex-shrink: 0;
 }
 .brand-text .college-title {
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--paper);
@@ -199,7 +199,7 @@ async function handleLogin() {
   margin-bottom: 24px;
 }
 .login-hero p {
-  font-size: 15px;
+  font-size: var(--text-lg);
   line-height: 1.9;
   opacity: 0.65;
   max-width: 420px;
@@ -216,7 +216,7 @@ async function handleLogin() {
 }
 .login-meta span { display: block; }
 .login-meta .num {
-  font-size: 22px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   opacity: 1;
   color: var(--paper);
@@ -307,11 +307,11 @@ async function handleLogin() {
   border: none;
   border-bottom: 1px solid var(--line-strong);
   background: transparent;
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-family: inherit;
   color: var(--ink);
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color var(--dur-m) var(--ease);
 }
 .field input:focus {
   border-bottom-color: var(--ink);

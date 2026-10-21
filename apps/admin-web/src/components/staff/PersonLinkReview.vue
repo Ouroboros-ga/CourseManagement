@@ -26,7 +26,7 @@ async function confirm() { if (await state.confirm()) emit('saved') }
     <el-button :loading="busy" :disabled="kind === 'teaching' && !session.currentSemesterId" @click="preview">{{ kind === 'teaching' ? '核对本学期课表的教师关联' : '核对已有班主任与辅导员关联' }}</el-button>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="saved" :title="saved" type="success" :closable="false" />
-    <el-dialog :model-value="!!plan" title="核对人员关联" width="min(980px, 94vw)" @close="plan = null">
+    <el-dialog :model-value="!!plan" title="核对人员关联" width="min(1120px, 94vw)" @close="plan = null">
       <template v-if="plan">
         <p>可补关联 {{ plan.summary.person_links_create }} 条，已关联 {{ plan.summary.person_links_existing }} 条，待处理 {{ plan.summary.person_links_pending }} 条。</p>
         <p class="hint">只补充下方明确匹配的关系。同名请补工号；未找到人员请先导入教职工档案；已有不同责任人请使用交接。不会自动创建登录账号或修改历史任务。</p>

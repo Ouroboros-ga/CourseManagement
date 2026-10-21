@@ -68,6 +68,6 @@ async function run(confirm = false) {
 
 <style scoped>
 section { display: grid; gap: 14px; }
-h3 { margin: 0; font-size: 17px; }
-p { margin: 0; color: var(--ink-mute); line-height: 1.7; font-size: 13px; }
+h3 { margin: 0; }
+p { margin: 0; color: var(--ink-mute); line-height: 1.7; font-size: var(--text-sm); }
 </style>

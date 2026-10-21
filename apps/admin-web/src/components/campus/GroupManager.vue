@@ -111,21 +111,21 @@ const canCopy = computed(() => props.capabilities.includes('volunteer.member.man
     </PaginatedTable>
     <footer><span>成员按 {{ referenceDate }} 的有效期统计；具体日期的资格、请假和冲突在排班时重新核对。</span><DeletedResources v-if="canManage" :college-id="collegeId" kind="groups" @changed="emit('changed')" /></footer>
   </section>
-  <el-dialog v-model="editing" :title="active ? '编辑组织' : '新建查课组织'" width="520px" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
+  <el-dialog v-model="editing" :title="active ? '编辑组织' : '新建查课组织'" width="640px" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
     <div ref="editorRoot" data-unsaved-form><el-form label-position="top" :disabled="saving"><el-form-item label="组织名称"><el-input v-model="form.name" maxlength="128" placeholder="例如：早晚自习查课组" /></el-form-item><p>保存后设置查课范围，再添加成员。当前创建人为负责人，可通过负责人交接调整。</p><el-collapse><el-collapse-item title="设置组织有效期（选填）" name="dates"><el-form-item label="开始日期"><el-date-picker v-model="form.starts_on" value-format="YYYY-MM-DD" placeholder="不限" /></el-form-item><el-form-item label="结束日期"><el-date-picker v-model="form.ends_on" value-format="YYYY-MM-DD" placeholder="不限" /></el-form-item></el-collapse-item></el-collapse></el-form></div>
     <template #footer><el-button :disabled="saving" @click="editing = false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!form.name.trim()" @click="save">{{ active ? '保存修改' : '创建并设置查课范围' }}</el-button></template>
   </el-dialog>
-  <el-dialog v-model="configuring" :title="`${active?.name || ''} · 组织默认规则`" width="760px" destroy-on-close :close-on-click-modal="false" :show-close="!saving" :close-on-press-escape="!saving"><el-alert title="默认规则供尚未确认专用规则的学期沿用；修改不会覆盖已经确认的学期规则或历史任务。" type="info" :closable="false" /><GroupRuleEditor v-if="active && configuring" :college-id="collegeId" :group-id="active.id" :initial="active.configuration" :types="types" :saving="saving" @publish="publish(active!, $event)" /></el-dialog>
-  <el-dialog v-model="handingOver" :title="`${active?.name || ''} · 负责人交接`" width="680px" destroy-on-close :close-on-click-modal="false"><GroupHandover v-if="active && handingOver" :college-id="collegeId" :group-id="active.id" @changed="handingOver = false; emit('changed')" /></el-dialog>
-  <el-dialog v-model="copying" :title="`${active?.name || ''} · 复用上学期`" width="780px" destroy-on-close :close-on-click-modal="false"><GroupSemesterPreparation v-if="active && copying" :key="`${active.id}:${session.currentSemesterId}`" :college-id="collegeId" :groups="[active]" :types="types" :fixed-group-id="active.id" @changed="copying = false; overview.load()" /></el-dialog>
+  <el-dialog v-model="configuring" :title="`${active?.name || ''} · 组织默认规则`" width="min(820px, 94vw)" destroy-on-close :close-on-click-modal="false" :show-close="!saving" :close-on-press-escape="!saving"><el-alert title="默认规则供尚未确认专用规则的学期沿用；修改不会覆盖已经确认的学期规则或历史任务。" type="info" :closable="false" /><GroupRuleEditor v-if="active && configuring" :college-id="collegeId" :group-id="active.id" :initial="active.configuration" :types="types" :saving="saving" @publish="publish(active!, $event)" /></el-dialog>
+  <el-dialog v-model="handingOver" :title="`${active?.name || ''} · 负责人交接`" width="min(820px, 94vw)" destroy-on-close :close-on-click-modal="false"><GroupHandover v-if="active && handingOver" :college-id="collegeId" :group-id="active.id" @changed="handingOver = false; emit('changed')" /></el-dialog>
+  <el-dialog v-model="copying" :title="`${active?.name || ''} · 复用上学期`" width="min(820px, 94vw)" destroy-on-close :close-on-click-modal="false"><GroupSemesterPreparation v-if="active && copying" :key="`${active.id}:${session.currentSemesterId}`" :college-id="collegeId" :groups="[active]" :types="types" :fixed-group-id="active.id" @changed="copying = false; overview.load()" /></el-dialog>
 </template>
 <style scoped>
 .organization-list { display: grid; gap: 20px; }
 .organization-toolbar, .toolbar-actions, footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-h2 { font-size: 18px; margin: 0 0 6px; }
-p, footer, small { color: var(--ink-mute); font-size: 13px; line-height: 1.7; }
+h2 { margin: 0 0 6px; }
+p, footer, small { color: var(--ink-mute); font-size: var(--text-sm); line-height: 1.7; }
 small { display: block; }
-.organization-name { font-size: 15px; font-weight: 600; }
+.organization-name { font-size: var(--text-lg); font-weight: 600; }
 .ready-label { color: var(--el-color-success); }
 footer { padding-top: 8px; }
 </style>

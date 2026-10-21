@@ -94,6 +94,6 @@ function updateOverride(id: string, value: Effect | '') {
 </template>
 
 <style scoped>
-h3 { font-size: 16px; margin: 22px 0 14px; }
-p { font-size: 13px; color: var(--ink-mute); line-height: 1.7; }
+h3 { margin: 22px 0 14px; }
+p { font-size: var(--text-sm); color: var(--ink-mute); line-height: 1.7; }
 </style>

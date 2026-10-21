@@ -192,7 +192,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
     :model-value="visible"
     title="查课任务详情与点名册"
     direction="rtl"
-    size="600px"
+    size="640px"
     :lock-scroll="false"
     destroy-on-close
     @close="close"
@@ -231,11 +231,11 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
           </div>
           <div>
             <span class="d-label">任课老师</span>
-            <p class="d-value text-indigo-700 font-medium">
+            <p class="d-value t-blue font-medium">
               {{ task.effective_teacher || task.teacher_name_snapshot || '未指定' }}
               <span
                 v-if="task.head_teacher && (task.effective_teacher === task.head_teacher) && (!task.teacher_name_snapshot || task.teacher_name_snapshot === '未指定')"
-                class="text-xs font-normal text-emerald-600 ml-1"
+                class="text-xs font-normal t-green ml-1"
                 title="优先采用行政班班主任兜底呈现"
               >
                 (班主任代)
@@ -244,15 +244,15 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
           </div>
           <div>
             <span class="d-label">班主任</span>
-            <p class="d-value text-emerald-700 font-medium">{{ task.head_teacher || '未指定' }}</p>
+            <p class="d-value t-green font-medium">{{ task.head_teacher || '未指定' }}</p>
           </div>
           <div>
             <span class="d-label">责任区辅导员</span>
-            <p class="d-value text-blue-700 font-medium">{{ task.counselor || '未指定' }}</p>
+            <p class="d-value t-blue font-medium">{{ task.counselor || '未指定' }}</p>
           </div>
           <div>
             <span class="d-label">组成行政班</span>
-            <p class="d-value text-slate-700">
+            <p class="d-value t-soft">
               {{ (task.administrative_classes && task.administrative_classes.length > 0) ? task.administrative_classes.join(', ') : '—' }}
             </p>
           </div>
@@ -345,7 +345,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
           <h4 class="d-heading">
             学生考勤名单明细（应到 {{ totalStudents }} 人 · 名单版本 v{{ rosterVersion }}）
           </h4>
-          <span v-if="canCorrectAttendance && attendanceRecords.length > 0" class="text-xs text-slate-500 font-medium">
+          <span v-if="canCorrectAttendance && attendanceRecords.length > 0" class="text-xs t-mute font-medium">
             ✦ 允许管理端二次更正
           </span>
         </div>
@@ -377,20 +377,20 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
                   <td v-if="canCorrectAttendance && attendanceRecords.length > 0" style="text-align: right;">
                     <button
                       v-if="stu.attendance_record_id"
-                      class="btn btn-ghost btn-xs text-blue-600 hover:text-blue-800"
+                      class="btn btn-ghost btn-xs t-blue"
                       title="学生负责人及以上权限可再次更正考勤状态"
                       @click="openCorrectDialog(stu)"
                     >
                       更正
                     </button>
-                    <span v-else class="text-xs text-slate-300">—</span>
+                    <span v-else class="text-xs t-mute">—</span>
                   </td>
                 </tr>
               </tbody>
             </table>
 <AppPagination v-model:current-page="display0Page" :total="display0Total" />
           </div>
-          <div v-else class="d-empty" style="background: var(--paper-deep); color: var(--ink-mute);">
+          <div v-else class="d-empty">
             点名册学生数据暂未导入或名单为空
           </div>
         </div>
@@ -401,24 +401,24 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
     <el-dialog
       v-model="correctDialogVisible"
       title="更正学生考勤状态（管理端二次修改）"
-      width="440px"
+      width="480px"
       :lock-scroll="false"
       append-to-body
     >
       <div v-if="correctingRecord" class="p-2 space-y-3">
-        <div class="p-2.5 rounded bg-blue-50 border border-blue-200 text-blue-900 text-xs leading-relaxed">
+        <div class="info-box">
           <b>ℹ️ 变更留痕说明：</b>修改后将新增一条版本认定记录（来源为 <code>CORRECTION</code>），并同步刷新本周到课率统计与考勤详表，全过程计入审计日志。
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-[var(--ink)] mb-1">目标学生</label>
-          <div class="text-sm font-bold text-slate-800">
-            {{ correctingRecord.name }} <span class="font-mono text-xs font-normal text-slate-500">({{ correctingRecord.student_no }})</span>
+          <label class="form-label">目标学生</label>
+          <div class="text-sm font-bold t-ink">
+            {{ correctingRecord.name }} <span class="font-mono text-xs font-normal t-mute">({{ correctingRecord.student_no }})</span>
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-[var(--ink)] mb-1">选择新的考勤状态 *</label>
+          <label class="form-label">选择新的考勤状态 *</label>
           <div class="flex gap-2">
             <button
               v-for="t in (['NORMAL', 'LEAVE', 'LATE', 'ABSENT'] as AttendanceType[])"
@@ -434,7 +434,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-[var(--ink)] mb-1">更正理由 / 审批依据 *</label>
+          <label class="form-label">更正理由 / 审批依据 *</label>
           <select
             class="input w-full mb-1.5"
             @change="(e) => { const v = (e.target as HTMLSelectElement).value; if (v) correctReason = v }"
@@ -469,7 +469,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
 
     <template #footer>
       <div class="d-footer" style="display: flex; justify-content: space-between; align-items: center;">
-        <button v-if="task" class="btn btn-sm btn-ghost" style="color: #dc2626;" @click="emit('delete', task)">
+        <button v-if="task" class="btn btn-sm btn-ghost t-accent" @click="emit('delete', task)">
           删除此任务
         </button>
         <div style="display: flex; gap: 8px;">
@@ -491,7 +491,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
 .d-section:last-child { border-bottom: none; padding-bottom: 0; }
 
 .d-id { font-size: 11px; color: var(--ink-mute); margin-bottom: 6px; }
-.d-course { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+.d-course { font-size: var(--text-xl); font-weight: 700; margin-bottom: 8px; }
 
 .d-heading {
   font-size: 11px;
@@ -535,17 +535,17 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
 .fact-cell {
   background: var(--paper);
   padding: 6px 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--line);
 }
-.fact-label { font-size: 10.5px; color: var(--ink-mute); display: block; margin-bottom: 2px; }
-.fact-num { font-size: 13px; font-weight: 600; }
+.fact-label { font-size: var(--text-caption); color: var(--ink-mute); display: block; margin-bottom: 2px; }
+.fact-num { font-size: var(--text-sm); font-weight: 600; }
 
 .submission-note {
-  font-size: 12px;
+  font-size: var(--text-xs);
   padding: 8px 10px;
   background: var(--paper);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--line);
   color: var(--ink);
 }
@@ -553,9 +553,9 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
 .note-text { color: var(--ink); }
 
 .submission-photos {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
-.photo-title { font-size: 11px; color: var(--ink-mute); margin-bottom: 6px; font-weight: 600; }
+.photo-title { font-size: var(--text-caption); color: var(--ink-mute); margin-bottom: 6px; font-weight: 600; }
 .photo-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .photo-badge {
   display: inline-flex;
@@ -564,8 +564,8 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
   padding: 3px 8px;
   background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 4px;
-  font-size: 11px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-caption);
   color: var(--ink-soft);
 }
 
@@ -595,7 +595,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
 .btn-xs {
   padding: 2px 6px;
   font-size: 11px;
-  border-radius: 3px;
+  border-radius: var(--radius);
 }
 
 .d-footer { display: flex; justify-content: flex-end; gap: 10px; }
