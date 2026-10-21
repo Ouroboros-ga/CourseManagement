@@ -23,4 +23,9 @@
 
 ## 发布状态
 
-本轮代码和接口资料已完成本地验证，待记录提交与成套发布结果。无数据库迁移或生产排班数据变更。
+- 源码提交 `3e77c440f18a0eed79e52d1df88731f7a4993185` 已推送 `origin/dev-main`；北京时间2026-10-21 10:40成套部署。
+- 后端 `/opt/course-management/current` 与 Web `/opt/course-management/admin-web/current` 均指向各自 `releases/20261021-plan-preview-3e77c440f1`。543个源码/工具文件及69个新Web产物哈希匹配，旧哈希资源继续保留。
+- 候选与正式服务就绪、nginx配置、匿名授权探针通过；公网首页与3个入口资源哈希匹配，匿名排班预览返回401。生产没有创建或确认测试排班；业务交互验证使用本地虚构数据。
+- 无迁移、seed、配置或业务开关变更，数据库头仍为 `f26a1019s007`。接口未改变派发或审核权限。
+- 回退资料在 `/var/backups/course-management/20261021-plan-preview-3e77c440f1/`，含原指针、清单、报告及显式 `--apply` 才执行的回退脚本；本轮没有执行回退。旧后端 `20261020-audit-viewer-b29b3ebee2`、旧Web `20261020-assignment-scope-d9b1f7ed0a` 均保留，需要时成套恢复指针并重启服务，不回退数据库。
+- 本地发布与公网证据位于 `tmp/assignment-preview-ui-20261021/release/` 与 `PUBLIC_EVIDENCE.json`。本段和实施状态的后续文档提交不改变已部署应用源码。
