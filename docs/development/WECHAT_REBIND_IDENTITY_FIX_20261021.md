@@ -2,7 +2,7 @@
 
 ## 审查结论与定位
 
-报告根因成立：`InspectionAssignment.volunteer_user_id` 和 `InspectionSubmission.volunteer_user_id` 指向用户账号。`IdentityService.student_self_unbind` 清空该账号的 `student_id` 和角色，但保留微信身份指向；之后同一 UID 绑定其他学生，导致业务事实被错误解释为另一个学生。记录仍在库中，并非物理删除。
+报告根因成立：`InspectionAssignment.volunteer_user_id` 和 `InspectionSubmission.volunteer_user_id` 指向用户账号（`inspection/models.py:418`、`:560`）。修复前基线 `484d455` 的 `identity/service.py:1248` 起 `student_self_unbind` 清空该账号的 `student_id` 和角色，但保留微信身份指向；`:1115` 起绑定方法又将同一 UID 绑定其他学生，导致业务事实被错误解释为另一个学生。`:1183` 起认领分支原先迁移全部会话并尝试删除源账号，`:1017` 起管理换绑也缺少历史保护。记录仍在库中，并非物理删除。以上位置指基线，修复后的行号已变化。
 
 原方案有条件通过：保留学生业务账号，解绑时将唯一微信登录身份移至无角色、无口令、无学生绑定的新账号。原账号的学号归属、资格、角色、受派与提交事实保持。需同时约束既有账号认领、会话有效性、管理员换绑及并发登录/刷新，不能只替换 `student_id = None`。
 
@@ -26,4 +26,13 @@
 - 身份服务和路由Mypy通过；本轮新文件及路由Ruff通过。服务文件与HEAD比较保持11条原有长行告警，无新增，不修改基线门禁。无数据库迁移、依赖变更或小程序包修改。
 - 生产只读审计聚合发现5次旧自助解绑事件，其中1个账号符合“学生归属变化且仍存在受派/提交历史”。这只是待核实线索，不代表已证实各条记录的应归属；本轮没有移动或改写这些历史记录。
 
-当前状态：审查通过，代码及定向验证完成，待提交部署。
+## 发布与回退
+
+当前状态：审查通过，已提交、推送 `dev-main` 并部署。应用源码 `6f4299bd78e4ae6aba45cbbc04ac165083e2277a`；正式后端发布 `20261021-wechat-rebind-6f4299bd78`，时间 `2026-10-21T13:35:25Z`（北京时间21:35）。域名 `course.zsitai.xyz`，服务器 `101.34.52.163`。
+
+- 后端目录 `/opt/course-management/releases/20261021-wechat-rebind-6f4299bd78`，552个源码/工具文件与Git包一致。候选和正式服务均检查就绪、匿名me/任务/导出及学生绑定POST、解绑DELETE、刷新POST返回401。服务active，nginx检查通过。
+- Web指针保持 `/opt/course-management/admin-web/releases/20261021-staff-binding-export-145dfe8fc1`，70个产物及公网首页与3个入口资源哈希一致；未重发Web或小程序包。
+- 数据库版本保持 `f26a1019s007`；配置SHA-256保持 `e906579ee8e72a4d3f98007c11f87d3530a98e5c4e7beb37fde5efd50bf53163`。未执行迁移、seed、正式身份换绑、会话清理或历史业务数据恢复；真实微信真机复测尚未进行。
+- 备份与证据：`/var/backups/course-management/20261021-wechat-rebind-6f4299bd78/`，包含before/report、发布清单、配置备份、旧后端清单与rollback脚本。旧后端为 `20261021-staff-binding-export-145dfe8fc1`。如需回退，在服务器执行 `python3 /var/backups/course-management/20261021-wechat-rebind-6f4299bd78/rollback.py --apply`，只恢复后端指针并重启；Web保持不动。本轮未执行回退。
+
+存量账号归属核实仍是独立待办，代码上线不代表该账号过去的任务和提交已恢复。
