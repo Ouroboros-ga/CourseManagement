@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date
 from typing import Any
 
 from sqlalchemy import and_, case, false, func, not_, or_, select
@@ -243,6 +243,9 @@ class StaffRecordQueryService:
                             TaskScheduleSource.task_id == InspectionTask.id,
                             TaskScheduleSource.teaching_class_id == TeachingClass.id,
                         )
+                        # 必须穿透两层关联外部任务；自动关联只看直接父查询，
+                        # 会把别的任务来源误当成当前任务的本人授课来源。
+                        .correlate(InspectionTask, TeachingClass)
                         .exists(),
                     ),
                     teaching_class_condition(
@@ -424,8 +427,12 @@ class StaffRecordQueryService:
             course_name=task.course_name_snapshot or "",
             responsible_college=college_brief,
             inspection_date=task.inspection_date.isoformat(),
-            starts_at=task.activity_start_at.isoformat() if task.activity_start_at else None,
-            ends_at=task.activity_end_at.isoformat() if task.activity_end_at else None,
+            starts_at=(task.activity_start_at.replace(tzinfo=UTC).isoformat()
+                       if task.activity_start_at else None),
+            ends_at=(task.activity_end_at.replace(tzinfo=UTC).isoformat()
+                     if task.activity_end_at else None),
+            start_period=task.start_period,
+            end_period=task.end_period,
             classroom=task.classroom_snapshot,
             location_revision=location_revision,
             attendance_state=state,

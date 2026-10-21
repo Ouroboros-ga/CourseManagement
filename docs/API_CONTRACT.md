@@ -1,3 +1,7 @@
+## 2026-10-21 学生资料与教工查课修复
+
+GET `/me` 增加 `student_no/college_name` 及 `app_context.student`，按本人绑定ID和当前日期学籍读取；无绑定为null，不改变角色、权限或教师摘要。GET `/me/inspection-records` 修复跨任务来源关联，旧误放行的卡片不再可见，详情/名单同样拒绝；`starts_at/ends_at` 明确附带UTC偏移，新增 `start_period/end_period`。详情见 [小程序接口修复交接](integration/WECHAT_ME_STAFF_FIX_20261021.md)。没有新增路径或迁移。
+
 ## 2026-10-21 管理端考勤分组
 
 - 新增 GET `/api/v1/attendance/groups` 与 `/api/v1/colleges/{cid}/attendance/groups`。前者仅供旧全校管理模式；正式学院模式继续关闭旧入口。后者复用 `attendance.read`、学院与资源范围，任职本人入口和学生小程序入口不扩权。

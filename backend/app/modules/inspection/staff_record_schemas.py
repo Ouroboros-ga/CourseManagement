@@ -51,6 +51,8 @@ class StaffInspectionRecordCard(BaseModel):
     inspection_date: str
     starts_at: str | None = None
     ends_at: str | None = None
+    start_period: int | None = None
+    end_period: int | None = None
     classroom: str | None = None
     location_revision: str | None = None
     attendance_state: str  # "RECORDED", "PENDING_SUBMISSION", "PENDING_REVIEW", "CANCELED"

@@ -81,6 +81,17 @@ class StaffAppSummary(BaseModel):
     views: StaffWorkViews = StaffWorkViews()
 
 
+class StudentAppSummary(BaseModel):
+    student_id: str
+    student_no: str
+    name: str
+    administrative_class_id: str | None = None
+    administrative_class_name: str | None = None
+    college_id: str | None = None
+    college_name: str | None = None
+    enrollment_status: str | None = None
+
+
 class AppContext(BaseModel):
     """`/me` 增量：呈现模式与本人工作视图摘要，权限仍按逐请求计算。"""
 
@@ -88,6 +99,7 @@ class AppContext(BaseModel):
     default_mode: str | None = None
     administrator: bool = False
     staff: StaffAppSummary | None = None
+    student: StudentAppSummary | None = None
 
 
 class CurrentUserResponse(BaseModel):
@@ -104,6 +116,10 @@ class CurrentUserResponse(BaseModel):
         description="旧学生受限态标志；教职工身份及入口应读取 app_context，不据此强制绑定学号",
     )
     app_context: AppContext | None = None
+    student_no: str | None = Field(default=None, description="已绑定学生的学号，保留前导零")
+    college_name: str | None = Field(
+        default=None, description="已绑定学生当前所属学院名称，仅供展示"
+    )
 
     @classmethod
     def build(
@@ -118,6 +134,7 @@ class CurrentUserResponse(BaseModel):
         pre_binding: bool = False,
         app_context: dict[str, object] | None = None,
     ) -> CurrentUserResponse:
+        context = AppContext.model_validate(app_context) if app_context is not None else None
         return cls(
             id=to_id_str(id),
             username=username,
@@ -126,7 +143,9 @@ class CurrentUserResponse(BaseModel):
             roles=roles,
             permissions=permissions,
             binding_required=pre_binding,
-            app_context=AppContext.model_validate(app_context) if app_context is not None else None,
+            app_context=context,
+            student_no=context.student.student_no if context and context.student else None,
+            college_name=context.student.college_name if context and context.student else None,
         )
 
 

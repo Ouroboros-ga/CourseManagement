@@ -1,5 +1,7 @@
 # API 路由索引
 
+2026-10-21 增量修复：`GET /me` 新增学生摘要和学号/学院名便利字段；教工 `GET /me/inspection-records` 修正范围关联和带时区的时间，新增小节字段。路径数量不变，见 [小程序交接](integration/WECHAT_ME_STAFF_FIX_20261021.md)。
+
 2026-10-21：新增 GET `/attendance/groups` 及 `/colleges/{cid}/attendance/groups`（均带 `/api/v1`），按具体查课任务或历史行政班汇总；管理列表增加同口径检索条件。352个路径、413个操作，契约与边界见 [API契约](API_CONTRACT.md)。
 
 2026-10-21：排班计划 preview 响应新增 `display`（组/学期名称、任务资料、拟派发人员姓名/学号/当前班级），无新增路由。确认契约保持不变，详见 [API 契约](API_CONTRACT.md) 与 [改版记录](development/ASSIGNMENT_PREVIEW_REDESIGN_20261021.md)。

@@ -20,6 +20,11 @@ export interface AppContext {
   default_mode?: string | null
   administrator: boolean
   staff?: StaffAppContext | null
+  student?: {
+    student_id: string; student_no: string; name: string
+    administrative_class_id: string | null; administrative_class_name: string | null
+    college_id: string | null; college_name: string | null; enrollment_status: string | null
+  } | null
 }
 
 export interface CurrentUser {
@@ -30,6 +35,8 @@ export interface CurrentUser {
   permissions: string[]
   bound_student_id?: string | null
   student_number?: string | null
+  student_no?: string | null
+  college_name?: string | null
   real_name?: string | null
   class_name?: string | null
   lock_version: number

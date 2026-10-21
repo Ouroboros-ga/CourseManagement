@@ -27,6 +27,7 @@ from app.modules.identity.deps import CurrentUserDep
 from app.modules.identity.models import UserAccount
 from app.modules.identity.role_scope import business_today
 from app.modules.identity.service import CurrentUser
+from app.modules.identity.student_summary import student_summary
 from app.modules.organization.models import College
 
 # 管理入口由固定角色派生，与本人教职工能力分开列出，不互相推导。
@@ -129,4 +130,5 @@ def resolve_app_context(db: Session, user: CurrentUser) -> dict[str, Any]:
         "default_mode": default_mode,
         "administrator": bool(set(user.roles) & MANAGER_ROLES),
         "staff": staff_summary,
+        "student": student_summary(db, account),
     }

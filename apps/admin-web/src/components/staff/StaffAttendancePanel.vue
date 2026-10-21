@@ -31,6 +31,7 @@ import { useSessionStore } from '../../stores/session'
 import { useFileAccess } from '../../composables/useFileAccess'
 import { ContextEpoch } from '../../utils/contextEpoch'
 import { formatBeijingTime } from '../../utils/datetime'
+import { staffRecordTime } from '../../utils/staffRecordTime'
 
 const props = defineProps<{ view: StaffView }>()
 const session = useSessionStore()
@@ -457,8 +458,7 @@ watch(page, () => void load())
 onUnmounted(() => { epoch.invalidate(); occurrenceEpoch.invalidate() })
 
 function periodText(card: StaffRecordCard) {
-  if (card.starts_at || card.ends_at) return `${card.starts_at || ''} - ${card.ends_at || ''}`
-  return card.inspection_date
+  return staffRecordTime(card)
 }
 
 function revisionText(card: StaffRecordCard) {

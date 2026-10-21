@@ -31,6 +31,8 @@ export interface StaffRecordCard {
   inspection_date: string
   starts_at?: string | null
   ends_at?: string | null
+  start_period?: number | null
+  end_period?: number | null
   classroom?: string | null
   location_revision?: string | null
   attendance_state: string
