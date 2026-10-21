@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -73,7 +73,8 @@ class StaffBindingService:
     ) -> tuple[int, str, datetime]:
         """签发并提交一次性绑定码；明文只返回一次。"""
         result = self.issue_token_in_transaction(
-            actor=actor, staff_id=staff_id, reason=reason, request_id=request_id)
+            actor=actor, staff_id=staff_id, reason=reason, request_id=request_id
+        )
         self._session.commit()
         return result
 
@@ -88,6 +89,17 @@ class StaffBindingService:
         """签发 6 位绑定码，由调用方统一提交；导出落盘失败时凭证一起回滚。"""
         self._require_workspace(actor)
         row = self._profile(staff_id)
+        return self._issue_locked_profile(row, actor=actor, reason=reason, request_id=request_id)
+
+    def _issue_locked_profile(
+        self,
+        row: FacultyStaff,
+        *,
+        actor: CurrentUser,
+        reason: str | None,
+        request_id: str | None,
+        expires_at: datetime | None = None,
+    ) -> tuple[int, str, datetime]:
         if row.status != "ACTIVE":
             raise ConflictError(message="档案已停用，不能签发绑定码")
         # 档案行锁使同档案签发串行。不同档案可用相同短码，但同档案的历史码不复用，
@@ -95,16 +107,20 @@ class StaffBindingService:
         for _ in range(8):
             code = generate_friendly_binding_code(6)
             duplicate = self._session.scalar(
-                select(StaffBindingToken.id).where(
+                select(StaffBindingToken.id)
+                .where(
                     StaffBindingToken.staff_id == row.id,
                     StaffBindingToken.token_hash == hash_token(code),
-                ).limit(1)
+                )
+                .limit(1)
             )
             if duplicate is None:
                 break
         else:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "绑定码生成冲突，请重试签发")
-        expires_at = utcnow() + timedelta(minutes=self._settings.binding_token_valid_minutes)
+        expires_at = expires_at or utcnow() + timedelta(
+            minutes=self._settings.binding_token_valid_minutes
+        )
         token = StaffBindingToken(
             staff_id=row.id,
             token_hash=hash_token(code),
@@ -124,6 +140,91 @@ class StaffBindingService:
             request_id=request_id,
         )
         return token.id, code, expires_at
+
+    def export_tokens_excel(
+        self,
+        *,
+        actor: CurrentUser,
+        staff_ids: list[int] | None = None,
+        keyword: str | None = None,
+        days_valid: int = 30,
+        request_id: str | None = None,
+    ) -> bytes:
+        """限定本院在职未关联档案；锁定后签发，文件构建成功才整批提交。"""
+        from app.modules.identity.binding_excel import build_binding_workbook
+
+        try:
+            self._require_workspace(actor)
+            if not 1 <= days_valid <= 90:
+                raise ConflictError(message="绑定码有效期应为 1—90 天")
+            if staff_ids is not None and (
+                not staff_ids or len(staff_ids) > 500 or len(set(staff_ids)) != len(staff_ids)
+            ):
+                raise ConflictError(message="请选择 1—500 名不同的教职工")
+            stmt = select(FacultyStaff).where(FacultyStaff.college_id == self._college_id)
+            if staff_ids is not None:
+                stmt = stmt.where(FacultyStaff.id.in_(staff_ids))
+            else:
+                stmt = stmt.where(FacultyStaff.status == "ACTIVE", FacultyStaff.user_id.is_(None))
+                if keyword and keyword.strip():
+                    stmt = stmt.where(
+                        or_(
+                            FacultyStaff.staff_no.contains(keyword.strip(), autoescape=True),
+                            FacultyStaff.name.contains(keyword.strip(), autoescape=True),
+                        )
+                    )
+            # 统一按档案 ID 取锁，避免两个批次反向选取人员形成锁顺序环。
+            rows = self._session.scalars(
+                stmt.order_by(FacultyStaff.id)
+                .limit(501)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).all()
+            if not rows:
+                raise ConflictError(message="当前范围没有在职且未关联账号的教职工")
+            if len(rows) > 500:
+                raise ConflictError(
+                    message="单次最多导出 500 人，请按工号/姓名筛选或勾选后分批导出"
+                )
+            if staff_ids is not None and (
+                len(rows) != len(staff_ids)
+                or any(row.status != "ACTIVE" or row.user_id is not None for row in rows)
+            ):
+                raise ConflictError(
+                    message="所选人员包含外院、停用或已关联账号的档案，请刷新后重新选择"
+                )
+            college = self._session.get(College, self._college_id)
+            records: list[list[str]] = []
+            batch_expires = utcnow() + timedelta(days=days_valid)
+            for row in sorted(rows, key=lambda item: (item.staff_no, item.id)):
+                _, code, expires_at = self._issue_locked_profile(
+                    row,
+                    actor=actor,
+                    reason="批量导出绑定码",
+                    request_id=request_id,
+                    expires_at=batch_expires,
+                )
+                records.append(
+                    [
+                        row.staff_no,
+                        row.name,
+                        college.name if college else "",
+                        code,
+                        (expires_at + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S"),
+                    ]
+                )
+            content = build_binding_workbook(
+                title="教职工绑定码",
+                headers=["工号", "姓名", "所属学院", "一次性绑定码", "有效期截止（北京时间）"],
+                rows=records,
+                code_column=4,
+                widths=[20, 18, 42, 22, 30],
+            )
+            self._session.commit()
+            return content
+        except Exception:
+            self._session.rollback()
+            raise
 
     def revoke_token(
         self,
@@ -208,19 +309,27 @@ class StaffBindingService:
         now = utcnow()
         candidates = self._session.execute(
             select(
-                StaffBindingToken.id, StaffBindingToken.staff_id, FacultyStaff.staff_no,
+                StaffBindingToken.id,
+                StaffBindingToken.staff_id,
+                FacultyStaff.staff_no,
                 FacultyStaff.temporary_staff_no,
-                StaffBindingToken.status, StaffBindingToken.expires_at, StaffBindingToken.used_at,
+                StaffBindingToken.status,
+                StaffBindingToken.expires_at,
+                StaffBindingToken.used_at,
             )
             .join(FacultyStaff, FacultyStaff.id == StaffBindingToken.staff_id)
             .where(StaffBindingToken.token_hash == digest)
         ).all()
-        matching = [row for row in candidates
-                    if staff_no in (row.staff_no, row.temporary_staff_no)]
-        live = [row for row in matching if (
-            row.status == BindingTokenStatus.UNUSED.value
-            and row.used_at is None and row.expires_at > now
-        )]
+        matching = [row for row in candidates if staff_no in (row.staff_no, row.temporary_staff_no)]
+        live = [
+            row
+            for row in matching
+            if (
+                row.status == BindingTokenStatus.UNUSED.value
+                and row.used_at is None
+                and row.expires_at > now
+            )
+        ]
         choices = live or matching or candidates
         if len(choices) != 1:
             raise AppError(

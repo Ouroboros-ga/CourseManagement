@@ -30,6 +30,7 @@ import { listTasks, type InspectionTaskItem } from '../../api/tasks'
 import { request } from '../../api/workspaceHttp'
 import { isAcademicScoped } from '../../api/workspaceHttp'
 import { exportBindingTokensExcel, resetStudentBinding } from '../../api/auth'
+import { downloadExcel } from '../../utils/download'
 import AppIcon from '../../components/AppIcon.vue'
 import { ContextEpoch } from '../../utils/contextEpoch'
 import { formatPeriodText } from '../../utils/period'
@@ -373,14 +374,7 @@ async function handleBatchExport() {
       student_ids: studentIds,
       reason: `管理员批量生成${batchExportScope.value === 'volunteers' ? '志愿者' : '在校学生'}绑定码`
     })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `学生6位绑定码_${new Date().toISOString().slice(0, 10)}.xlsx`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    window.URL.revokeObjectURL(url)
+    downloadExcel(blob, `学生6位绑定码_${new Date().toISOString().slice(0, 10)}.xlsx`)
     ElMessage.success('批量生成 6 位绑定码并导出 Excel 成功！')
     batchExportDialogVisible.value = false
   } catch (err: any) {

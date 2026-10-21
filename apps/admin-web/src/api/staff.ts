@@ -82,6 +82,9 @@ export function unlinkAccount(cid: string, staffId: string, lockVersion: number,
 export function issueBindingToken(cid: string, staffId: string, reason?: string | null) {
   return request<IssuedBindingToken>(path(cid, `/staff/${encodeURIComponent(staffId)}/binding-tokens`), json('POST', { reason: reason ?? null }))
 }
+export function exportStaffBindingTokens(cid: string, body: { staff_ids?: string[]; keyword?: string; days_valid?: number }) {
+  return request<Blob>(path(cid, '/staff/export-binding-tokens'), json('POST', body), false, 'blob')
+}
 export function revokeBindingToken(cid: string, tokenId: string, reason?: string | null) {
   return request<Record<string, unknown>>(path(cid, `/staff-binding-tokens/${encodeURIComponent(tokenId)}/revoke`), json('POST', { reason: reason ?? null }))
 }

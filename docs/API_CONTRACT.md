@@ -199,6 +199,8 @@ kind 为 `administrative-classes/students/teaching-classes/schedules/courses/sem
 
 #### 教职工绑定兼容与可靠性
 
+`POST /colleges/{cid}/staff/export-binding-tokens`：需要本院 `staff.manage`。请求 `{staff_ids?: string[], keyword?: string, days_valid?: integer}`；有效期默认 30 天，允许 1—90 天。未传 `staff_ids` 时，按本院、在职、未关联账号及工号/姓名关键词筛选全部分页；传入时必须为 1—500 个不同且有效的字符串 ID，不可同时传关键词。范围为空、超 500 人或选中外院/停用/已关联人员，整批拒绝，不静默截断。返回 XLSX 文件，`Cache-Control: no-store`，列为工号、姓名、所属学院、一次性绑定码、有效期截止（北京时间）。共用学生绑定码表格样式与下载工具，工号与码均为文本。后端锁定档案、复核归属，整批签发与审计在文件构建成功后统一提交；构建失败回滚，不记录明文码。既有单人签发有效期和核销接口不变；重复签发不自动撤销旧码、不授予管理角色。
+
 `POST /me/staff-binding` 继续使用 `{staff_no, binding_code}`，不新建第二个账号或授予管理角色。不同档案可出现相同短码，核销结合工号定位，持锁后复核；同档案签发避免复用历史短码，有限重试失败返回 `409 STATE_CONFLICT`。历史已失效的重复码不遮蔽唯一有效码；仍有多个有效匹配时返回 `422 VALIDATION_ERROR`，不任取一条。原有不同短码的有效期和多码语义不变。核销采用账号→档案→凭证锁序，签发和作废也先锁档案再锁凭证。
 
 ### 3.6 `POST /me/student-binding` — 本人绑定学生（PRE_BINDING）

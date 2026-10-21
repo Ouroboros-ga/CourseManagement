@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import AppPagination from '../../components/AppPagination.vue'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../../stores/session'
 import { useWorkspaceRead } from '../../composables/useWorkspaceRead'
 import { listTeacherAccounts, type TeacherAccountItem } from '../../api/accounts'
 import {
   createStaff,
+  exportStaffBindingTokens,
   issueBindingToken,
   linkAccount,
   listStaff,
@@ -17,6 +18,7 @@ import {
   type StaffProfile
 } from '../../api/staff'
 import { formatBeijingTime } from '../../utils/datetime'
+import { downloadExcel } from '../../utils/download'
 
 const props = defineProps<{ collegeId: string }>()
 const session = useSessionStore()
@@ -54,7 +56,41 @@ watch(contextKey, () => {
   accountRow.value = null
   accountOpen.value = false
   issuedToken.value = null
+  exportOpen.value = false
 })
+
+const selectedRows = ref<StaffProfile[]>([])
+const exportOpen = ref(false)
+const exportBusy = ref(false)
+const exportDays = ref(30)
+const exportScope = ref<'filtered' | 'selected'>('filtered')
+const canExportRow = (row: StaffProfile) => row.status === 'ACTIVE' && !row.user_id
+let mounted = true
+onBeforeUnmount(() => { mounted = false })
+watch([contextKey, page, appliedKeyword, statusFilter], () => { selectedRows.value = []; exportOpen.value = false })
+function startExport() {
+  exportScope.value = selectedRows.value.length ? 'selected' : 'filtered'
+  exportOpen.value = true
+}
+async function handleBatchExport() {
+  if (exportBusy.value) return
+  const context = contextKey.value
+  exportBusy.value = true
+  try {
+    const blob = await exportStaffBindingTokens(props.collegeId, {
+      days_valid: exportDays.value,
+      ...(exportScope.value === 'selected'
+        ? { staff_ids: selectedRows.value.map(row => row.id) }
+        : { keyword: appliedKeyword.value || undefined })
+    })
+    if (!mounted || context !== contextKey.value) return
+    downloadExcel(blob, `教职工6位绑定码_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    exportOpen.value = false
+    ElMessage.success('已生成绑定码并下载 Excel')
+  } catch (e) {
+    if (mounted && context === contextKey.value) ElMessage.error(e instanceof Error ? e.message : '导出失败')
+  } finally { exportBusy.value = false }
+}
 
 const createOpen = ref(false)
 const createForm = ref({ staffNo: '', name: '', phone: '', status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE', reason: '' })
@@ -227,9 +263,11 @@ const statusText: Record<string, string> = { ACTIVE: '在职', INACTIVE: '停用
       </el-select>
       <el-button :loading="busy" @click="search">查询</el-button>
       <el-button type="primary" @click="startCreate">新增教职工</el-button>
+      <el-button :disabled="exportBusy" @click="startExport">批量生成绑定码并导出 Excel</el-button>
     </div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
-    <el-table :data="data?.items || []" v-loading="busy" empty-text="本院尚无教职工档案，可通过新增或资料导入建立">
+    <el-table :key="JSON.stringify([contextKey, page, appliedKeyword, statusFilter])" :data="data?.items || []" v-loading="busy" empty-text="本院尚无教职工档案，可通过新增或资料导入建立" @selection-change="selectedRows = $event">
+      <el-table-column type="selection" width="48" :selectable="canExportRow" />
       <el-table-column prop="staff_no" label="工号" min-width="110" />
       <el-table-column prop="name" label="姓名" min-width="110" />
       <el-table-column prop="phone" label="电话" min-width="130"><template #default="{ row }">{{ row.phone || '—' }}</template></el-table-column>
@@ -247,6 +285,29 @@ const statusText: Record<string, string> = { ACTIVE: '在职', INACTIVE: '停用
       </el-table-column>
     </el-table>
     <AppPagination v-model:current-page="page" :page-size="50" :total="data?.total || 0" />
+
+    <el-dialog v-model="exportOpen" title="批量生成教职工 6 位绑定码并导出 Excel" width="540px" :close-on-click-modal="false" :close-on-press-escape="!exportBusy" :show-close="!exportBusy">
+      <p>导出工号、姓名、所属学院、6 位绑定码和有效期截止时间（北京时间）。教师凭工号和绑定码在小程序绑定本人档案。</p>
+      <el-form label-position="top">
+        <el-form-item label="绑定码有效期">
+          <el-radio-group v-model="exportDays" :disabled="exportBusy">
+            <el-radio :value="14">14 天</el-radio><el-radio :value="30">30 天（推荐）</el-radio>
+            <el-radio :value="60">60 天</el-radio><el-radio :value="90">90 天</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="签发范围">
+          <el-radio-group v-model="exportScope" :disabled="exportBusy">
+            <el-radio value="filtered">本院在职、未关联账号的教师{{ appliedKeyword ? `（关键词：${appliedKeyword}）` : '（全部分页）' }}</el-radio>
+            <el-radio value="selected" :disabled="!selectedRows.length">仅勾选人员（{{ selectedRows.length }} 人）</el-radio>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <el-alert title="单次最多 500 人。绑定码仅供本人使用，成功绑定后即失效；请妥善分发。重复签发不会自动撤销旧码。" type="info" :closable="false" />
+      <template #footer>
+        <el-button :disabled="exportBusy" @click="exportOpen = false">取消</el-button>
+        <el-button type="primary" :loading="exportBusy" :disabled="exportScope === 'selected' && !selectedRows.length" @click="handleBatchExport">立即生成并下载 Excel</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="createOpen" title="新增教职工档案" width="480px" :close-on-click-modal="false">
       <el-form label-width="92px">

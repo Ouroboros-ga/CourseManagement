@@ -1,5 +1,7 @@
 # API 路由索引
 
+2026-10-21：新增教师批量绑定码 Excel 导出，`POST /api/v1/colleges/{cid}/staff/export-binding-tokens`，共用学生导出样式和下载工具。353 个路径、414 个操作；当前为本地实现，未部署。
+
 2026-10-21 增量修复：`GET /me` 新增学生摘要和学号/学院名便利字段；教工 `GET /me/inspection-records` 修正范围关联和带时区的时间，新增小节字段。路径数量不变，见 [小程序交接](integration/WECHAT_ME_STAFF_FIX_20261021.md)。
 
 2026-10-21：新增 GET `/attendance/groups` 及 `/colleges/{cid}/attendance/groups`（均带 `/api/v1`），按具体查课任务或历史行政班汇总；管理列表增加同口径检索条件。352个路径、413个操作，契约与边界见 [API契约](API_CONTRACT.md)。
@@ -178,6 +180,7 @@
 | PUT | `/api/v1/colleges/{cid}/staff/{staff_id}/account` | college-staff |
 | POST | `/api/v1/colleges/{cid}/staff/{staff_id}/account-unlink` | college-staff |
 | POST | `/api/v1/colleges/{cid}/staff/{staff_id}/binding-tokens` | college-staff |
+| POST | `/api/v1/colleges/{cid}/staff/export-binding-tokens` | college-staff |
 | POST | `/api/v1/colleges/{cid}/staff-binding-tokens/{token_id}/revoke` | college-staff |
 | GET | `/api/v1/colleges/{cid}/teaching-staff-assignments` | college-staff |
 | POST | `/api/v1/colleges/{cid}/teaching-staff-assignments` | college-staff |

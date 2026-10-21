@@ -951,8 +951,7 @@ class IdentityService:
         """批量生成并导出绑定码 Excel。"""
         import io
 
-        from openpyxl import Workbook
-        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from app.modules.identity.binding_excel import build_binding_workbook
 
         tokens_data = self.batch_issue_binding_tokens(
             actor_user_id=actor_user_id,
@@ -963,77 +962,22 @@ class IdentityService:
             request_id=request_id,
         )
 
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "学生绑定码"
-
-        headers = ["学号", "姓名", "行政班级", "所属学院", "6位绑定码", "有效期截止", "绑定状态"]
-        ws.append(headers)
-
-        header_font = Font(name="微软雅黑", size=11, bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="1890FF", end_color="1890FF", fill_type="solid")
-        cell_font = Font(name="微软雅黑", size=10)
-        code_font = Font(name="Consolas", size=12, bold=True, color="D4380D")
-        center_align = Alignment(horizontal="center", vertical="center")
-        left_align = Alignment(horizontal="left", vertical="center")
-        thin_border = Border(
-            left=Side(style="thin", color="D9D9D9"),
-            right=Side(style="thin", color="D9D9D9"),
-            top=Side(style="thin", color="D9D9D9"),
-            bottom=Side(style="thin", color="D9D9D9"),
-        )
-
-        for col_idx in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col_idx)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = center_align
-
-        ws.row_dimensions[1].height = 28
-
-        for row_idx, item in enumerate(tokens_data, start=2):
-            status_text = "已绑定" if item["is_bound"] else "未绑定"
-            try:
-                raw_exp = item["expires_at"].replace("Z", "")
-                bj_exp = (datetime.fromisoformat(raw_exp) + timedelta(hours=8)).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-            except Exception:
-                bj_exp = item["expires_at"][:19].replace("T", " ")
-            ws.append(
-                [
-                    item["student_no"],
-                    item["name"],
-                    item["class_name"] or "",
-                    item["college"] or "",
-                    item["binding_code"],
-                    bj_exp,
-                    status_text,
-                ]
+        rows: list[list[str]] = []
+        for item in tokens_data:
+            raw_exp = item["expires_at"].replace("Z", "")
+            bj_exp = (datetime.fromisoformat(raw_exp) + timedelta(hours=8)).strftime(
+                "%Y-%m-%d %H:%M:%S"
             )
-            ws.row_dimensions[row_idx].height = 22
-            for col_idx in range(1, len(headers) + 1):
-                cell = ws.cell(row=row_idx, column=col_idx)
-                cell.border = thin_border
-                if col_idx == 5:
-                    cell.font = code_font
-                    cell.alignment = center_align
-                elif col_idx in (1, 6, 7):
-                    cell.font = cell_font
-                    cell.alignment = center_align
-                else:
-                    cell.font = cell_font
-                    cell.alignment = left_align
-
-        col_widths = [16, 12, 18, 18, 14, 22, 12]
-        for idx, width in enumerate(col_widths, start=1):
-            col_letter = chr(64 + idx)
-            ws.column_dimensions[col_letter].width = width
-
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
-        return output
+            rows.append([
+                item["student_no"], item["name"], item["class_name"] or "",
+                item["college"] or "", item["binding_code"], bj_exp,
+                "已绑定" if item["is_bound"] else "未绑定",
+            ])
+        return io.BytesIO(build_binding_workbook(
+            title="学生绑定码",
+            headers=["学号", "姓名", "行政班级", "所属学院", "6位绑定码", "有效期截止", "绑定状态"],
+            rows=rows, code_column=5, widths=[16, 12, 18, 18, 14, 22, 12],
+        ))
 
     def revoke_binding_token(
         self,

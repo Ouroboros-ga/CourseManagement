@@ -5,8 +5,9 @@ Router 只做参数解析与依赖装配；范围、版本、重叠与审计在 
 """
 
 from typing import Annotated
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Path, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams, page_params
@@ -20,6 +21,7 @@ from app.modules.academic.staff_schemas import (
     RelationEnd,
     ResponsibilityCreate,
     ResponsibilityHandover,
+    StaffBindingExport,
     StaffCreate,
     StaffUpdate,
     TeachingAssignmentCreate,
@@ -80,6 +82,43 @@ def list_staff(
 def create_staff(cid: ResourceId, body: StaffCreate, service: ServiceDep, request: Request):
     return success(
         service.create_staff(body.model_dump()), getattr(request.state, "request_id", None)
+    )
+
+
+@router.post(
+    "/colleges/{cid}/staff/export-binding-tokens",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                    "schema": {"type": "string", "format": "binary"}
+                }
+            }
+        }
+    },
+)
+def export_binding_tokens(
+    cid: ResourceId,
+    body: StaffBindingExport,
+    actor: ManageDep,
+    service: BindingDep,
+    request: Request,
+):
+    content = service.export_tokens_excel(
+        actor=actor,
+        staff_ids=[int(value) for value in body.staff_ids] if body.staff_ids is not None else None,
+        keyword=body.keyword,
+        days_valid=body.days_valid,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    return Response(
+        content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote('教职工绑定码.xlsx')}",
+            "Cache-Control": "no-store",
+        },
     )
 
 

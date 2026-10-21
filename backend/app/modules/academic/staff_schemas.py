@@ -16,9 +16,28 @@ StaffId = Annotated[str, Field(pattern=BIGINT)]
 OfferingId = Annotated[str, Field(min_length=1, max_length=32)]
 
 
+class StaffBindingExport(StrictModel):
+    staff_ids: list[StaffId] | None = Field(default=None, min_length=1, max_length=500)
+    keyword: str | None = Field(default=None, max_length=128)
+    days_valid: int = Field(default=30, ge=1, le=90)
+
+    @model_validator(mode="after")
+    def valid_selection(self):
+        if self.staff_ids is not None:
+            if self.keyword:
+                raise ValueError("勾选人员与关键词范围不能同时指定")
+            if len(set(self.staff_ids)) != len(self.staff_ids) or any(
+                int(value) > 2**63 - 1 for value in self.staff_ids
+            ):
+                raise ValueError("人员编号重复或超出范围")
+        return self
+
+
 class StaffCreate(StrictModel):
     staff_no: str = Field(
-        min_length=1, max_length=64, pattern=r"^[0-9A-Za-z_-]{1,64}$",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[0-9A-Za-z_-]{1,64}$",
         description="真实工号；TMP_ 为后台初始化保留前缀，不能通过普通建档使用",
     )
     name: str = Field(min_length=1, max_length=128)
