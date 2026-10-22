@@ -445,6 +445,8 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | `GET /files/{file_id}/access` | 资源归属 | 不可见/不存在统一 404 防枚举；已清理/到期 → `FILE_EXPIRED`；未就绪（`UPLOADING/FAILED`）→ 409。返回短时签名 GET 链接（`FILE_SIGNED_URL_TTL_SECONDS`，默认 300s） |
 | `GET /files/{file_id}/download` | 仅签名 | **不再鉴权**（技术方案 16.2：不即时撤销已发链接），校验 HMAC 签名 + 过期时间戳 + 对象未清理；无签名验证器也拒绝。已清理/到期 `FILE_EXPIRED`，签名无效/当前秒≥过期时间 403；OSS 对象不存在 404，上游故障 503。返回 private/no-store、nosniff 和 UTF-8 文件名。Web/小程序重新打开材料应按有效期申请新链接，不能永久缓存 |
 
+生产网关签名下载路由允许跨源图片加载及无凭据GET：输出 `Cross-Origin-Resource-Policy: cross-origin`、`Access-Control-Allow-Origin: *`、`Access-Control-Allow-Methods: GET, OPTIONS`；OPTIONS在Nginx返回204，不读取文件、不验证或核销签名。实际GET仍校验短时HMAC。无跨源Cookie/Authorization支持，HEAD未声明支持。下载的成功与错误响应均private/no-store。`/access`、上传及其他接口不使用这项例外；后端直连安全头仍是原基线。
+
 `can_access`：上传者本人恒可访问自己的 `READY` 材料；已挂到提交的材料，持 `submission.review` 者经任意提交链接可得、仅持 `submission.read` 的志愿者只能经本人受派提交访问。
 
 ### D.2 查课提交（Wave 5c，`submission.create` / `submission.read`）
