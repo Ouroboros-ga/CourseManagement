@@ -31,9 +31,9 @@
 
 | ID | 规则 | 权威级别 | 本轮状态 |
 | --- | --- | --- | --- |
-| **DEC-01** | 志愿者查课提交**立即生效**；自首次成功提交起 **2 小时**内允许本人撤回、修改、重新提交；需要的后端接口**新增**。原始提交与证据永久保留；变动通过事务原子更新当前有效考勤、考勤版本与周报源修订；本人不得覆盖已产生的管理员更正或已处理的异议结果。 | 产品口径（已定） | 未实现。设计见 `docs/audits/T06_WITHDRAW_REVISE_DESIGN.md` |
+| **DEC-01** | 志愿者查课提交**立即生效**；自首次成功提交起 **2 小时**内允许本人撤回、修改、重新提交；需要的后端接口**新增**。原始提交与证据永久保留；变动通过事务原子更新当前有效考勤、考勤版本与周报源修订；本人不得覆盖已产生的管理员更正或已处理的异议结果。 | 产品口径（已定） | 已实现（`f26a1021w001` + `f26a1022e001`）：`POST /submissions/{id}/revise`、`POST /submissions/{id}/withdraw`；窗口 `SUBMISSION_CORRECTION_WINDOW_MINUTES`（默认 120，0 关闭）。考勤另立 `effect_state` 有效性轴，默认查询隐藏已撤回行。设计见本地 `docs/audits/T06_WITHDRAW_REVISE_DESIGN.md`（未入库） |
 | **DEC-02** | `STUDENT_AFFAIRS_MANAGER` **默认保留** `attendance.correct` 与 `attendance.expected_count_adjust`；仍受有效任命、权限配置与本院资源范围约束；**不得由此推导默认允许 `submission.review`**。 | 产品口径（已定） | 两项已存在于代码，保留；`submission.review` 的遗留越界见 §3 |
-| **DEC-03** | 名单导入默认为**补充／差异确认**：上传文件中未出现的现有学生不得被自动删除、停用或隐式移出任务名单；旧 `replace` 参数不得继续形同虚设；任何真实删减必须由明确列示的差异 + 主动确认触发。 | 产品口径（已定） | 未实现。旧 `/imports` roster 路径当前是无条件整体替换 |
+| **DEC-03** | 名单导入默认为**补充／差异确认**：上传文件中未出现的现有学生不得被自动删除、停用或隐式移出任务名单；旧 `replace` 参数不得继续形同虚设；任何真实删减必须由明确列示的差异 + 主动确认触发。 | 产品口径（已定） | 已实现：`/imports` roster 恒 `preserve_existing=True`、不再整体替换；传 `replace=true` 时返回 `roster_additive_only` warning；管理端默认 `replace=false` |
 | **DEC-04** | 生产继续 **systemd + venv**，本轮**不迁移 Docker**。Dockerfile 只作为单独维护的非生产构建资产，不得形成第二份交付真相。 | 产品口径（已定） | 保持现状；文档需按 §4 标注 |
 
 > DEC-01 取代审计报告 P0-1 中"任选一边"的建议；DEC-02 **推翻**审计 P0-2 中"移除两项"的建议，仅保留 `submission.review` 部分；DEC-03 采纳 P0-4；DEC-04 采纳 P2-7 的"记录不一致但不阻断"。

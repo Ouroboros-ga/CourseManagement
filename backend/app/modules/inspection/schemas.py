@@ -554,6 +554,16 @@ class SubmissionCreateRequest(BaseModel):
         return self
 
 
+class SubmissionWithdrawRequest(BaseModel):
+    """本人撤回当前有效提交。
+
+    原因选填（已确认口径），但长度与审计一致；撤回不带版本参数——并发由任务行锁与
+    "同一任务至多一条 ACTIVE 提交"不变式收敛，重复撤回在锁内命中非 ACTIVE 而拒。
+    """
+
+    reason: str | None = Field(default=None, max_length=512)
+
+
 class SubmissionAbnormalItemResponse(BaseModel):
     student_id: IdStr
     student_no: str | None
@@ -586,6 +596,8 @@ class SubmissionResponse(BaseModel):
     submission_state: SubmissionStateLiteral = "ACTIVE"
     correction_deadline_at: datetime | None = None
     can_correct: bool = False
+    withdrawn_at: datetime | None = None
+    withdraw_reason: str | None = None
 
 
 class ManagementSubmissionTaskBrief(BaseModel):

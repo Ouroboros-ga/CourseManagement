@@ -21281,6 +21281,126 @@
         }
       }
     },
+    "/api/v1/submissions/{submission_id}/revise": {
+      "post": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Revise Submission",
+        "description": "修改并重新提交：旧 attempt 转历史，新 attempt 成为当前有效考勤来源。",
+        "operationId": "revise_submission_api_v1_submissions__submission_id__revise_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Submission Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Revise Submission Api V1 Submissions  Submission Id  Revise Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/submissions/{submission_id}/withdraw": {
+      "post": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Withdraw Submission",
+        "description": "撤回本人当前有效提交：考勤退出有效结论，原始提交与证据保留可读。",
+        "operationId": "withdraw_submission_api_v1_submissions__submission_id__withdraw_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Submission Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionWithdrawRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Withdraw Submission Api V1 Submissions  Submission Id  Withdraw Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/submissions": {
       "get": {
         "tags": [
@@ -24427,6 +24547,148 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response College Settle Deadlines Submission Deadlines Settle Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/submissions/{submission_id}/revise": {
+      "post": {
+        "tags": [
+          "college-inspection"
+        ],
+        "summary": "College Revise Submission",
+        "description": "修改并重新提交：旧 attempt 转历史，新 attempt 成为当前有效考勤来源。",
+        "operationId": "college_revise_submission_submissions__submission_id__revise_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Submission Id"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response College Revise Submission Submissions  Submission Id  Revise Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/submissions/{submission_id}/withdraw": {
+      "post": {
+        "tags": [
+          "college-inspection"
+        ],
+        "summary": "College Withdraw Submission",
+        "description": "撤回本人当前有效提交：考勤退出有效结论，原始提交与证据保留可读。",
+        "operationId": "college_withdraw_submission_submissions__submission_id__withdraw_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Submission Id"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionWithdrawRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response College Withdraw Submission Submissions  Submission Id  Withdraw Post"
                 }
               }
             }
@@ -32301,7 +32563,7 @@
           "replace": {
             "type": "boolean",
             "title": "Replace",
-            "default": true
+            "default": false
           }
         },
         "type": "object",
@@ -32358,7 +32620,7 @@
           "replace": {
             "type": "boolean",
             "title": "Replace",
-            "default": true
+            "default": false
           }
         },
         "type": "object",
@@ -39683,6 +39945,25 @@
         ],
         "title": "SubmissionReviewRequest",
         "description": "处理待审核提交：通过则据提交所用名单版本生成考勤，驳回保留原事实与照片。"
+      },
+      "SubmissionWithdrawRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "SubmissionWithdrawRequest",
+        "description": "本人撤回当前有效提交。\n\n原因选填（已确认口径），但长度与审计一致；撤回不带版本参数——并发由任务行锁与\n\"同一任务至多一条 ACTIVE 提交\"不变式收敛，重复撤回在锁内命中非 ACTIVE 而拒。"
       },
       "TaskBatchDeleteRequest": {
         "properties": {

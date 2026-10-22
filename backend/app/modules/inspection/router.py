@@ -40,6 +40,7 @@ from app.modules.inspection.schemas import (
     SubmissionBatchReviewRequest,
     SubmissionCreateRequest,
     SubmissionReviewRequest,
+    SubmissionWithdrawRequest,
     TaskBatchDeleteRequest,
     TaskCancelRequest,
     TaskDeletionSelection,
@@ -695,6 +696,19 @@ def revise_submission(
 ) -> dict[str, object]:
     """修改并重新提交：旧 attempt 转历史，新 attempt 成为当前有效考勤来源。"""
     result = service.revise_submission(actor, submission_id, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+
+
+@router.post("/submissions/{submission_id}/withdraw")
+def withdraw_submission(
+    submission_id: int,
+    body: SubmissionWithdrawRequest,
+    actor: SubmissionCreateDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    """撤回本人当前有效提交：考勤退出有效结论，原始提交与证据保留可读。"""
+    result = service.withdraw_submission(actor, submission_id, body, _rid(request))
     return success(result.model_dump(), _rid(request))
 
 

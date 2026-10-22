@@ -1,7 +1,8 @@
-"""DEC-01：志愿者提交后两小时内的本人纠错闭环（修改并重新提交）。
+"""DEC-01：志愿者提交后两小时内的本人纠错闭环（修改并重新提交 / 撤回）。
 
-窗口起点是任务首次成功提交时刻，改版不重置；原始 attempt 永久保留为历史，
-考勤由新 attempt 就地改写并追加版本。已有管理员更正或异议终审结论时本人不得覆盖。
+窗口起点是任务首次成功提交时刻，改版与撤回都不重置；原始 attempt 永久保留为历史，
+考勤由新 attempt 就地改写并追加版本，撤回则让考勤退出有效结论而同样保留版本链。
+已有管理员更正或异议终审结论时本人不得覆盖。
 """
 
 from dataclasses import replace
@@ -10,11 +11,14 @@ from datetime import timedelta
 import pytest
 from app.core.config import get_settings
 from app.modules.academic.models import Student, VolunteerQualification
+from app.modules.attendance.effect_scope import see_withdrawn
 from app.modules.attendance.models import (
+    AttendanceEffectState,
     AttendanceRecord,
     AttendanceRecordVersion,
     AttendanceSourceType,
 )
+from app.modules.attendance.repository import AttendanceRepository
 from app.modules.identity.models import Role, UserAccount, UserRole
 from app.modules.identity.seed import sync_registry
 from app.modules.identity.service import CurrentUser
@@ -26,7 +30,12 @@ from app.modules.inspection.models import (
     ReviewStatus,
     SubmissionState,
 )
-from app.modules.inspection.schemas import SubmissionAbnormalItemInput, SubmissionCreateRequest
+from app.modules.inspection.repository import InspectionRepository
+from app.modules.inspection.schemas import (
+    SubmissionAbnormalItemInput,
+    SubmissionCreateRequest,
+    SubmissionWithdrawRequest,
+)
 from app.modules.inspection.service import InspectionService
 from app.modules.report.source_revision import SourceRevisionService
 from app.modules.volunteer.member_service import GroupMemberService
@@ -114,6 +123,25 @@ def _types(db, task_id):
         row.student_id: row.effective_type
         for row in db.scalars(select(AttendanceRecord).where(AttendanceRecord.task_id == task_id))
     }
+
+
+def _states(db, task_id):
+    return {
+        row.student_id: row.effect_state
+        for row in db.scalars(
+            see_withdrawn(select(AttendanceRecord).where(AttendanceRecord.task_id == task_id))
+        )
+    }
+
+
+def _versions(db, record_id):
+    return list(
+        db.scalars(
+            select(AttendanceRecordVersion)
+            .where(AttendanceRecordVersion.attendance_record_id == record_id)
+            .order_by(AttendanceRecordVersion.version_no)
+        )
+    )
 
 
 def test_first_submission_is_active_and_exposes_correction_deadline(campus, monkeypatch):
@@ -305,3 +333,168 @@ def test_second_revise_uses_new_active_submission(campus, monkeypatch):
         service.revise_submission(
             actor, int(first.id), SubmissionCreateRequest(result="NORMAL"), None
         )
+
+
+# ============================ 撤回 ============================ #
+
+
+def test_withdraw_retires_attendance_but_keeps_every_fact(campus, monkeypatch):
+    db, service, actor, task, first, own = _submitted(campus, monkeypatch, result="ABNORMAL")
+    record = db.scalar(select(AttendanceRecord).where(AttendanceRecord.task_id == task.id))
+
+    result = service.withdraw_submission(
+        actor, int(first.id), SubmissionWithdrawRequest(reason="照片拍错了班级"), None
+    )
+
+    assert result.submission_state == SubmissionState.WITHDRAWN.value
+    assert result.withdraw_reason == "照片拍错了班级"
+    assert result.withdrawn_at is not None
+    assert result.can_correct is False
+
+    stored = db.get(InspectionSubmission, int(first.id))
+    # 有效性走 submission_state，review_status 轴不动，避免既有"曾形成正式结论"判断失真。
+    assert stored.review_status == ReviewStatus.APPROVED.value
+    assert len(stored.abnormal_items) == 1  # 原始明细保留可读
+
+    assert _types(db, task.id) == {}  # 默认读取已取不到结论
+    assert _states(db, task.id) == {own.id: AttendanceEffectState.WITHDRAWN.value}
+
+    versions = _versions(db, record.id)
+    assert [v.source_type for v in versions] == [
+        AttendanceSourceType.SUBMISSION.value,
+        AttendanceSourceType.WITHDRAWAL.value,
+    ]
+    assert [v.version_no for v in versions] == [1, 2]
+    assert versions[1].attendance_type == "ABSENT"  # 记录退出有效时的那份认定
+    assert versions[1].changed_by == actor.id
+
+
+def test_withdrawn_attendance_is_invisible_to_management_read_paths(campus, monkeypatch):
+    db, service, actor, task, first, _own = _submitted(campus, monkeypatch)
+    record_id = db.scalar(
+        see_withdrawn(select(AttendanceRecord.id).where(AttendanceRecord.task_id == task.id))
+    )
+    service.withdraw_submission(actor, int(first.id), SubmissionWithdrawRequest(), None)
+
+    assert AttendanceRepository(db).get_record(record_id) is None
+    assert AttendanceRepository(db).get_record_for_update(record_id) is None
+    assert db.get(AttendanceRecord, record_id) is None
+
+
+def test_withdraw_reopens_task_without_a_conclusion(campus, monkeypatch):
+    """撤回后任务回到"尚无有效结论"：五态推导与取消闸门都据此打开。"""
+    db, service, actor, task, first, _own = _submitted(campus, monkeypatch)
+    repo = InspectionRepository(db)
+
+    def flags():
+        # 与 _assemble_tasks 一致：无有效提交的行不在聚合结果里，缺省即 (False, False)。
+        return repo.map_submission_flags_by_task_ids([task.id]).get(task.id, (False, False))
+
+    assert flags() == (True, False)
+    assert repo.has_approved_submission(task.id) is True
+    service.withdraw_submission(actor, int(first.id), SubmissionWithdrawRequest(), None)
+    assert flags() == (False, False)
+    assert repo.has_approved_submission(task.id) is False
+
+
+def test_resubmit_after_withdraw_restores_the_same_conclusion(campus, monkeypatch):
+    """撤回后重新提交同一结论：认定值没变，但考勤行必须回到有效，否则任务静默失去结论。"""
+    db, service, actor, task, first, own = _submitted(campus, monkeypatch)
+    record_id = db.scalar(
+        see_withdrawn(select(AttendanceRecord.id).where(AttendanceRecord.task_id == task.id))
+    )
+    service.withdraw_submission(actor, int(first.id), SubmissionWithdrawRequest(), None)
+
+    again = service.create_submission(
+        actor, task.id, SubmissionCreateRequest(result="NORMAL"), None
+    )
+
+    assert again.attempt_no == 2
+    assert again.submission_state == SubmissionState.ACTIVE.value
+    assert _types(db, task.id) == {own.id: "NORMAL"}
+    assert [v.source_type for v in _versions(db, record_id)] == [
+        AttendanceSourceType.SUBMISSION.value,
+        AttendanceSourceType.WITHDRAWAL.value,
+        AttendanceSourceType.SUBMISSION.value,
+    ]
+
+
+def test_withdraw_after_window_closes_is_rejected(campus, monkeypatch):
+    db, service, actor, _task, first, _own = _submitted(campus, monkeypatch)
+    stored = db.get(InspectionSubmission, int(first.id))
+    monkeypatch.setattr(
+        "app.modules.inspection.service.utcnow",
+        lambda: stored.submitted_at
+        + timedelta(minutes=get_settings().submission_correction_window_minutes),
+    )
+    from app.core.exceptions import ConflictError
+
+    with pytest.raises(ConflictError):
+        service.withdraw_submission(actor, int(first.id), SubmissionWithdrawRequest(), None)
+    assert stored.submission_state == SubmissionState.ACTIVE.value
+
+
+def test_withdraw_cannot_overwrite_admin_correction(campus, monkeypatch):
+    db, service, actor, task, first, own = _submitted(campus, monkeypatch)
+    record = db.scalar(select(AttendanceRecord).where(AttendanceRecord.task_id == task.id))
+    record.effective_type = "LEAVE"
+    db.add(
+        AttendanceRecordVersion(
+            attendance_record_id=record.id,
+            version_no=record.current_version + 1,
+            attendance_type="LEAVE",
+            source_type=AttendanceSourceType.CORRECTION.value,
+            source_id=record.id,
+            changed_by=1,
+            reason="管理员独立更正",
+        )
+    )
+    record.current_version += 1
+    db.commit()
+
+    from app.core.exceptions import ConflictError
+
+    with pytest.raises(ConflictError):
+        service.withdraw_submission(actor, int(first.id), SubmissionWithdrawRequest(), None)
+    db.rollback()
+    assert _types(db, task.id) == {own.id: "LEAVE"}
+    assert db.get(InspectionSubmission, int(first.id)).submission_state == (
+        SubmissionState.ACTIVE.value
+    )
+
+
+def test_second_withdraw_is_rejected_and_adds_no_version(campus, monkeypatch):
+    db, service, actor, task, first, own = _submitted(campus, monkeypatch)
+    record_id = db.scalar(
+        see_withdrawn(select(AttendanceRecord.id).where(AttendanceRecord.task_id == task.id))
+    )
+    service.withdraw_submission(actor, int(first.id), SubmissionWithdrawRequest(), None)
+    before = len(_versions(db, record_id))
+
+    from app.core.exceptions import ConflictError
+
+    with pytest.raises(ConflictError):
+        service.withdraw_submission(actor, int(first.id), SubmissionWithdrawRequest(), None)
+    assert len(_versions(db, record_id)) == before
+    assert _states(db, task.id) == {own.id: AttendanceEffectState.WITHDRAWN.value}
+
+
+def test_other_volunteers_submission_cannot_be_withdrawn(campus, monkeypatch):
+    db, service, _actor, _task, first, _own = _submitted(campus, monkeypatch)
+    stranger = UserAccount(display_name="旁人", status="ACTIVE")
+    db.add(stranger)
+    db.flush()
+    db.add(
+        UserRole(
+            user_id=stranger.id,
+            role_id=db.scalar(select(Role.id).where(Role.code == "VOLUNTEER")),
+        )
+    )
+    db.commit()
+    outsider = CurrentUser(
+        stranger.id, "stranger", "旁人", "ACTIVE", ["VOLUNTEER"], ["submission.create"]
+    )
+    from app.core.exceptions import NotFoundError
+
+    with pytest.raises(NotFoundError):
+        service.withdraw_submission(outsider, int(first.id), SubmissionWithdrawRequest(), None)

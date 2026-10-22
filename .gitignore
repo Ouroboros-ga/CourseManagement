@@ -158,6 +158,9 @@ GEMINI.md
 /docs/AGENT_HANDOFF_WORKFLOW.md
 /docs/DEVELOPMENT_SKILLS_*.md
 /docs/CODE_REVIEW_*.md
+# 本地审查笔记与待决议设计稿，仅在本地维护；docs/audits/decisions.md 是入库的决议记录。
+/docs/audits/initial-review.md
+/docs/audits/T06_WITHDRAW_REVISE_DESIGN.md
 /templates/agent-handoff/
 
 # 用户授权的真实课表/名单测试数据与临时解析依赖，禁止提交个人数据。

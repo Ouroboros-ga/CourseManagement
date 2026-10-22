@@ -58,7 +58,9 @@ from app.modules.academic.models import (
 )
 from app.modules.academic.occurrence_location import load_course_overrides
 from app.modules.academic.repository import AcademicRepository
+from app.modules.attendance.effect_scope import see_withdrawn
 from app.modules.attendance.models import (
+    AttendanceEffectState,
     AttendanceRecord,
     AttendanceRecordVersion,
     AttendanceSourceType,
@@ -136,6 +138,7 @@ from app.modules.inspection.schemas import (
     SubmissionDeadlineVersionResponse,
     SubmissionResponse,
     SubmissionReviewRequest,
+    SubmissionWithdrawRequest,
     TaskAssignmentBrief,
     TaskCancelRequest,
     TaskCandidateVolunteerItem,
@@ -2834,9 +2837,11 @@ class InspectionService:
             return []
 
         from app.modules.academic.archive import require_open_task
+        from app.modules.attendance.effect_scope import see_withdrawn
         for task in tasks:
             require_open_task(self._session, task.id)
-        if self._session.scalar(select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(task_ids)).limit(1)) or self._session.scalar(
+        # 已撤回的考勤仍是历史事实，不得因为隐身就被当成可强制删除的空任务。
+        if self._session.scalar(see_withdrawn(select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(task_ids)).limit(1))) or self._session.scalar(
             select(TaskDeadlineAssessment.id).where(TaskDeadlineAssessment.task_id.in_(task_ids)).limit(1)):
             raise ConflictError(message="任务已有正式考勤或截止时事实，不能通过强制删除绕过历史保护；请使用更正流程")
 
@@ -2851,10 +2856,12 @@ class InspectionService:
 
         t_ids = [t.id for t in tasks]
 
-        # 1. 考勤与异议
+        # 1. 考勤与异议（清理路径必须连隐身行一起取，否则留下孤儿版本）
         att_ids = list(
             self._session.scalars(
-                select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(t_ids))
+                see_withdrawn(
+                    select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(t_ids))
+                )
             ).all()
         )
         if att_ids:
@@ -3606,6 +3613,96 @@ class InspectionService:
             return self._assemble_submissions([replacement])[0]
         return created
 
+    def withdraw_submission(
+        self,
+        actor: CurrentUser,
+        submission_id: int,
+        body: SubmissionWithdrawRequest,
+        request_id: str | None,
+    ) -> SubmissionResponse:
+        """本人撤回当前有效提交：考勤退出有效结论，原始提交、明细与照片保留可读。
+
+        不改 review_status（既有读取路径以 APPROVED 判断"曾形成正式结论"），有效性由
+        submission_state 与考勤 effect_state 两条轴表达。撤回不擦除截止时事实
+        （TaskDeadlineAssessment 原样保留），也不删除任何历史版本行。
+        """
+        task, current, deadline = self._require_self_correction(actor, submission_id)
+        now = utcnow()
+        current.submission_state = SubmissionState.WITHDRAWN.value
+        current.withdrawn_at = now
+        current.withdraw_reason = body.reason
+        retired = self._retire_task_attendance(task.id, actor.id, body.reason)
+        task.lock_version += 1
+        self._repo.flush()
+        self._audit(
+            actor_user_id=actor.id,
+            action="submission.withdraw",
+            resource_type="inspection_submission",
+            resource_id=f"{current.id}",
+            before={
+                "task_id": task.id,
+                "attempt_no": current.attempt_no,
+                "result": current.result,
+                "submission_state": SubmissionState.ACTIVE.value,
+                "attendance_effective": retired,
+            },
+            after={
+                "task_id": task.id,
+                "submission_state": SubmissionState.WITHDRAWN.value,
+                "withdrawn_at": now.isoformat(),
+                "attendance_effective": 0,
+                "correction_deadline_at": deadline.isoformat(),
+            },
+            reason=body.reason,
+            request_id=request_id,
+        )
+        SourceRevisionService.bump_for_task(self._session, task)
+        self._session.commit()
+        withdrawn = self._repo.get_submission(current.id)
+        if withdrawn is None:  # 同一事务内刚写入的提交不会消失，出现即为不变式被破坏。
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "提交状态异常，请刷新后重试")
+        return self._assemble_submissions([withdrawn])[0]
+
+    def _retire_task_attendance(
+        self, task_id: int, actor_id: int, reason: str | None
+    ) -> int:
+        """把该任务全部有效考勤转为 WITHDRAWN 并各追加一个不可变版本，返回退出有效的行数。
+
+        行不删除：attendance_record_version 是不可变历史，objection.attendance_record_id 为
+        ON DELETE CASCADE，删行会连带销毁版本与异议。此处显式写谓词而不依赖默认过滤，
+        因为这是写路径——过滤只保证"读不到"，不保证"改得对"。
+        """
+        records = list(
+            self._session.scalars(
+                see_withdrawn(
+                    select(AttendanceRecord)
+                    .where(
+                        AttendanceRecord.task_id == task_id,
+                        AttendanceRecord.effect_state
+                        == AttendanceEffectState.EFFECTIVE.value,
+                    )
+                    .order_by(AttendanceRecord.id)
+                    .with_for_update()
+                ).execution_options(populate_existing=True)
+            ).all()
+        )
+        for rec in records:
+            rec.effect_state = AttendanceEffectState.WITHDRAWN.value
+            rec.current_version += 1
+            self._repo.add(
+                AttendanceRecordVersion(
+                    attendance_record_id=rec.id,
+                    version_no=rec.current_version,
+                    attendance_type=rec.effective_type,
+                    source_type=AttendanceSourceType.WITHDRAWAL.value,
+                    source_id=rec.id,
+                    changed_by=actor_id,
+                    reason=reason,
+                )
+            )
+        self._repo.flush()
+        return len(records)
+
     def _validate_attachments(
         self, task: InspectionTask, actor_id: int, file_ids: list[int]
     ) -> list[int]:
@@ -3900,7 +3997,9 @@ class InspectionService:
         existing_recs = {
             rec.student_id: rec
             for rec in self._session.execute(
-                select(AttendanceRecord).where(AttendanceRecord.task_id == sub.task_id)
+                see_withdrawn(
+                    select(AttendanceRecord).where(AttendanceRecord.task_id == sub.task_id)
+                )
             )
             .scalars()
             .all()
@@ -3916,9 +4015,16 @@ class InspectionService:
 
             if m.student_id in existing_recs:
                 rec = existing_recs[m.student_id]
-                if rec.effective_type != eff or rec.source_submission_item_id != item_id:
+                # 撤回后重新提交同一结论时认定值没变，但必须把行取回有效；只看类型会漏掉这一步。
+                restored = rec.effect_state != AttendanceEffectState.EFFECTIVE.value
+                if (
+                    restored
+                    or rec.effective_type != eff
+                    or rec.source_submission_item_id != item_id
+                ):
                     rec.effective_type = eff
                     rec.source_submission_item_id = item_id
+                    rec.effect_state = AttendanceEffectState.EFFECTIVE.value
                     rec.current_version += 1
                     updated_pending.append((rec, eff, item_id, rec.current_version))
             else:
@@ -4090,6 +4196,8 @@ class InspectionService:
                     submission_state=s.submission_state,
                     correction_deadline_at=deadline,
                     can_correct=can_correct,
+                    withdrawn_at=s.withdrawn_at,
+                    withdraw_reason=s.withdraw_reason,
                 )
             )
         return out

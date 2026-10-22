@@ -711,6 +711,7 @@ class InspectionRepository:
         """批量派生各任务"有审核通过 / 有待审核"标记，供五态推导（禁 N+1，技术方案 12）。
 
         单次按任务聚合条件计数即可，不逐任务查询；(has_approved, has_pending)。
+        只数当前有效提交：改版与撤回留下的历史 attempt 不能再把任务显示成已结论。
         """
         ids = list(task_ids)
         if not ids:
@@ -731,7 +732,10 @@ class InspectionRepository:
                     )
                 ),
             )
-            .where(InspectionSubmission.task_id.in_(ids))
+            .where(
+                InspectionSubmission.task_id.in_(ids),
+                InspectionSubmission.submission_state == SubmissionState.ACTIVE.value,
+            )
             .group_by(InspectionSubmission.task_id)
         ).all()
         return {int(r[0]): (int(r[1] or 0) > 0, int(r[2] or 0) > 0) for r in rows}
