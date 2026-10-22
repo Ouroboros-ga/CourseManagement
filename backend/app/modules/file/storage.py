@@ -17,7 +17,8 @@ import hmac
 import os
 import shutil
 import tempfile
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from threading import Lock
 from typing import Protocol
@@ -48,7 +49,7 @@ def _safe_relpath(object_key: str) -> str:
 
 
 class SignedDownload:
-    """所有后端共用应用下载签名；OSS 凭据和桶地址不下发客户端。"""
+    """所有后端共用应用下载签名；默认下载保持兼容，长期凭据不下发。"""
 
     def __init__(self, secret: str) -> None:
         self._secret = secret.encode()
@@ -134,12 +135,6 @@ def _oss_client(region: str, endpoint: str, role_name: str, timeout: float,
                 return oss.credentials.Credentials(
                     value.access_key_id, value.access_key_secret, value.security_token
                 )
-        # 凭据库自动刷新 STS；多请求共享客户端时串行化凭据刷新。
-        with lock:
-            value = credentials.get_credential()
-            return oss.credentials.Credentials(
-                value.access_key_id, value.access_key_secret, value.security_token
-            )
 
     cfg = oss.config.load_default()
     cfg.region = region
@@ -151,12 +146,24 @@ def _oss_client(region: str, endpoint: str, role_name: str, timeout: float,
     return oss.Client(cfg)
 
 
-class ObjectStorage(SignedDownload):
-    """阿里云 OSS：ECS RAM 临时凭据，下载仍由应用验签代理。"""
+@dataclass(frozen=True)
+class DirectDownload:
+    url: str
+    expires_at: datetime
 
-    def __init__(self, settings: Settings, *, client=None) -> None:
+
+class ObjectStorage(SignedDownload):
+    """私有 OSS；默认应用代理，Web 可显式请求短时公网签名。"""
+
+    def __init__(self, settings: Settings, *, client=None, direct_client=None) -> None:
         super().__init__(settings.secret_key)
         self._bucket = settings.oss_bucket
+        self._settings = settings
+        self._direct_client = direct_client
+        self._mirror = (
+            LocalStorage(settings.file_local_storage_dir, settings.secret_key)
+            if settings.oss_local_mirror_enabled else None
+        )
         self._client = (
             client
             if client is not None
@@ -170,11 +177,11 @@ class ObjectStorage(SignedDownload):
             )
         )
 
-    def _call(self, method: str, *args, **kwargs):
+    def _call(self, method: str, *args, client=None, **kwargs):
         from app.core.exceptions import AppError, ErrorCode, NotFoundError
 
         try:
-            return getattr(self._client, method)(*args, **kwargs)
+            return getattr(client if client is not None else self._client, method)(*args, **kwargs)
         except Exception as exc:
             # SDK 异常可能包含请求地址、签名和凭据，不直接进入响应或应用日志。
             unwrap = getattr(exc, "unwrap", None)
@@ -188,6 +195,8 @@ class ObjectStorage(SignedDownload):
     def save(self, object_key: str, data: bytes, content_type: str) -> None:
         import alibabacloud_oss_v2 as oss
 
+        if self._mirror is not None:
+            self._mirror.save(object_key, data, content_type)
         self._call(
             "put_object",
             oss.PutObjectRequest(
@@ -195,6 +204,8 @@ class ObjectStorage(SignedDownload):
                 key=object_key,
                 body=data,
                 content_type=content_type,
+                cache_control="private, no-store",
+                acl="private",
             ),
         )
 
@@ -216,10 +227,41 @@ class ObjectStorage(SignedDownload):
         import alibabacloud_oss_v2 as oss
 
         self._call("delete_object", oss.DeleteObjectRequest(bucket=self._bucket, key=object_key))
+        if self._mirror is not None:
+            self._mirror.delete(object_key)
         return True  # OSS 对已不存在对象的删除也返回成功。
 
     def exists(self, object_key: str) -> bool:
         return bool(self._call("is_object_exist", bucket=self._bucket, key=object_key))
+
+    def presign_direct_get(self, object_key: str, ttl_seconds: int) -> DirectDownload:
+        import alibabacloud_oss_v2 as oss
+
+        settings = self._settings
+        if self._direct_client is None:
+            # 外部客户端不能访问内网 endpoint；必须针对公网地址重新签名，不能替换签名 URL。
+            try:
+                self._direct_client = _oss_client(
+                    settings.oss_region, f"https://oss-{settings.oss_region}.aliyuncs.com",
+                    settings.oss_role_name, settings.oss_timeout_seconds,
+                    settings.oss_access_key_id, settings.oss_access_key_secret,
+                )
+            except Exception:
+                from app.core.exceptions import AppError, ErrorCode
+
+                raise AppError(
+                    ErrorCode.UPSTREAM_UNAVAILABLE, "文件访问暂不可用，请稍后重试", http_status=503
+                ) from None
+        result = self._call(
+            "presign",
+            oss.GetObjectRequest(
+                bucket=self._bucket, key=object_key,
+                response_cache_control="private, no-store",
+            ),
+            client=self._direct_client,
+            expires=timedelta(seconds=max(1, min(ttl_seconds, 300))),
+        )
+        return DirectDownload(url=result.url, expires_at=result.expiration)
 
 
 def build_default_storage(settings: Settings) -> StorageBackend:

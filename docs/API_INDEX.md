@@ -1,5 +1,7 @@
 # API 路由索引
 
+2026-10-22 OSS Web 直连：`GET /api/v1/files/{file_id}/access` 新增可选 `delivery=proxy|direct`，默认代理兼容小程序；Web 显式 direct，权限和文件状态校验不变。无新增路由。见 [实施与发布记录](development/OSS_WEB_DIRECT_DOWNLOAD_20261022.md)。
+
 2026-10-21 微信换绑修复：`DELETE /me/student-binding` 保留原学生业务UID，只迁出微信登录身份；学生认领、登录/刷新并发和管理纠错历史保护同步补齐。无新增路由，353路径/414操作；见 [审查与修复记录](development/WECHAT_REBIND_IDENTITY_FIX_20261021.md)。
 
 2026-10-21：新增教师批量绑定码 Excel 导出，`POST /api/v1/colleges/{cid}/staff/export-binding-tokens`，共用学生导出样式和下载工具。353 个路径、414 个操作；已随 `145dfe8` 成套部署，见 [发布记录](development/STAFF_BINDING_EXPORT_RELEASE_20261021.md)。

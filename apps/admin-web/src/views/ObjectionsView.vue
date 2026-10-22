@@ -313,7 +313,7 @@ async function handleViewFile(fileId: string) {
 
 // ---------------- 证明材料：内嵌缩略图 + 灯箱预览 ----------------
 const fileContext = computed(() => `${sessionStore.currentUser?.id || ''}:${activeObjection.value?.id || ''}`)
-const { urls: fileUrlMap, getUrl: getFileUrl, invalidate: invalidateFileUrl } = useFileAccess(fileContext)
+const { urls: fileUrlMap, errors: fileErrors, getUrl: getFileUrl, retry: retryFileUrl } = useFileAccess(fileContext)
 const fileImgError = ref<Record<string, boolean>>({})
 const lightboxIndex = ref<number | null>(null)
 
@@ -370,9 +370,11 @@ function stepLightbox(delta: number) {
   lightboxIndex.value = (lightboxIndex.value + delta + total) % total
 }
 
-function onProofImgError(fid: string) {
+async function onProofImgError(fid: string) {
+  const captured = fileContext.value
   fileImgError.value[fid] = true
-  invalidateFileUrl(fid)
+  await retryFileUrl(fid)
+  if (captured === fileContext.value && !fileErrors.value[fid]) fileImgError.value[fid] = false
 }
 
 function onLightboxImgError() {

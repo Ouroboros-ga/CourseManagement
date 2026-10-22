@@ -15,7 +15,7 @@ objection.read 或管理初核/终审权限访问。不可见资源统一以 404
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -282,7 +282,9 @@ class FileService:
         # 导入与临时文件不凭照片审核权限派生访问。
         return False
 
-    def get_access(self, actor: CurrentUser, file_id: int) -> FileAccessResponse:
+    def get_access(
+        self, actor: CurrentUser, file_id: int, *, delivery: str = "proxy"
+    ) -> FileAccessResponse:
         file = self._repo.get(file_id)
         # 不可见或不存在统一 404，避免枚举探测（技术方案 16.2 资源归属）。
         if file is None or not self.can_access(actor, file):
@@ -290,6 +292,24 @@ class FileService:
         self._assert_accessible(file)
 
         ttl = self._settings.file_signed_url_ttl_seconds
+        # 待处理异议的证明沿用既有延长访问规则，其余文件不能签发超出保留期的链接。
+        if file.expires_at is not None and file.expires_at > utcnow():
+            ttl = min(ttl, int((file.expires_at - utcnow()).total_seconds()))
+            if ttl < 1:
+                raise FileExpiredError()
+        if (
+            delivery == "direct" and self._settings.oss_web_direct_enabled
+            and self._settings.file_storage_backend == "object"
+            and file.content_type.startswith("image/")
+        ):
+            signer = getattr(self._storage, "presign_direct_get", None)
+            if callable(signer):
+                link = signer(file.object_key, ttl)
+                return FileAccessResponse(
+                    url=link.url, method="GET",
+                    expires_in=max(0, int((link.expires_at - datetime.now(UTC)).total_seconds())),
+                    expires_at=link.expires_at,
+                )
         url = self._storage.presign_get(file.id, file.object_key, ttl)
         return FileAccessResponse(
             url=url,

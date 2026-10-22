@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { attendanceLabels, correctArchivedAttendance, type AttendanceRecord, type AttendanceType } from '../../api/attendance'
 import { useWorkspaceContext } from '../../composables/useWorkspaceContext'
 import { useFileAccess } from '../../composables/useFileAccess'
+import FileAccessImage from '../FileAccessImage.vue'
 const props = defineProps<{ record: AttendanceRecord | null }>()
 const emit = defineEmits<{ close: []; updated: [] }>()
 const { session, key } = useWorkspaceContext()
@@ -37,7 +38,7 @@ async function correct() {
       <p>{{ record.administrative_class_name || '历史班级待核对' }} · {{ record.task?.course_name_snapshot }} · {{ record.task?.inspection_date }}</p>
       <p class="muted">任务负责学院：{{ record.task?.responsible_college_name || session.workspace?.name || '历史归属待核对' }} · 当前版本 {{ record.current_version }}</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
-      <el-image v-for="id in record.photo_file_ids || []" :key="id" :src="photos.urls.value[id]" :preview-src-list="Object.values(photos.urls.value)" fit="contain" style="width:160px;height:120px;margin:8px" />
+      <FileAccessImage v-for="id in record.photo_file_ids || []" :key="id" :src="photos.urls.value[id]" :preview-src-list="Object.values(photos.urls.value)" :error="photos.errors.value[id]" @failed="photos.retry(id)" @retry="photos.retry(id, true)" fit="contain" style="width:160px;height:120px;margin:8px" />
       <el-empty v-if="!record.photo_file_ids?.length" description="本次记录没有关联的现场照片" />
       <section v-if="canCorrect" data-unsaved-form><h3>归档考勤更正</h3><p>追加认定与审计版本，保留原报表文件。</p><el-select v-model="correctionType" :disabled="busy"><el-option v-for="(label, value) in attendanceLabels" :key="value" :value="value" :label="label" /></el-select><el-input v-model="reason" placeholder="更正依据（必填）" maxlength="512" :disabled="busy" /><el-button type="primary" :disabled="!reason.trim()" :loading="busy" @click="correct">确认归档更正</el-button></section>
     </template>

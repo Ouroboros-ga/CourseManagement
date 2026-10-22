@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
@@ -65,8 +65,11 @@ def get_file_access(
     actor: CurrentUserDep,
     service: ServiceDep,
     request: Request,
+    response: Response,
+    delivery: Annotated[Literal["proxy", "direct"], Query()] = "proxy",
 ) -> dict[str, object]:
-    result: FileAccessResponse = service.get_access(actor, file_id)
+    response.headers["Cache-Control"] = "private, no-store"
+    result: FileAccessResponse = service.get_access(actor, file_id, delivery=delivery)
     return success(result.model_dump(), _rid(request))
 
 

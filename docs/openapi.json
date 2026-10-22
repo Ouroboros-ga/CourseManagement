@@ -26034,6 +26034,20 @@
               "type": "integer",
               "title": "File Id"
             }
+          },
+          {
+            "name": "delivery",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "proxy",
+                "direct"
+              ],
+              "type": "string",
+              "default": "proxy",
+              "title": "Delivery"
+            }
           }
         ],
         "responses": {

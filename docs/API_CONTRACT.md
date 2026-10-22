@@ -437,12 +437,12 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 ### D.1 文件域（Wave 5b，技术方案 16）
 
-文件无独立功能权限，访问按"业务资源归属"放行。`FILE_STORAGE_BACKEND=local` 使用本地目录，`object` 使用已实现的阿里云 OSS 适配器（ECS RAM 临时凭据，需配置 OSS_BUCKET/OSS_REGION/HTTPS OSS_ENDPOINT）。两个后端共用应用 HMAC 短期下载链接，客户端上传/下载仍走后端，不接收 OSS 凭据或对象键。默认 local，旧文件须迁移核验后才切换；真实云端权限和连通性尚未验收。配置、切换与恢复见 [OSS_DEPLOYMENT.md](archive/2026-10-15/operations/OSS_DEPLOYMENT.md)，小程序说明见 [OSS_MINIAPP_GUIDE.md](archive/2026-10-15/operations/OSS_MINIAPP_GUIDE.md)。
+文件无独立功能权限，访问按"业务资源归属"放行。`FILE_STORAGE_BACKEND=local` 使用本地目录，`object` 使用私有阿里云 OSS（受限服务端凭据或 ECS RAM 角色，需 OSS_BUCKET/OSS_REGION/HTTPS OSS_ENDPOINT）。上传仍经后端校验；默认访问返回应用 HMAC 下载地址，保持现有小程序兼容。Web 显式使用 `delivery=direct`：仅当 `OSS_WEB_DIRECT_ENABLED=true`、object 模式且为图片时，服务端完成相同授权/状态校验后签发公网 OSS V4 GET 链接，最长 300 秒，不超文件可访问期限；链接响应禁止缓存。其他情况仍返回原代理地址。对象键只存在于不可避免的短期签名 URL 路径，接口不额外提供裸键、长期地址或秘密访问密钥；签名 URL 在到期前可复用，不提供即时撤销保证。新上传/迁移固化正确 MIME，签名覆盖 `Cache-Control=private,no-store`，不覆盖该桶禁止的 Content-Type。旧文件须迁移核验后才切换，`OSS_LOCAL_MIRROR_ENABLED=true` 保留新文件本地镜像并在清理时同步删除。最新配置、验收与回退见 [OSS Web 直连实施](development/OSS_WEB_DIRECT_DOWNLOAD_20261022.md)；旧说明仅供历史参考。
 
 | 端点 | 守卫 | 说明 |
 |---|---|---|
 | `POST /files` | 登录＋绑定完成（multipart） | 客户端允许 `category ∈ {SUBMISSION_PHOTO,OBJECTION_PROOF,TEMP}`，不接受导入/报表类别。PRE_BINDING 受限会话 403。字段为 `file`、`category`；服务端随机 `object_key`（绝不用原名作路径）、纯解析器读头校验尺寸/像素/类型，超限 422；默认单文件 10 MiB。同步路由线程池运行数据库与 OSS 操作，最多读限额＋1 字节。存储写成功才落 `READY` 行与 `file.upload` 审计，返回字符串 `id`；OSS 故障返回脱敏 503 `UPSTREAM_UNAVAILABLE`，不自动回退本地。`expires_at` 按类别保留期固化，`retention_policy_version` 记命中版本 |
-| `GET /files/{file_id}/access` | 资源归属 | 不可见/不存在统一 404 防枚举；已清理/到期 → `FILE_EXPIRED`；未就绪（`UPLOADING/FAILED`）→ 409。返回短时签名 GET 链接（`FILE_SIGNED_URL_TTL_SECONDS`，默认 300s） |
+| `GET /files/{file_id}/access` | 资源归属 | 可选 `delivery=proxy（默认）或 direct`；不接受其他值。不可见/不存在统一 404 防枚举；已清理/到期 → `FILE_EXPIRED`；未就绪（`UPLOADING/FAILED`）→ 409。返回 `url/method/expires_in/expires_at`，直连最长 300 秒；`Cache-Control: private, no-store`。未开启直连/本地模式/非图片维持代理 |
 | `GET /files/{file_id}/download` | 仅签名 | **不再鉴权**（技术方案 16.2：不即时撤销已发链接），校验 HMAC 签名 + 过期时间戳 + 对象未清理；无签名验证器也拒绝。已清理/到期 `FILE_EXPIRED`，签名无效/当前秒≥过期时间 403；OSS 对象不存在 404，上游故障 503。返回 private/no-store、nosniff 和 UTF-8 文件名。Web/小程序重新打开材料应按有效期申请新链接，不能永久缓存 |
 
 生产网关签名下载路由允许跨源图片加载及无凭据GET：输出 `Cross-Origin-Resource-Policy: cross-origin`、`Access-Control-Allow-Origin: *`、`Access-Control-Allow-Methods: GET, OPTIONS`；OPTIONS在Nginx返回204，不读取文件、不验证或核销签名。实际GET仍校验短时HMAC。无跨源Cookie/Authorization支持，HEAD未声明支持。下载的成功与错误响应均private/no-store。`/access`、上传及其他接口不使用这项例外；后端直连安全头仍是原基线。

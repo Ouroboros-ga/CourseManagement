@@ -46,6 +46,8 @@ curl --silent --show-error --head https://course.zsitai.xyz/index.html
 
 ## 历史脚本
 
+OSS Web 直连部署时，两个 HTML location 的 CSP 改为 include `/etc/course-management/web-csp.conf`。默认文件只允许 self；启用时由 `oss_web_storage.py csp --env ...` 生成精确私有桶公网 HTTPS 来源，仅增加 img-src/connect-src，不增加脚本来源或泛域名。新增 include 前必须先安装文件并运行 `nginx -t`。现有 `/api/`、下载 CORP 例外和其他安全头保持不变；回退恢复原站点及环境文件，勿只切应用指针。详见 [实施记录](../../docs/development/OSS_WEB_DIRECT_DOWNLOAD_20261022.md)。
+
 2026-10-18 固定版本发布器和验证器保留在 [历史脚本目录](archive/20261018-security-baseline/README.md)。
 它们不能直接用于当前发布；当前部署与回滚入口见仓库已有发布工具和 [备份恢复手册](../../docs/RUNBOOK_BACKUP_RESTORE.md)。
 扫描工具、原始报告和未核实的 CVE 断言留在本地归档，本轮不发布也不运行。

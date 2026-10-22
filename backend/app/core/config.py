@@ -126,6 +126,9 @@ class Settings(BaseSettings):
     oss_access_key_id: str = Field(default="", alias="OSS_ACCESS_KEY_ID")
     oss_access_key_secret: str = Field(default="", alias="OSS_ACCESS_KEY_SECRET")
     oss_timeout_seconds: float = Field(default=15, gt=0, le=120, alias="OSS_TIMEOUT_SECONDS")
+    oss_web_direct_enabled: bool = Field(default=False, alias="OSS_WEB_DIRECT_ENABLED")
+    # 切换 object 后的新文件仍保留本地副本，保证配置/应用回退可读；删除同步清理两端。
+    oss_local_mirror_enabled: bool = Field(default=False, alias="OSS_LOCAL_MIRROR_ENABLED")
     file_max_bytes: int = Field(default=10 * 1024 * 1024, alias="FILE_MAX_BYTES")
     file_max_files_per_submission: int = Field(default=5, alias="FILE_MAX_FILES_PER_SUBMISSION")
     file_allowed_extensions: str = Field(

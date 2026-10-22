@@ -31,5 +31,5 @@ export function uploadFile(file: File, category: UploadCategory): Promise<FileUp
 }
 
 export function getFileAccess(fileId: string): Promise<FileAccessInfo> {
-  return request<FileAccessInfo>(`/api/v1/files/${encodeURIComponent(fileId)}/access`)
+  return request<FileAccessInfo>(`/api/v1/files/${encodeURIComponent(fileId)}/access?delivery=direct`)
 }

@@ -29,6 +29,7 @@ import {
 } from '../../api/staffRecords'
 import { useSessionStore } from '../../stores/session'
 import { useFileAccess } from '../../composables/useFileAccess'
+import FileAccessImage from '../FileAccessImage.vue'
 import { ContextEpoch } from '../../utils/contextEpoch'
 import { formatBeijingTime } from '../../utils/datetime'
 import { staffRecordTime } from '../../utils/staffRecordTime'
@@ -605,11 +606,14 @@ function revisionText(card: StaffRecordCard) {
       </el-table>
       <div v-if="photoOwner?.photo_file_ids?.length" class="photos">
         <p class="hint">{{ photoOwner.name }} 的现场照片：按逐文件授权短期链接展示，过期后重新点开即可再取，不是永久下载权限。</p>
-        <el-image
+        <FileAccessImage
           v-for="id in photoOwner.photo_file_ids"
           :key="id"
           :src="photos.urls.value[id]"
           :preview-src-list="Object.values(photos.urls.value)"
+          :error="photos.errors.value[id]"
+          @failed="photos.retry(id)"
+          @retry="photos.retry(id, true)"
           fit="contain"
           style="width: 160px; height: 120px"
         />

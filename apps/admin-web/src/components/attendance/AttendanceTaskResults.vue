@@ -7,6 +7,7 @@ import { ContextEpoch } from '../../utils/contextEpoch'
 import AppPagination from '../AppPagination.vue'
 import AttendanceRecordTable from './AttendanceRecordTable.vue'
 import AttendanceRecordDetail from './AttendanceRecordDetail.vue'
+import FileAccessImage from '../FileAccessImage.vue'
 const props = defineProps<{ task: AttendanceGroup; filters: ListAttendanceParams }>()
 const emit = defineEmits<{ updated: [] }>()
 const { key } = useWorkspaceContext()
@@ -37,7 +38,7 @@ onUnmounted(() => epoch.invalidate())
 <template>
   <section>
     <p class="muted">{{ task.teaching_class_name }} · {{ task.inspection_date }} · {{ task.classroom }} · {{ task.volunteer_name || '历史执行人待核对' }}</p>
-    <div v-if="photoIds.length" class="photos"><span>查课现场照片</span><el-image v-for="id in photoIds" :key="id" :src="photos.urls.value[id]" :preview-src-list="Object.values(photos.urls.value)" fit="cover" style="width:112px;height:80px" /></div>
+    <div v-if="photoIds.length" class="photos"><span>查课现场照片</span><FileAccessImage v-for="id in photoIds" :key="id" :src="photos.urls.value[id]" :preview-src-list="Object.values(photos.urls.value)" :error="photos.errors.value[id]" @failed="photos.retry(id)" @retry="photos.retry(id, true)" fit="cover" style="width:112px;height:80px" /></div>
     <div class="toolbar"><span>本次学生名单</span><el-checkbox v-model="onlyAbnormal">只看异常（迟到、旷课、请假）</el-checkbox><el-button @click="load">刷新</el-button></div>
     <el-alert v-if="error" type="error" :title="error" :closable="false" />
     <AttendanceRecordTable :rows="rows" :busy="busy" max-height="52vh" @open="selected = $event" />
