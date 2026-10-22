@@ -442,7 +442,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | 端点 | 守卫 | 说明 |
 |---|---|---|
 | `POST /files` | 登录＋绑定完成（multipart） | 客户端允许 `category ∈ {SUBMISSION_PHOTO,OBJECTION_PROOF,TEMP}`，不接受导入/报表类别。PRE_BINDING 受限会话 403。字段为 `file`、`category`；服务端随机 `object_key`（绝不用原名作路径）、纯解析器读头校验尺寸/像素/类型，超限 422；默认单文件 10 MiB。同步路由线程池运行数据库与 OSS 操作，最多读限额＋1 字节。存储写成功才落 `READY` 行与 `file.upload` 审计，返回字符串 `id`；OSS 故障返回脱敏 503 `UPSTREAM_UNAVAILABLE`，不自动回退本地。`expires_at` 按类别保留期固化，`retention_policy_version` 记命中版本 |
-| `GET /files/{file_id}/access` | 资源归属 | 可选 `delivery=proxy（默认）或 direct`；不接受其他值。不可见/不存在统一 404 防枚举；已清理/到期 → `FILE_EXPIRED`；未就绪（`UPLOADING/FAILED`）→ 409。返回 `url/method/expires_in/expires_at`，直连最长 300 秒；`Cache-Control: private, no-store`。未开启直连/本地模式/非图片维持代理 |
+| `GET /files/{file_id}/access` | 资源归属 | 可选 `delivery=proxy（默认）或 direct`；不接受其他值。不可见/不存在统一 404 防枚举；已清理/到期 → `FILE_EXPIRED`；未就绪（`UPLOADING/FAILED`）→ 409。返回 `url/method/expires_in/expires_at`，直连最长 300 秒；`Cache-Control: private, no-store`。未开启直连/本地模式/非图片/可用期不足2秒维持代理，避免SDK将1秒取整为0秒的无效签名 |
 | `GET /files/{file_id}/download` | 仅签名 | **不再鉴权**（技术方案 16.2：不即时撤销已发链接），校验 HMAC 签名 + 过期时间戳 + 对象未清理；无签名验证器也拒绝。已清理/到期 `FILE_EXPIRED`，签名无效/当前秒≥过期时间 403；OSS 对象不存在 404，上游故障 503。返回 private/no-store、nosniff 和 UTF-8 文件名。Web/小程序重新打开材料应按有效期申请新链接，不能永久缓存 |
 
 生产网关签名下载路由允许跨源图片加载及无凭据GET：输出 `Cross-Origin-Resource-Policy: cross-origin`、`Access-Control-Allow-Origin: *`、`Access-Control-Allow-Methods: GET, OPTIONS`；OPTIONS在Nginx返回204，不读取文件、不验证或核销签名。实际GET仍校验短时HMAC。无跨源Cookie/Authorization支持，HEAD未声明支持。下载的成功与错误响应均private/no-store。`/access`、上传及其他接口不使用这项例外；后端直连安全头仍是原基线。
