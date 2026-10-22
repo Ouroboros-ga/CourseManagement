@@ -112,7 +112,7 @@ http {{
         path.write_text(config)
         command = ["nginx", "-p", str(stage), "-c", str(path)]
         subprocess.run([*command, "-t"], check=True, capture_output=True)
-        started = subprocess.run(command, capture_output=True, text=True)
+        started = subprocess.run(command, capture_output=True, text=True, check=False)
         if started.returncode:
             raise RuntimeError(started.stderr)
         results = {}
