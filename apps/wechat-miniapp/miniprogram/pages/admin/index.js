@@ -1,4 +1,4 @@
-import { getApprovalList, approveAppeal, rejectAppeal, initialReviewObjection } from '../../api/admin';
+import { getApprovalList, approveAppeal, rejectAppeal } from '../../api/admin';
 import { getUserInfo } from '../../api/user';
 import Toast from 'tdesign-miniprogram/toast/index';
 
@@ -62,13 +62,11 @@ Page({
   async handleApprove(e) {
     const id = e.currentTarget.dataset.id;
     const version = e.currentTarget.dataset.version;
+    // 同意即采纳学生申诉的认定类型；漏报异常者申诉改回 NORMAL 也走同一条路径。
+    const desired = e.currentTarget.dataset.desired || 'NORMAL';
     try {
       wx.showLoading({ title: '处理中' });
-      if (this.data.canFinalReview) {
-        await approveAppeal(id, version);
-      } else {
-        await initialReviewObjection(id, 'PASSED');
-      }
+      await approveAppeal(id, version, desired);
       Toast({ context: this, selector: '#t-toast', message: '已同意', theme: 'success' });
       this.fetchData();
     } catch (err) {
@@ -105,11 +103,7 @@ Page({
       });
 
       wx.showLoading({ title: '处理中' });
-      if (this.data.canFinalReview) {
-        await rejectAppeal(id, version, comment);
-      } else {
-        await initialReviewObjection(id, 'REJECTED', comment);
-      }
+      await rejectAppeal(id, version, comment);
       Toast({ context: this, selector: '#t-toast', message: '已驳回', theme: 'success' });
       this.fetchData();
     } catch (err) {
