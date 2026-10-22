@@ -31,6 +31,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from tests.integration.test_objection import _make_manager
+
 pytestmark = pytest.mark.integration
 
 _PWD = "Passw0rd#1"
@@ -508,7 +510,7 @@ def test_super_admin_can_read(client: TestClient, session: Session) -> None:
 def test_sam_denied_without_optional(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session)
-    _make_user(session, "sam", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
+    _make_manager(client, h, session, "sam")
     sam_h = _bearer(_login(client, "sam"))
     r = client.get(_STATS_ATT, headers=sam_h, params={"semester_id": sc["sem_id"], "week_no": 1})
     assert r.status_code == 403, r.text
@@ -525,7 +527,7 @@ def test_sam_reads_after_optional_enabled(client: TestClient, session: Session) 
         sc["task_w1"],
         [{"student_id": sc["s1"], "attendance_type": "LATE", "note": "迟到"}],
     )
-    sam = _make_user(session, "sam", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
+    sam = _make_manager(client, h, session, "sam")
     _put(
         client,
         h,

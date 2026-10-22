@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from datetime import datetime, timedelta
+
 import pytest
 from app.core.exceptions import ErrorCode
 from app.core.permissions import RoleCode
@@ -17,6 +20,19 @@ from tests.integration import test_inspection_submission as submission_scene
 pytestmark = pytest.mark.integration
 
 MANAGEMENT = "/api/v1/management/submissions"
+
+
+@contextmanager
+def _before_class(monkeypatch: pytest.MonkeyPatch):
+    """只移动时钟，不绕过名单是否可改的业务判断。"""
+    before_class = scene._MON1_D - timedelta(days=1)
+    with monkeypatch.context() as clock:
+        clock.setattr("app.modules.identity.role_scope.business_today", lambda: before_class)
+        clock.setattr(
+            "app.modules.academic.enrollment_service.utcnow",
+            lambda: datetime.combine(before_class, datetime.min.time()),
+        )
+        yield
 
 
 def _submitted(client: TestClient, session: Session):
@@ -133,22 +149,24 @@ def test_management_filters_and_stable_pagination(client: TestClient, session: S
 
 
 def test_management_detail_preserves_roster_and_file_ids_without_storage_secret(
-    client: TestClient, session: Session
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     admin = scene._admin_headers(client, session)
     data = scene._scene(client, admin)
     scene._shift_deadline(session, data["sem_id"], scene._MON1_D, hours=48)
     volunteer, volunteer_headers = scene._make_volunteer(client, admin, session, data)
     task = scene._task(session, data["task_id"])
-    changed = client.post(
-        f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
-        headers=admin,
-        json={
-            "student_ids": [data["s1"], data["s2"]],
-            "reason": "核对名单",
-            "lock_version": task.lock_version,
-        },
-    )
+    # 名单改版在查课前完成；退出时恢复当前时间，随后才提交并验证历史。
+    with _before_class(monkeypatch):
+        changed = client.post(
+            f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
+            headers=admin,
+            json={
+                "student_ids": [data["s1"], data["s2"]],
+                "reason": "核对名单",
+                "lock_version": task.lock_version,
+            },
+        )
     assert changed.status_code == 200, changed.text
     photo = submission_scene._make_file(session, volunteer.id, tag="management-detail")
     submitted = client.post(
@@ -203,22 +221,23 @@ def test_management_get_does_not_mutate_submission_task_or_audit(
 
 
 def test_roster_revise_rejected_after_submission_exists(
-    client: TestClient, session: Session
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # 提交即定稿并冻结名单版本；本人撤回也不解冻——历史提交仍是名单版本的依据。
     admin, data, submission_id = _submitted(client, session)
     session.expire_all()
     task = session.get(InspectionTask, data["task_id"])
     assert task is not None
-    revision = client.post(
-        f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
-        headers=admin,
-        json={
-            "student_ids": [data["s1"], data["s2"]],
-            "reason": "名单核对",
-            "lock_version": task.lock_version,
-        },
-    )
+    with _before_class(monkeypatch):
+        revision = client.post(
+            f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
+            headers=admin,
+            json={
+                "student_ids": [data["s1"], data["s2"]],
+                "reason": "名单核对",
+                "lock_version": task.lock_version,
+            },
+        )
     assert revision.status_code == 409, revision.text
     session.expire_all()
     assert session.get(InspectionTask, data["task_id"]).roster_version == 1
@@ -233,15 +252,16 @@ def test_roster_revise_rejected_after_submission_exists(
     session.expire_all()
     after_withdraw = session.get(InspectionTask, data["task_id"])
     assert after_withdraw is not None
-    again = client.post(
-        f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
-        headers=admin,
-        json={
-            "student_ids": [data["s1"], data["s2"]],
-            "reason": "撤回后再核对",
-            "lock_version": after_withdraw.lock_version,
-        },
-    )
+    with _before_class(monkeypatch):
+        again = client.post(
+            f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
+            headers=admin,
+            json={
+                "student_ids": [data["s1"], data["s2"]],
+                "reason": "撤回后再核对",
+                "lock_version": after_withdraw.lock_version,
+            },
+        )
     assert again.status_code == 409, again.text
     session.expire_all()
     assert session.get(InspectionTask, data["task_id"]).roster_version == 1

@@ -52,6 +52,8 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from tests.integration.test_objection import _make_manager
+
 pytestmark = pytest.mark.integration
 
 _PWD = "Passw0rd#1"
@@ -463,7 +465,7 @@ def test_statistics_optional_toggle_preserves_default_report_read(
         [{"student_id": sc["s1"], "attendance_type": "LATE", "note": "迟到"}],
     )
     rid = int(_generate(client, h, sc["sem_id"])["report_id"])
-    sam = _make_user(session, "sam2", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
+    sam = _make_manager(client, h, session, "sam2")
     _grant_optional(client, h, sam, "statistics.read")
     sam_h = _bearer(_login(client, "sam2"))
     assert client.get(f"/api/v1/reports/{rid}/versions", headers=sam_h).status_code == 200
@@ -490,7 +492,7 @@ def test_student_affairs_manager_can_read_and_generate(
         [{"student_id": sc["s1"], "attendance_type": "LATE", "note": "迟到"}],
     )
     rid = int(_generate(client, h, sc["sem_id"])["report_id"])
-    _make_user(session, "sam3", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
+    _make_manager(client, h, session, "sam3")
     sam_h = _bearer(_login(client, "sam3"))
     # 可读：版本列表 200
     assert client.get(f"/api/v1/reports/{rid}/versions", headers=sam_h).status_code == 200
