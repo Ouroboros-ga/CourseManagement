@@ -176,5 +176,6 @@ GEMINI.md
 
 # CI 测试报告产物
 backend/reports/
+
 # tmp/refresh_openapi_docs.py 每次运行都会落这个比对用产物，属本地工具输出，不入库。
 /docs/generated_index_rows.txt
