@@ -9,6 +9,11 @@
 | `deploy/production/course-management.nginx.conf` | `/etc/nginx/sites-available/course-management.conf` |
 | `deploy/production/course-management-proxy.conf` | `/etc/course-management/course-management-proxy.conf` |
 | `deploy/production/security-headers.conf` | `/etc/course-management/security-headers.conf` |
+| `deploy/production/file-download.conf` | `/etc/course-management/file-download.conf` |
+
+2026-10-22：当前服务器使用宝塔站点文件 `/www/server/panel/vhost/nginx/course-management.conf`。修改前核对实际 `nginx -t` 输出及include链，不用上表中的旧站点路径直接覆盖当前配置。签名下载例外由HTTPS server加载 `file-download.conf`；仅 `/api/v1/files/[0-9]+/download` 输出 `CORP: cross-origin` 和无凭据CORS，OPTIONS返回204。其他API仍为same-origin。该片段完整重复其余安全头，回归检查与基线一致，避免Nginx add_header继承丢失。下载响应（含错误）禁止缓存，上游同名CORS/缓存头隐藏后由网关单点输出，不改变应用HMAC、时效或文件状态校验。
+
+隔离验证：`python deploy/production/verify_file_download_edge.py --config-dir <候选配置目录> --backend-root <现有后端目录>`。只启动回环Nginx及合成PNG上游，使用随机临时密钥和现有SignedDownload算法，不读业务数据库或真实照片。验证有效图片200、无效/过期签名403、预检204、非下载接口策略不变及头不重复；不代表微信真机已验证。
 
 站点由 `/etc/nginx/sites-enabled/course-management.conf` 链接启用，主配置必须在 nginx `http {}` 中加载。
 三个文件已与当前线上配置按换行归一后的 SHA-256 比较一致。本轮补入版本库，不替换线上文件或重启服务。
