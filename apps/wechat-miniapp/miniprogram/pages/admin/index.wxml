@@ -23,7 +23,7 @@
         </view>
         <view class="action-bar">
           <t-button size="small" theme="danger" variant="outline" bind:tap="handleReject" data-id="{{item.id}}" data-version="{{item.base_attendance_version}}">驳回</t-button>
-          <t-button size="small" theme="primary" bind:tap="handleApprove" data-id="{{item.id}}" data-version="{{item.base_attendance_version}}" data-desired="{{item.desired_type}}">同意</t-button>
+          <t-button size="small" theme="primary" bind:tap="handleApprove" data-id="{{item.id}}" data-version="{{item.base_attendance_version}}">同意</t-button>
         </view>
       </view>
     </block>
