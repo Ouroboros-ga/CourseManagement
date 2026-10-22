@@ -385,6 +385,7 @@ def test_volunteer_guard_boundaries(client: TestClient, session: Session) -> Non
     sc = _scene(client, h)
     other = _create_admin_class(client, h, "CS2402")
     sid = _create_student(client, h, "V001", other)
+    _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sc["sem_id"], sid)
     vol = _make_user(session, "vol", [RoleCode.VOLUNTEER.value], student_id=sid)
     _assign(client, h, sc["task_id"], vol.id)  # 令该任务进入志愿者可见范围

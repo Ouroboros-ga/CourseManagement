@@ -308,6 +308,7 @@ def _make_volunteer(
     """建一名本学期有资格的志愿者（独立行政班避免本班回避），指派到任务并返回账号与令牌头。"""
     other = _create_admin_class(client, h, f"VCLASS_{username}")
     sid = _create_student(client, h, f"V{username}", other)
+    _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sc["sem_id"], sid)
     vol = _make_user(session, username, [RoleCode.VOLUNTEER.value], student_id=sid)
     _assign(client, h, sc["task_id"], vol.id)
@@ -565,6 +566,7 @@ def test_submit_not_assigned_403(client: TestClient, session: Session) -> None:
     # 建志愿者但不指派到该任务 → 提交被拒 403（仅本人当前受派）。
     other = _create_admin_class(client, h, "VCLASS_Z")
     sid = _create_student(client, h, "VZ", other)
+    _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sc["sem_id"], sid)
     _make_user(session, "volunassigned", [RoleCode.VOLUNTEER.value], student_id=sid)
     vh = _bearer(_login(client, "volunassigned"))

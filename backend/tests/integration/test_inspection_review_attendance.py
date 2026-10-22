@@ -275,6 +275,7 @@ def _scene(client: TestClient, h: dict[str, str]) -> dict:
 def _make_volunteer(client, h, session, sc, username="vol"):
     other = _create_admin_class(client, h, f"VCLASS_{username}")
     sid = _create_student(client, h, f"V{username}", other)
+    _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sc["sem_id"], sid)
     vol = _make_user(session, username, [RoleCode.VOLUNTEER.value], student_id=sid)
     _assign(client, h, sc["task_id"], vol.id)
