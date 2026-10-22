@@ -170,3 +170,6 @@ GEMINI.md
 # 智能体本机工作目录（会话记忆与工具缓存），不入库。
 /.workbuddy/
 
+
+# CI 测试报告产物
+backend/reports/
