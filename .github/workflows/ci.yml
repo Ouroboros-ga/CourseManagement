@@ -41,6 +41,7 @@ jobs:
             --require-ran 800 \
             --allow-skip-max 10 \
             --require-pass tests/unit/test_integration_revision_probe.py \
+            --require-pass tests/unit/test_report_submission_validity.py \
             --require-pass tests/unit/test_submission_correction_window.py \
             --require-pass tests/unit/test_parsing_budgets.py \
             --require-pass tests/unit/test_manager_workspace_capabilities.py \
@@ -126,7 +127,7 @@ jobs:
         env:
           CAMPUS_TEST_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
         run: |
-          uv run pytest tests/unit/test_submission_correction_window.py -q -p no:cacheprovider
+          uv run pytest tests/unit/test_submission_correction_window.py tests/unit/test_report_submission_validity.py -q -p no:cacheprovider
       - name: 真实 MySQL 集成测试
         continue-on-error: true # 新增失败和跳过由下一步硬拦截
         run: |

@@ -77,6 +77,9 @@ class InspectionRepository:
     def add(self, obj: object) -> None:
         self._session.add(obj)
 
+    def add_all(self, objects: Sequence[object]) -> None:
+        self._session.add_all(objects)
+
     def flush(self) -> None:
         self._session.flush()
 
