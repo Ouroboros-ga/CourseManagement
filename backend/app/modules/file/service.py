@@ -301,6 +301,8 @@ class FileService:
             delivery == "direct" and self._settings.oss_web_direct_enabled
             and self._settings.file_storage_backend == "object"
             and file.content_type.startswith("image/")
+            # SDK 签名会扣除准备耗时再取整；1 秒可能变成非法的 0 秒，沿用代理更稳妥。
+            and ttl >= 2
         ):
             signer = getattr(self._storage, "presign_direct_get", None)
             if callable(signer):

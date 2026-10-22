@@ -237,6 +237,8 @@ class ObjectStorage(SignedDownload):
     def presign_direct_get(self, object_key: str, ttl_seconds: int) -> DirectDownload:
         import alibabacloud_oss_v2 as oss
 
+        if ttl_seconds < 2:
+            raise ValueError("OSS 原生签名有效期必须至少两秒，短于两秒使用应用代理")
         settings = self._settings
         if self._direct_client is None:
             # 外部客户端不能访问内网 endpoint；必须针对公网地址重新签名，不能替换签名 URL。
@@ -259,7 +261,7 @@ class ObjectStorage(SignedDownload):
                 response_cache_control="private, no-store",
             ),
             client=self._direct_client,
-            expires=timedelta(seconds=max(1, min(ttl_seconds, 300))),
+            expires=timedelta(seconds=min(ttl_seconds, 300)),
         )
         return DirectDownload(url=result.url, expires_at=result.expiration)
 

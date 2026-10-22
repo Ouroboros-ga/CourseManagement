@@ -128,3 +128,18 @@ def test_direct_flag_off_falls_back_and_unknown_mode_rejected(file_api):
         .startswith("/api/")
     )
     assert api.get(f"/api/v1/files/{file_id}/access?delivery=invalid").status_code == 422
+
+
+def test_one_second_validity_uses_proxy_instead_of_invalid_oss_zero_seconds(file_api, monkeypatch):
+    api, _, _, _ = file_api
+    service = api.app.dependency_overrides[get_service]()
+    monkeypatch.setattr(service._settings, "oss_web_direct_enabled", True)
+    monkeypatch.setattr(service._settings, "file_signed_url_ttl_seconds", 1)
+    monkeypatch.setattr("app.modules.file.storage._oss_client", lambda *args: signing_client())
+    file_id = api.post(
+        "/api/v1/files",
+        data={"category": "OBJECTION_PROOF"},
+        files={"file": ("a.png", PNG, "image/png")},
+    ).json()["data"]["id"]
+    response = api.get(f"/api/v1/files/{file_id}/access?delivery=direct")
+    assert response.json()["data"]["url"].startswith("/api/v1/files/")
