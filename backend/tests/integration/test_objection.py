@@ -930,17 +930,28 @@ def test_final_review_version_conflict(client: TestClient, session: Session) -> 
         ).status_code
         == 200
     )
-    r = client.post(
+    # 规则（2026-10-22 确认）：终审携带的 current_version 必须是考勤当前版本，
+    # 陈旧视图一律 409，不覆盖他人新认定；负责人刷新到最新版本后仍可继续决定。
+    stale = client.post(
+        _final_url(oid),
+        headers=h,
+        json={"decision": "APPROVED", "final_type": "LATE", "current_version": 1},
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["code"] == ErrorCode.VERSION_CONFLICT.value
+    rec = _record(session, rid)
+    assert rec.effective_type == AttendanceType.ABSENT.value
+    assert rec.current_version == 2
+
+    refreshed = client.post(
         _final_url(oid),
         headers=h,
         json={"decision": "APPROVED", "final_type": "LATE", "current_version": 2},
     )
-    assert r.status_code == 409, r.text
-    assert r.json()["code"] == ErrorCode.VERSION_CONFLICT.value
-    # 不覆盖他人新认定：考勤仍为更正后的 ABSENT、version 2。
+    assert refreshed.status_code == 200, refreshed.text
     rec = _record(session, rid)
-    assert rec.effective_type == AttendanceType.ABSENT.value
-    assert rec.current_version == 2
+    assert rec.effective_type == AttendanceType.LATE.value
+    assert rec.current_version == 3
 
 
 def test_final_review_twice_conflict_409(client: TestClient, session: Session) -> None:
