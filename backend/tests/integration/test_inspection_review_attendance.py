@@ -740,6 +740,7 @@ def test_submit_vs_cancel_mutually_exclusive(
     errs = [v for v in out.values() if v[0] == "error"]
     assert len(oks) == 1, out
     assert len(errs) == 1, out
+    assert "ConflictError" in errs[0][1], out
     task = _task(session, sc["task_id"])
     recs = _records(session, sc["task_id"])
     # 互斥：要么取消且无考勤，要么已提交且有考勤，绝不并存。
