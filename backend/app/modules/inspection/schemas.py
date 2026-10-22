@@ -519,6 +519,7 @@ class DeadlineSettleResultResponse(BaseModel):
 # --------------------------------------------------------------------------- #
 SubmissionResultLiteral = Literal["NORMAL", "ABNORMAL"]
 ReviewStatusLiteral = Literal["PENDING", "APPROVED", "REJECTED"]
+SubmissionStateLiteral = Literal["ACTIVE", "SUPERSEDED", "WITHDRAWN"]
 # 异常明细仅限三类（技术方案 12）：请假 / 迟到 / 缺勤，NORMAL 不落明细。
 AbnormalTypeLiteral = Literal["LEAVE", "LATE", "ABSENT"]
 
@@ -553,6 +554,16 @@ class SubmissionCreateRequest(BaseModel):
         return self
 
 
+class SubmissionWithdrawRequest(BaseModel):
+    """本人撤回当前有效提交。
+
+    原因选填（已确认口径），但长度与审计一致；撤回不带版本参数——并发由任务行锁与
+    "同一任务至多一条 ACTIVE 提交"不变式收敛，重复撤回在锁内命中非 ACTIVE 而拒。
+    """
+
+    reason: str | None = Field(default=None, max_length=512)
+
+
 class SubmissionAbnormalItemResponse(BaseModel):
     student_id: IdStr
     student_no: str | None
@@ -580,6 +591,13 @@ class SubmissionResponse(BaseModel):
     file_ids: list[IdStr]
     created_at: datetime
     updated_at: datetime
+    # 本人纠错闭环（DEC-01）：有效性轴与审核状态分列，客户端据此显示倒计时与按钮。
+    # 权限与时限仍由后端逐次判定，这两个字段只用于展示。
+    submission_state: SubmissionStateLiteral = "ACTIVE"
+    correction_deadline_at: datetime | None = None
+    can_correct: bool = False
+    withdrawn_at: datetime | None = None
+    withdraw_reason: str | None = None
 
 
 class ManagementSubmissionTaskBrief(BaseModel):
@@ -593,41 +611,6 @@ class ManagementSubmissionTaskBrief(BaseModel):
 
 class ManagementSubmissionResponse(SubmissionResponse):
     task: ManagementSubmissionTaskBrief
-
-
-# --------------------------------------------------------------------------- #
-# 审核（submission.review，Wave P5d）：管理人员通过 / 驳回某待审核提交。
-# --------------------------------------------------------------------------- #
-ReviewDecisionLiteral = Literal["APPROVED", "REJECTED"]
-
-
-class SubmissionReviewRequest(BaseModel):
-    """处理待审核提交：通过则据提交所用名单版本生成考勤，驳回保留原事实与照片。"""
-
-    decision: ReviewDecisionLiteral
-    comment: str | None = Field(default=None, max_length=512)
-
-
-class SubmissionBatchReviewRequest(BaseModel):
-    """批量处理待审核提交（一键通过/勾选批量通过）。"""
-
-    submission_ids: list[int] = Field(min_length=1, max_length=500)
-    decision: ReviewDecisionLiteral = "APPROVED"
-    comment: str | None = Field(default=None, max_length=512)
-
-
-class BatchReviewResultItem(BaseModel):
-    submission_id: IdStr
-    success: bool
-    error: str | None = None
-    review_status: str | None = None
-
-
-class SubmissionBatchReviewResponse(BaseModel):
-    total: int
-    success_count: int
-    failed_count: int
-    results: list[BatchReviewResultItem]
 
 
 # --------------------------------------------------------------------------- #
@@ -774,10 +757,5 @@ __all__ = [
     "SubmissionResultLiteral",
     "ReviewStatusLiteral",
     "AbnormalTypeLiteral",
-    "ReviewDecisionLiteral",
-    "SubmissionReviewRequest",
-    "SubmissionBatchReviewRequest",
-    "BatchReviewResultItem",
-    "SubmissionBatchReviewResponse",
     "ExpectedCountUpdateRequest",
 ]

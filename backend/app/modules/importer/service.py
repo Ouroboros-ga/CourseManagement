@@ -233,7 +233,10 @@ class ImporterService:
         else:
             try:
                 rows = read_tabular_rows(
-                    content, required_headers=iperm.required_headers(target), include_source=True
+                    content,
+                    required_headers=iperm.required_headers(target),
+                    include_source=True,
+                    max_rows=settings.import_max_rows,
                 )
             except ValueError as exc:
                 raise AppError(
@@ -254,11 +257,12 @@ class ImporterService:
                 )
 
             if target == ImportTarget.ROSTER.value:
-                payload, issues, summary = self._parse_roster(rows, teaching_class_id)
+                payload, issues, summary = self._parse_roster(rows, teaching_class_id, replace)
             elif target == ImportTarget.VOLUNTEER.value:
                 payload, issues, summary = self._parse_volunteer(rows, semester_id)
             elif target == ImportTarget.ELECTIVE_COURSE.value:
                 payload, issues, summary = self._parse_elective_course(rows, semester_id)
+                payload["preserve_existing"] = True
             else:
                 payload, issues, summary = self._parse_timetable(rows, semester_id)
 
@@ -361,7 +365,10 @@ class ImporterService:
 
     # ---- 解析器：产出 (payload, issues, summary) ----
     def _parse_roster(
-        self, rows: list[dict[str, str]], teaching_class_id: int | None
+        self,
+        rows: list[dict[str, str]],
+        teaching_class_id: int | None,
+        replace: bool = False,
     ) -> tuple[dict, list[dict], dict]:
         issues: list[dict] = []
         seen: dict[str, int] = {}
@@ -392,8 +399,23 @@ class ImporterService:
                 continue
             student_nos.append(no)
             student_sources[no] = {"row": idx, "sheet": raw.get("_source_sheet")}
-        payload = {"student_nos": student_nos, "student_sources": student_sources,
-                   "replace": bool(teaching_class_id)}
+        payload = {
+            "student_nos": student_nos,
+            "student_sources": student_sources,
+            # 名单导入只做补充/差异确认：未出现在文件中的现有成员一律保留。
+            # 减少成员必须走显式差异确认或学籍异动流程，不能靠 replace 隐式整体覆盖。
+            "preserve_existing": True,
+            "replace": False,
+        }
+        if replace:
+            issues.append(
+                _issue(
+                    "roster_additive_only",
+                    "名单导入按补充语义执行，未出现在本文件中的现有成员不会被删除；"
+                    "需要减少成员请改用学生数据差异预览与学籍异动流程。",
+                    severity="warning",
+                )
+            )
         summary = {"row_total": len(rows), "student_total": len(student_nos)}
         return payload, issues, summary
 

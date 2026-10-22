@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.core.database import utcnow
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ErrorCode, NotFoundError
+from app.modules.attendance.effect_scope import see_withdrawn
 from app.modules.attendance.models import AttendanceRecord
 from app.modules.inspection import permissions as perms
 from app.modules.inspection.models import InspectionSubmission, TaskDeadlineAssessment, TaskScheduleSource
@@ -59,9 +60,12 @@ def restore_task(
     if start_at is None or start_at <= now:
         raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已开始或缺少开始时刻，不能恢复")
     for model in (InspectionSubmission, AttendanceRecord, TaskDeadlineAssessment):
+        # 已撤回的考勤仍是历史事实，任务不得恢复成可再次执行的活任务；该放行选项对其他模型无副作用。
         if (
             service._session.execute(
-                select(model.id).where(model.task_id == task.id).limit(1).with_for_update()
+                see_withdrawn(
+                    select(model.id).where(model.task_id == task.id).limit(1).with_for_update()
+                )
             ).first()
             is not None
         ):

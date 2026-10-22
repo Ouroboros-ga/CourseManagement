@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.core.database import Base, utcnow
 from app.core.exceptions import ConflictError, NotFoundError
 from app.modules.academic.campus_models import CourseType
+from app.modules.attendance.effect_scope import see_withdrawn
 from app.modules.attendance.models import AttendanceRecord
 from app.modules.audit.models import AuditLog
 from app.modules.identity.role_scope import business_today
@@ -72,22 +73,24 @@ def preview(service, actor, cid, kind, rid):
         refs["inspection_task_snapshot"] = True
     pending = list(
         service.db.scalars(
-            select(InspectionTask.id)
-            .where(
-                InspectionTask.college_id == cid,
-                column == rid,
-                InspectionTask.inspection_date >= business_today(),
-                InspectionTask.canceled_at.is_(None),
-                InspectionTask.deleted_at.is_(None),
-                ~select(InspectionSubmission.id)
-                .where(InspectionSubmission.task_id == InspectionTask.id)
-                .exists(),
-                ~select(AttendanceRecord.id)
-                .where(AttendanceRecord.task_id == InspectionTask.id)
-                .exists(),
+            see_withdrawn(
+                select(InspectionTask.id)
+                .where(
+                    InspectionTask.college_id == cid,
+                    column == rid,
+                    InspectionTask.inspection_date >= business_today(),
+                    InspectionTask.canceled_at.is_(None),
+                    InspectionTask.deleted_at.is_(None),
+                    ~select(InspectionSubmission.id)
+                    .where(InspectionSubmission.task_id == InspectionTask.id)
+                    .exists(),
+                    ~select(AttendanceRecord.id)
+                    .where(AttendanceRecord.task_id == InspectionTask.id)
+                    .exists(),
+                )
+                .order_by(InspectionTask.id)
+                .with_for_update(read=True)
             )
-            .order_by(InspectionTask.id)
-            .with_for_update(read=True)
         )
     )
     mode = "RETAIN_HISTORY" if refs or getattr(row, "builtin_key", None) else "PERMANENT"

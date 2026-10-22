@@ -23,6 +23,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.academic.models import TeachingClass
+from app.modules.attendance.effect_scope import see_withdrawn
 from app.modules.attendance.models import AttendanceRecord
 from app.modules.file.models import FileCategory, FileObject
 from app.modules.identity.role_scope import business_today
@@ -106,12 +107,15 @@ def can_staff_access_file(session: Session, actor_user_id: int, file: FileObject
 
     # 3. 异议证明材料 OBJECTION_PROOF
     if file.category == FileCategory.OBJECTION_PROOF.value:
+        # 材料可达性经的考勤锚点可能已撤回；证据本身仍须可读，故显式放行隐身行。
         rows = session.execute(
-            select(Objection, InspectionTask)
-            .join(ObjectionFile, ObjectionFile.objection_id == Objection.id)
-            .join(AttendanceRecord, AttendanceRecord.id == Objection.attendance_record_id)
-            .join(InspectionTask, InspectionTask.id == AttendanceRecord.task_id)
-            .where(ObjectionFile.file_id == file.id)
+            see_withdrawn(
+                select(Objection, InspectionTask)
+                .join(ObjectionFile, ObjectionFile.objection_id == Objection.id)
+                .join(AttendanceRecord, AttendanceRecord.id == Objection.attendance_record_id)
+                .join(InspectionTask, InspectionTask.id == AttendanceRecord.task_id)
+                .where(ObjectionFile.file_id == file.id)
+            )
         ).all()
         if not rows:
             return False

@@ -227,7 +227,7 @@ class AttendanceService:
         return sid is not None and sid == record.student_id
 
     # ================================================================== #
-    # 更正（attendance.correct，仅超管/教师）
+    # 更正（attendance.correct，超管/教师/有效任命的学生工作负责人）
     # ================================================================== #
     def correct(
         self,

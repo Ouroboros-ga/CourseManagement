@@ -15,7 +15,7 @@
   </view>
 
   <!-- 待执行状态 -->
-  <block wx:if="{{task.status === '待执行'}}">
+  <block wx:if="{{task.status === '待执行' || reviseMode}}">
     <t-notice-bar wx:if="{{task.assignment && task.assignment.change_request_status === 'PENDING'}}" visible="{{true}}" theme="warning" content="您已提交调班申请（审核中）：{{task.assignment.change_request_reason || '未填写理由'}}，等待管理员改派。" />
     <t-notice-bar wx:elif="{{task.assignment && task.assignment.change_request_status === 'REJECTED'}}" visible="{{true}}" theme="error" content="调班申请被驳回：{{task.assignment.change_request_comment || '无'}}。如需可再次申请或联系管理员。" />
     <t-notice-bar wx:elif="{{task.isFuture}}" visible="{{true}}" theme="warning" content="该任务查课日期为 {{task.inspection_date || task.date}}，只能在查课当天及以后上传数据。" />
@@ -134,6 +134,15 @@
           </view>
         </view>
       </block>
+
+      <view wx:if="{{canAmend}}" class="amend-bar">
+        <t-button size="small" variant="outline" bindtap="onStartRevise">修改本次查课</t-button>
+        <t-button size="small" variant="outline" bindtap="onWithdraw">撤回本次查课</t-button>
+      </view>
+      <view wx:if="{{canAmend}}" class="desc">本人可在 {{amendDeadlineStr}} 前撤回或修改；管理员已接手时服务端会拒绝。</view>
+      <view wx:if="{{reviseMode}}" class="desc">修改中：重新提交会生成新的有效结论，原提交与照片保留为历史。
+        <text bindtap="onCancelRevise"> 取消修改</text>
+      </view>
     </block>
   </view>
 

@@ -5,6 +5,7 @@ from sqlalchemy import select
 from app.core.database import utcnow
 from app.core.exceptions import ConflictError, NotFoundError
 from app.modules.academic.models import Semester
+from app.modules.attendance.effect_scope import see_withdrawn
 from app.modules.attendance.models import AttendanceRecord
 from app.modules.inspection.assignment_fingerprint import fingerprint
 from app.modules.inspection.models import (
@@ -59,9 +60,12 @@ def preview(service, actor, ids):
     ):
         # Permission reads may already have established an RR snapshot. Current reads
         # must see execution facts committed before we acquired the task locks.
+        # 已撤回的考勤仍算历史事实，必须保留任务；该放行选项对其他模型无副作用。
         retained.update(
             db.scalars(
-                select(model.task_id).where(model.task_id.in_(ids)).with_for_update(read=True)
+                see_withdrawn(
+                    select(model.task_id).where(model.task_id.in_(ids)).with_for_update(read=True)
+                )
             )
         )
     retained.update(

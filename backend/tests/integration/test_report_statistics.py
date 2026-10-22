@@ -18,14 +18,17 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from app.core.database import utcnow
+from app.core.database import session_scope, utcnow
 from app.core.permissions import RoleCode
 from app.core.security import hash_password
+from app.modules.academic.enrollment_models import CourseParticipation, StudentEnrollment
+from app.modules.academic.models import AdministrativeClass
 from app.modules.identity.models import Role, UserAccount, UserStatus
 from app.modules.identity.seed import sync_registry
 from app.modules.inspection.models import InspectionTask, SubmissionDeadlineDay
+from app.modules.organization.models import College, School
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 pytestmark = pytest.mark.integration
@@ -49,6 +52,40 @@ _MON2_D = date_(2026, 9, 14)
 def _bootstrap(session: Session) -> None:
     sync_registry(session)
     session.commit()
+
+
+def _seed_college_scope(on_date: date_) -> None:
+    """把本场景补成现行的学院作用域与在读区间。
+
+    旧建档 API 只写学院名文本，AdministrativeClass.college_id 留空；学籍与选课参与记录的
+    effective_from 又固定写 business_today()。现行规则一律按执行日核对：college_id 为空或
+    区间不覆盖查课日时，RosterIndex.at() 会把学生整批排除出正式名单（表现为 expected_count=0
+    与提交 422 not_in_roster），qualification_policy.qualified_on 也直接判无资格。
+    每个用例都是新建 schema，按场景整体补齐不会跨用例串味。
+    """
+    with session_scope() as s:
+        if s.execute(select(College).limit(1)).scalar_one_or_none() is None:
+            s.add(School(id=1, code="FIXTURE", name="夹具学校"))
+            s.flush()
+            s.add(College(id=1, school_id=1, code="CS", name="计算机学院"))
+    since = on_date - timedelta(days=7)
+    with session_scope() as s:
+        s.execute(
+            update(AdministrativeClass)
+            .where(AdministrativeClass.college_id.is_(None))
+            .values(college_id=1)
+        )
+        s.execute(
+            update(StudentEnrollment)
+            .where(StudentEnrollment.effective_from > on_date)
+            .values(effective_from=since)
+        )
+        s.execute(
+            update(CourseParticipation)
+            .where(CourseParticipation.effective_from > on_date)
+            .values(effective_from=since)
+        )
+
 
 
 def _role(session: Session, code: str) -> Role:
@@ -269,6 +306,7 @@ def _make_volunteer_for_task(
 ) -> dict[str, str]:
     other = _create_admin_class(client, h, f"VCLASS_{username}")
     sid = _create_student(client, h, f"V{username}", other)
+    _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sem_id, sid)
     vol = _make_user(session, username, [RoleCode.VOLUNTEER.value], student_id=sid)
     _assign(client, h, session, task_id, vol.id)
@@ -381,6 +419,7 @@ def _scene2(
         enrolled.append(s3)
     _enroll(client, h, t1, enrolled)
     _schedule(client, h, t1, 1, 2, "A101", 1)
+    _seed_college_scope(date_.fromisoformat(_MON1))
     assert _gen_course(client, h, sem_id, [t1], [1]) == 1
 
     t2 = s4 = s5 = None
@@ -391,6 +430,7 @@ def _scene2(
         t2 = _create_tc(client, h, sem_id, course, "T2")
         _enroll(client, h, t2, [s4, s5])
         _schedule(client, h, t2, 1, 2, "B201", 2)
+        _seed_college_scope(date_.fromisoformat(_MON1))
         assert _gen_course(client, h, sem_id, [t2], [2]) == 1
 
     tasks = _list_tasks(client, h, sem_id)
@@ -764,6 +804,7 @@ def test_window_missing_422(client: TestClient, session: Session) -> None:
 
 def test_export_attendance_analytics_excel(client: TestClient, session: Session) -> None:
     import io
+
     from openpyxl import load_workbook
 
     h = _admin_headers(client, session)

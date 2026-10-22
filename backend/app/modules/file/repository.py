@@ -159,6 +159,7 @@ class FileRepository:
         return bool(self._session.execute(stmt).scalar_one())
 
     def is_linked_to_own_attendance(self, *, file_id: int, actor_user_id: int) -> bool:
+        from app.modules.attendance.effect_scope import see_withdrawn
         from app.modules.attendance.evidence import attendance_photo_query
         from app.modules.attendance.models import AttendanceRecord
         from app.modules.identity.models import UserAccount
@@ -173,7 +174,10 @@ class FileRepository:
                 SubmissionFile.file_id == file_id,
             )
         )
-        return bool(self._session.execute(select(exists(linked))).scalar_one())
+        # 证据可达性看的是"曾据以生成"，不是"结论是否仍有效"：撤回后本人仍能读自己的照片。
+        return bool(
+            self._session.execute(see_withdrawn(select(exists(linked)))).scalar_one()
+        )
 
     def is_linked_to_readable_objection_for(
         self, *, file_id: int, actor_user_id: int, may_manage: bool, may_read_own: bool,
@@ -186,6 +190,7 @@ class FileRepository:
 
         from sqlalchemy import false, or_
 
+        from app.modules.attendance.effect_scope import see_withdrawn
         from app.modules.attendance.models import AttendanceRecord
         from app.modules.identity.models import UserAccount
         from app.modules.inspection.models import InspectionTask
@@ -210,7 +215,9 @@ class FileRepository:
         linked = linked.where(
             Objection.student_id == AttendanceRecord.student_id, or_(managed, own)
         )
-        return bool(self._session.execute(select(exists(linked))).scalar_one())
+        return bool(
+            self._session.execute(see_withdrawn(select(exists(linked)))).scalar_one()
+        )
 
     def is_linked_to_pending_objection(self, file_id: int) -> bool:
         """保留期已过时，未结案异议关联的证明材料仍可读取。"""

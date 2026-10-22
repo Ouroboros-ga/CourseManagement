@@ -8,10 +8,10 @@ import random
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.core.exceptions import AppError, ConflictError, ErrorCode
-from app.modules.inspection.models import InspectionTask
+from app.modules.inspection.models import InspectionTask, TaskScheduleSource
 from app.modules.inspection.schemas import (
     CourseOccurrenceScope,
     InspectionGenerateRequest,
@@ -33,6 +33,91 @@ def occurrence_location_terms(service, items) -> list[tuple[str, int]]:
     if not keys:
         return []
     return selection_summary_terms(service._session, keys)
+
+
+
+def structural_duplicate_items(session, *, semester_id: int, items) -> list:
+    """按真实课次结构找出与既有有效任务重复的计划项。
+
+    `task_key` 是"学期+日期+类型+节次+目标标识"的派生字符串，历史上换过口径（共享课身份
+    规范化、学院/课程类型后缀、非规范遗留值），同一堂真实课因此能建出第二个任务，各自排班、
+    各自生成考勤，两道 key 守卫都拦不住（B3）。这里以课次的结构事实为准：目标课次来源
+    （`task_schedule_source` / `course_schedule_id`）或自习的行政班，同学期、同日、同类型
+    且节次区间相交即视为同一课次。不批量改写历史 `task_key`，也不自动清理既有任务；
+    冲突原样返回给调用方显式处置。
+    """
+    from app.modules.inspection.service import PlanItem  # noqa: F401  仅类型说明
+
+    def item_source_ids(item) -> set[int]:
+        return set(
+            item.constituent_schedule_ids
+            or ([item.course_schedule_id] if item.course_schedule_id else [])
+        )
+
+    course_ids: set[int] = set()
+    class_ids: set[int] = set()
+    for item in items:
+        course_ids |= item_source_ids(item)
+        if item.administrative_class_id is not None:
+            class_ids.add(item.administrative_class_id)
+    if not (course_ids or class_ids):
+        return []
+
+    conds = []
+    if course_ids:
+        conds.append(InspectionTask.course_schedule_id.in_(course_ids))
+        conds.append(
+            select(TaskScheduleSource.task_id)
+            .where(TaskScheduleSource.course_schedule_id.in_(course_ids))
+            .correlate(InspectionTask)
+            .exists()
+        )
+    if class_ids:
+        conds.append(InspectionTask.administrative_class_id.in_(class_ids))
+    existing = list(
+        session.scalars(
+            select(InspectionTask)
+            .where(
+                InspectionTask.semester_id == semester_id,
+                InspectionTask.canceled_at.is_(None),
+                InspectionTask.deleted_at.is_(None),
+                or_(*conds),
+            )
+            .order_by(InspectionTask.id)
+        )
+    )
+    if not existing:
+        return []
+
+    sources: dict[int, set[int]] = defaultdict(set)
+    for task_id, schedule_id in session.execute(
+        select(TaskScheduleSource.task_id, TaskScheduleSource.course_schedule_id).where(
+            TaskScheduleSource.task_id.in_([task.id for task in existing])
+        )
+    ):
+        sources[task_id].add(schedule_id)
+
+    clashes = []
+    for item in items:
+        mine = item_source_ids(item)
+        for task in existing:
+            if task.task_key == item.task_key or task.inspection_date != item.inspection_date:
+                continue
+            if task.inspection_type != item.inspection_type:
+                continue
+            if not (task.start_period <= item.end_period and item.start_period <= task.end_period):
+                continue
+            theirs = sources[task.id]
+            if task.course_schedule_id is not None:
+                theirs.add(task.course_schedule_id)
+            same_class = (
+                item.administrative_class_id is not None
+                and item.administrative_class_id == task.administrative_class_id
+            )
+            if (mine and theirs and mine & theirs) or (not mine and same_class):
+                clashes.append((item, task))
+                break
+    return clashes
 
 
 def build_scope(

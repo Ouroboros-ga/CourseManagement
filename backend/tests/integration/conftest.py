@@ -1,7 +1,10 @@
 """集成测试夹具：连接隔离的 MySQL 测试库。
 
 技术方案 27：约束/事务/并发验证必须连真实 MySQL 实例，不能靠 SQLite 通过。
-若 Docker MySQL 未就绪则整套集成测试自动跳过，不影响离线单测。
+
+缺库**默认失败**，不静默跳过：整套集成被 skip 仍显示绿色，会让人把"没跑过"
+读成"跑过了"。确实要在无 MySQL 的机器上跳过时，显式设 CM_ALLOW_MISSING_TEST_DB=1；
+CI 不设该变量，因此集成测试在 CI 里必然真实执行。
 """
 
 from __future__ import annotations
@@ -51,6 +54,18 @@ def _assert_isolated_test_db(url: str) -> None:
             f"TEST_DATABASE_URL 指向的库名 '{database}' 不以 '_test' 结尾，"
             "拒绝在疑似业务/生产库上执行破坏性夹具。请改用专用测试库。"
         )
+    # 第二道闸：即使命名巧合，也绝不允许指向应用自己连的那套库。
+    app_url = os.environ.get("DATABASE_URL", "")
+    if app_url:
+        try:
+            app_db = make_url(app_url).database or ""
+        except Exception:  # noqa: BLE001 - 无法解析时按不匹配处理，交给上层校验
+            app_db = ""
+        if app_db and app_db == database:
+            raise RuntimeError(
+                f"TEST_DATABASE_URL 与 DATABASE_URL 指向同一个库 '{database}'，"
+                "拒绝在业务库上执行 drop_all。请为集成测试单独建 *_test 库。"
+            )
 
 
 _assert_isolated_test_db(TEST_DB_URL)
@@ -60,13 +75,28 @@ def _test_engine() -> Engine:
     return create_engine(TEST_DB_URL, pool_pre_ping=True, future=True)
 
 
+def _missing_db(reason: str) -> None:
+    """缺库时的统一处置：默认硬失败，只有显式开关才允许跳过。"""
+    if os.environ.get("CM_ALLOW_MISSING_TEST_DB") == "1":
+        pytest.skip(f"MySQL 测试库不可用（CM_ALLOW_MISSING_TEST_DB=1 显式放行）：{reason}")
+    pytest.fail(
+        "MySQL 集成测试无法执行，且未被显式允许跳过。\n"
+        f"  目标库：{make_url(TEST_DB_URL).database}\n"
+        f"  原因：{reason}\n"
+        "  本机调试请启动 deploy/docker-compose.yml 的 MySQL 并设 TEST_DATABASE_URL，\n"
+        "  或临时设 CM_ALLOW_MISSING_TEST_DB=1（CI 不接受该变量，集成测试必须真跑）。",
+        pytrace=False,
+    )
+
+
 @pytest.fixture(scope="session")
 def engine() -> Engine:
     try:
         eng = _test_engine()
         eng.connect().close()
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"MySQL 测试库不可用，跳过集成测试：{exc}")
+    except Exception as exc:  # noqa: BLE001 - 连接失败统一转成明确的失败或跳过
+        _missing_db(str(exc))
+        raise
     return eng
 
 
