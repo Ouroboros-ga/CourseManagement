@@ -30,6 +30,8 @@ from app.core.database import utcnow
 from app.core.exceptions import ErrorCode
 from app.core.permissions import RoleCode
 from app.core.security import hash_password
+from app.modules.academic.enrollment_models import CourseParticipation, StudentEnrollment
+from app.modules.academic.models import AdministrativeClass
 from app.modules.attendance.models import (
     AttendanceRecord,
     AttendanceRecordVersion,
@@ -49,8 +51,9 @@ from app.modules.objection.models import (
     ObjectionInitialStatus,
 )
 from app.modules.objection.service import ObjectionService
+from app.modules.organization.models import College, School
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -124,7 +127,24 @@ def _admin_headers(client: TestClient, session: Session) -> dict[str, str]:
     return _bearer(_login(client, "admin"))
 
 
-def _create_admin_class(client: TestClient, h: dict[str, str], code: str) -> int:
+def _seed_college(session: Session) -> int:
+    """补出真实学院归属。
+
+    AdministrativeClass.college_id 由名单导入或学院工作区写入，旧
+    POST /academic/administrative-classes 只写学院名文本；学籍行的 college_id
+    继承行政班，而 qualification_policy.qualified_on 见 college_id 为空即判无资格。
+    """
+    college = session.execute(select(College).limit(1)).scalar_one_or_none()
+    if college is None:
+        session.add(School(id=1, code="FIXTURE", name="夹具学校"))
+        session.flush()
+        college = College(id=1, school_id=1, code="CS", name="计算机学院")
+        session.add(college)
+    session.commit()
+    return int(college.id)
+
+
+def _create_admin_class(client: TestClient, h: dict[str, str], session: Session, code: str) -> int:
     d = _post(
         client,
         h,
@@ -136,7 +156,15 @@ def _create_admin_class(client: TestClient, h: dict[str, str], code: str) -> int
             "grade_year": 2024,
         },
     )
-    return int(d["id"])
+    cid = int(d["id"])
+    college_id = _seed_college(session)
+    session.execute(
+        update(AdministrativeClass)
+        .where(AdministrativeClass.id == cid)
+        .values(college_id=college_id)
+    )
+    session.commit()
+    return cid
 
 
 def _create_student(client: TestClient, h: dict[str, str], no: str, class_id: int) -> int:
@@ -245,7 +273,70 @@ def _grant_qual(client: TestClient, h: dict[str, str], sem_id: int, student_id: 
     assert rp.status_code == 200, rp.text
 
 
-def _scene(client: TestClient, h: dict[str, str]) -> dict:
+def _seed_enrollment_from(
+    session: Session, student_ids: list[int], on_date: date_
+) -> None:
+    """把在读区间起点前移到查课日之前。
+
+    API 建档时基线学籍行的 effective_from 固定写 business_today()，而本文件的查课日
+    是第 1 周周一。现行规则一律按执行日核对：qualification_policy.qualified_on 见学籍
+    区间不覆盖执行日即判无资格，RosterIndex.at() 则把区间不覆盖执行日的学生整批排除出
+    名单（表现为 expected_count=0、异常明细 422 not_in_roster）。真实部署里学生早在
+    开学前就建档选课，夹具必须同样 seed。
+    """
+    since = on_date - timedelta(days=7)
+    session.execute(
+        update(StudentEnrollment)
+        .where(StudentEnrollment.student_id.in_(student_ids))
+        .values(effective_from=since)
+    )
+    session.execute(
+        update(CourseParticipation)
+        .where(CourseParticipation.student_id.in_(student_ids))
+        .values(effective_from=since)
+    )
+    session.commit()
+
+
+def _bind_volunteer_account(session: Session, student_id: int, username: str) -> UserAccount:
+    """复用学期资格自动建立的绑定账号，只补登录凭据。
+
+    首次授予有效资格时服务已在同事务建号并授予 VOLUNTEER（PERMISSIONS.md 1.4/1.5）；
+    再插一个 student_id 相同的账号会撞 user_account.uq_user_account_student_id。
+    """
+    acct = session.execute(
+        select(UserAccount).where(UserAccount.student_id == student_id)
+    ).scalar_one()
+    acct.username = username
+    acct.display_name = username
+    acct.password_hash = hash_password(_PWD)
+    session.commit()
+    return acct
+
+
+def _make_manager(client, h, session, username: str = "sam") -> UserAccount:
+    """建一个真正可用的学生工作负责人。
+
+    任命行只在角色赋值时同事务创建（identity/service.py），而负责人的读取范围与可选
+    权限都要求 active_manager_appointment 命中今天的在读学院学籍；直接插一个带 SAM 角色
+    的账号没有任命，一律 403。负责人本人也必须是绑定学生且有学院归属的学籍，且账号建号时
+    不能带 STUDENT 角色——policy.can_change_roles 对触及 STUDENT/VOLUNTEER 的差集一律拒绝。
+    """
+    klass = _create_admin_class(client, h, session, f"SAMCLASS_{username}")
+    sid = _create_student(client, h, f"M{username}", klass)
+    _seed_enrollment_from(session, [sid], _MON1_D)
+    acct = _make_user(session, username, [], student_id=sid)
+    r = client.put(
+        f"/api/v1/users/{acct.id}/roles",
+        headers=h,
+        json={"roles": [RoleCode.STUDENT_AFFAIRS_MANAGER.value], "lockVersion": acct.lock_version},
+    )
+    assert r.status_code == 200, r.text
+    session.expire_all()
+    return session.get(UserAccount, acct.id)
+
+
+def _scene(client: TestClient, h: dict[str, str], session: Session) -> dict:
     """ACTIVE 学期 + 被查班 CS2401(两生 S001/S002) + 教学班 T1，生成 1 任务、1 日截止。"""
     sem = _post(
         client,
@@ -261,12 +352,13 @@ def _scene(client: TestClient, h: dict[str, str]) -> dict:
         },
     )
     sem_id = int(sem["id"])
-    cs = _create_admin_class(client, h, "CS2401")
+    cs = _create_admin_class(client, h, session, "CS2401")
     s1 = _create_student(client, h, "S001", cs)
     s2 = _create_student(client, h, "S002", cs)
     course = _create_course(client, h, "C001")
     t1 = _create_tc(client, h, sem_id, course, "T1")
     _enroll(client, h, t1, [s1, s2])
+    _seed_enrollment_from(session, [s1, s2], _MON1_D)
     _schedule(client, h, t1, 1, 2, "A101")
     assert _gen_course(client, h, sem_id, [t1]) == 1
     tasks = _list_tasks(client, h, sem_id)
@@ -282,10 +374,11 @@ def _scene(client: TestClient, h: dict[str, str]) -> dict:
 
 
 def _make_volunteer(client, h, session, sc, username="vol"):
-    other = _create_admin_class(client, h, f"VCLASS_{username}")
+    other = _create_admin_class(client, h, session, f"VCLASS_{username}")
     sid = _create_student(client, h, f"V{username}", other)
+    _seed_enrollment_from(session, [sid], _MON1_D)
     _grant_qual(client, h, sc["sem_id"], sid)
-    vol = _make_user(session, username, [RoleCode.VOLUNTEER.value], student_id=sid)
+    vol = _bind_volunteer_account(session, sid, username)
     _assign(client, h, sc["task_id"], vol.id)
     return vol, _bearer(_login(client, username))
 
@@ -337,13 +430,12 @@ def _pending_submission(client, h, session, sc, *, abnormal: bool = False) -> in
 
 
 def _approve_setup(client, h, session, sc) -> dict[int, int]:
-    """提交 ABNORMAL + 审核通过 → {student_id: attendance_record_id}（s1=LATE、s2=NORMAL）。"""
-    sub_id = _pending_submission(client, h, session, sc, abnormal=True)
-    assert (
-        client.post(_review_url(sub_id), headers=h, json={"decision": "APPROVED"}).status_code
-        == 200
-    )
-    return {r.student_id: r.id for r in _records(session, sc["task_id"])}
+    """提交 ABNORMAL 即定稿（45e850b 起志愿者提交自动生成正式考勤，不再有审核闸口）
+    → {student_id: attendance_record_id}（s1=LATE、s2=NORMAL）。"""
+    _pending_submission(client, h, session, sc, abnormal=True)
+    recs = {r.student_id: r.id for r in _records(session, sc["task_id"])}
+    assert set(recs) == {sc["s1"], sc["s2"]}, recs
+    return recs
 
 
 def _make_student(session: Session, sc, which: str) -> UserAccount:
@@ -459,7 +551,7 @@ def test_create_requires_auth_401(client: TestClient) -> None:
 
 def test_create_student_ok_anchors_base_version(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     rid = rec_ids[sc["s2"]]  # NORMAL, current_version 1
     _, sh = _student_headers(client, session, sc, "s2")
@@ -476,7 +568,7 @@ def test_create_student_ok_anchors_base_version(client: TestClient, session: Ses
 def test_create_other_students_record_404(client: TestClient, session: Session) -> None:
     # s1 学生去碰 s2 的考勤：他人记录与不存在统一 404，防枚举。
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     _, sh = _student_headers(client, session, sc, "s1")
     r = client.post(
@@ -489,7 +581,7 @@ def test_create_other_students_record_404(client: TestClient, session: Session) 
 
 def test_create_missing_record_404(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     _make_student(session, sc, "s1")
     sh = _relogin(client, sc, "s1")
     r = client.post(
@@ -502,7 +594,7 @@ def test_create_missing_record_404(client: TestClient, session: Session) -> None
 
 def test_create_desired_equals_current_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     _, sh = _student_headers(client, session, sc, "s2")  # s2=NORMAL
     r = client.post(
@@ -515,7 +607,7 @@ def test_create_desired_equals_current_422(client: TestClient, session: Session)
 
 def test_create_duplicate_open_conflict_409(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     _, sh = _student_headers(client, session, sc, "s2")
     _create_objection(client, sh, rec_ids[sc["s2"]], desired="LATE")
@@ -532,7 +624,7 @@ def test_create_window_closed_conflict(
     client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     rid = rec_ids[sc["s2"]]
     # 回溯考勤生成时刻到 10 天前，并收紧窗口到 1 天 → 超期。
@@ -557,7 +649,7 @@ def test_create_window_closed_conflict(
 
 def test_create_bad_proof_file_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     acct, sh = _student_headers(client, session, sc, "s2")
     # 材料不存在（无对应文件行）→ 校验材料非法 422。
@@ -572,7 +664,7 @@ def test_create_bad_proof_file_422(client: TestClient, session: Session) -> None
 
 def test_create_links_valid_proof_files(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     acct, sh = _student_headers(client, session, sc, "s2")
     f1 = _make_proof_file(session, uploader_id=acct.id, key="pf1")
@@ -591,7 +683,7 @@ def test_objection_proof_access_follows_review_permission_and_ownership(
     client: TestClient, session: Session
 ) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     student, sh = _student_headers(client, session, sc, "s2")
     proof = _make_proof_file(session, uploader_id=student.id, key="review-proof")
@@ -605,7 +697,7 @@ def test_objection_proof_access_follows_review_permission_and_ownership(
     _, other = _student_headers(client, session, sc, "s1")
     assert client.get(url, headers=other).status_code == 404
 
-    sam = _make_user(session, "proof-reviewer", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
+    sam = _make_manager(client, h, session, "proof-reviewer")
     sam_h = _bearer(_login(client, "proof-reviewer"))
     assert client.get(url, headers=sam_h).status_code == 200
     grant = client.put(
@@ -614,7 +706,10 @@ def test_objection_proof_access_follows_review_permission_and_ownership(
         json={"enabled": True, "lockVersion": sam.lock_version, "reason": "负责初核"},
     )
     assert grant.status_code == 200, grant.text
+    # 可选权限变更会同事务撤销旧会话（identity/service.py），必须重新取令牌再验证访问。
+    sam_h = _bearer(_login(client, "proof-reviewer"))
     assert client.get(url, headers=sam_h).status_code == 200
+    session.commit()
     session.refresh(sam)
     revoke = client.put(
         f"/api/v1/users/{sam.id}/optional-permissions/objection.initial_review",
@@ -622,6 +717,7 @@ def test_objection_proof_access_follows_review_permission_and_ownership(
         json={"enabled": False, "lockVersion": sam.lock_version, "reason": "收回初核"},
     )
     assert revoke.status_code == 200, revoke.text
+    sam_h = _bearer(_login(client, "proof-reviewer"))
     assert client.get(url, headers=sam_h).status_code == 200
 
 
@@ -630,7 +726,7 @@ def test_objection_proof_access_follows_review_permission_and_ownership(
 # --------------------------------------------------------------------------- #
 def test_list_own_scope_only(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     # s1（LATE→NORMAL）与 s2（NORMAL→LATE）各提一条异议。
     _, sh1 = _student_headers(client, session, sc, "s1")
@@ -646,7 +742,7 @@ def test_list_own_scope_only(client: TestClient, session: Session) -> None:
 
 def test_detail_anti_enumeration_404(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, _ = _open_objection(client, h, session, sc, which="s2")
     _, sh1 = _student_headers(client, session, sc, "s1")  # 另一生
     r = client.get(f"{_OBJS}/{oid}", headers=sh1)
@@ -659,9 +755,9 @@ def test_detail_anti_enumeration_404(client: TestClient, session: Session) -> No
 
 def test_sam_default_can_read(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     _open_objection(client, h, session, sc, which="s2")
-    _make_user(session, "sam", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
+    _make_manager(client, h, session)
     sam = _bearer(_login(client, "sam"))
     r = client.get(_OBJS, headers=sam)
     assert r.status_code == 200, r.text
@@ -669,7 +765,7 @@ def test_sam_default_can_read(client: TestClient, session: Session) -> None:
 
 def test_unbound_student_cannot_list_all_objections(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     _open_objection(client, h, session, sc, which="s2")
     _make_user(session, "unbound", [RoleCode.STUDENT.value])
     response = client.get(_OBJS, headers=_bearer(_login(client, "unbound")))
@@ -678,9 +774,9 @@ def test_unbound_student_cannot_list_all_objections(client: TestClient, session:
 
 def test_sam_derived_read_after_initial_review_grant(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     _open_objection(client, h, session, sc, which="s2")
-    sam = _make_user(session, "sam", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
+    sam = _make_manager(client, h, session)
     sam_h = _bearer(_login(client, "sam"))
     assert client.get(_OBJS, headers=sam_h).status_code == 200  # 默认一次审核权限派生管理读取
     # 超管授予可选 objection.initial_review → 派生管理读取。
@@ -695,6 +791,8 @@ def test_sam_derived_read_after_initial_review_grant(client: TestClient, session
     listed = client.get(_OBJS, headers=sam_h2).json()["data"]
     assert listed["total"] == 1  # 管理范围
     # 关闭旧初核权限不影响默认一次审核权限。
+    # REPEATABLE READ：夹具会话的快照停在客户端提交之前，必须先结束事务再读当前版本号。
+    session.commit()
     after = session.execute(select(UserAccount).where(UserAccount.id == sam.id)).scalar_one()
     session.refresh(after)
     r2 = client.put(
@@ -712,7 +810,7 @@ def test_sam_derived_read_after_initial_review_grant(client: TestClient, session
 # --------------------------------------------------------------------------- #
 def test_initial_review_needs_permission_403(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, _ = _open_objection(client, h, session, sc, which="s2")
     sh = _relogin(client, sc, "s2")
     r = client.post(_initial_url(oid), headers=sh, json={"decision": "PASSED"})
@@ -721,7 +819,7 @@ def test_initial_review_needs_permission_403(client: TestClient, session: Sessio
 
 def test_legacy_initial_review_rejected_without_mutation(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, rid = _open_objection(client, h, session, sc, which="s2", desired="LATE")
     r = client.post(
         _initial_url(oid), headers=h, json={"decision": "PASSED", "comment": "建议支持"}
@@ -736,7 +834,7 @@ def test_legacy_initial_review_rejected_without_mutation(client: TestClient, ses
 
 def test_initial_review_twice_conflict_409(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, _ = _open_objection(client, h, session, sc, which="s2")
     assert client.post(_initial_url(oid), headers=h, json={"decision": "PASSED"}).status_code == 409
     r = client.post(_initial_url(oid), headers=h, json={"decision": "REJECTED"})
@@ -749,7 +847,7 @@ def test_initial_review_twice_conflict_409(client: TestClient, session: Session)
 # --------------------------------------------------------------------------- #
 def test_final_review_reject_keeps_attendance(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, rid = _open_objection(client, h, session, sc, which="s2", desired="LATE")
     r = client.post(
         _final_url(oid),
@@ -766,7 +864,7 @@ def test_final_review_reject_keeps_attendance(client: TestClient, session: Sessi
 
 def test_final_review_approve_corrects_attendance(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, rid = _open_objection(client, h, session, sc, which="s2", desired="LATE")
     # 一次审核直接更正为 LATE。
     r = client.post(
@@ -795,7 +893,7 @@ def test_final_review_approve_corrects_attendance(client: TestClient, session: S
 
 def test_final_review_approve_no_correction(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, rid = _open_objection(client, h, session, sc, which="s2", desired="LATE")
     # 终审通过但维持 NORMAL（与当前一致）→ 关闭异议、不改考勤不追加版本。
     r = client.post(
@@ -813,7 +911,7 @@ def test_final_review_approve_no_correction(client: TestClient, session: Session
 
 def test_final_review_approve_missing_final_type_422(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, _ = _open_objection(client, h, session, sc, which="s2")
     r = client.post(_final_url(oid), headers=h, json={"decision": "APPROVED", "current_version": 1})
     assert r.status_code == 422, r.text
@@ -821,7 +919,7 @@ def test_final_review_approve_missing_final_type_422(client: TestClient, session
 
 def test_final_review_version_conflict(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, rid = _open_objection(client, h, session, sc, which="s2", desired="LATE")
     # 异议发起后，他人先更正考勤（version 1→2），使 record.current_version ≠ base。
     assert (
@@ -847,7 +945,7 @@ def test_final_review_version_conflict(client: TestClient, session: Session) -> 
 
 def test_final_review_twice_conflict_409(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, _ = _open_objection(client, h, session, sc, which="s2", desired="LATE")
     assert (
         client.post(
@@ -866,9 +964,9 @@ def test_final_review_twice_conflict_409(client: TestClient, session: Session) -
 
 def test_sam_single_review_rejection(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     oid, _ = _open_objection(client, h, session, sc, which="s2")
-    sam = _make_user(session, "sam", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
+    sam = _make_manager(client, h, session)
     client.put(
         f"/api/v1/users/{sam.id}/optional-permissions/objection.initial_review",
         headers=h,
@@ -921,7 +1019,7 @@ def test_concurrent_duplicate_objection_one_wins(
     client: TestClient, engine: Engine, session: Session
 ) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     rid = rec_ids[sc["s2"]]
     acct = _make_student(session, sc, "s2")  # 一个学生账号，两线程以同一身份并发创建
@@ -992,7 +1090,7 @@ def test_open_objection_pauses_purge_until_closed(
     client: TestClient, session: Session, tmp_path: Path
 ) -> None:
     h = _admin_headers(client, session)
-    sc = _scene(client, h)
+    sc = _scene(client, h, session)
     rec_ids = _approve_setup(client, h, session, sc)
     acct, sh = _student_headers(client, session, sc, "s2")
     f = _make_proof_file(session, uploader_id=acct.id, key="purge1", expires_in_hours=+24)
