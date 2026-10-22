@@ -614,41 +614,6 @@ class ManagementSubmissionResponse(SubmissionResponse):
 
 
 # --------------------------------------------------------------------------- #
-# 审核（submission.review，Wave P5d）：管理人员通过 / 驳回某待审核提交。
-# --------------------------------------------------------------------------- #
-ReviewDecisionLiteral = Literal["APPROVED", "REJECTED"]
-
-
-class SubmissionReviewRequest(BaseModel):
-    """处理待审核提交：通过则据提交所用名单版本生成考勤，驳回保留原事实与照片。"""
-
-    decision: ReviewDecisionLiteral
-    comment: str | None = Field(default=None, max_length=512)
-
-
-class SubmissionBatchReviewRequest(BaseModel):
-    """批量处理待审核提交（一键通过/勾选批量通过）。"""
-
-    submission_ids: list[int] = Field(min_length=1, max_length=500)
-    decision: ReviewDecisionLiteral = "APPROVED"
-    comment: str | None = Field(default=None, max_length=512)
-
-
-class BatchReviewResultItem(BaseModel):
-    submission_id: IdStr
-    success: bool
-    error: str | None = None
-    review_status: str | None = None
-
-
-class SubmissionBatchReviewResponse(BaseModel):
-    total: int
-    success_count: int
-    failed_count: int
-    results: list[BatchReviewResultItem]
-
-
-# --------------------------------------------------------------------------- #
 # 应到人数调整（attendance.expected_count_adjust，Wave P5d）：改当前应到人数，保留初始快照。
 # --------------------------------------------------------------------------- #
 class ExpectedCountUpdateRequest(BaseModel):
@@ -792,10 +757,5 @@ __all__ = [
     "SubmissionResultLiteral",
     "ReviewStatusLiteral",
     "AbnormalTypeLiteral",
-    "ReviewDecisionLiteral",
-    "SubmissionReviewRequest",
-    "SubmissionBatchReviewRequest",
-    "BatchReviewResultItem",
-    "SubmissionBatchReviewResponse",
     "ExpectedCountUpdateRequest",
 ]

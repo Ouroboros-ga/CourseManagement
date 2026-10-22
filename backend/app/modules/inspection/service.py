@@ -137,7 +137,6 @@ from app.modules.inspection.schemas import (
     SubmissionDeadlineDefaultResponse,
     SubmissionDeadlineVersionResponse,
     SubmissionResponse,
-    SubmissionReviewRequest,
     SubmissionWithdrawRequest,
     TaskAssignmentBrief,
     TaskCancelRequest,
@@ -3851,119 +3850,6 @@ class InspectionService:
                 )
             )
         return result
-
-    # ---- 审核（submission.review）：通过据名单版本生成考勤，驳回保留原事实（技术方案 12、14）----
-    def review_submission(
-        self,
-        actor: CurrentUser,
-        submission_id: int,
-        body: SubmissionReviewRequest,
-        request_id: str | None,
-    ) -> SubmissionResponse:
-        """管理人员处理某待审核提交（技术方案 12、15）。
-
-        锁序遵全局层级"任务→提交"：先无锁读定位所属任务，再锁任务、后锁提交并事务内重读，
-        确保并发的审核 vs 取消、双人同审互斥（谁先持任务锁谁生效，落败方见既成事实得 409）。
-        通过前按当前截止版本幂等结算锁定截止时事实；通过后为该名单版本每生建初始考勤
-        （列异常者取明细类型，未列者 NORMAL），驳回仅改审核态、不动提交事实与照片。
-        """
-        self._require(actor.id, perms.SUBMISSION_REVIEW_PERMISSION)
-        probe = self._repo.get_submission(submission_id)
-        if probe is None:
-            raise NotFoundError("提交不存在")
-        task = self._repo.get_task_for_update(probe.task_id)
-        if task is None:
-            raise NotFoundError("提交所属任务不存在")
-        sub = self._repo.get_submission_for_update(submission_id)
-        if sub is None:
-            raise NotFoundError("提交不存在")
-        if sub.review_status != ReviewStatus.PENDING.value:
-            raise ConflictError(ErrorCode.STATE_CONFLICT, "提交已被处理，不可重复审核")
-        if task.canceled_at is not None:
-            raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可审核提交")
-
-        now = utcnow()
-        generated = 0
-        if body.decision == ReviewStatus.APPROVED.value:
-            # 通过（生成考勤）前先幂等结算，锁定"截止时"事实不受本次审核影响（技术方案 13.3）。
-            day = self._repo.deadline_for_task(task)
-            self._settle_assessment(task, day)
-            generated = self._generate_attendance(sub, actor.id)
-            sub.review_status = ReviewStatus.APPROVED.value
-            # 考勤事实新增 → 同事务递增该(学期,周)报表源修订号（技术方案 9.4；W7b 还 P6 挂账）。
-            SourceRevisionService.bump_for_task(self._session, task)
-        else:
-            sub.review_status = ReviewStatus.REJECTED.value
-        sub.reviewed_by = actor.id
-        sub.reviewed_at = now
-        sub.review_comment = body.comment
-        task.lock_version += 1
-        self._repo.flush()
-        self._audit(
-            actor_user_id=actor.id,
-            action=f"submission.review.{sub.review_status.lower()}",
-            resource_type="inspection_submission",
-            resource_id=f"{sub.id}",
-            before={"review_status": ReviewStatus.PENDING.value},
-            after={
-                "review_status": sub.review_status,
-                "attendance_generated": generated,
-                "reviewed_at": now.isoformat(),
-            },
-            reason=body.comment,
-            request_id=request_id,
-        )
-        self._session.commit()
-        self._session.refresh(sub)
-        return self._assemble_submissions([sub])[0]
-
-    def batch_review_submissions(
-        self,
-        actor: CurrentUser,
-        submission_ids: list[int],
-        decision: str,
-        comment: str | None = None,
-        request_id: str | None = None,
-    ) -> dict[str, object]:
-        """批量处理待审核提交（一键通过 / 批量勾选通过）。
-
-        逐笔独立处理并捕获单项冲突（如已被处理或已取消任务），
-        单项失败不阻断其余待审核项，保证批量操作的高容错与审计完整性。
-        """
-        self._require(actor.id, perms.SUBMISSION_REVIEW_PERMISSION)
-        results: list[dict[str, object]] = []
-        success_count = 0
-        failed_count = 0
-        req = SubmissionReviewRequest(decision=decision, comment=comment)  # type: ignore[arg-type]
-        for sid in submission_ids:
-            try:
-                res = self.review_submission(actor, sid, req, request_id)
-                results.append(
-                    {
-                        "submission_id": str(sid),
-                        "success": True,
-                        "review_status": res.review_status,
-                    }
-                )
-                success_count += 1
-            except Exception as e:
-                self._session.rollback()
-                err_msg = str(getattr(e, "detail", getattr(e, "message", str(e))))
-                results.append(
-                    {
-                        "submission_id": str(sid),
-                        "success": False,
-                        "error": err_msg,
-                    }
-                )
-                failed_count += 1
-
-        return {
-            "total": len(submission_ids),
-            "success_count": success_count,
-            "failed_count": failed_count,
-            "results": results,
-        }
 
     def _generate_attendance(
         self,

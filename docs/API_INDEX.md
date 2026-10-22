@@ -336,10 +336,8 @@
 | GET | `/api/v1/submissions/{submission_id}` | inspection |
 | GET | `/api/v1/management/submissions` | inspection |
 | GET | `/api/v1/management/submissions/{submission_id}` | inspection |
-| POST | `/api/v1/submissions/{submission_id}/review` | inspection |
 | POST | `/api/v1/submissions/{submission_id}/revise` | inspection |
 | POST | `/api/v1/submissions/{submission_id}/withdraw` | inspection |
-| POST | `/api/v1/management/submissions/batch-review` | inspection |
 | PATCH | `/api/v1/inspection-tasks/{task_id}/expected-count` | inspection |
 | GET | `/api/v1/colleges/{cid}/inspection-course-occurrences` | college-inspection |
 | POST | `/api/v1/colleges/{cid}/inspection-course-occurrences/smart-sample` | college-inspection |
@@ -375,10 +373,8 @@
 | GET | `/api/v1/colleges/{cid}/submissions/{submission_id}` | college-inspection |
 | GET | `/api/v1/colleges/{cid}/management/submissions` | college-inspection |
 | GET | `/api/v1/colleges/{cid}/management/submissions/{submission_id}` | college-inspection |
-| POST | `/api/v1/colleges/{cid}/submissions/{submission_id}/review` | college-inspection |
 | POST | `/api/v1/colleges/{cid}/submissions/{submission_id}/revise` | college-inspection |
 | POST | `/api/v1/colleges/{cid}/submissions/{submission_id}/withdraw` | college-inspection |
-| POST | `/api/v1/colleges/{cid}/management/submissions/batch-review` | college-inspection |
 | PATCH | `/api/v1/colleges/{cid}/inspection-tasks/{task_id}/expected-count` | college-inspection |
 | GET | `/api/v1/me/inspection-records/summary` | staff-records |
 | GET | `/api/v1/me/inspection-records/export` | staff-records |
