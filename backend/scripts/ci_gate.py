@@ -8,12 +8,15 @@
         --require-pass tests/unit/test_parsing_budgets.py
 
 判定规则（任一不满足即退出码 1）：
-1. 实际执行用例数 < --require-ran → 失败。集成测试因缺库被整体跳过时，
-   收集数会远低于阈值，这一条就会红，杜绝"没跑过"被读成"跑过了"。
-2. 失败用例不在 --baseline 清单里 → 失败。历史债务单独记账，新增回归不被掩盖。
-3. baseline 里的用例这次通过了 → 失败（棘轮）：要求把它从清单删除，
-   避免基线只增不减、慢慢变成第二套"默认通过"。
-4. 每个 --require-pass 指定的文件必须全部通过 → 否则失败。新功能测试不受基线豁免。
+1. 真正执行的用例数（收集数减跳过数）< --require-ran → 失败。集成测试因缺库被整体跳过时
+   收集数照常计入，只有减去 skipped 才能看出"一行都没跑"，这一条就会红。
+2. 跳过数 > --allow-skip-max → 失败。
+3. 失败用例不在 --baseline 清单里 → 失败。历史债务单独记账，新增回归不被掩盖。
+4. baseline 里的用例这次通过了 → 失败（棘轮）：要求把它从清单删除，避免基线只增不减、
+   慢慢变成第二套"默认通过"。只要这次真的跑够了数量就强制检查，不因为基线里还有其它红
+   而免检。
+5. 每个 --require-pass 前缀（可以是文件，也可以是单个用例节点 ID）必须全部通过 → 否则失败。
+   新功能测试不受基线豁免。
 """
 
 from __future__ import annotations
@@ -67,9 +70,13 @@ def main(argv: list[str]) -> int:
 
     problems: list[str] = []
 
-    if ran < args.require_ran:
+    # "执行数"必须是真跑过的用例数。pytest 的 junit 把 skipped 也计入 tests 属性，所以直接拿
+    # tests 比较会让"整体跳过"的运行蒙混过关——那正是这条检查要防的情形。
+    executed = ran - skipped
+    if executed < args.require_ran:
         problems.append(
-            f"实际执行 {ran} 个用例，低于要求的 {args.require_ran}：疑似整体跳过或未收集。"
+            f"实际执行 {executed} 个用例（收集 {ran}、跳过 {skipped}），"
+            f"低于要求的 {args.require_ran}：疑似整体跳过或未收集。"
         )
     if skipped > args.allow_skip_max:
         problems.append(f"跳过 {skipped} 个用例，超过允许上限 {args.allow_skip_max}。")
@@ -86,7 +93,10 @@ def main(argv: list[str]) -> int:
             problems.extend(f"  - {name}" for name in offenders[:20])
 
     # 棘轮只在显式提供基线时生效；CI 里基线文件随仓库走。
-    if args.baseline and newly_green and not failures:
+    # 原来附带 `and not failures`，于是只要基线里还剩任何一项红，"基线项已经变绿"就永远不被
+    # 检查——基线因此可以只增不减。改为只要这次真的跑够了数量就强制检查；跑得不完整时由
+    # require-ran 那条单独定性，避免把两种问题混成一片噪音。
+    if args.baseline and newly_green and executed >= args.require_ran:
         problems.append(
             f"基线里 {len(newly_green)} 项已经通过，请从 {args.baseline} 删除："
         )

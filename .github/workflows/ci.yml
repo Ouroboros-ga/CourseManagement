@@ -41,7 +41,8 @@ jobs:
             --allow-skip-max 10 \
             --require-pass tests/unit/test_submission_correction_window.py \
             --require-pass tests/unit/test_parsing_budgets.py \
-            --require-pass tests/unit/test_manager_workspace_capabilities.py
+            --require-pass tests/unit/test_manager_workspace_capabilities.py \
+            --require-pass tests/unit/test_ci_gate_ratchet.py
       - name: 失败时保留报告
         if: failure()
         uses: actions/upload-artifact@v4
@@ -91,20 +92,19 @@ jobs:
           mkdir -p reports
           uv run pytest tests/integration -q -p no:cacheprovider \
             --junit-xml=reports/integration.xml
-      - name: 门禁（必须真的跑过，且导入集成测试通过；不允许跳过）
+      - name: 门禁（必须真的跑过，新功能测试必须通过，历史红测只允许记账）
         if: always()
         run: |
           uv run python scripts/ci_gate.py reports/integration.xml \
-            --require-ran 100 \
+            --baseline tests/ci_baseline_integration_mysql.txt \
+            --require-ran 350 \
             --allow-skip-max 0 \
-            --require-pass tests/integration/test_importer.py
-      - name: 历史集成失败统计（首次运行用来确定 MySQL 上的真实基线）
+            --require-pass tests/integration/test_importer.py::test_roster_import_is_additive_and_never_deletes_absent_members \
+            --require-pass tests/integration/test_importer.py::test_roster_import_without_replace_flag_has_no_warning \
+            --require-pass tests/integration/test_importer.py::test_manager_without_appointment_has_no_import_capability \
+            --require-pass tests/integration/test_importer.py::test_manager_account_can_import_only_timetable
+      - name: 保留报告以便核对基线
         if: always()
-        continue-on-error: true
-        run: |
-          uv run python scripts/ci_gate.py reports/integration.xml --require-ran 0
-      - name: 失败时保留报告
-        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: integration-junit
