@@ -106,6 +106,22 @@ _SUBMISSION_RESULTS = "('NORMAL','ABNORMAL')"
 _REVIEW_STATUSES = "('PENDING','APPROVED','REJECTED')"
 
 
+class SubmissionState(enum.StrEnum):
+    """提交生命周期，与 review_status 分轴。
+
+    `review_status` 仍留在 APPROVED，因为考勤、名单、归档、统计等读取路径都以它判断
+    "已形成正式结论"；把撤回伪装成 REJECTED 会让这些读取集体失真。有效性由本字段表达：
+    同一任务同时最多一条 ACTIVE，改版置 SUPERSEDED、本人撤回置 WITHDRAWN。
+    """
+
+    ACTIVE = "ACTIVE"
+    SUPERSEDED = "SUPERSEDED"
+    WITHDRAWN = "WITHDRAWN"
+
+
+_SUBMISSION_STATES = "('ACTIVE','SUPERSEDED','WITHDRAWN')"
+
+
 # --------------------------------------------------------------------------- #
 # 查课任务
 # --------------------------------------------------------------------------- #
@@ -549,6 +565,10 @@ class InspectionSubmission(TimestampMixin, Base):
             f"review_status IN {_REVIEW_STATUSES}",
             name="ck_inspection_submission_review_status",
         ),
+        CheckConstraint(
+            f"submission_state IN {_SUBMISSION_STATES}",
+            name="ck_inspection_submission_state",
+        ),
         MYSQL_TABLE_ARGS,
     )
 
@@ -577,6 +597,19 @@ class InspectionSubmission(TimestampMixin, Base):
     late_at_submission: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("0")
     )
+    # 本人纠错闭环（DEC-01）：有效性轴与 review_status 分开，历史提交一律保留可读。
+    submission_state: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=SubmissionState.ACTIVE.value,
+        server_default=text("'ACTIVE'"),
+        index=True,
+    )
+    superseded_by_submission_id: Mapped[int | None] = mapped_column(
+        ForeignKey("inspection_submission.id", ondelete="RESTRICT")
+    )
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DATETIME_3)
+    withdraw_reason: Mapped[str | None] = mapped_column(String(512))
     note: Mapped[str | None] = mapped_column(String(512))
 
     # 审核信息（技术方案 9.3：reviewed_by/at/comment）。

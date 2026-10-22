@@ -367,6 +367,7 @@ POST /auth/logout
 | Permission | 说明 |
 |---|---|
 | `statistics.read` | 班级/课程统计、未完成任务和待审核统计 |
+| `statistics.school.read` | 查看校级汇总（仅 `statistics/school-summary` 与校级双维度汇总，不含全校学生明细、文件或跨院写授权；见 12.9） |
 | `report.read` | 周报主记录、历史版本和 Excel 下载 |
 | `report.generate` | 生成新的周报版本 |
 | `objection.create` | 学生创建本人异议 |
@@ -416,21 +417,26 @@ POST /auth/logout
 | submission_deadline.read | 是 | 是 | 是 | 否 | 否 |
 | submission_deadline.manage | 是 | 是 | 否 | 否 | 否 |
 | submission.create | 否 | 否 | 否 | 是 | 否 |
-| submission.read | 是 | 是 | 否 | 是 | 否 |
-| submission.review | 是 | 是 | 否 | 否 | 否 |
-| attendance.expected_count_adjust | 是 | 是 | 否 | 否 | 否 |
+| submission.read | 是 | 是 | 是 | 是 | 否 |
+| submission.review | 是 | 是 | 是 | 否 | 否 |
+| attendance.expected_count_adjust | 是 | 是 | 是 | 否 | 否 |
 | attendance.read | 是 | 是 | 是 | 是（继承，仅本人） | 是 |
-| attendance.correct | 是 | 是 | 否 | 否 | 否 |
+| attendance.correct | 是 | 是 | 是 | 否 | 否 |
 | statistics.read | 是 | 是 | 可选 | 否 | 否 |
+| statistics.school.read | 是 | 否 | 否 | 否 | 否 |
 | report.read | 是 | 是 | 是 | 否 | 否 |
 | report.generate | 是 | 是 | 是 | 否 | 否 |
 | objection.create | 否 | 否 | 否 | 是（继承，仅本人） | 是 |
 | objection.read | 是 | 是 | 条件派生 | 是（继承，仅本人） | 是 |
 | objection.initial_review | 是 | 是 | 可选 | 否 | 否 |
-| objection.final_review | 是 | 是 | 否 | 否 | 否 |
+| objection.final_review | 是 | 是 | 是 | 否 | 否 |
 | audit.read | 是 | 否 | 否 | 否 | 否 |
 | system.config.read | 是 | 否 | 否 | 否 | 否 |
 | system.config.manage | 是 | 否 | 否 | 否 | 否 |
+
+2026-10-21 负责人默认能力决议（DEC-02）：`attendance.correct` 与 `attendance.expected_count_adjust` 仍是学生工作负责人的默认能力，本表按"配置允许"记录，不是绕过约束的通行证。实际生效还需同时满足：本人持本学期 `ENROLLED` 学籍、存在覆盖该学院的**有效任命**、该动作在任命的 `allowed_actions` 内未被逐人关闭、请求落在任命学院范围内。无任命、任命到期、跨学院或逐人关闭时，这两项一律不进入有效权限（`identity/repository.py` 的负责人任命过滤，回归见 `tests/unit/test_manager_workspace_capabilities.py`）。本表同时修正旧文字中"负责人不能独立更正考勤"的过期描述。
+
+`submission.review` 属于提交自动生效之前的遗留人工审核入口，本次决议**未**新增或撤销它，仍按现状保留并等待单独处理。
 
 ---
 

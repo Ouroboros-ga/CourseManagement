@@ -96,6 +96,11 @@ class Settings(BaseSettings):
     # 截止时刻以本地墙上时钟配置，落库统一转 naive-UTC（与 utcnow() 同域可比）。
     # 中国校区单时区，偏移仅作基础设施换算，可按部署环境覆盖，不是业务制度数值。
     app_utc_offset_hours: float = Field(default=8.0, alias="APP_UTC_OFFSET_HOURS")
+    # DEC-01：首次成功提交后的本人纠错窗口（分钟）。以任务首条提交的 submitted_at 起算，
+    # 改版不重置窗口；0 表示关闭本人纠错，只走管理员更正与异议渠道。
+    submission_correction_window_minutes: int = Field(
+        default=120, ge=0, alias="SUBMISSION_CORRECTION_WINDOW_MINUTES"
+    )
     # 有界同步生成：单次生成计划的任务数超此上限时在写入前拒绝，提示缩小选择范围。
     inspection_generate_max_tasks: int = Field(default=2000, alias="INSPECTION_GENERATE_MAX_TASKS")
     # 排班软约束：单个志愿者单个查课日的最大受派任务数，0 表示不限（默认）。

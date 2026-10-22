@@ -4,7 +4,7 @@
 - GET /attendance：attendance.read + 管理范围（越权读全量 403）；
 - GET /me/attendance：attendance.read + SELF_STUDENT（强制本人 student_id）；
 - GET /attendance/{id} 与 /attendance/{id}/versions：attendance.read + 范围（防枚举 404）；
-- POST /attendance/{id}/corrections：attendance.correct（仅超管/教师）+ current_version 乐观锁。
+- POST /attendance/{id}/corrections：attendance.correct（超管/教师/有效任命的负责人）+ current_version 乐观锁。
 """
 
 from __future__ import annotations

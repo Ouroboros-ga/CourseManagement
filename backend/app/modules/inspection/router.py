@@ -684,6 +684,20 @@ def create_inspection_submission(
     return success(result.model_dump(), _rid(request))
 
 
+# ---- 本人纠错（DEC-01：首次成功提交后两小时内）----
+@router.post("/submissions/{submission_id}/revise")
+def revise_submission(
+    submission_id: int,
+    body: SubmissionCreateRequest,
+    actor: SubmissionCreateDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    """修改并重新提交：旧 attempt 转历史，新 attempt 成为当前有效考勤来源。"""
+    result = service.revise_submission(actor, submission_id, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+
+
 # ---- 本人提交历史（submission.read，强制本人范围；须在 /{id} 之前声明）----
 @router.get("/me/submissions")
 def list_my_submissions(

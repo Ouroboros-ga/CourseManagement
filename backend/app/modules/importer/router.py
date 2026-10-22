@@ -153,7 +153,8 @@ async def create_import(
     semester_id: Annotated[int | None, Form()] = None,
     teaching_class_id: Annotated[int | None, Form()] = None,
     course_type_id: Annotated[int | None, Form()] = None,
-    replace: Annotated[bool, Form()] = True,
+    # 名单导入默认补充；replace=True 不再隐式整体覆盖，只在预览中给出明确提示。
+    replace: Annotated[bool, Form()] = False,
 ) -> dict[str, object]:
     from app.core.exceptions import AppError, ErrorCode
     content = await file.read(10 * 1024 * 1024 + 1)
@@ -223,9 +224,25 @@ async def bulk_import(
     course_type_id: Annotated[int | None, Form()] = None,
 ) -> dict[str, object]:
     """旧兼容入口逐文件预览并确认；前面的成功文件不会随后续文件失败回滚。"""
+    from app.core.exceptions import AppError, ErrorCode
+    from app.modules.importer.limits import MAX_BATCH_FILES, MAX_TABLE_BYTES
+
+    if len(files) > MAX_BATCH_FILES:
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR,
+            f"一次批量导入最多 {MAX_BATCH_FILES} 个文件",
+            http_status=422,
+        )
     raw_files: list[tuple[str, bytes]] = []
     for f in files:
-        data = await f.read()
+        # 与单文件入口同一预算：ZIP 成员在展开后再次受 MAX_TABLE_BYTES 约束。
+        data = await f.read(MAX_TABLE_BYTES + 1)
+        if len(data) > MAX_TABLE_BYTES and not (f.filename or "").lower().endswith(".zip"):
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                f"单个导入文件不能超过 {MAX_TABLE_BYTES // (1024 * 1024)} MiB",
+                http_status=422,
+            )
         raw_files.append((f.filename or "file", data))
     result = service.import_bulk_files(
         actor,

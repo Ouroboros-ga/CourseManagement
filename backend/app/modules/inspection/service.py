@@ -85,6 +85,7 @@ from app.modules.inspection.models import (
     SubmissionDeadlineDay,
     SubmissionDeadlineVersion,
     SubmissionFile,
+    SubmissionState,
     TaskDeadlineAssessment,
     TaskRosterMember,
     TaskRosterVersion,
@@ -3461,6 +3462,150 @@ class InspectionService:
         self._session.refresh(sub)
         return self._assemble_submissions([sub])[0]
 
+    # ================================================================== #
+    # 本人纠错闭环（DEC-01：首次成功提交后两小时内允许本人修改并重新提交）
+    # ================================================================== #
+    def correction_window(self, task_id: int) -> tuple[datetime | None, datetime | None, bool]:
+        """(首次成功提交时刻, 纠错截止时刻, 当前是否仍在窗口内)。
+
+        窗口起点取该任务全部 attempt 的最早 submitted_at，改版与重新提交都不重置；
+        时长 0 表示关闭本人纠错，只保留管理员更正与异议渠道。
+        """
+        minutes = get_settings().submission_correction_window_minutes
+        first = self._repo.first_submitted_at(task_id)
+        if first is None or minutes <= 0:
+            return first, None, False
+        deadline = first + timedelta(minutes=minutes)
+        return first, deadline, utcnow() < deadline
+
+    def _correction_protected(self, task_id: int) -> bool:
+        """考勤已被管理员更正、异议终审改判，或仍有未结案异议时，本人纠错不得覆盖。"""
+        from app.modules.attendance.models import (
+            AttendanceRecord,
+            AttendanceRecordVersion,
+            AttendanceSourceType,
+        )
+        from app.modules.objection.models import Objection, ObjectionFinalStatus
+
+        handled = self._session.scalar(
+            select(func.count(AttendanceRecordVersion.id))
+            .select_from(AttendanceRecordVersion)
+            .join(
+                AttendanceRecord,
+                AttendanceRecord.id == AttendanceRecordVersion.attendance_record_id,
+            )
+            .where(
+                AttendanceRecord.task_id == task_id,
+                AttendanceRecordVersion.source_type.in_(
+                    [
+                        AttendanceSourceType.CORRECTION.value,
+                        AttendanceSourceType.OBJECTION_FINAL.value,
+                    ]
+                ),
+            )
+        )
+        if handled:
+            return True
+        pending = self._session.scalar(
+            select(Objection.id)
+            .join(AttendanceRecord, AttendanceRecord.id == Objection.attendance_record_id)
+            .where(
+                AttendanceRecord.task_id == task_id,
+                Objection.final_status == ObjectionFinalStatus.PENDING.value,
+            )
+            .limit(1)
+        )
+        return pending is not None
+
+    def _require_self_correction(self, actor: CurrentUser, submission_id: int):
+        """按全局锁序（任务 → 提交）校验本人纠错资格，返回 (task, submission, deadline)。
+
+        非本人的提交 ID 一律 404，不泄露他人提交是否存在。
+        """
+        if actor.pre_binding:
+            raise PermissionDeniedError("请先完成身份绑定")
+        self._require(actor.id, perms.SUBMISSION_CREATE_PERMISSION)
+        acct = self._identity.get_user_by_id(actor.id)
+        if acct is None or acct.status != UserStatus.ACTIVE.value:
+            raise PermissionDeniedError("账号已停用，不可纠错")
+
+        probe = self._repo.get_submission(submission_id)
+        if probe is None or probe.volunteer_user_id != actor.id:
+            raise NotFoundError("提交不存在")
+        task = self._repo.get_task_for_update(probe.task_id)
+        if task is None:
+            raise NotFoundError("查课任务不存在")
+        if task.canceled_at is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可纠错")
+
+        sub = self._repo.get_submission_for_update(submission_id)
+        if sub is None or sub.submission_state != SubmissionState.ACTIVE.value:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "该提交已不是当前有效结论，不可重复操作")
+
+        assignment = self._repo.get_assignment_by_task(task.id)
+        if assignment is None or assignment.volunteer_user_id != actor.id:
+            raise PermissionDeniedError("仅可纠错本人当前受派的任务")
+
+        _first, deadline, open_now = self.correction_window(task.id)
+        if deadline is None or not open_now:
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT, "两小时纠错窗口已关闭，请走数据更正或异议渠道"
+            )
+        if self._correction_protected(task.id):
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT,
+                "该任务考勤已有管理员更正或异议处理结论，本人不可覆盖，请走异议渠道",
+            )
+        return task, sub, deadline
+
+    def revise_submission(
+        self,
+        actor: CurrentUser,
+        submission_id: int,
+        body: SubmissionCreateRequest,
+        request_id: str | None,
+    ) -> SubmissionResponse:
+        """修改并重新提交：旧 attempt 保留为 SUPERSEDED，新 attempt 成为当前有效结论。
+
+        考勤由 _generate_attendance 的既有更新路径就地改写并追加版本，原始提交、异常明细
+        与照片都不删除；随后复用 create_submission 的全部资格、名单版本与附件校验，
+        不在这里维护第二套提交规则。
+        """
+        task, current, deadline = self._require_self_correction(actor, submission_id)
+        current.submission_state = SubmissionState.SUPERSEDED.value
+        current.superseded_by_submission_id = None
+        self._repo.flush()
+        self._audit(
+            actor_user_id=actor.id,
+            action="submission.revise",
+            resource_type="inspection_submission",
+            resource_id=f"{current.id}",
+            before={
+                "task_id": task.id,
+                "attempt_no": current.attempt_no,
+                "result": current.result,
+                "submission_state": SubmissionState.ACTIVE.value,
+            },
+            after={
+                "task_id": task.id,
+                "submission_state": SubmissionState.SUPERSEDED.value,
+                "correction_deadline_at": deadline.isoformat(),
+            },
+            reason=body.note,
+            request_id=request_id,
+        )
+        self._session.commit()
+
+        created = self.create_submission(actor, task.id, body, request_id)
+        replacement = self._repo.get_submission_for_update(int(created.id))
+        superseded = self._repo.get_submission_for_update(current.id)
+        if superseded is not None and replacement is not None:
+            superseded.superseded_by_submission_id = replacement.id
+            self._repo.flush()
+            self._session.commit()
+            return self._assemble_submissions([replacement])[0]
+        return created
+
     def _validate_attachments(
         self, task: InspectionTask, actor_id: int, file_ids: list[int]
     ) -> list[int]:
@@ -3887,6 +4032,21 @@ class InspectionService:
         sub_ids = [s.id for s in subs]
         files_map = self._repo.list_submission_file_ids_by_ids(sub_ids)
         roster_map = self._build_roster_display_map(subs)
+        # 纠错窗口按任务首次成功提交起算，一次聚合取，避免逐提交查询。
+        window = get_settings().submission_correction_window_minutes
+        task_ids = {s.task_id for s in subs}
+        first_map = {
+            task_id: first_at
+            for task_id, first_at in self._session.execute(
+                select(
+                    InspectionSubmission.task_id,
+                    func.min(InspectionSubmission.submitted_at),
+                )
+                .where(InspectionSubmission.task_id.in_(task_ids))
+                .group_by(InspectionSubmission.task_id)
+            ).all()
+        }
+        now = utcnow()
         out: list[SubmissionResponse] = []
         for s in subs:
             display = roster_map.get((s.task_id, s.roster_version), {})
@@ -3900,6 +4060,13 @@ class InspectionService:
                 )
                 for i in s.abnormal_items
             ]
+            first = first_map.get(s.task_id)
+            deadline = first + timedelta(minutes=window) if first and window > 0 else None
+            can_correct = (
+                s.submission_state == SubmissionState.ACTIVE.value
+                and deadline is not None
+                and now < deadline
+            )
             out.append(
                 SubmissionResponse(
                     id=s.id,
@@ -3920,6 +4087,9 @@ class InspectionService:
                     file_ids=files_map.get(s.id, []),
                     created_at=s.created_at,
                     updated_at=s.updated_at,
+                    submission_state=s.submission_state,
+                    correction_deadline_at=deadline,
+                    can_correct=can_correct,
                 )
             )
         return out

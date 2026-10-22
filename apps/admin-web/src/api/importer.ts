@@ -102,7 +102,8 @@ export async function uploadImportFile(
   if (options.course_type_id !== undefined && options.course_type_id !== null && options.course_type_id !== '') {
     formData.append('course_type_id', String(options.course_type_id))
   }
-  formData.append('replace', options.replace !== false ? 'true' : 'false')
+  // 名单导入默认补充语义：只有调用方明确要求时才传 replace=true，后端也不再隐式整体覆盖。
+  formData.append('replace', options.replace === true ? 'true' : 'false')
 
   return request<ImportPreviewResult>('/api/v1/imports', {
     method: 'POST',

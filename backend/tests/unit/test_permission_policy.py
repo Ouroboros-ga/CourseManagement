@@ -1,6 +1,6 @@
 """权限注册表与默认角色矩阵单元测试。
 
-期望值独立录入自 docs/PERMISSIONS.md 第 4 节（40 项 code）与第 5 节（五列矩阵），
+期望值独立录入自 docs/PERMISSIONS.md 第 4 节（42 项 code）与第 5 节（五列矩阵），
 不从被测映射复制，避免"自我相等"式伪验证。本批只测纯策略，不触库。
 """
 
@@ -46,6 +46,7 @@ _EXPECTED_SUPER_ADMIN = frozenset(
         "attendance.read",
         "attendance.correct",
         "statistics.read",
+        "statistics.school.read",
         "report.read",
         "report.generate",
         "objection.read",
@@ -137,8 +138,8 @@ _EXPECTED_STUDENT = frozenset(
 _ALL_CODES = {p.value for p in PermissionCode}
 
 
-def test_registry_is_exactly_41_and_excludes_assignment_read() -> None:
-    assert len(PermissionCode) == 41
+def test_registry_is_exactly_42_and_excludes_assignment_read() -> None:
+    assert len(PermissionCode) == 42
     assert "assignment.read" not in _ALL_CODES
 
 

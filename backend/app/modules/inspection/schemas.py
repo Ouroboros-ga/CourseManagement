@@ -519,6 +519,7 @@ class DeadlineSettleResultResponse(BaseModel):
 # --------------------------------------------------------------------------- #
 SubmissionResultLiteral = Literal["NORMAL", "ABNORMAL"]
 ReviewStatusLiteral = Literal["PENDING", "APPROVED", "REJECTED"]
+SubmissionStateLiteral = Literal["ACTIVE", "SUPERSEDED", "WITHDRAWN"]
 # 异常明细仅限三类（技术方案 12）：请假 / 迟到 / 缺勤，NORMAL 不落明细。
 AbnormalTypeLiteral = Literal["LEAVE", "LATE", "ABSENT"]
 
@@ -580,6 +581,11 @@ class SubmissionResponse(BaseModel):
     file_ids: list[IdStr]
     created_at: datetime
     updated_at: datetime
+    # 本人纠错闭环（DEC-01）：有效性轴与审核状态分列，客户端据此显示倒计时与按钮。
+    # 权限与时限仍由后端逐次判定，这两个字段只用于展示。
+    submission_state: SubmissionStateLiteral = "ACTIVE"
+    correction_deadline_at: datetime | None = None
+    can_correct: bool = False
 
 
 class ManagementSubmissionTaskBrief(BaseModel):
