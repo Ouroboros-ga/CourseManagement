@@ -143,3 +143,27 @@ def test_one_second_validity_uses_proxy_instead_of_invalid_oss_zero_seconds(file
     ).json()["data"]["id"]
     response = api.get(f"/api/v1/files/{file_id}/access?delivery=direct")
     assert response.json()["data"]["url"].startswith("/api/v1/files/")
+
+
+def test_thumbnail_style_direct_access(file_api, monkeypatch):
+    api, db, state, _ = file_api
+    monkeypatch.setattr("app.modules.file.storage._oss_client", lambda *args: signing_client())
+    service = api.app.dependency_overrides[get_service]()
+    monkeypatch.setattr(service._settings, "oss_web_direct_enabled", True)
+    uploaded = api.post(
+        "/api/v1/files",
+        data={"category": "OBJECTION_PROOF"},
+        files={"file": ("proof.png", PNG, "image/png")},
+    )
+    file_id = uploaded.json()["data"]["id"]
+    direct_thumb = api.get(f"/api/v1/files/{file_id}/access?delivery=direct&style=thumb")
+    assert direct_thumb.status_code == 200
+    thumb_url = direct_thumb.json()["data"]["url"]
+    query = parse_qs(urlsplit(thumb_url).query)
+    assert query["x-oss-process"] == ["image/resize,m_lfit,w_300,h_300"]
+
+    direct_orig = api.get(f"/api/v1/files/{file_id}/access?delivery=direct&style=original")
+    assert direct_orig.status_code == 200
+    assert "x-oss-process" not in parse_qs(urlsplit(direct_orig.json()["data"]["url"]).query)
+
+    assert api.get(f"/api/v1/files/{file_id}/access?delivery=direct&style=invalid").status_code == 422
