@@ -118,3 +118,33 @@ def test_upload_size_and_binding_guard(file_api, monkeypatch):
         files={"file": ("proof.png", PNG, "image/png")},
     )
     assert response.status_code == 403
+
+
+def test_upload_normalizes_mismatched_extension_and_mime(file_api):
+    """验证实际为 PNG 的图片即便保存为 .jpg 且声明为 image/jpeg，也能通过真实签名自动纠偏放行。"""
+    api, session, state, client = file_api
+    response = api.post(
+        "/api/v1/files",
+        data={"category": "OBJECTION_PROOF"},
+        files={"file": ("web_download.jpg", PNG, "image/jpeg")},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["content_type"] == "image/png"
+    assert data["width"] == 1 and data["height"] == 1
+
+    row = session.scalar(select(FileObject).where(FileObject.id == int(data["id"])))
+    assert row is not None
+    assert row.content_type == "image/png"
+    assert row.object_key.endswith(".png")
+
+
+def test_upload_rejects_non_image_content(file_api):
+    api, session, state, client = file_api
+    response = api.post(
+        "/api/v1/files",
+        data={"category": "OBJECTION_PROOF"},
+        files={"file": ("script.jpg", b"echo 'not an image'", "image/jpeg")},
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
