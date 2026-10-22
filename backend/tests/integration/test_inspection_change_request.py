@@ -292,6 +292,8 @@ def _make_volunteer(
     roles = [RoleCode.VOLUNTEER.value] if volunteer else [RoleCode.STUDENT.value]
     acct = _make_user(session, username, roles, student_id=sid)
     if qualify:
+        _seed_college_scope(_d.fromisoformat(_MON1))
+        _seed_college_scope(_d.fromisoformat(_MON1))
         _grant_qual(client, h, sem_id, sid)
     return acct
 

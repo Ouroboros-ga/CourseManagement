@@ -343,6 +343,7 @@ def _make_volunteer_for_task(
 ) -> dict[str, str]:
     other = _create_admin_class(client, h, f"VCLASS_{username}")
     sid = _create_student(client, h, f"V{username}", other)
+    _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sem_id, sid)
     vol = _make_user(session, username, [RoleCode.VOLUNTEER.value], student_id=sid)
     _assign(client, h, session, task_id, vol.id)
