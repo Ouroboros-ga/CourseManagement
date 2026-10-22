@@ -137,25 +137,13 @@ def validate_upload(
     if size > max_bytes:
         raise FileValidationError(f"文件超过单文件大小上限 {max_bytes} 字节")
 
-    ext = (original_name or "").rsplit(".", 1)[-1].lower() if original_name else ""
-    if ext and ext not in allowed_extensions:
-        raise FileValidationError(f"不支持的扩展名：{ext}")
-
     real = detect_type(data)
     if real is None:
         raise FileValidationError("文件真实内容不是受支持的图像类型（签名校验未通过）")
 
-    # 扩展名、真实签名、声明 MIME 三方一致。
-    if ext and ext not in {"jpg", "jpeg"} and real != ext:
-        # png/webp 必须扩展名与真实类型一致
-        raise FileValidationError("扩展名与文件真实类型不一致")
-    if ext in {"jpg", "jpeg"} and real != "jpg":
-        raise FileValidationError("扩展名与文件真实类型不一致")
-
-    if declared_content_type:
-        norm = _MIME_TO_EXT.get(declared_content_type.strip().lower())
-        if norm != real:
-            raise FileValidationError("声明 MIME 与文件真实类型不一致")
+    # 真实签名（Magic Bytes）为最高准绳：
+    # 后端落盘与服务均以检测到的真实类型（real）为准归一化（如 real="png" 则自动分配 .png 与 image/png），
+    # 放宽对客户端扩展名与声明 MIME 的强一致拦截，允许网络下载另存为图片（如 WebP 另存为 .jpg、MIME 为 octet-stream）正常上传。
 
     dims = image_dimensions(real, data)
     if dims is None:
