@@ -607,6 +607,20 @@ class InspectionService:
             ).limit(1)):
                 raise ConflictError(message="所选课次已有其他执行组或旧任务，请先明确换组处置")
         new_items = [it for it in items if it.task_key not in existing]
+        if new_items:
+            from app.modules.inspection.course_occurrences import structural_duplicate_items
+
+            clashes = structural_duplicate_items(self._session, semester_id=sem.id, items=new_items)
+            if clashes:
+                item, holder = clashes[0]
+                raise ConflictError(
+                    message=(
+                        f"同一课次已存在有效任务（#{holder.id}，{item.inspection_date} "
+                        f"{item.inspection_type} 第{item.start_period}-{item.end_period}节，"
+                        f"key={holder.task_key}），不能重复生成；共 {len(clashes)} 项冲突，"
+                        "请先核对或处置原任务"
+                    )
+                )
         new_tasks = []
         if get_settings().campus_scheduling_enabled:
             if self._repo.college_ids is None or len(self._repo.college_ids) != 1:

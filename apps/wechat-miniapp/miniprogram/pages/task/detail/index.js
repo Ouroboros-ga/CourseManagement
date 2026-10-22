@@ -1,4 +1,5 @@
 import { getTaskDetail, submitTaskResult, getMySubmissions, createChangeRequest } from '../../../api/task';
+import { withdrawSubmission, reviseSubmission } from '../../../api/task';
 import { getMyAssignmentChangeRequests } from '../../../api/task';
 import { uploadFile } from '../../../utils/upload';
 import Toast from 'tdesign-miniprogram/toast/index';
@@ -12,6 +13,11 @@ Page({
     abnormalList: [], // { studentId, name, type }
     fileList: [],
     hasSubmission: false,
+    submissionId: '',
+    canAmend: false,
+    amendDeadlineStr: '',
+    previousFileIds: [],
+    reviseMode: false,
     showChangeDialog: false,
     changeReason: ''
   },
@@ -131,6 +137,15 @@ Page({
       const items = res?.items || res || [];
       if (items.length > 0) {
         const sub = items[0];
+        // 资格完全由服务端判定（本人、首次提交起两小时、管理员未接手）：直接用它算好的
+        // can_correct 与 correction_deadline_at，前端不自建倒计时判断。
+        this.setData({
+          submissionId: String(sub.id),
+          canAmend: !!sub.can_correct,
+          amendDeadlineStr: this.formatAmendDeadline(sub.correction_deadline_at),
+          previousFileIds: (sub.file_ids || []).map(String),
+          reviseMode: false
+        });
         if (this.data.task.status !== '待执行') {
           const reverseTypeMap = {
             'LATE': '迟到',
@@ -140,7 +155,8 @@ Page({
           const abItems = (sub.abnormal_items || []).map(item => ({
             studentId: item.student_id || item.studentId,
             name: item.name || '未知姓名',
-            type: reverseTypeMap[item.attendance_type] || item.attendance_type
+            type: reverseTypeMap[item.attendance_type] || item.attendance_type,
+            note: item.note || ''
           }));
 
           this.setData({
@@ -229,6 +245,10 @@ Page({
 
       // 提取上传后获得的文件 IDs
       const fileIds = fileList.map(f => f.file_id).filter(id => id != null).map(String);
+      // 修改时保留上次提交的现场照片：新 attempt 的附件是整体替换，不并回来就等于删除证据。
+      const mergedFileIds = this.data.reviseMode
+        ? Array.from(new Set([...(this.data.previousFileIds || []), ...fileIds]))
+        : fileIds;
 
       const typeMap = {
         '迟到': 'LATE',
@@ -243,12 +263,21 @@ Page({
         note: record.note || null
       }));
 
-      await submitTaskResult(taskId, {
-        result: resultType, // 'NORMAL' or 'ABNORMAL'
-        abnormal_items: abnormalItems,
-        file_ids: fileIds,
-        note: null
-      });
+      if (this.data.reviseMode && this.data.submissionId) {
+        await reviseSubmission(this.data.submissionId, {
+          result: resultType,
+          abnormal_items: abnormalItems,
+          file_ids: mergedFileIds,
+          note: null
+        });
+      } else {
+        await submitTaskResult(taskId, {
+          result: resultType, // 'NORMAL' or 'ABNORMAL'
+          abnormal_items: abnormalItems,
+          file_ids: fileIds,
+          note: null
+        });
+      }
 
       wx.hideLoading();
       Toast({ context: this, selector: '#t-toast', message: '提交成功', theme: 'success' });
@@ -259,6 +288,59 @@ Page({
       wx.hideLoading();
       Toast({ context: this, selector: '#t-toast', message: err.msg || err.message || '提交失败' });
     }
+  },
+
+  formatAmendDeadline(value) {
+    if (!value) {
+      return '';
+    }
+    const beijing = new Date(new Date(value).getTime() + 8 * 3600 * 1000);
+    const hh = String(beijing.getUTCHours()).padStart(2, '0');
+    const mm = String(beijing.getUTCMinutes()).padStart(2, '0');
+    return `${beijing.getUTCFullYear()}-${hh}-${mm}`.replace('-', '/').slice(5);
+  },
+
+  onStartRevise() {
+    // 复用既有表单：把已提交内容摊回可编辑状态，提交时改走 /revise。
+    this.setData({ reviseMode: true, hasSubmission: false });
+    wx.showToast({ title: '修改后重新提交', icon: 'none' });
+  },
+
+  onCancelRevise() {
+    // 放弃修改：回到只读的已提交视图，不产生任何服务端写入。
+    this.setData({ reviseMode: false });
+    this.fetchDetail(this.data.taskId);
+  },
+
+  onWithdraw() {
+    const submissionId = this.data.submissionId;
+    if (!submissionId) {
+      return;
+    }
+    wx.showModal({
+      title: '撤回查课提交',
+      editable: true,
+      placeholderText: '撤回原因（可不填）',
+      confirmText: '确认撤回',
+      confirmColor: '#e34d59',
+      success: async (res) => {
+        if (!res.confirm) {
+          return;
+        }
+        try {
+          wx.showLoading({ title: '撤回中' });
+          await withdrawSubmission(submissionId, (res.content || '').trim() || null);
+          wx.hideLoading();
+          Toast({ context: this, selector: '#t-toast', message: '已撤回', theme: 'success' });
+          this.setData({ hasSubmission: false, canAmend: false, submissionId: '', reviseMode: false });
+          setTimeout(() => this.fetchDetail(this.data.taskId), 600);
+        } catch (err) {
+          wx.hideLoading();
+          // 窗口已过、管理员已接手等一律以服务端原因为准，不在前端另判。
+          Toast({ context: this, selector: '#t-toast', message: err.msg || err.message || '撤回失败' });
+        }
+      }
+    });
   },
 
   onOpenChangeDialog() {

@@ -21,9 +21,11 @@ from datetime import date, datetime, timedelta
 
 import pytest
 from app.core.config import get_settings
-from app.core.database import utcnow
+from app.core.database import session_scope, utcnow
 from app.core.permissions import PermissionCode, RoleCode
 from app.core.security import hash_password
+from app.modules.academic.enrollment_models import CourseParticipation, StudentEnrollment
+from app.modules.academic.models import AdministrativeClass
 from app.modules.audit.models import AuditLog
 from app.modules.identity.models import Permission, Role, UserAccount, UserStatus
 from app.modules.identity.seed import sync_registry
@@ -34,8 +36,9 @@ from app.modules.inspection.models import (
     TaskRosterMember,
     TaskRosterVersion,
 )
+from app.modules.organization.models import College, School
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 pytestmark = pytest.mark.integration
@@ -114,6 +117,40 @@ def _admin_headers(client: TestClient, session: Session) -> dict[str, str]:
 
 def _post(client: TestClient, headers: dict[str, str], url: str, body: dict):
     return client.post(url, headers=headers, json=body)
+
+
+
+def _seed_college_scope(on_date: date) -> None:
+    """把本场景补成现行的学院作用域与在读区间。
+
+    旧建档 API 只写学院名文本，AdministrativeClass.college_id 留空；学籍与选课参与记录的
+    effective_from 又固定写 business_today()。现行规则按执行日核对：college_id 为空或区间
+    不覆盖查课日时，RosterIndex.at() 会把学生整批排除出正式名单（表现为 expected_count=0），
+    qualification_policy.qualified_on 也直接判无资格。每个用例都是新建 schema，整体补齐
+    不会跨用例串味。
+    """
+    with session_scope() as s:
+        if s.execute(select(College).limit(1)).scalar_one_or_none() is None:
+            s.add(School(id=1, code="FIXTURE", name="夹具学校"))
+            s.flush()
+            s.add(College(id=1, school_id=1, code="CS", name="计算机学院"))
+    since = on_date - timedelta(days=7)
+    with session_scope() as s:
+        s.execute(
+            update(AdministrativeClass)
+            .where(AdministrativeClass.college_id.is_(None))
+            .values(college_id=1)
+        )
+        s.execute(
+            update(StudentEnrollment)
+            .where(StudentEnrollment.effective_from > on_date)
+            .values(effective_from=since)
+        )
+        s.execute(
+            update(CourseParticipation)
+            .where(CourseParticipation.effective_from > on_date)
+            .values(effective_from=since)
+        )
 
 
 def _scene(client: TestClient, headers: dict[str, str]) -> dict:
@@ -195,6 +232,7 @@ def _scene(client: TestClient, headers: dict[str, str]) -> dict:
             "weeks": [1, 2, 3, 4, 5, 6],
         },
     ).json()["data"]
+    _seed_college_scope(date(2026, 9, 7))
     return {
         "semester_id": int(sem["id"]),
         "class_id": int(cls["id"]),
@@ -849,3 +887,39 @@ def test_makeup_cross_week_task_aligned_with_actual_execution_week(
     # 核心验证：任务周次对齐实际执行周（第2周）
     assert task.week_no == 2
     assert "补第1周周一" in (task.class_name_snapshot or "")
+
+
+def test_legacy_task_key_still_blocks_duplicate_occurrence(
+    client: TestClient, session: Session
+) -> None:
+    """B3：task_key 口径变化不能让同一真实课次建出第二个任务。
+
+    把已生成任务的 task_key 改成非规范遗留值（模拟共享课身份规范化、学院/类型后缀之前的
+    数据），再用完全相同的请求重新生成。幂等此时不能只看派生字符串：必须按课次结构
+    （学期+日期+类型+节次区间+目标课次来源）识别出同一堂课。既不批量改写历史 key，
+    也不自动清理既有任务，冲突显式拒绝。
+    """
+    h = _admin_headers(client, session)
+    sc = _scene(client, h)
+    body = {
+        "semester_id": sc["semester_id"],
+        "inspection_type": "COURSE",
+        "week_nos": [1],
+        "teaching_class_ids": [sc["tc_id"]],
+    }
+    first = client.post(_GEN, headers=h, json=body)
+    assert first.status_code == 200, first.text
+    assert first.json()["data"]["created"] == 1
+
+    task = session.execute(select(InspectionTask)).scalar_one()
+    task.task_key = f"LEGACY-{task.id}"
+    session.commit()
+
+    again = client.post(_GEN, headers=h, json=body)
+    assert again.status_code == 409, again.text
+    assert "同一课次已存在有效任务" in again.json()["message"]
+    # 既不新建也不清理：仍然只有那一个任务，历史 key 原样保留
+    assert _count(session, InspectionTask) == 1
+    session.expire_all()
+    assert session.execute(select(InspectionTask)).scalar_one().task_key == "LEGACY-1"
+
