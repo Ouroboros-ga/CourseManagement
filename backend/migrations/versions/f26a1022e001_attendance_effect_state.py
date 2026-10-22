@@ -63,11 +63,7 @@ def downgrade() -> None:
         raise RuntimeError(
             f"{withdrawn} 条考勤已撤回，回滚会把它们重新算成有效结论；请保留附加列。"
         )
-    op.drop_index("ix_attendance_record_effect_state", table_name="attendance_record")
-    with op.batch_alter_table("attendance_record") as batch:
-        batch.drop_constraint("ck_attendance_record_effect_state", type_="check")
-        batch.drop_column("effect_state")
-
+    # MySQL DDL 会隐式提交；所有拒绝检查必须在任何 schema 修改之前完成。
     if bind.scalar(
         sa.text(
             "SELECT COUNT(*) FROM attendance_record_version WHERE source_type = 'WITHDRAWAL'"
@@ -76,6 +72,10 @@ def downgrade() -> None:
         raise RuntimeError(
             "已存在撤回版本记录，回滚检查约束会留下无法解释的来源类型；请保留放宽后的约束。"
         )
+    op.drop_index("ix_attendance_record_effect_state", table_name="attendance_record")
+    with op.batch_alter_table("attendance_record") as batch:
+        batch.drop_constraint("ck_attendance_record_effect_state", type_="check")
+        batch.drop_column("effect_state")
     with op.batch_alter_table("attendance_record_version") as batch:
         try:
             batch.drop_constraint("ck_attendance_record_version_source_type", type_="check")

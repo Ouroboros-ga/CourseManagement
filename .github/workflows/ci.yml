@@ -28,6 +28,7 @@ jobs:
           enable-caching: true
       - run: uv sync --locked
       - name: 单元测试
+        continue-on-error: true # 仅允许下方棘轮门禁认定的历史失败
         run: |
           uv run pytest tests/unit -q -p no:cacheprovider \
             --junit-xml=reports/unit.xml
@@ -42,7 +43,8 @@ jobs:
             --require-pass tests/unit/test_submission_correction_window.py \
             --require-pass tests/unit/test_parsing_budgets.py \
             --require-pass tests/unit/test_manager_workspace_capabilities.py \
-            --require-pass tests/unit/test_ci_gate_ratchet.py
+            --require-pass tests/unit/test_ci_gate_ratchet.py \
+            --require-pass tests/unit/test_attendance_effect_migration.py
       - name: 失败时保留报告
         if: failure()
         uses: actions/upload-artifact@v4
@@ -119,7 +121,13 @@ jobs:
         with:
           enable-caching: true
       - run: uv sync --locked
+      - name: 本人纠错回归必须在真实 MySQL 通过
+        env:
+          CAMPUS_TEST_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+        run: |
+          uv run pytest tests/unit/test_submission_correction_window.py -q -p no:cacheprovider
       - name: 真实 MySQL 集成测试
+        continue-on-error: true # 新增失败和跳过由下一步硬拦截
         run: |
           mkdir -p reports
           uv run pytest tests/integration -q -p no:cacheprovider \
@@ -131,6 +139,8 @@ jobs:
             --baseline tests/ci_baseline_integration_mysql.txt \
             --require-ran 350 \
             --allow-skip-max 0 \
+            --require-pass tests/integration/test_correction_downgrade.py \
+            --require-pass tests/integration/test_inspection_generate.py::test_legacy_task_key_still_blocks_duplicate_occurrence \
             --require-pass tests/integration/test_importer.py::test_roster_import_is_additive_and_never_deletes_absent_members \
             --require-pass tests/integration/test_importer.py::test_roster_import_without_replace_flag_has_no_warning \
             --require-pass tests/integration/test_importer.py::test_manager_without_appointment_has_no_import_capability \

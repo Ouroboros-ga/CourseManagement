@@ -3301,6 +3301,7 @@ class InspectionService:
         acct = self._identity.get_user_by_id(actor_user_id)
         return acct.student_id if acct is not None else None
 
+    @atomic_write
     def create_submission(
         self,
         actor: CurrentUser,
@@ -3308,6 +3309,18 @@ class InspectionService:
         body: SubmissionCreateRequest,
         request_id: str | None,
     ) -> SubmissionResponse:
+        sub = self._create_submission(actor, task_id, body, request_id)
+        self._session.commit()
+        self._session.refresh(sub)
+        return self._assemble_submissions([sub])[0]
+
+    def _create_submission(
+        self,
+        actor: CurrentUser,
+        task_id: int,
+        body: SubmissionCreateRequest,
+        request_id: str | None,
+    ) -> InspectionSubmission:
         """志愿者对本人当前受派任务提交查课结果（技术方案 12、13.3、15）。
 
         身份三重实时校验（VOLUNTEER + 本学期资格 + 当前受派 + 未取消）与"至多一个待审核/
@@ -3382,6 +3395,15 @@ class InspectionService:
             raise ConflictError(
                 ErrorCode.STATE_CONFLICT, "该任务已有待审核或审核通过提交，不可重复提交"
             )
+
+        # 首次补交仍可逾期；有历史的重交属于本人纠错，不得借普通提交入口绕过窗口。
+        first, deadline, open_now = self.correction_window(task.id)
+        if first is not None:
+            if deadline is None or not open_now:
+                raise ConflictError(ErrorCode.STATE_CONFLICT, "两小时纠错窗口已关闭，请走数据更正或异议渠道")
+            self._lock_correction_attendance(task.id)
+            if self._correction_protected(task.id):
+                raise ConflictError(ErrorCode.STATE_CONFLICT, "该任务考勤已有管理员更正或异议处理，本人不可覆盖")
 
         # 异常明细：学生须属本任务当前名单版本、不可重复；结论与明细数量一致性由 schema 保证。
         roster_members = self._repo.list_roster_members(task.id, task.roster_version)
@@ -3477,10 +3499,8 @@ class InspectionService:
             reason=body.note,
             request_id=request_id,
         )
-        # 单一提交点：提交 + 异常明细 + 附件关联 + 结算快照 + 考勤事实 + 审计同事务原子生效。
-        self._session.commit()
-        self._session.refresh(sub)
-        return self._assemble_submissions([sub])[0]
+        # 由首次提交或改版入口单次提交，改版不能提前释放任务/考勤锁。
+        return sub
 
     # ================================================================== #
     # 本人纠错闭环（DEC-01：首次成功提交后两小时内允许本人修改并重新提交）
@@ -3498,22 +3518,30 @@ class InspectionService:
         deadline = first + timedelta(minutes=minutes)
         return first, deadline, utcnow() < deadline
 
+    def _lock_correction_attendance(self, task_id: int) -> None:
+        """与更正/异议共用考勤行锁；先锁行，再用当前读检查保护事实。"""
+        self._session.scalars(see_withdrawn(
+            select(AttendanceRecord).where(AttendanceRecord.task_id == task_id)
+            .order_by(AttendanceRecord.id).with_for_update()
+            .execution_options(populate_existing=True)
+        )).all()
+
     def _correction_protected(self, task_id: int) -> bool:
-        """考勤已被管理员更正、异议终审改判，或仍有未结案异议时，本人纠错不得覆盖。"""
+        """任何已发起异议或管理员更正均保护结论，包括驳回及维持原认定。"""
         from app.modules.attendance.models import (
             AttendanceRecord,
             AttendanceRecordVersion,
             AttendanceSourceType,
         )
-        from app.modules.objection.models import Objection, ObjectionFinalStatus
+        from app.modules.objection.models import Objection
 
         handled = self._session.scalar(
-            select(func.count(AttendanceRecordVersion.id))
+            see_withdrawn(select(AttendanceRecordVersion.id)
             .select_from(AttendanceRecordVersion)
             .join(
                 AttendanceRecord,
                 AttendanceRecord.id == AttendanceRecordVersion.attendance_record_id,
-            )
+            ).limit(1).with_for_update(read=True))
             .where(
                 AttendanceRecord.task_id == task_id,
                 AttendanceRecordVersion.source_type.in_(
@@ -3526,16 +3554,15 @@ class InspectionService:
         )
         if handled:
             return True
-        pending = self._session.scalar(
-            select(Objection.id)
+        objection = self._session.scalar(
+            see_withdrawn(select(Objection.id)
             .join(AttendanceRecord, AttendanceRecord.id == Objection.attendance_record_id)
             .where(
                 AttendanceRecord.task_id == task_id,
-                Objection.final_status == ObjectionFinalStatus.PENDING.value,
             )
-            .limit(1)
+            .limit(1).with_for_update(read=True))
         )
-        return pending is not None
+        return objection is not None
 
     def _require_self_correction(self, actor: CurrentUser, submission_id: int):
         """按全局锁序（任务 → 提交）校验本人纠错资格，返回 (task, submission, deadline)。
@@ -3571,6 +3598,7 @@ class InspectionService:
             raise ConflictError(
                 ErrorCode.STATE_CONFLICT, "两小时纠错窗口已关闭，请走数据更正或异议渠道"
             )
+        self._lock_correction_attendance(task.id)
         if self._correction_protected(task.id):
             raise ConflictError(
                 ErrorCode.STATE_CONFLICT,
@@ -3578,6 +3606,7 @@ class InspectionService:
             )
         return task, sub, deadline
 
+    @atomic_write
     def revise_submission(
         self,
         actor: CurrentUser,
@@ -3614,18 +3643,13 @@ class InspectionService:
             reason=body.note,
             request_id=request_id,
         )
+        replacement = self._create_submission(actor, task.id, body, request_id)
+        current.superseded_by_submission_id = replacement.id
+        self._repo.flush()
         self._session.commit()
+        return self._assemble_submissions([replacement])[0]
 
-        created = self.create_submission(actor, task.id, body, request_id)
-        replacement = self._repo.get_submission_for_update(int(created.id))
-        superseded = self._repo.get_submission_for_update(current.id)
-        if superseded is not None and replacement is not None:
-            superseded.superseded_by_submission_id = replacement.id
-            self._repo.flush()
-            self._session.commit()
-            return self._assemble_submissions([replacement])[0]
-        return created
-
+    @atomic_write
     def withdraw_submission(
         self,
         actor: CurrentUser,

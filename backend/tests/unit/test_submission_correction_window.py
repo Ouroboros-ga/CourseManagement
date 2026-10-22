@@ -498,3 +498,78 @@ def test_other_volunteers_submission_cannot_be_withdrawn(campus, monkeypatch):
 
     with pytest.raises(NotFoundError):
         service.withdraw_submission(outsider, int(first.id), SubmissionWithdrawRequest(), None)
+
+
+def test_failed_revise_keeps_old_submission_and_attendance_active(campus, monkeypatch):
+    from app.core.exceptions import AppError
+
+    db, service, actor, task, first, own = _submitted(campus, monkeypatch)
+    with pytest.raises(AppError):
+        service.revise_submission(
+            actor, int(first.id), SubmissionCreateRequest(result="NORMAL", file_ids=[999999]), None
+        )
+    # Even an internal caller's later commit cannot persist half of the revision.
+    db.commit()
+    db.expire_all()
+    original = db.get(InspectionSubmission, int(first.id))
+    assert original.submission_state == "ACTIVE"
+    assert original.superseded_by_submission_id is None
+    assert service._repo.has_open_submission(task.id)
+    assert _types(db, task.id) == {own.id: "NORMAL"}
+
+
+@pytest.mark.parametrize("closed_by", ["elapsed", "disabled"])
+def test_withdrawn_task_cannot_be_resubmitted_after_window_closes(campus, monkeypatch, closed_by):
+    from app.core.exceptions import ConflictError
+
+    db, service, actor, task, first, own = _submitted(campus, monkeypatch)
+    service.withdraw_submission(actor, int(first.id), SubmissionWithdrawRequest(), None)
+    if closed_by == "elapsed":
+        monkeypatch.setattr(
+            "app.modules.inspection.service.utcnow",
+            lambda: first.submitted_at + timedelta(hours=2),
+        )
+    else:
+        monkeypatch.setattr(get_settings(), "submission_correction_window_minutes", 0)
+    with pytest.raises(ConflictError):
+        service.create_submission(actor, task.id, SubmissionCreateRequest(result="NORMAL"), None)
+    db.commit()
+    assert _types(db, task.id) == {}
+    assert _states(db, task.id) == {own.id: "WITHDRAWN"}
+
+
+@pytest.mark.parametrize("decision", ["REJECTED", "APPROVED"])
+@pytest.mark.parametrize("operation", ["withdraw", "revise"])
+def test_closed_objection_without_type_change_protects_conclusion(
+    campus, monkeypatch, decision, operation
+):
+    from app.core.exceptions import ConflictError
+    from app.modules.objection.models import Objection
+    from app.modules.objection.schemas import ObjectionFinalReviewRequest
+    from app.modules.objection.service import ObjectionService
+
+    db, service, actor, task, first, own = _submitted(campus, monkeypatch, result="ABNORMAL")
+    record = db.scalar(select(AttendanceRecord).where(AttendanceRecord.task_id == task.id))
+    objection = Objection(
+        attendance_record_id=record.id, student_id=own.id,
+        base_attendance_version=record.current_version, reason="申请复核", desired_type="NORMAL",
+    )
+    db.add(objection)
+    db.flush()
+    ObjectionService(db).apply_final_review(
+        objection, record,
+        ObjectionFinalReviewRequest(
+            decision=decision, current_version=record.current_version,
+            final_type="ABSENT" if decision == "APPROVED" else None,
+        ),
+        actor_user_id=campus[2].id, request_id=None,
+    )
+    db.commit()
+    with pytest.raises(ConflictError):
+        if operation == "withdraw":
+            service.withdraw_submission(actor, int(first.id), SubmissionWithdrawRequest(), None)
+        else:
+            service.revise_submission(actor, int(first.id), SubmissionCreateRequest(result="NORMAL"), None)
+    db.rollback()
+    assert _types(db, task.id) == {own.id: "ABSENT"}
+    assert db.get(InspectionSubmission, int(first.id)).submission_state == "ACTIVE"
