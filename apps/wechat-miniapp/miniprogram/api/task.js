@@ -23,6 +23,23 @@ export const submitTaskResult = (taskId, data) => {
   });
 };
 
+export const withdrawSubmission = (submissionId, reason) => {
+  return request({
+    url: `/api/v1/submissions/${submissionId}/withdraw`,
+    method: 'POST',
+    data: { reason: reason || null }
+  });
+};
+
+// 本人纠错：请求体与首次提交完全一致，服务端在同一事务改写有效考勤并保留历史。
+export const reviseSubmission = (submissionId, data) => {
+  return request({
+    url: `/api/v1/submissions/${submissionId}/revise`,
+    method: 'POST',
+    data
+  });
+};
+
 export const searchStudents = (taskId, keyword) => {
   return request({
     url: `/api/v1/inspection-tasks/${taskId}/students`,
