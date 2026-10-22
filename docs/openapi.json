@@ -26072,6 +26072,20 @@
               "default": "proxy",
               "title": "Delivery"
             }
+          },
+          {
+            "name": "style",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "original",
+                "thumb"
+              ],
+              "type": "string",
+              "default": "original",
+              "title": "Style"
+            }
           }
         ],
         "responses": {

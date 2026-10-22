@@ -135,8 +135,9 @@ Page({
     try {
       const res = await getMySubmissions(taskId);
       const items = res?.items || res || [];
-      if (items.length > 0) {
-        const sub = items[0];
+      // 旧服务端没有有效性字段时兼容原响应；撤回/改版历史不能锁住重交表单。
+      const sub = items.find(item => !item.submission_state || item.submission_state === 'ACTIVE');
+      if (sub) {
         // 资格完全由服务端判定（本人、首次提交起两小时、管理员未接手）：直接用它算好的
         // can_correct 与 correction_deadline_at，前端不自建倒计时判断。
         this.setData({
@@ -165,6 +166,9 @@ Page({
             hasSubmission: true
           });
         }
+      } else {
+        this.setData({ hasSubmission: false, submissionId: '', canAmend: false,
+          previousFileIds: [], reviseMode: false });
       }
     } catch(err) {
       console.error('获取提交记录失败', err);
@@ -235,7 +239,8 @@ Page({
       return;
     }
 
-    if (task.requirePhoto && fileList.length === 0) {
+    if (task.requirePhoto && fileList.length === 0 &&
+        !(this.data.reviseMode && this.data.previousFileIds.length > 0)) {
       Toast({ context: this, selector: '#t-toast', message: '必须上传现场照片' });
       return;
     }

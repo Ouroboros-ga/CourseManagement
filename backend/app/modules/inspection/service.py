@@ -3400,10 +3400,14 @@ class InspectionService:
         first, deadline, open_now = self.correction_window(task.id)
         if first is not None:
             if deadline is None or not open_now:
-                raise ConflictError(ErrorCode.STATE_CONFLICT, "两小时纠错窗口已关闭，请走数据更正或异议渠道")
+                raise ConflictError(
+                    ErrorCode.STATE_CONFLICT, "两小时纠错窗口已关闭，请走数据更正或异议渠道"
+                )
             self._lock_correction_attendance(task.id)
             if self._correction_protected(task.id):
-                raise ConflictError(ErrorCode.STATE_CONFLICT, "该任务考勤已有管理员更正或异议处理，本人不可覆盖")
+                raise ConflictError(
+                    ErrorCode.STATE_CONFLICT, "该任务考勤已有管理员更正或异议处理，本人不可覆盖"
+                )
 
         # 异常明细：学生须属本任务当前名单版本、不可重复；结论与明细数量一致性由 schema 保证。
         roster_members = self._repo.list_roster_members(task.id, task.roster_version)
@@ -3520,11 +3524,15 @@ class InspectionService:
 
     def _lock_correction_attendance(self, task_id: int) -> None:
         """与更正/异议共用考勤行锁；先锁行，再用当前读检查保护事实。"""
-        self._session.scalars(see_withdrawn(
-            select(AttendanceRecord).where(AttendanceRecord.task_id == task_id)
-            .order_by(AttendanceRecord.id).with_for_update()
-            .execution_options(populate_existing=True)
-        )).all()
+        self._session.scalars(
+            see_withdrawn(
+                select(AttendanceRecord)
+                .where(AttendanceRecord.task_id == task_id)
+                .order_by(AttendanceRecord.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).all()
 
     def _correction_protected(self, task_id: int) -> bool:
         """任何已发起异议或管理员更正均保护结论，包括驳回及维持原认定。"""
@@ -3536,31 +3544,36 @@ class InspectionService:
         from app.modules.objection.models import Objection
 
         handled = self._session.scalar(
-            see_withdrawn(select(AttendanceRecordVersion.id)
-            .select_from(AttendanceRecordVersion)
-            .join(
-                AttendanceRecord,
-                AttendanceRecord.id == AttendanceRecordVersion.attendance_record_id,
-            ).limit(1).with_for_update(read=True))
-            .where(
-                AttendanceRecord.task_id == task_id,
-                AttendanceRecordVersion.source_type.in_(
-                    [
-                        AttendanceSourceType.CORRECTION.value,
-                        AttendanceSourceType.OBJECTION_FINAL.value,
-                    ]
-                ),
+            see_withdrawn(
+                select(AttendanceRecordVersion.id)
+                .select_from(AttendanceRecordVersion)
+                .join(
+                    AttendanceRecord,
+                    AttendanceRecord.id == AttendanceRecordVersion.attendance_record_id,
+                )
+                .where(
+                    AttendanceRecord.task_id == task_id,
+                    AttendanceRecordVersion.source_type.in_(
+                        [
+                            AttendanceSourceType.CORRECTION.value,
+                            AttendanceSourceType.OBJECTION_FINAL.value,
+                        ]
+                    ),
+                )
+                .limit(1)
+                .with_for_update(read=True)
             )
         )
         if handled:
             return True
         objection = self._session.scalar(
-            see_withdrawn(select(Objection.id)
-            .join(AttendanceRecord, AttendanceRecord.id == Objection.attendance_record_id)
-            .where(
-                AttendanceRecord.task_id == task_id,
+            see_withdrawn(
+                select(Objection.id)
+                .join(AttendanceRecord, AttendanceRecord.id == Objection.attendance_record_id)
+                .where(AttendanceRecord.task_id == task_id)
+                .limit(1)
+                .with_for_update(read=True)
             )
-            .limit(1).with_for_update(read=True))
         )
         return objection is not None
 

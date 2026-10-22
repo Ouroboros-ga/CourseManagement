@@ -163,4 +163,6 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      - name: 本人纠错客户端回归
+        run: node --test --test-name-pattern='withdrawn history|active attempt|revision may' ../wechat-miniapp/tests/task-pages.test.mjs
       - run: npm run build

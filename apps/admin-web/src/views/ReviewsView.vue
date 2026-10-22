@@ -16,7 +16,7 @@ const sessionStore = useSessionStore()
 const loading = ref(false)
 const submissions = ref<ManagementSubmissionItem[]>([])
 const activeId = ref<string>('')
-const statusFilter = ref<string>('PENDING')
+const statusFilter = ref<string>('')
 const searchQuery = ref<string>('')
 const page = ref(1), total = ref(0)
 const summary = ref({ pending: 0, normal: 0, abnormal: 0, reviewed: 0 })
@@ -276,7 +276,13 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
               <div class="card-footer-badges">
                 <!-- 审核状态标签 -->
                 <span
-                  v-if="sub.review_status === 'APPROVED'"
+                  v-if="sub.submission_state && sub.submission_state !== 'ACTIVE'"
+                  class="tag text-xs"
+                >
+                  {{ sub.submission_state === 'WITHDRAWN' ? '已撤回' : '已被新版替代' }}
+                </span>
+                <span
+                  v-else-if="sub.review_status === 'APPROVED'"
                   class="tag tag-green text-xs"
                 >
                   已通过
@@ -330,7 +336,11 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
                   }"
                 >
                   {{
-                    currentSubmission.review_status === 'PENDING'
+                    currentSubmission.submission_state === 'WITHDRAWN'
+                      ? '已撤回 SUBMISSION-#' + currentSubmission.id
+                      : currentSubmission.submission_state === 'SUPERSEDED'
+                      ? '已被新版替代 SUBMISSION-#' + currentSubmission.id
+                      : currentSubmission.review_status === 'PENDING'
                       ? '待初审 SUBMISSION-#' + currentSubmission.id
                       : (currentSubmission.review_status === 'APPROVED' ? '已通过' : '已驳回') + ' SUBMISSION-#' + currentSubmission.id
                   }}
@@ -456,7 +466,10 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
                 </div>
               </div>
 
-              <div v-if="currentSubmission.review_status === 'APPROVED'" class="decision-done success">
+              <div v-if="currentSubmission.submission_state && currentSubmission.submission_state !== 'ACTIVE'" class="decision-done">
+                <span>{{ currentSubmission.submission_state === 'WITHDRAWN' ? '已撤回，保留历史材料' : '已被新版替代，保留历史材料' }}</span>
+              </div>
+              <div v-else-if="currentSubmission.review_status === 'APPROVED'" class="decision-done success">
                   <AppIcon name="check-circle" :size="16" class="t-green" />
                   <span>已审核通过 · 考勤记录已固化落库</span>
                 </div>

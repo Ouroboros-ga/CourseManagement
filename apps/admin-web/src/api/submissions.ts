@@ -16,6 +16,11 @@ export interface ManagementSubmissionItem {
   roster_version: number
   result: 'NORMAL' | 'ABNORMAL'
   review_status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  submission_state?: 'ACTIVE' | 'SUPERSEDED' | 'WITHDRAWN'
+  correction_deadline_at?: string | null
+  can_correct?: boolean
+  withdrawn_at?: string | null
+  withdraw_reason?: string | null
   submitted_at: string
   deadline_version_id?: string | null
   late_at_submission: boolean
