@@ -475,6 +475,8 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 数据可见性（PERMISSIONS.md 6.3）：`attendance.read` 全五角色持有，但 **SA/TA/SAM=全院 `MANAGE` 范围、VOLUNTEER+STUDENT=仅本人 `SELF_STUDENT`**。
 
+在此之上有第二条独立轴：志愿者撤回后，该任务的考勤行转 `effect_state=WITHDRAWN` 并对**全部 ORM 读取默认隐身**（`attendance/effect_scope.py` 的 Session 监听器给每条查询加谓词，覆盖实体查询、只选列、聚合、join 进其他实体、IN 子查询、`aliased()` 与 `session.get()`）。因此 `GET /attendance*`、`GET /me/attendance`、统计与报表、异议可申诉判定、任务取消/删除守卫看到的都是"没有这条结论"，而不是"有一条已撤回的记录"；管理更正与学生对已撤回结论提异议都会得 404。显式放行（`see_withdrawn()`）只用在历史可达、证据鉴权与级联清理路径：撤回后本人仍能读自己那份现场照片，已撤回行仍阻止学期归档、任务物理删除、换组、换地点与学生物理删除。原生 SQL 不经该监听器，新增原生读取需自带 `effect_state='EFFECTIVE'`。
+
 | 端点 | 守卫 | 说明 |
 |---|---|---|
 | `GET /me/attendance` | `attendance.read` | 强制 `student_id=本人`；无绑定学生 403 |
