@@ -363,6 +363,7 @@ def _revision(session: Session, sem_id: int, week_no: int) -> int | None:
         select(ReportSourceRevision.revision).where(
             ReportSourceRevision.semester_id == sem_id,
             ReportSourceRevision.week_no == week_no,
+            ReportSourceRevision.ownership_scope_id == 0,
         )
     ).scalar_one_or_none()
     return None if val is None else int(val)

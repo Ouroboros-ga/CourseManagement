@@ -440,6 +440,7 @@ def _report_revision(session: Session, sem_id: int, task_id: int) -> int:
         select(ReportSourceRevision.revision).where(
             ReportSourceRevision.semester_id == sem_id,
             ReportSourceRevision.week_no == week_no,
+            ReportSourceRevision.ownership_scope_id == 0,
         )
     ).scalar_one_or_none()
     return int(row or 0)
@@ -728,6 +729,7 @@ def test_submit_vs_cancel_mutually_exclusive(
     ]
     for t in threads:
         t.start()
+    for t in threads:
         t.join(timeout=30)
     oks = [v for v in out.values() if v[0] == "ok"]
     errs = [v for v in out.values() if v[0] == "error"]
