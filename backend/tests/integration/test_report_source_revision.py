@@ -1,7 +1,7 @@
 """报表源修订基础设施 P7(W7b)：影响考勤的写路径同事务原子递增，连真实 MySQL。
 
 覆盖技术方案 9.4 与 P6 挂账的集中偿还：
-- 审核通过生成考勤 → (学期,周) revision +1；审核驳回不改考勤 → 不递增。
+- 志愿者提交即生成考勤 → (学期,周) revision +1；本人撤回让考勤退出有效，同样 +1。
 - 应到人数调整：真实变化才 +1；调整为同值（无变化）不递增。
 - 考勤更正 → 所属任务 (学期,周) +1。
 - 异议终审：改判实际更正考勤才 +1；终审通过但维持原认定不递增。
@@ -53,6 +53,23 @@ _MON1_D = date_(2026, 9, 7)
 def _bootstrap(session: Session) -> None:
     sync_registry(session)
     session.commit()
+
+
+def _bind_volunteer_account(session: Session, student_id: int, username: str) -> UserAccount:
+    """复用学期资格自动建立的绑定账号，只补登录凭据。
+
+    首次授予有效资格时服务已在同事务建号并授予 VOLUNTEER（academic/service.py 的
+    _grant_volunteer_role）；再插一个 student_id 相同的账号会撞
+    user_account.uq_user_account_student_id。
+    """
+    acct = session.execute(
+        select(UserAccount).where(UserAccount.student_id == student_id)
+    ).scalar_one()
+    acct.username = username
+    acct.display_name = username
+    acct.password_hash = hash_password(_PWD)
+    session.commit()
+    return acct
 
 
 def _seed_college_scope(on_date: date_) -> None:
@@ -255,7 +272,7 @@ def _make_volunteer_for_task(
     sid = _create_student(client, h, f"V{username}", other)
     _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sem_id, sid)
-    vol = _make_user(session, username, [RoleCode.VOLUNTEER.value], student_id=sid)
+    vol = _bind_volunteer_account(session, sid, username)
     resp = client.put(
         f"{_TASKS}/{task_id}/assignment",
         headers=h,
@@ -292,11 +309,6 @@ def _submit_abnormal(client, h, session, sem_id, task_id, s1, *, s2_type=None) -
     assert r.status_code == 200, r.text
     _ = s2_type
     return int(r.json()["data"]["id"])
-
-
-def _approve(client, h, sub_id: int) -> None:
-    r = client.post(f"{_SUBS}/{sub_id}/review", headers=h, json={"decision": "APPROVED"})
-    assert r.status_code == 200, r.text
 
 
 def _scene(client: TestClient, h: dict[str, str], session: Session) -> dict:
@@ -357,25 +369,27 @@ def _revision(session: Session, sem_id: int, week_no: int) -> int | None:
 
 
 # --------------------------------------------------------------------------- #
-# 路径一：审核通过生成考勤
+# 路径一：提交即生成考勤
 # --------------------------------------------------------------------------- #
-def test_review_approval_bumps(client: TestClient, session: Session) -> None:
+def test_submission_bumps(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
     assert _revision(session, sc["sem_id"], 1) is None  # 生成任务不触发源修订
-    sub_id = _submit_abnormal(client, h, session, sc["sem_id"], sc["task_id"], sc["s1"])
-    _approve(client, h, sub_id)
+    _submit_abnormal(client, h, session, sc["sem_id"], sc["task_id"], sc["s1"])
+    # 提交即生成考勤：不需要任何人点"通过"，源修订号就已 +1。
     assert _revision(session, sc["sem_id"], 1) == 1
 
 
-def test_review_rejection_does_not_bump(client: TestClient, session: Session) -> None:
+def test_withdraw_bumps(client: TestClient, session: Session) -> None:
+    # 本人撤回让考勤退出有效结论，同样是一次源变更，周报必须据此判定落后。
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
     sub_id = _submit_abnormal(client, h, session, sc["sem_id"], sc["task_id"], sc["s1"])
-    r = client.post(f"{_SUBS}/{sub_id}/review", headers=h, json={"decision": "REJECTED"})
+    assert _revision(session, sc["sem_id"], 1) == 1
+    vh = _bearer(_login(client, f"vol{sc['task_id']}"))
+    r = client.post(f"{_SUBS}/{sub_id}/withdraw", headers=vh, json={"reason": "看错班了"})
     assert r.status_code == 200, r.text
-    # 驳回不改考勤事实 → 无源修订行。
-    assert _revision(session, sc["sem_id"], 1) is None
+    assert _revision(session, sc["sem_id"], 1) == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -425,9 +439,8 @@ def test_expected_count_noop_does_not_bump(client: TestClient, session: Session)
 def test_attendance_correction_bumps(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    sub_id = _submit_abnormal(client, h, session, sc["sem_id"], sc["task_id"], sc["s1"])
-    _approve(client, h, sub_id)
-    assert _revision(session, sc["sem_id"], 1) == 1  # 审核已 +1
+    _submit_abnormal(client, h, session, sc["sem_id"], sc["task_id"], sc["s1"])
+    assert _revision(session, sc["sem_id"], 1) == 1  # 提交已 +1
     rec_ids = _record_ids(session, sc["task_id"])
     rid = rec_ids[sc["s2"]]  # s2=NORMAL 初始
     _post(
@@ -443,8 +456,7 @@ def test_attendance_correction_bumps(client: TestClient, session: Session) -> No
 # 路径四：异议终审（改判才递增）
 # --------------------------------------------------------------------------- #
 def _open_objection_on_s2(client, h, session, sc, *, desired="LATE") -> tuple[int, int]:
-    sub_id = _submit_abnormal(client, h, session, sc["sem_id"], sc["task_id"], sc["s1"])
-    _approve(client, h, sub_id)
+    _submit_abnormal(client, h, session, sc["sem_id"], sc["task_id"], sc["s1"])
     rec_ids = _record_ids(session, sc["task_id"])
     rid = rec_ids[sc["s2"]]  # s2=NORMAL
     stu = _make_user(session, "stu_s2", [RoleCode.STUDENT.value], student_id=sc["s2"])
@@ -460,7 +472,7 @@ def test_objection_final_correction_bumps(client: TestClient, session: Session) 
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
     oid, _rid = _open_objection_on_s2(client, h, session, sc, desired="LATE")
-    base = _revision(session, sc["sem_id"], 1)  # 审核通过带来的基数（=1）
+    base = _revision(session, sc["sem_id"], 1)  # 提交带来的基数（=1）
     assert base == 1
     r = client.post(
         f"{_OBJS}/{oid}/final-review",
@@ -525,7 +537,7 @@ def test_cumulative_and_week_isolation(client: TestClient, session: Session) -> 
     # week1 连续两次源变更（审核 + 更正）。
     w1 = tasks[1]
     sub_id = _submit_abnormal(client, h, session, sem_id, w1, s1)
-    _approve(client, h, sub_id)
+    _ = sub_id
     rec = _record_ids(session, w1)
     _post(
         client,
@@ -535,8 +547,7 @@ def test_cumulative_and_week_isolation(client: TestClient, session: Session) -> 
     )
     # week2 仅一次审核。
     w2 = tasks[2]
-    sub2 = _submit_abnormal(client, h, session, sem_id, w2, s1)
-    _approve(client, h, sub2)
+    _submit_abnormal(client, h, session, sem_id, w2, s1)
 
     assert _revision(session, sem_id, 1) == 2  # week1 累加
     assert _revision(session, sem_id, 2) == 1  # week2 独立
@@ -569,9 +580,8 @@ def test_concurrent_bumps_monotonic_no_loss(
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
     sem_id, week = sc["sem_id"], 1
-    # 先建一行（模拟首次变更已发生），再从基数并发递增。
+    # 先建一行（提交即首次源变更），再从基数并发递增。
     _submit_abnormal(client, h, session, sem_id, sc["task_id"], sc["s1"])
-    _approve(client, h, _latest_sub_id(session, sc["task_id"]))
     assert _revision(session, sem_id, week) == 1
 
     n = 6
@@ -588,17 +598,3 @@ def test_concurrent_bumps_monotonic_no_loss(
     assert list(out.values()) == ["ok"] * n, out
     # 基数 1 + 并发 6 次原子自增 = 7，无读-改-写丢失。
     assert _revision(session, sem_id, week) == 1 + n
-
-
-def _latest_sub_id(session: Session, task_id: int) -> int:
-    from app.modules.inspection.models import InspectionSubmission
-
-    session.commit()
-    session.expire_all()
-    row = session.execute(
-        select(InspectionSubmission.id)
-        .where(InspectionSubmission.task_id == task_id)
-        .order_by(InspectionSubmission.id.desc())
-        .limit(1)
-    ).scalar_one()
-    return int(row)

@@ -2,7 +2,7 @@
 
 覆盖技术方案 17 与 PERMISSIONS.md 5/6.2/7：
 - 鉴权与门禁：无令牌 401；负责人默认 statistics.read 关 → 403；开启可选后可读；学生无 → 403。
-- 口径一：仅统计审核通过且未取消任务；待审核异常不计入正式缺勤。
+- 口径一：只统计有效结论且未取消的任务；本人撤回的提交不计入正式缺勤。
 - 口径二：分母（有效应到）≤0 → statistics_available=false 且比率 null（不显示 0%/100%）。
 - 口径三：先累加分子分母再相除，不对各班百分比简单平均（多任务/多班聚合校验）。
 - 口径四：班级按名单快照归并；人工只调总数任务班级分母不可靠 → class_ratio_available=false
@@ -52,6 +52,23 @@ _MON2_D = date_(2026, 9, 14)
 def _bootstrap(session: Session) -> None:
     sync_registry(session)
     session.commit()
+
+
+def _bind_volunteer_account(session: Session, student_id: int, username: str) -> UserAccount:
+    """复用学期资格自动建立的绑定账号，只补登录凭据。
+
+    首次授予有效资格时服务已在同事务建号并授予 VOLUNTEER（academic/service.py 的
+    _grant_volunteer_role）；再插一个 student_id 相同的账号会撞
+    user_account.uq_user_account_student_id。
+    """
+    acct = session.execute(
+        select(UserAccount).where(UserAccount.student_id == student_id)
+    ).scalar_one()
+    acct.username = username
+    acct.display_name = username
+    acct.password_hash = hash_password(_PWD)
+    session.commit()
+    return acct
 
 
 def _seed_college_scope(on_date: date_) -> None:
@@ -308,7 +325,7 @@ def _make_volunteer_for_task(
     sid = _create_student(client, h, f"V{username}", other)
     _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sem_id, sid)
-    vol = _make_user(session, username, [RoleCode.VOLUNTEER.value], student_id=sid)
+    vol = _bind_volunteer_account(session, sid, username)
     _assign(client, h, session, task_id, vol.id)
     return _bearer(_login(client, username))
 
@@ -330,7 +347,7 @@ def _set_future_deadline(session: Session, sem_id: int, on_date: date_) -> None:
     session.commit()
 
 
-def _approve_abnormal(
+def _submit_abnormal(
     client: TestClient,
     h: dict[str, str],
     session: Session,
@@ -343,17 +360,11 @@ def _approve_abnormal(
     body = {"result": "ABNORMAL", "abnormal_items": items, "file_ids": []}
     r = client.post(f"{_TASKS}/{task_id}/submissions", headers=vh, json=body)
     assert r.status_code == 200, r.text
-    sub_id = int(r.json()["data"]["id"])
-    assert (
-        client.post(
-            f"{_SUBS}/{sub_id}/review", headers=h, json={"decision": "APPROVED"}
-        ).status_code
-        == 200
-    )
-    return sub_id
+    # 提交即定稿并生成正式考勤，不再需要人工审核这一步。
+    return int(r.json()["data"]["id"])
 
 
-def _pending_only(
+def _withdrawn_abnormal(
     client: TestClient,
     h: dict[str, str],
     session: Session,
@@ -361,15 +372,21 @@ def _pending_only(
     task_id: int,
     items: list[dict],
 ) -> int:
+    """提交后本人撤回：考勤退出有效结论，统计与周报都不应再计入。"""
     _set_future_deadline(session, sem_id, _MON1_D)
     vh = _make_volunteer_for_task(client, h, session, sem_id, task_id, f"volp{task_id}")
     body = {"result": "ABNORMAL", "abnormal_items": items, "file_ids": []}
     r = client.post(f"{_TASKS}/{task_id}/submissions", headers=vh, json=body)
     assert r.status_code == 200, r.text
-    return int(r.json()["data"]["id"])
+    sub_id = int(r.json()["data"]["id"])
+    withdrawn = client.post(
+        f"{_SUBS}/{sub_id}/withdraw", headers=vh, json={"reason": "撤回重查"}
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    return sub_id
 
 
-def _approve_normal(
+def _submit_normal(
     client: TestClient,
     h: dict[str, str],
     session: Session,
@@ -382,14 +399,8 @@ def _approve_normal(
     body = {"result": "NORMAL", "abnormal_items": [], "file_ids": []}
     r = client.post(f"{_TASKS}/{task_id}/submissions", headers=vh, json=body)
     assert r.status_code == 200, r.text
-    sub_id = int(r.json()["data"]["id"])
-    assert (
-        client.post(
-            f"{_SUBS}/{sub_id}/review", headers=h, json={"decision": "APPROVED"}
-        ).status_code
-        == 200
-    )
-    return sub_id
+    # 提交即定稿并生成正式考勤，不再需要人工审核这一步。
+    return int(r.json()["data"]["id"])
 
 
 def _scene2(
@@ -477,7 +488,7 @@ def test_statistics_requires_auth_401(client: TestClient) -> None:
 def test_super_admin_can_read(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -501,7 +512,7 @@ def test_sam_denied_without_optional(client: TestClient, session: Session) -> No
 def test_sam_reads_after_optional_enabled(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -532,12 +543,12 @@ def test_student_denied_403(client: TestClient, session: Session) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 口径一：仅审核通过 + 未取消；待审核异常不计正式缺勤
+# 口径一：仅有效结论 + 未取消；本人撤回的提交不计正式缺勤
 # --------------------------------------------------------------------------- #
 def test_basic_abnormal_counts(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -556,10 +567,11 @@ def test_basic_abnormal_counts(client: TestClient, session: Session) -> None:
     assert abs(ov["abnormal_rate"] - 0.5) < 1e-9
 
 
-def test_pending_submission_not_counted(client: TestClient, session: Session) -> None:
+def test_withdrawn_submission_not_counted(client: TestClient, session: Session) -> None:
+    # 现行规则下没有"待审核不计入"这档：提交即计入，撤回才退出统计。
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session)
-    _pending_only(
+    _withdrawn_abnormal(
         client,
         h,
         session,
@@ -580,8 +592,8 @@ def test_pending_submission_not_counted(client: TestClient, session: Session) ->
 def test_denominator_zero_yields_null_rate(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session)
-    # 存在审核通过的 NORMAL 任务（eligible），异常数为 0；再把当前应到人工归零 → 分母=0。
-    _approve_normal(client, h, session, sc["sem_id"], sc["task_w1"])
+    # 已提交的 NORMAL 任务（eligible）异常数为 0；再把当前应到人工归零 → 分母=0。
+    _submit_normal(client, h, session, sc["sem_id"], sc["task_w1"])
     _patch(
         client,
         h,
@@ -606,7 +618,7 @@ def test_denominator_zero_yields_null_rate(client: TestClient, session: Session)
 def test_manual_adjustment_excludes_class_ratio(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -638,7 +650,7 @@ def test_multi_class_sum_before_divide(client: TestClient, session: Session) -> 
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session, extra_class=True)
     # s1(LATE) 属 CS2401，s3(NORMAL) 属 CS2402
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -662,7 +674,7 @@ def test_multi_class_sum_before_divide(client: TestClient, session: Session) -> 
 def test_multi_task_sum_before_divide(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session, two_tasks=True)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -670,7 +682,7 @@ def test_multi_task_sum_before_divide(client: TestClient, session: Session) -> N
         sc["task_w1"],
         [{"student_id": sc["s1"], "attendance_type": "LATE", "note": "迟到"}],
     )
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -696,9 +708,9 @@ def test_multi_task_sum_before_divide(client: TestClient, session: Session) -> N
 def test_overdue_and_current_incomplete_distinct(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session, two_tasks=True)
-    # task_w1(week1)：审核通过（有 APPROVED 提交）→ 当前已完成；
+    # task_w1(week1)：提交即定稿（APPROVED + ACTIVE）→ 当前已完成；
     # 其截止仍在未来且不结算 → 无截止快照。
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -809,7 +821,7 @@ def test_export_attendance_analytics_excel(client: TestClient, session: Session)
 
     h = _admin_headers(client, session)
     sc = _scene2(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,

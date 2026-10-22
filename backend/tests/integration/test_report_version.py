@@ -72,6 +72,23 @@ def _bootstrap(session: Session) -> None:
     session.commit()
 
 
+def _bind_volunteer_account(session: Session, student_id: int, username: str) -> UserAccount:
+    """复用学期资格自动建立的绑定账号，只补登录凭据。
+
+    首次授予有效资格时服务已在同事务建号并授予 VOLUNTEER（academic/service.py 的
+    _grant_volunteer_role）；再插一个 student_id 相同的账号会撞
+    user_account.uq_user_account_student_id。
+    """
+    acct = session.execute(
+        select(UserAccount).where(UserAccount.student_id == student_id)
+    ).scalar_one()
+    acct.username = username
+    acct.display_name = username
+    acct.password_hash = hash_password(_PWD)
+    session.commit()
+    return acct
+
+
 def _seed_college_scope(on_date: date_) -> None:
     """把本场景补成现行的学院作用域与在读区间。
 
@@ -345,12 +362,12 @@ def _make_volunteer_for_task(
     sid = _create_student(client, h, f"V{username}", other)
     _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sem_id, sid)
-    vol = _make_user(session, username, [RoleCode.VOLUNTEER.value], student_id=sid)
+    vol = _bind_volunteer_account(session, sid, username)
     _assign(client, h, session, task_id, vol.id)
     return _bearer(_login(client, username))
 
 
-def _approve_abnormal(
+def _submit_abnormal(
     client: TestClient,
     h: dict[str, str],
     session: Session,
@@ -363,18 +380,12 @@ def _approve_abnormal(
     body = {"result": "ABNORMAL", "abnormal_items": items, "file_ids": []}
     r = client.post(f"{_TASKS}/{task_id}/submissions", headers=vh, json=body)
     assert r.status_code == 200, r.text
-    sub_id = int(r.json()["data"]["id"])
-    assert (
-        client.post(
-            f"{_SUBS}/{sub_id}/review", headers=h, json={"decision": "APPROVED"}
-        ).status_code
-        == 200
-    )
-    return sub_id
+    # 提交即定稿并生成正式考勤，不再需要人工审核这一步。
+    return int(r.json()["data"]["id"])
 
 
 def _scene(client: TestClient, h: dict[str, str], session: Session) -> dict:
-    """一学期 + 一行政班(s1,s2) + 教学班 T1(week1) + 审核通过的一异常（1 个符合条件任务）。"""
+    """一学期 + 一行政班(s1,s2) + 教学班 T1(week1) + 已提交的一异常（1 个符合条件任务）。"""
     sem_id = _setup_sem(client, h)
     cs = _create_admin_class(client, h, "CS2401")
     s1 = _create_student(client, h, "S001", cs)
@@ -438,7 +449,7 @@ def test_statistics_optional_toggle_preserves_default_report_read(
 ) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -465,7 +476,7 @@ def test_student_affairs_manager_can_read_and_generate(
 ) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -495,7 +506,7 @@ def test_generate_list_and_download(
 ) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -553,7 +564,7 @@ def test_version_increments_without_overwrite(
 ) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -586,7 +597,7 @@ def test_behind_source_after_revision_bump(
 ) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -598,7 +609,7 @@ def test_behind_source_after_revision_bump(
     rid = int(data["report_id"])
     assert data["version"]["behind_source"] is False
 
-    # 模拟源数据被改动：把该 (学期,周) 的修订号抬高。审核通过写考勤时已同事务建了修订行，
+    # 模拟源数据被改动：把该 (学期,周) 的修订号抬高。提交写考勤时已同事务建了修订行，
     # 故优先 UPDATE（直达已提交行，不受本夹具会话旧快照影响），无行才 INSERT。
     rc = session.execute(
         update(ReportSourceRevision)
@@ -633,7 +644,7 @@ def test_rule_and_template_versions_recorded_and_outdated(
     get_settings.cache_clear()
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -669,7 +680,7 @@ def test_scale_limit_marks_failed_and_version_no_not_reused(
 ) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -743,7 +754,7 @@ def test_generated_files_are_report_category_and_future(
 ) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -808,7 +819,7 @@ def test_takeover_stale_generating_reuses_version_no(
 ) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,
@@ -855,7 +866,7 @@ def test_concurrent_generation_no_duplicate_versions(
     # 用 HTTP 侧管理员夹具建数据 + 两个管理员账号，随后以独立会话并发调用服务。
     h = _admin_headers(client, session)
     sc = _scene(client, h, session)
-    _approve_abnormal(
+    _submit_abnormal(
         client,
         h,
         session,

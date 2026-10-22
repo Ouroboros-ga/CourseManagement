@@ -71,6 +71,23 @@ def _bootstrap(session: Session) -> None:
     session.commit()
 
 
+def _bind_volunteer_account(session: Session, student_id: int, username: str) -> UserAccount:
+    """复用学期资格自动建立的绑定账号，只补登录凭据。
+
+    首次授予有效资格时服务已在同事务建号并授予 VOLUNTEER（academic/service.py 的
+    _grant_volunteer_role）；再插一个 student_id 相同的账号会撞
+    user_account.uq_user_account_student_id。
+    """
+    acct = session.execute(
+        select(UserAccount).where(UserAccount.student_id == student_id)
+    ).scalar_one()
+    acct.username = username
+    acct.display_name = username
+    acct.password_hash = hash_password(_PWD)
+    session.commit()
+    return acct
+
+
 def _seed_college_scope(on_date: date_) -> None:
     """把本场景补成现行的学院作用域与在读区间。
 
@@ -310,7 +327,7 @@ def _make_volunteer(
     sid = _create_student(client, h, f"V{username}", other)
     _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sc["sem_id"], sid)
-    vol = _make_user(session, username, [RoleCode.VOLUNTEER.value], student_id=sid)
+    vol = _bind_volunteer_account(session, sid, username)
     _assign(client, h, sc["task_id"], vol.id)
     return vol, _bearer(_login(client, username))
 
@@ -568,7 +585,7 @@ def test_submit_not_assigned_403(client: TestClient, session: Session) -> None:
     sid = _create_student(client, h, "VZ", other)
     _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sc["sem_id"], sid)
-    _make_user(session, "volunassigned", [RoleCode.VOLUNTEER.value], student_id=sid)
+    _bind_volunteer_account(session, sid, "volunassigned")
     vh = _bearer(_login(client, "volunassigned"))
     r = client.post(_submit_url(sc["task_id"]), headers=vh, json=_normal_body())
     assert r.status_code == 403, r.text
