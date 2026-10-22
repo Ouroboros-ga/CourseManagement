@@ -40,6 +40,7 @@ jobs:
             --baseline tests/ci_baseline_unit.txt \
             --require-ran 800 \
             --allow-skip-max 10 \
+            --require-pass tests/unit/test_integration_revision_probe.py \
             --require-pass tests/unit/test_submission_correction_window.py \
             --require-pass tests/unit/test_parsing_budgets.py \
             --require-pass tests/unit/test_manager_workspace_capabilities.py \
@@ -139,6 +140,12 @@ jobs:
             --baseline tests/ci_baseline_integration_mysql.txt \
             --require-ran 350 \
             --allow-skip-max 0 \
+            --require-pass tests/integration/test_inspection_review_attendance.py \
+            --require-pass tests/integration/test_inspection_submission.py \
+            --require-pass tests/integration/test_management_submissions.py \
+            --require-pass tests/integration/test_report_source_revision.py \
+            --require-pass tests/integration/test_report_statistics.py \
+            --require-pass tests/integration/test_report_version.py \
             --require-pass tests/integration/test_correction_downgrade.py \
             --require-pass tests/integration/test_file_upload.py::test_upload_normalizes \
             --require-pass tests/integration/test_inspection_review_attendance.py::test_legacy_review_endpoints_are_removed \

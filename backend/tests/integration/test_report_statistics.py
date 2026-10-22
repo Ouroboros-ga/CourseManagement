@@ -94,6 +94,11 @@ def _seed_college_scope(on_date: date_) -> None:
         )
         s.execute(
             update(StudentEnrollment)
+            .where(StudentEnrollment.college_id.is_(None))
+            .values(college_id=1)
+        )
+        s.execute(
+            update(StudentEnrollment)
             .where(StudentEnrollment.effective_from > on_date)
             .values(effective_from=since)
         )
