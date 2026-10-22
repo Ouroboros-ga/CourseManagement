@@ -383,8 +383,15 @@ def _audit_count(session: Session, action: str) -> int:
 # --------------------------------------------------------------------------- #
 # 审核守卫与鉴权
 # --------------------------------------------------------------------------- #
-def test_review_requires_auth_401(client: TestClient) -> None:
-    assert client.post(_review_url(1), json={"decision": "APPROVED"}).status_code == 401
+@pytest.mark.parametrize("url,expected", [
+    ("/api/v1/submissions/1/review", 404),
+    ("/api/v1/management/submissions/batch-review", 405),
+    ("/api/v1/colleges/1/submissions/1/review", 404),
+    ("/api/v1/colleges/1/management/submissions/batch-review", 405),
+])
+def test_legacy_review_endpoints_are_removed(client: TestClient, url: str, expected: int) -> None:
+    # batch-review overlaps GET /management/submissions/{id}; POST therefore yields 405.
+    assert client.post(url, json={"decision": "APPROVED"}).status_code == expected
 
 
 def test_volunteer_cannot_review_403(client: TestClient, session: Session) -> None:

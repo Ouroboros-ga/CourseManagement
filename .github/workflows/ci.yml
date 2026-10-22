@@ -140,6 +140,8 @@ jobs:
             --require-ran 350 \
             --allow-skip-max 0 \
             --require-pass tests/integration/test_correction_downgrade.py \
+            --require-pass tests/integration/test_file_upload.py::test_upload_normalizes \
+            --require-pass tests/integration/test_inspection_review_attendance.py::test_legacy_review_endpoints_are_removed \
             --require-pass tests/integration/test_inspection_generate.py::test_legacy_task_key_still_blocks_duplicate_occurrence \
             --require-pass tests/integration/test_importer.py::test_roster_import_is_additive_and_never_deletes_absent_members \
             --require-pass tests/integration/test_importer.py::test_roster_import_without_replace_flag_has_no_warning \

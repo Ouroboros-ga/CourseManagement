@@ -569,7 +569,9 @@ def test_closed_objection_without_type_change_protects_conclusion(
         if operation == "withdraw":
             service.withdraw_submission(actor, int(first.id), SubmissionWithdrawRequest(), None)
         else:
-            service.revise_submission(actor, int(first.id), SubmissionCreateRequest(result="NORMAL"), None)
+            service.revise_submission(
+                actor, int(first.id), SubmissionCreateRequest(result="NORMAL"), None
+            )
     db.rollback()
     assert _types(db, task.id) == {own.id: "ABSENT"}
     assert db.get(InspectionSubmission, int(first.id)).submission_state == "ACTIVE"
