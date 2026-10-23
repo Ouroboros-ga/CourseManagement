@@ -16,6 +16,11 @@ export interface ManagementSubmissionItem {
   roster_version: number
   result: 'NORMAL' | 'ABNORMAL'
   review_status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  submission_state?: 'ACTIVE' | 'SUPERSEDED' | 'WITHDRAWN'
+  correction_deadline_at?: string | null
+  can_correct?: boolean
+  withdrawn_at?: string | null
+  withdraw_reason?: string | null
   submitted_at: string
   deadline_version_id?: string | null
   late_at_submission: boolean
@@ -90,52 +95,6 @@ export async function listManagementSubmissions(query: ManagementSubmissionsQuer
 export async function getManagementSubmission(submissionId: string): Promise<ManagementSubmissionItem> {
   return request(`/api/v1/management/submissions/${submissionId}`)
 }
-
-export async function reviewSubmission(
-  submissionId: string,
-  payload: {
-    decision: 'APPROVED' | 'REJECTED'
-    comment?: string
-  }
-): Promise<{
-  submission_id: string
-  review_status: string
-  reviewed_at: string
-}> {
-  return request(`/api/v1/submissions/${submissionId}/review`, {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  })
-}
-
-export interface BatchReviewResultItem {
-  submission_id: string
-  success: boolean
-  error?: string | null
-  review_status?: string | null
-}
-
-export interface SubmissionBatchReviewResponse {
-  total: number
-  success_count: number
-  failed_count: number
-  results: BatchReviewResultItem[]
-}
-
-export async function batchReviewSubmissions(payload: {
-  submission_ids: (number | string)[]
-  decision: 'APPROVED' | 'REJECTED'
-  comment?: string
-}): Promise<SubmissionBatchReviewResponse> {
-  return request('/api/v1/management/submissions/batch-review', {
-    method: 'POST',
-    body: JSON.stringify({
-      ...payload,
-      submission_ids: payload.submission_ids.map(String)
-    })
-  })
-}
-
 
 export async function getTaskRoster(taskId: string, rosterVersion?: number): Promise<TaskRosterResult> {
   const params = new URLSearchParams()

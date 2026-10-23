@@ -1,0 +1,43 @@
+{
+  "method": "Read-only SSH/SQLAlchemy supplement; browser screenshots52-54 establish UI failure; not a browser pass",
+  "college_id": "2",
+  "after_self_study_ui_success": {
+    "schedules": [
+      {
+        "id": "472",
+        "semester_id": "1",
+        "weekday": 5,
+        "weeks": [
+          6,
+          7
+        ],
+        "course": "验收数学"
+      },
+      {
+        "id": "473",
+        "semester_id": "1",
+        "weekday": 1,
+        "weeks": [
+          6,
+          7
+        ],
+        "course": "验收数学"
+      }
+    ],
+    "self_study_saved": false
+  },
+  "imported_qualification_readback": [
+    {
+      "student_no": "99000011",
+      "student_status": "ACTIVE",
+      "qualification_enabled": true,
+      "accounts": []
+    },
+    {
+      "student_no": "99000012",
+      "student_status": "ACTIVE",
+      "qualification_enabled": true,
+      "accounts": []
+    }
+  ]
+}

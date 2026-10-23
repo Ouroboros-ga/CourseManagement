@@ -340,6 +340,7 @@ def test_calendar_override_stop_cascade_cancels_existing_tasks(
     client: TestClient, session: Session
 ) -> None:
     from datetime import date
+
     from app.modules.inspection.models import InspectionTask
 
     h = _admin_headers(client, session)

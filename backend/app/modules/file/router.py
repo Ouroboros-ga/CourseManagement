@@ -67,9 +67,12 @@ def get_file_access(
     request: Request,
     response: Response,
     delivery: Annotated[Literal["proxy", "direct"], Query()] = "proxy",
+    style: Annotated[Literal["original", "thumb"], Query()] = "original",
 ) -> dict[str, object]:
     response.headers["Cache-Control"] = "private, no-store"
-    result: FileAccessResponse = service.get_access(actor, file_id, delivery=delivery)
+    result: FileAccessResponse = service.get_access(
+        actor, file_id, delivery=delivery, style=style
+    )
     return success(result.model_dump(), _rid(request))
 
 

@@ -37,6 +37,7 @@ const state = useCollegeDeadlines(() => props.collegeId, () => props.canManage)
         <el-table-column prop="version_no" label="版本" />
         <el-table-column label="截止"><template #default="{ row }">{{ formatBeijingTime(row.deadline_at, 'minute') }}</template></el-table-column>
         <el-table-column label="修改时间"><template #default="{ row }">{{ formatBeijingTime(row.created_at, 'minute') }}</template></el-table-column>
+        <el-table-column label="办理账号"><template #default="{ row }">{{ row.changed_by ? `账号 #${row.changed_by}` : '系统默认' }}</template></el-table-column>
         <el-table-column prop="reason" label="说明" />
       </PaginatedTable>
     </template>

@@ -58,7 +58,9 @@ from app.modules.academic.models import (
 )
 from app.modules.academic.occurrence_location import load_course_overrides
 from app.modules.academic.repository import AcademicRepository
+from app.modules.attendance.effect_scope import see_withdrawn
 from app.modules.attendance.models import (
+    AttendanceEffectState,
     AttendanceRecord,
     AttendanceRecordVersion,
     AttendanceSourceType,
@@ -85,6 +87,7 @@ from app.modules.inspection.models import (
     SubmissionDeadlineDay,
     SubmissionDeadlineVersion,
     SubmissionFile,
+    SubmissionState,
     TaskDeadlineAssessment,
     TaskRosterMember,
     TaskRosterVersion,
@@ -134,7 +137,7 @@ from app.modules.inspection.schemas import (
     SubmissionDeadlineDefaultResponse,
     SubmissionDeadlineVersionResponse,
     SubmissionResponse,
-    SubmissionReviewRequest,
+    SubmissionWithdrawRequest,
     TaskAssignmentBrief,
     TaskCancelRequest,
     TaskCandidateVolunteerItem,
@@ -604,6 +607,20 @@ class InspectionService:
             ).limit(1)):
                 raise ConflictError(message="所选课次已有其他执行组或旧任务，请先明确换组处置")
         new_items = [it for it in items if it.task_key not in existing]
+        if new_items:
+            from app.modules.inspection.course_occurrences import structural_duplicate_items
+
+            clashes = structural_duplicate_items(self._session, semester_id=sem.id, items=new_items)
+            if clashes:
+                item, holder = clashes[0]
+                raise ConflictError(
+                    message=(
+                        f"同一课次已存在有效任务（#{holder.id}，{item.inspection_date} "
+                        f"{item.inspection_type} 第{item.start_period}-{item.end_period}节，"
+                        f"key={holder.task_key}），不能重复生成；共 {len(clashes)} 项冲突，"
+                        "请先核对或处置原任务"
+                    )
+                )
         new_tasks = []
         if get_settings().campus_scheduling_enabled:
             if self._repo.college_ids is None or len(self._repo.college_ids) != 1:
@@ -2833,9 +2850,11 @@ class InspectionService:
             return []
 
         from app.modules.academic.archive import require_open_task
+        from app.modules.attendance.effect_scope import see_withdrawn
         for task in tasks:
             require_open_task(self._session, task.id)
-        if self._session.scalar(select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(task_ids)).limit(1)) or self._session.scalar(
+        # 已撤回的考勤仍是历史事实，不得因为隐身就被当成可强制删除的空任务。
+        if self._session.scalar(see_withdrawn(select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(task_ids)).limit(1))) or self._session.scalar(
             select(TaskDeadlineAssessment.id).where(TaskDeadlineAssessment.task_id.in_(task_ids)).limit(1)):
             raise ConflictError(message="任务已有正式考勤或截止时事实，不能通过强制删除绕过历史保护；请使用更正流程")
 
@@ -2850,10 +2869,12 @@ class InspectionService:
 
         t_ids = [t.id for t in tasks]
 
-        # 1. 考勤与异议
+        # 1. 考勤与异议（清理路径必须连隐身行一起取，否则留下孤儿版本）
         att_ids = list(
             self._session.scalars(
-                select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(t_ids))
+                see_withdrawn(
+                    select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(t_ids))
+                )
             ).all()
         )
         if att_ids:
@@ -3280,6 +3301,7 @@ class InspectionService:
         acct = self._identity.get_user_by_id(actor_user_id)
         return acct.student_id if acct is not None else None
 
+    @atomic_write
     def create_submission(
         self,
         actor: CurrentUser,
@@ -3287,6 +3309,18 @@ class InspectionService:
         body: SubmissionCreateRequest,
         request_id: str | None,
     ) -> SubmissionResponse:
+        sub = self._create_submission(actor, task_id, body, request_id)
+        self._session.commit()
+        self._session.refresh(sub)
+        return self._assemble_submissions([sub])[0]
+
+    def _create_submission(
+        self,
+        actor: CurrentUser,
+        task_id: int,
+        body: SubmissionCreateRequest,
+        request_id: str | None,
+    ) -> InspectionSubmission:
         """志愿者对本人当前受派任务提交查课结果（技术方案 12、13.3、15）。
 
         身份三重实时校验（VOLUNTEER + 本学期资格 + 当前受派 + 未取消）与"至多一个待审核/
@@ -3361,6 +3395,19 @@ class InspectionService:
             raise ConflictError(
                 ErrorCode.STATE_CONFLICT, "该任务已有待审核或审核通过提交，不可重复提交"
             )
+
+        # 首次补交仍可逾期；有历史的重交属于本人纠错，不得借普通提交入口绕过窗口。
+        first, deadline, open_now = self.correction_window(task.id)
+        if first is not None:
+            if deadline is None or not open_now:
+                raise ConflictError(
+                    ErrorCode.STATE_CONFLICT, "两小时纠错窗口已关闭，请走数据更正或异议渠道"
+                )
+            self._lock_correction_attendance(task.id)
+            if self._correction_protected(task.id):
+                raise ConflictError(
+                    ErrorCode.STATE_CONFLICT, "该任务考勤已有管理员更正或异议处理，本人不可覆盖"
+                )
 
         # 异常明细：学生须属本任务当前名单版本、不可重复；结论与明细数量一致性由 schema 保证。
         roster_members = self._repo.list_roster_members(task.id, task.roster_version)
@@ -3456,10 +3503,255 @@ class InspectionService:
             reason=body.note,
             request_id=request_id,
         )
-        # 单一提交点：提交 + 异常明细 + 附件关联 + 结算快照 + 考勤事实 + 审计同事务原子生效。
+        # 由首次提交或改版入口单次提交，改版不能提前释放任务/考勤锁。
+        return sub
+
+    # ================================================================== #
+    # 本人纠错闭环（DEC-01：首次成功提交后两小时内允许本人修改并重新提交）
+    # ================================================================== #
+    def correction_window(self, task_id: int) -> tuple[datetime | None, datetime | None, bool]:
+        """(首次成功提交时刻, 纠错截止时刻, 当前是否仍在窗口内)。
+
+        窗口起点取该任务全部 attempt 的最早 submitted_at，改版与重新提交都不重置；
+        时长 0 表示关闭本人纠错，只保留管理员更正与异议渠道。
+        """
+        minutes = get_settings().submission_correction_window_minutes
+        first = self._repo.first_submitted_at(task_id)
+        if first is None or minutes <= 0:
+            return first, None, False
+        deadline = first + timedelta(minutes=minutes)
+        return first, deadline, utcnow() < deadline
+
+    def _lock_correction_attendance(self, task_id: int) -> None:
+        """与更正/异议共用考勤行锁；先锁行，再用当前读检查保护事实。"""
+        self._session.scalars(
+            see_withdrawn(
+                select(AttendanceRecord)
+                .where(AttendanceRecord.task_id == task_id)
+                .order_by(AttendanceRecord.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+
+    def _correction_protected(self, task_id: int) -> bool:
+        """任何已发起异议或管理员更正均保护结论，包括驳回及维持原认定。"""
+        from app.modules.attendance.models import (
+            AttendanceRecord,
+            AttendanceRecordVersion,
+            AttendanceSourceType,
+        )
+        from app.modules.objection.models import Objection
+
+        handled = self._session.scalar(
+            see_withdrawn(
+                select(AttendanceRecordVersion.id)
+                .select_from(AttendanceRecordVersion)
+                .join(
+                    AttendanceRecord,
+                    AttendanceRecord.id == AttendanceRecordVersion.attendance_record_id,
+                )
+                .where(
+                    AttendanceRecord.task_id == task_id,
+                    AttendanceRecordVersion.source_type.in_(
+                        [
+                            AttendanceSourceType.CORRECTION.value,
+                            AttendanceSourceType.OBJECTION_FINAL.value,
+                        ]
+                    ),
+                )
+                .limit(1)
+                .with_for_update(read=True)
+            )
+        )
+        if handled:
+            return True
+        objection = self._session.scalar(
+            see_withdrawn(
+                select(Objection.id)
+                .join(AttendanceRecord, AttendanceRecord.id == Objection.attendance_record_id)
+                .where(AttendanceRecord.task_id == task_id)
+                .limit(1)
+                .with_for_update(read=True)
+            )
+        )
+        return objection is not None
+
+    def _require_self_correction(self, actor: CurrentUser, submission_id: int):
+        """按全局锁序（任务 → 提交）校验本人纠错资格，返回 (task, submission, deadline)。
+
+        非本人的提交 ID 一律 404，不泄露他人提交是否存在。
+        """
+        if actor.pre_binding:
+            raise PermissionDeniedError("请先完成身份绑定")
+        self._require(actor.id, perms.SUBMISSION_CREATE_PERMISSION)
+        acct = self._identity.get_user_by_id(actor.id)
+        if acct is None or acct.status != UserStatus.ACTIVE.value:
+            raise PermissionDeniedError("账号已停用，不可纠错")
+
+        probe = self._repo.get_submission(submission_id)
+        if probe is None or probe.volunteer_user_id != actor.id:
+            raise NotFoundError("提交不存在")
+        task = self._repo.get_task_for_update(probe.task_id)
+        if task is None:
+            raise NotFoundError("查课任务不存在")
+        if task.canceled_at is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可纠错")
+
+        sub = self._repo.get_submission_for_update(submission_id)
+        if sub is None or sub.submission_state != SubmissionState.ACTIVE.value:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "该提交已不是当前有效结论，不可重复操作")
+
+        assignment = self._repo.get_assignment_by_task(task.id)
+        if assignment is None or assignment.volunteer_user_id != actor.id:
+            raise PermissionDeniedError("仅可纠错本人当前受派的任务")
+
+        _first, deadline, open_now = self.correction_window(task.id)
+        if deadline is None or not open_now:
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT, "两小时纠错窗口已关闭，请走数据更正或异议渠道"
+            )
+        self._lock_correction_attendance(task.id)
+        if self._correction_protected(task.id):
+            raise ConflictError(
+                ErrorCode.STATE_CONFLICT,
+                "该任务考勤已有管理员更正或异议处理结论，本人不可覆盖，请走异议渠道",
+            )
+        return task, sub, deadline
+
+    @atomic_write
+    def revise_submission(
+        self,
+        actor: CurrentUser,
+        submission_id: int,
+        body: SubmissionCreateRequest,
+        request_id: str | None,
+    ) -> SubmissionResponse:
+        """修改并重新提交：旧 attempt 保留为 SUPERSEDED，新 attempt 成为当前有效结论。
+
+        考勤由 _generate_attendance 的既有更新路径就地改写并追加版本，原始提交、异常明细
+        与照片都不删除；随后复用 create_submission 的全部资格、名单版本与附件校验，
+        不在这里维护第二套提交规则。
+        """
+        task, current, deadline = self._require_self_correction(actor, submission_id)
+        current.submission_state = SubmissionState.SUPERSEDED.value
+        current.superseded_by_submission_id = None
+        self._repo.flush()
+        self._audit(
+            actor_user_id=actor.id,
+            action="submission.revise",
+            resource_type="inspection_submission",
+            resource_id=f"{current.id}",
+            before={
+                "task_id": task.id,
+                "attempt_no": current.attempt_no,
+                "result": current.result,
+                "submission_state": SubmissionState.ACTIVE.value,
+            },
+            after={
+                "task_id": task.id,
+                "submission_state": SubmissionState.SUPERSEDED.value,
+                "correction_deadline_at": deadline.isoformat(),
+            },
+            reason=body.note,
+            request_id=request_id,
+        )
+        replacement = self._create_submission(actor, task.id, body, request_id)
+        current.superseded_by_submission_id = replacement.id
+        self._repo.flush()
         self._session.commit()
-        self._session.refresh(sub)
-        return self._assemble_submissions([sub])[0]
+        return self._assemble_submissions([replacement])[0]
+
+    @atomic_write
+    def withdraw_submission(
+        self,
+        actor: CurrentUser,
+        submission_id: int,
+        body: SubmissionWithdrawRequest,
+        request_id: str | None,
+    ) -> SubmissionResponse:
+        """本人撤回当前有效提交：考勤退出有效结论，原始提交、明细与照片保留可读。
+
+        不改 review_status（既有读取路径以 APPROVED 判断"曾形成正式结论"），有效性由
+        submission_state 与考勤 effect_state 两条轴表达。撤回不擦除截止时事实
+        （TaskDeadlineAssessment 原样保留），也不删除任何历史版本行。
+        """
+        task, current, deadline = self._require_self_correction(actor, submission_id)
+        now = utcnow()
+        current.submission_state = SubmissionState.WITHDRAWN.value
+        current.withdrawn_at = now
+        current.withdraw_reason = body.reason
+        retired = self._retire_task_attendance(task.id, actor.id, body.reason)
+        task.lock_version += 1
+        self._repo.flush()
+        self._audit(
+            actor_user_id=actor.id,
+            action="submission.withdraw",
+            resource_type="inspection_submission",
+            resource_id=f"{current.id}",
+            before={
+                "task_id": task.id,
+                "attempt_no": current.attempt_no,
+                "result": current.result,
+                "submission_state": SubmissionState.ACTIVE.value,
+                "attendance_effective": retired,
+            },
+            after={
+                "task_id": task.id,
+                "submission_state": SubmissionState.WITHDRAWN.value,
+                "withdrawn_at": now.isoformat(),
+                "attendance_effective": 0,
+                "correction_deadline_at": deadline.isoformat(),
+            },
+            reason=body.reason,
+            request_id=request_id,
+        )
+        SourceRevisionService.bump_for_task(self._session, task)
+        self._session.commit()
+        withdrawn = self._repo.get_submission(current.id)
+        if withdrawn is None:  # 同一事务内刚写入的提交不会消失，出现即为不变式被破坏。
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "提交状态异常，请刷新后重试")
+        return self._assemble_submissions([withdrawn])[0]
+
+    def _retire_task_attendance(
+        self, task_id: int, actor_id: int, reason: str | None
+    ) -> int:
+        """把该任务全部有效考勤转为 WITHDRAWN 并各追加一个不可变版本，返回退出有效的行数。
+
+        行不删除：attendance_record_version 是不可变历史，objection.attendance_record_id 为
+        ON DELETE CASCADE，删行会连带销毁版本与异议。此处显式写谓词而不依赖默认过滤，
+        因为这是写路径——过滤只保证"读不到"，不保证"改得对"。
+        """
+        records = list(
+            self._session.scalars(
+                see_withdrawn(
+                    select(AttendanceRecord)
+                    .where(
+                        AttendanceRecord.task_id == task_id,
+                        AttendanceRecord.effect_state
+                        == AttendanceEffectState.EFFECTIVE.value,
+                    )
+                    .order_by(AttendanceRecord.id)
+                    .with_for_update()
+                ).execution_options(populate_existing=True)
+            ).all()
+        )
+        for rec in records:
+            rec.effect_state = AttendanceEffectState.WITHDRAWN.value
+            rec.current_version += 1
+            self._repo.add(
+                AttendanceRecordVersion(
+                    attendance_record_id=rec.id,
+                    version_no=rec.current_version,
+                    attendance_type=rec.effective_type,
+                    source_type=AttendanceSourceType.WITHDRAWAL.value,
+                    source_id=rec.id,
+                    changed_by=actor_id,
+                    reason=reason,
+                )
+            )
+        self._repo.flush()
+        return len(records)
 
     def _validate_attachments(
         self, task: InspectionTask, actor_id: int, file_ids: list[int]
@@ -3610,119 +3902,6 @@ class InspectionService:
             )
         return result
 
-    # ---- 审核（submission.review）：通过据名单版本生成考勤，驳回保留原事实（技术方案 12、14）----
-    def review_submission(
-        self,
-        actor: CurrentUser,
-        submission_id: int,
-        body: SubmissionReviewRequest,
-        request_id: str | None,
-    ) -> SubmissionResponse:
-        """管理人员处理某待审核提交（技术方案 12、15）。
-
-        锁序遵全局层级"任务→提交"：先无锁读定位所属任务，再锁任务、后锁提交并事务内重读，
-        确保并发的审核 vs 取消、双人同审互斥（谁先持任务锁谁生效，落败方见既成事实得 409）。
-        通过前按当前截止版本幂等结算锁定截止时事实；通过后为该名单版本每生建初始考勤
-        （列异常者取明细类型，未列者 NORMAL），驳回仅改审核态、不动提交事实与照片。
-        """
-        self._require(actor.id, perms.SUBMISSION_REVIEW_PERMISSION)
-        probe = self._repo.get_submission(submission_id)
-        if probe is None:
-            raise NotFoundError("提交不存在")
-        task = self._repo.get_task_for_update(probe.task_id)
-        if task is None:
-            raise NotFoundError("提交所属任务不存在")
-        sub = self._repo.get_submission_for_update(submission_id)
-        if sub is None:
-            raise NotFoundError("提交不存在")
-        if sub.review_status != ReviewStatus.PENDING.value:
-            raise ConflictError(ErrorCode.STATE_CONFLICT, "提交已被处理，不可重复审核")
-        if task.canceled_at is not None:
-            raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可审核提交")
-
-        now = utcnow()
-        generated = 0
-        if body.decision == ReviewStatus.APPROVED.value:
-            # 通过（生成考勤）前先幂等结算，锁定"截止时"事实不受本次审核影响（技术方案 13.3）。
-            day = self._repo.deadline_for_task(task)
-            self._settle_assessment(task, day)
-            generated = self._generate_attendance(sub, actor.id)
-            sub.review_status = ReviewStatus.APPROVED.value
-            # 考勤事实新增 → 同事务递增该(学期,周)报表源修订号（技术方案 9.4；W7b 还 P6 挂账）。
-            SourceRevisionService.bump_for_task(self._session, task)
-        else:
-            sub.review_status = ReviewStatus.REJECTED.value
-        sub.reviewed_by = actor.id
-        sub.reviewed_at = now
-        sub.review_comment = body.comment
-        task.lock_version += 1
-        self._repo.flush()
-        self._audit(
-            actor_user_id=actor.id,
-            action=f"submission.review.{sub.review_status.lower()}",
-            resource_type="inspection_submission",
-            resource_id=f"{sub.id}",
-            before={"review_status": ReviewStatus.PENDING.value},
-            after={
-                "review_status": sub.review_status,
-                "attendance_generated": generated,
-                "reviewed_at": now.isoformat(),
-            },
-            reason=body.comment,
-            request_id=request_id,
-        )
-        self._session.commit()
-        self._session.refresh(sub)
-        return self._assemble_submissions([sub])[0]
-
-    def batch_review_submissions(
-        self,
-        actor: CurrentUser,
-        submission_ids: list[int],
-        decision: str,
-        comment: str | None = None,
-        request_id: str | None = None,
-    ) -> dict[str, object]:
-        """批量处理待审核提交（一键通过 / 批量勾选通过）。
-
-        逐笔独立处理并捕获单项冲突（如已被处理或已取消任务），
-        单项失败不阻断其余待审核项，保证批量操作的高容错与审计完整性。
-        """
-        self._require(actor.id, perms.SUBMISSION_REVIEW_PERMISSION)
-        results: list[dict[str, object]] = []
-        success_count = 0
-        failed_count = 0
-        req = SubmissionReviewRequest(decision=decision, comment=comment)  # type: ignore[arg-type]
-        for sid in submission_ids:
-            try:
-                res = self.review_submission(actor, sid, req, request_id)
-                results.append(
-                    {
-                        "submission_id": str(sid),
-                        "success": True,
-                        "review_status": res.review_status,
-                    }
-                )
-                success_count += 1
-            except Exception as e:
-                self._session.rollback()
-                err_msg = str(getattr(e, "detail", getattr(e, "message", str(e))))
-                results.append(
-                    {
-                        "submission_id": str(sid),
-                        "success": False,
-                        "error": err_msg,
-                    }
-                )
-                failed_count += 1
-
-        return {
-            "total": len(submission_ids),
-            "success_count": success_count,
-            "failed_count": failed_count,
-            "results": results,
-        }
-
     def _generate_attendance(
         self,
         sub: InspectionSubmission,
@@ -3755,7 +3934,9 @@ class InspectionService:
         existing_recs = {
             rec.student_id: rec
             for rec in self._session.execute(
-                select(AttendanceRecord).where(AttendanceRecord.task_id == sub.task_id)
+                see_withdrawn(
+                    select(AttendanceRecord).where(AttendanceRecord.task_id == sub.task_id)
+                )
             )
             .scalars()
             .all()
@@ -3771,9 +3952,16 @@ class InspectionService:
 
             if m.student_id in existing_recs:
                 rec = existing_recs[m.student_id]
-                if rec.effective_type != eff or rec.source_submission_item_id != item_id:
+                # 撤回后重新提交同一结论时认定值没变，但必须把行取回有效；只看类型会漏掉这一步。
+                restored = rec.effect_state != AttendanceEffectState.EFFECTIVE.value
+                if (
+                    restored
+                    or rec.effective_type != eff
+                    or rec.source_submission_item_id != item_id
+                ):
                     rec.effective_type = eff
                     rec.source_submission_item_id = item_id
+                    rec.effect_state = AttendanceEffectState.EFFECTIVE.value
                     rec.current_version += 1
                     updated_pending.append((rec, eff, item_id, rec.current_version))
             else:
@@ -3887,6 +4075,21 @@ class InspectionService:
         sub_ids = [s.id for s in subs]
         files_map = self._repo.list_submission_file_ids_by_ids(sub_ids)
         roster_map = self._build_roster_display_map(subs)
+        # 纠错窗口按任务首次成功提交起算，一次聚合取，避免逐提交查询。
+        window = get_settings().submission_correction_window_minutes
+        task_ids = {s.task_id for s in subs}
+        first_map = {
+            task_id: first_at
+            for task_id, first_at in self._session.execute(
+                select(
+                    InspectionSubmission.task_id,
+                    func.min(InspectionSubmission.submitted_at),
+                )
+                .where(InspectionSubmission.task_id.in_(task_ids))
+                .group_by(InspectionSubmission.task_id)
+            ).all()
+        }
+        now = utcnow()
         out: list[SubmissionResponse] = []
         for s in subs:
             display = roster_map.get((s.task_id, s.roster_version), {})
@@ -3900,6 +4103,13 @@ class InspectionService:
                 )
                 for i in s.abnormal_items
             ]
+            first = first_map.get(s.task_id)
+            deadline = first + timedelta(minutes=window) if first and window > 0 else None
+            can_correct = (
+                s.submission_state == SubmissionState.ACTIVE.value
+                and deadline is not None
+                and now < deadline
+            )
             out.append(
                 SubmissionResponse(
                     id=s.id,
@@ -3920,6 +4130,11 @@ class InspectionService:
                     file_ids=files_map.get(s.id, []),
                     created_at=s.created_at,
                     updated_at=s.updated_at,
+                    submission_state=s.submission_state,
+                    correction_deadline_at=deadline,
+                    can_correct=can_correct,
+                    withdrawn_at=s.withdrawn_at,
+                    withdraw_reason=s.withdraw_reason,
                 )
             )
         return out

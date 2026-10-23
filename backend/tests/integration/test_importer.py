@@ -4,11 +4,11 @@
 - 认证/组合权限：无令牌 401；缺 import.execute 403（路由早拦）；有 execute 缺目标
   manage 403（服务事务内纵深复核）；模板仅需目标 manage。
 - 目标/作用域校验：未知 target 422；缺作用域参数 422；作用域资源不存在 404。
-- 名单：预览不落库、可确认；确认整体替换；未知学号→预览 error 不可确认；确认前学号
-  被删→422 且名单零副作用（原子）；审计 preview/confirm 各一条。
+- 名单：预览不落库、可确认；确认按补充/差异执行，未出现在文件中的现有成员保留；未知学号
+  →预览 error 不可确认；确认前学号被删→422 且名单零副作用（原子）；审计 preview/confirm 各一条。
 - 课表：周次解析（1-16周/单双周）、确认建课/教学班/课表+周次；周次越界 422；
   结束早于开始 422（预览 error）。
-- 志愿者资格：绑定学生确认即时补授 VOLUNTEER；未绑定仅落资格；停用不补授。
+- 志愿者资格：确认时准备无口令排班底册；微信身份后续认领同一账号；停用不补授。
 - "先导入资格后绑定"：先导入启用资格→后绑定微信→bind_student 反向补授 VOLUNTEER。
 - 状态机：确认重复 409；预览过期 409（并置 EXPIRED）。
 """
@@ -35,6 +35,7 @@ from app.modules.identity.models import (
     Role,
     UserAccount,
     UserStatus,
+    WechatIdentity,
 )
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.seed import sync_registry
@@ -97,6 +98,16 @@ def _make_bound_account(
     return user
 
 
+def _make_wechat_candidate(session: Session, name: str) -> UserAccount:
+    """匹配首次微信登录产生的空白身份，不伪造带Web凭据的账号认领。"""
+    user = UserAccount(display_name=name, status=UserStatus.ACTIVE.value)
+    session.add(user)
+    session.flush()
+    session.add(WechatIdentity(user_id=user.id, appid="import-fixture", openid=name))
+    session.commit()
+    return user
+
+
 def _make_perm_user(session: Session, username: str, perm_codes: list[str]) -> UserAccount:
     """挂载一个仅含指定权限码的自定义角色，用于精确构造组合权限象限。"""
     role = Role(code=f"CUSTOM_{username}", name=f"custom-{username}")
@@ -152,7 +163,7 @@ def _post_import(
     content: bytes,
     semester_id: int | str | None = None,
     teaching_class_id: int | str | None = None,
-    replace: bool = True,
+    replace: bool = False,
 ):
     data: dict[str, str] = {"target": target, "replace": "true" if replace else "false"}
     if semester_id is not None:
@@ -398,43 +409,102 @@ def test_roster_atomicity_reference_removed_before_confirm(
     assert _roster(client, h, sc["tc_id"]) == []
 
 
-def test_roster_replace_overwrites_existing(client: TestClient, session: Session) -> None:
+def test_roster_import_is_additive_and_never_deletes_absent_members(
+    client: TestClient, session: Session
+) -> None:
+    """DEC-03：名单导入默认补充，未出现在文件中的现有成员不得被删除。
+
+    replace 参数不再是隐式整体覆盖的开关；明确要求替换时只在预览中给出提示。
+    """
     h = _admin_headers(client, session)
     sc = _scene(client, h)
-    # 先导 S001。
-    p1 = _post_import(
+
+    def _import_and_confirm(student_nos: list[str], *, replace: bool) -> dict:
+        preview = _post_import(
+            client,
+            h,
+            target="roster",
+            content=_xlsx(["学号"], [{"学号": no} for no in student_nos]),
+            teaching_class_id=sc["tc_id"],
+            replace=replace,
+        ).json()["data"]
+        return client.post(f"{_IM}/{int(preview['id'])}/confirm", headers=h).json()["data"]
+
+    _import_and_confirm(["S001"], replace=True)
+    _import_and_confirm(["S002"], replace=True)
+    assert {r["student_no"] for r in _roster(client, h, sc["tc_id"])} == {"S001", "S002"}
+
+    # 重复上传只含一名旧成员的文件：既不删除另一名，也不产生重复行。
+    conf = _import_and_confirm(["S002"], replace=True)
+    roster = _roster(client, h, sc["tc_id"])
+    assert {r["student_no"] for r in roster} == {"S001", "S002"}
+    assert len(roster) == 2
+    assert int(conf["summary"]["roster_before"]) == 2
+    assert int(conf["summary"]["roster_after"]) == 2
+
+    # 明确要求替换时，预览必须把实际语义告诉调用方，而不是形同虚设地静默覆盖。
+    preview = _post_import(
+        client,
+        h,
+        target="roster",
+        content=_xlsx(["学号"], [{"学号": "S001"}]),
+        teaching_class_id=sc["tc_id"],
+        replace=True,
+    ).json()["data"]
+    assert preview["can_confirm"] is True
+    assert [w["code"] for w in preview["warnings"]] == ["roster_additive_only"]
+    assert preview["errors"] == []
+
+
+def test_roster_import_without_replace_flag_has_no_warning(
+    client: TestClient, session: Session
+) -> None:
+    h = _admin_headers(client, session)
+    sc = _scene(client, h)
+    preview = _post_import(
         client,
         h,
         target="roster",
         content=_xlsx(["学号"], [{"学号": "S001"}]),
         teaching_class_id=sc["tc_id"],
     ).json()["data"]
-    client.post(f"{_IM}/{int(p1['id'])}/confirm", headers=h)
-    # 再整体替换为 S002。
-    p2 = _post_import(
-        client,
-        h,
-        target="roster",
-        content=_xlsx(["学号"], [{"学号": "S002"}]),
-        teaching_class_id=sc["tc_id"],
-    ).json()["data"]
-    conf = client.post(f"{_IM}/{int(p2['id'])}/confirm", headers=h).json()["data"]
-    assert int(conf["summary"]["roster_before"]) == 1
-    roster = _roster(client, h, sc["tc_id"])
-    assert {r["student_no"] for r in roster} == {"S002"}
+    assert preview["warnings"] == []
 
 
 # --------------------------------------------------------------------------- #
 # 课表
 # --------------------------------------------------------------------------- #
-def test_bound_manager_can_import_only_timetable(client: TestClient, session: Session) -> None:
+def test_manager_without_appointment_has_no_import_capability(
+    client: TestClient, session: Session
+) -> None:
+    """DEC-02：负责人身份必须由有效任命支撑，未任命时导入能力一律不生效。"""
     admin = _admin_headers(client, session)
     sc = _scene(client, admin)
     _make_bound_account(
         session,
-        "manager",
+        "unappointed",
         int(sc["students"]["S001"]["id"]),
         [RoleCode.STUDENT.value, RoleCode.STUDENT_AFFAIRS_MANAGER.value],
+    )
+    headers = _bearer(_login(client, "unappointed"))
+    resp = _post_import(
+        client,
+        headers,
+        target="timetable",
+        content=_xlsx(["学号"], [{"学号": "S001"}]),
+        semester_id=sc["semester_id"],
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_manager_account_can_import_only_timetable(client: TestClient, session: Session) -> None:
+    """组合权限象限：有 import.execute + course_schedule.import，无 student.manage/volunteer.manage。"""
+    admin = _admin_headers(client, session)
+    sc = _scene(client, admin)
+    _make_perm_user(
+        session,
+        "manager",
+        [PermissionCode.IMPORT_EXECUTE.value, PermissionCode.COURSE_SCHEDULE_IMPORT.value],
     )
     manager = _bearer(_login(client, "manager"))
     timetable = _xlsx(
@@ -643,7 +713,7 @@ def test_volunteer_bound_student_grants_role(client: TestClient, session: Sessio
     assert vq.enabled is True
 
 
-def test_volunteer_unbound_creates_qualification_only(client: TestClient, session: Session) -> None:
+def test_volunteer_unbound_prepares_passwordless_roster(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     content = _xlsx(["学号", "是否启用"], [{"学号": "S002", "是否启用": "1"}])
@@ -652,8 +722,15 @@ def test_volunteer_unbound_creates_qualification_only(client: TestClient, sessio
     ).json()["data"]
     conf = client.post(f"{_IM}/{int(pdata['id'])}/confirm", headers=h)
     assert conf.status_code == 200
-    assert int(conf.json()["data"]["summary"]["volunteer_role_granted"]) == 0
+    assert int(conf.json()["data"]["summary"]["volunteer_role_granted"]) == 1
     session.expire_all()
+    account = session.scalar(select(UserAccount).where(
+        UserAccount.student_id == int(sc["students"]["S002"]["id"])))
+    assert account is not None and account.password_hash is None
+    assert {r.code for r in account.roles} == {"STUDENT", "VOLUNTEER"}
+    assert session.scalar(
+        select(WechatIdentity.id).where(WechatIdentity.user_id == account.id)
+    ) is None
     assert (
         session.execute(
             select(VolunteerQualification).where(
@@ -695,8 +772,11 @@ def test_qualification_imported_before_binding_grants_on_bind(
     ).json()["data"]
     assert client.post(f"{_IM}/{int(pdata['id'])}/confirm", headers=h).status_code == 200
 
-    # 2) 建无角色未绑定账号 + 一次性绑定码。
-    user = _make_user(session, "wx_late", [])
+    # 2) 后续首次微信登录产生空白身份；必须认领原底册，不另建学生身份。
+    target = session.scalar(select(UserAccount).where(
+        UserAccount.student_id == int(sc["students"]["S002"]["id"])))
+    target_id = target.id
+    user = _make_wechat_candidate(session, "wx_late")
     code = "LATE-BIND-CODE-123"
     session.add(
         IdentityBindingToken(
@@ -711,7 +791,11 @@ def test_qualification_imported_before_binding_grants_on_bind(
     # 3) 绑定：bind_student 应反向补授 VOLUNTEER。
     IdentityService(session).bind_student(user.id, "S002", code)
     session.expire_all()
-    acct = session.execute(select(UserAccount).where(UserAccount.id == user.id)).scalar_one()
+    acct = session.get(UserAccount, target_id)
+    assert session.scalar(
+        select(WechatIdentity.user_id).where(WechatIdentity.openid == "wx_late")
+    ) == target_id
+    assert session.get(UserAccount, user.id).student_id is None
     role_codes = {r.code for r in acct.roles}
     assert RoleCode.STUDENT.value in role_codes
     assert RoleCode.VOLUNTEER.value in role_codes
@@ -751,7 +835,10 @@ def _bind_volunteer_via_import_then_bind(
     ).json()["data"]
     assert client.post(f"{_IM}/{int(pdata['id'])}/confirm", headers=h).status_code == 200
 
-    user = _make_user(session, username, [])
+    target = session.scalar(select(UserAccount).where(
+        UserAccount.student_id == int(sc["students"]["S002"]["id"])))
+    target_id = target.id
+    user = _make_wechat_candidate(session, username)
     session.add(
         IdentityBindingToken(
             student_id=int(sc["students"]["S002"]["id"]),
@@ -763,7 +850,10 @@ def _bind_volunteer_via_import_then_bind(
     session.commit()
     IdentityService(session).bind_student(user.id, "S002", code)
     session.expire_all()
-    return int(user.id)
+    assert session.scalar(
+        select(WechatIdentity.user_id).where(WechatIdentity.openid == username)
+    ) == target_id
+    return int(target_id)
 
 
 def test_volunteer_inherits_student_base_via_bound_student_role_union(

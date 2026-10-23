@@ -621,7 +621,7 @@ def build_attendance_analytics_excel(payload: dict[str, Any]) -> bytes:
     ws1 = wb.active
     ws1.title = "学院考勤总览与看板"
 
-    ws1.append(["人工智能学院 查课考勤多维数据分析看板"])
+    ws1.append([f"{meta.get('scope_name') or '授权范围'} 查课考勤多维数据分析看板"])
     ws1.cell(row=1, column=1).font = font_title
     ws1.merge_cells("A1:H1")
     ws1.row_dimensions[1].height = 28
@@ -639,7 +639,7 @@ def build_attendance_analytics_excel(payload: dict[str, Any]) -> bytes:
     ws1.cell(row=4, column=1).font = font_section
     ws1.merge_cells("A4:H4")
 
-    headers_mac = ["已审核堂数", "有效应到人次", "正常出勤人次", "迟到人次", "旷课人次", "请假人次", "综合到课率", "缺勤异常率"]
+    headers_mac = ["已有正式结果堂数", "有效应到人次", "正常出勤人次", "迟到人次", "旷课人次", "请假人次", "综合到课率", "缺勤异常率"]
     ws1.append(headers_mac)
     for c_idx in range(1, len(headers_mac) + 1):
         cell = ws1.cell(row=5, column=c_idx)

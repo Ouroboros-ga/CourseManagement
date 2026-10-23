@@ -234,7 +234,9 @@ class ObjectStorage(SignedDownload):
     def exists(self, object_key: str) -> bool:
         return bool(self._call("is_object_exist", bucket=self._bucket, key=object_key))
 
-    def presign_direct_get(self, object_key: str, ttl_seconds: int) -> DirectDownload:
+    def presign_direct_get(
+        self, object_key: str, ttl_seconds: int, *, style: str = "original"
+    ) -> DirectDownload:
         import alibabacloud_oss_v2 as oss
 
         if ttl_seconds < 2:
@@ -254,10 +256,13 @@ class ObjectStorage(SignedDownload):
                 raise AppError(
                     ErrorCode.UPSTREAM_UNAVAILABLE, "文件访问暂不可用，请稍后重试", http_status=503
                 ) from None
+        process_rule = "image/resize,m_lfit,w_300,h_300" if style == "thumb" else None
         result = self._call(
             "presign",
             oss.GetObjectRequest(
-                bucket=self._bucket, key=object_key,
+                bucket=self._bucket,
+                key=object_key,
+                process=process_rule,
                 response_cache_control="private, no-store",
             ),
             client=self._direct_client,

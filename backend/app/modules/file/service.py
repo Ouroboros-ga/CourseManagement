@@ -283,7 +283,7 @@ class FileService:
         return False
 
     def get_access(
-        self, actor: CurrentUser, file_id: int, *, delivery: str = "proxy"
+        self, actor: CurrentUser, file_id: int, *, delivery: str = "proxy", style: str = "original"
     ) -> FileAccessResponse:
         file = self._repo.get(file_id)
         # 不可见或不存在统一 404，避免枚举探测（技术方案 16.2 资源归属）。
@@ -306,7 +306,10 @@ class FileService:
         ):
             signer = getattr(self._storage, "presign_direct_get", None)
             if callable(signer):
-                link = signer(file.object_key, ttl)
+                try:
+                    link = signer(file.object_key, ttl, style=style)
+                except TypeError:
+                    link = signer(file.object_key, ttl)
                 return FileAccessResponse(
                     url=link.url, method="GET",
                     expires_in=max(0, int((link.expires_at - datetime.now(UTC)).total_seconds())),

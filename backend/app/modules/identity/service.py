@@ -191,6 +191,21 @@ class IdentityService:
         self._session.commit()
         return self._token_pair(access, refresh)
 
+    def _has_active_staff(self, user_id: int) -> bool:
+        """检查用户是否关联了有效的教职工档案。"""
+        from app.modules.academic.staff_models import FacultyStaff
+
+        return bool(
+            self._session.scalar(
+                select(FacultyStaff.id)
+                .where(
+                    FacultyStaff.user_id == user_id,
+                    FacultyStaff.status == "ACTIVE",
+                )
+                .limit(1)
+            )
+        )
+
     def _require_staff_web_eligibility(self, user: UserAccount) -> None:
         """临时教师仅使用微信；既有管理员账号继续按原管理权限登录。"""
         from app.modules.academic.staff_models import FacultyStaff
@@ -262,7 +277,13 @@ class IdentityService:
         # 新账号的可用性已由构造保证；既有账号已在上分支校验。
         _session, access, refresh = self._issue_session(user, ClientType.WECHAT)
 
-        need_binding = user.student_id is None and not self._repo.list_role_codes(user.id)
+        has_staff = self._has_active_staff(user.id)
+        # 已绑定学生、已有系统角色、或已绑定有效教工，均不再属于受限/未绑定态
+        need_binding = (
+            user.student_id is None
+            and not self._repo.list_role_codes(user.id)
+            and not has_staff
+        )
         if created:
             self._record_audit(
                 actor_user_id=user.id,
@@ -369,7 +390,8 @@ class IdentityService:
         self._session.commit()  # 刷新 last_used，只读事务下的轻量写入
         roles = self._repo.list_role_codes(user.id)
         # PRE_BINDING：微信侧登录成功但尚未完成学生绑定（无 student_id 且无任何角色）。
-        pre_binding = user.student_id is None and not roles
+        has_staff = self._has_active_staff(user.id)
+        pre_binding = user.student_id is None and not roles and not has_staff
         return CurrentUser(
             id=user.id,
             username=user.username,

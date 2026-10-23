@@ -6,13 +6,13 @@
   仅可提交"本人当前受派"任务（未受派 / 非本人 → 403）；本学期无志愿者资格 → 403。
 - 结论一致性（schema）：NORMAL 带异常明细 / ABNORMAL 无明细 → 422；异常学生不在本任务
   当前名单或重复 → 422（fieldErrors.duplicate_student_ids / not_in_roster_student_ids）。
-- "至多一个待审核 / 审核通过"不变式：重复提交 → 409 STATE_CONFLICT；真实并发恰好一成一拒。
+- "至多一个有效提交"不变式：重复提交 → 409 STATE_CONFLICT；真实并发恰好一成一拒。
 - 取消任务提交 → 409。
 - 附件（16.2）：要求照片却无附件 → 422；超上限 → 422；附件非 READY / 非本人 / 类别不符 /
   已过期 → 422；本人 READY SUBMISSION_PHOTO 通过并回填 file_ids。
 - 截止与时序（13.3）：提交前幂等结算锁定"截止时"事实——按时提交不被结算改写；迟交
   late_at_submission=true 且结算为 OVERDUE_UNEXECUTED；按时提交后经结算得 VALID_SUBMISSION。
-- 五态精判（12）：有 PENDING 提交 → 任务"待审核"；本人历史读取强制 OWN_SUBMISSION 范围；
+- 五态精判（12）：提交即定稿 → 任务"已完成"；本人历史读取强制 OWN_SUBMISSION 范围；
   读他人提交统一 404 防枚举。
 """
 
@@ -24,10 +24,12 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from app.core.database import utcnow
+from app.core.database import session_scope, utcnow
 from app.core.exceptions import ErrorCode
 from app.core.permissions import PermissionCode, RoleCode
 from app.core.security import hash_password
+from app.modules.academic.enrollment_models import CourseParticipation, StudentEnrollment
+from app.modules.academic.models import AdministrativeClass
 from app.modules.audit.models import AuditLog
 from app.modules.file.models import FileCategory, FileObject, FileStatus
 from app.modules.identity.models import Permission, Role, UserAccount, UserStatus
@@ -42,8 +44,9 @@ from app.modules.inspection.models import (
 )
 from app.modules.inspection.schemas import SubmissionCreateRequest
 from app.modules.inspection.service import InspectionService
+from app.modules.organization.models import College, School
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -66,6 +69,62 @@ _MON1_D = date_(2026, 9, 7)
 def _bootstrap(session: Session) -> None:
     sync_registry(session)
     session.commit()
+
+
+def _bind_volunteer_account(session: Session, student_id: int, username: str) -> UserAccount:
+    """复用学期资格自动建立的绑定账号，只补登录凭据。
+
+    首次授予有效资格时服务已在同事务建号并授予 VOLUNTEER（academic/service.py 的
+    _grant_volunteer_role）；再插一个 student_id 相同的账号会撞
+    user_account.uq_user_account_student_id。
+    """
+    acct = session.execute(
+        select(UserAccount).where(UserAccount.student_id == student_id)
+    ).scalar_one()
+    acct.username = username
+    acct.display_name = username
+    acct.password_hash = hash_password(_PWD)
+    session.commit()
+    return acct
+
+
+def _seed_college_scope(on_date: date_) -> None:
+    """把本场景补成现行的学院作用域与在读区间。
+
+    旧建档 API 只写学院名文本，AdministrativeClass.college_id 留空；学籍与选课参与记录的
+    effective_from 又固定写 business_today()。现行规则一律按执行日核对：college_id 为空或
+    区间不覆盖查课日时，RosterIndex.at() 会把学生整批排除出正式名单（表现为 expected_count=0
+    与提交 422 not_in_roster），qualification_policy.qualified_on 也直接判无资格。
+    每个用例都是新建 schema，按场景整体补齐不会跨用例串味。
+    """
+    with session_scope() as s:
+        if s.execute(select(College).limit(1)).scalar_one_or_none() is None:
+            s.add(School(id=1, code="FIXTURE", name="夹具学校"))
+            s.flush()
+            s.add(College(id=1, school_id=1, code="CS", name="计算机学院"))
+    since = on_date - timedelta(days=7)
+    with session_scope() as s:
+        s.execute(
+            update(AdministrativeClass)
+            .where(AdministrativeClass.college_id.is_(None))
+            .values(college_id=1)
+        )
+        s.execute(
+            update(StudentEnrollment)
+            .where(StudentEnrollment.college_id.is_(None))
+            .values(college_id=1)
+        )
+        s.execute(
+            update(StudentEnrollment)
+            .where(StudentEnrollment.effective_from > on_date)
+            .values(effective_from=since)
+        )
+        s.execute(
+            update(CourseParticipation)
+            .where(CourseParticipation.effective_from > on_date)
+            .values(effective_from=since)
+        )
+
 
 
 def _role(session: Session, code: str) -> Role:
@@ -253,6 +312,7 @@ def _scene(client: TestClient, h: dict[str, str], *, require_photo: bool = False
     t1 = _create_tc(client, h, sem_id, course, "T1")
     _enroll(client, h, t1, [s1, s2])
     _schedule(client, h, t1, 1, 2, "A101")
+    _seed_college_scope(date_.fromisoformat(_MON1))
     assert _gen_course(client, h, sem_id, [t1], require_photo=require_photo) == 1
     tasks = _list_tasks(client, h, sem_id)
     assert len(tasks) == 1
@@ -270,8 +330,9 @@ def _make_volunteer(
     """建一名本学期有资格的志愿者（独立行政班避免本班回避），指派到任务并返回账号与令牌头。"""
     other = _create_admin_class(client, h, f"VCLASS_{username}")
     sid = _create_student(client, h, f"V{username}", other)
+    _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sc["sem_id"], sid)
-    vol = _make_user(session, username, [RoleCode.VOLUNTEER.value], student_id=sid)
+    vol = _bind_volunteer_account(session, sid, username)
     _assign(client, h, sc["task_id"], vol.id)
     return vol, _bearer(_login(client, username))
 
@@ -299,7 +360,9 @@ def _shift_deadline(
     return day
 
 
-def _backdate_within_deadline(session: Session, sem_id: int, task_id: int) -> None:
+def _backdate_within_deadline(
+    session: Session, sem_id: int, task_id: int, *, submitted_ago=timedelta(hours=5)
+) -> None:
     """构造"截止已过但曾有按时提交"：提交时刻挪到 now-5h、截止挪到 now-1h，
     使 submitted_at ≤ deadline < now，结算即得 VALID_SUBMISSION（无需真实等待）。
     """
@@ -307,7 +370,7 @@ def _backdate_within_deadline(session: Session, sem_id: int, task_id: int) -> No
     now = utcnow()
     fresh = session.get(InspectionSubmission, sub.id)
     assert fresh is not None
-    fresh.submitted_at = now - timedelta(hours=5)
+    fresh.submitted_at = now - submitted_ago
     day = _get_day(session, sem_id, _MON1_D)
     day.deadline_at = now - timedelta(hours=1)
     session.commit()
@@ -416,7 +479,7 @@ def test_create_perm_without_volunteer_role_403(client: TestClient, session: Ses
 
 
 # --------------------------------------------------------------------------- #
-# Happy path：NORMAL / ABNORMAL + 五态待审核 + 审计
+# Happy path：NORMAL / ABNORMAL + 提交即完成 + 审计
 # --------------------------------------------------------------------------- #
 def _admin_headers(client: TestClient, session: Session) -> dict[str, str]:
     _bootstrap(session)
@@ -434,14 +497,15 @@ def test_submit_normal_happy(client: TestClient, session: Session) -> None:
     d = r.json()["data"]
     assert int(d["attempt_no"]) == 1
     assert d["result"] == "NORMAL"
-    assert d["review_status"] == ReviewStatus.PENDING.value
+    assert d["review_status"] == ReviewStatus.APPROVED.value
+    assert d["submission_state"] == "ACTIVE"
     assert d["late_at_submission"] is False
     assert d["abnormal_items"] == []
     assert d["deadline_version_id"] is not None  # 冻结当日适用截止版本
     assert _audit_actions(session, "submission.create") == 1
-    # 五态：有 PENDING 提交 → 任务"待审核"（管理视图可见）。
+    # 有效提交立即让任务完成，无需管理员审核。
     detail = client.get(f"{_TASKS}/{sc['task_id']}", headers=h).json()["data"]
-    assert detail["status"] == "待审核"
+    assert detail["status"] == "已完成"
     # 本人历史可读，含本条。
     mine = client.get(_ME_SUBS, headers=vh).json()["data"]
     assert mine["total"] == 1
@@ -527,8 +591,9 @@ def test_submit_not_assigned_403(client: TestClient, session: Session) -> None:
     # 建志愿者但不指派到该任务 → 提交被拒 403（仅本人当前受派）。
     other = _create_admin_class(client, h, "VCLASS_Z")
     sid = _create_student(client, h, "VZ", other)
+    _seed_college_scope(date_.fromisoformat(_MON1))
     _grant_qual(client, h, sc["sem_id"], sid)
-    _make_user(session, "volunassigned", [RoleCode.VOLUNTEER.value], student_id=sid)
+    _bind_volunteer_account(session, sid, "volunassigned")
     vh = _bearer(_login(client, "volunassigned"))
     r = client.post(_submit_url(sc["task_id"]), headers=vh, json=_normal_body())
     assert r.status_code == 403, r.text
@@ -570,7 +635,7 @@ def test_submit_canceled_task_409(client: TestClient, session: Session) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# "至多一个待审核 / 审核通过"不变式 + 真实并发
+# "至多一个有效提交"不变式 + 真实并发
 # --------------------------------------------------------------------------- #
 def test_repeat_submission_conflict_409(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
@@ -727,22 +792,25 @@ def test_valid_submission_settle_after_deadline(client: TestClient, session: Ses
     assert asmt.result == DeadlineAssessmentResult.VALID_SUBMISSION.value
 
 
-def test_reject_after_deadline_not_backdated(client: TestClient, session: Session) -> None:
-    # 按时提交后被人为退回（此处以直接改 review_status 模拟 P5d 之后的退回事实），
-    # 结算仍看"截止前有按时提交"→ VALID_SUBMISSION，不倒算为未执行（技术方案 13.2、62/64）。
+def test_withdraw_after_deadline_not_backdated(client: TestClient, session: Session) -> None:
+    # 按时提交后在两小时内本人撤回，截止考核仍保留已按时完成的事实。
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     _vol, vh = _make_volunteer(client, h, session, sc)
     _shift_deadline(session, sc["sem_id"], _MON1_D, hours=+48)  # 未来截止：提交准点
     r = client.post(_submit_url(sc["task_id"]), headers=vh, json=_normal_body())
     assert r.status_code == 200, r.text
-    # 构造截止已过（保留按时提交事实），再模拟审核退回。
-    _backdate_within_deadline(session, sc["sem_id"], sc["task_id"])
-    sub = _submissions(session, sc["task_id"])[0]
-    fresh = session.get(InspectionSubmission, sub.id)
-    assert fresh is not None
-    fresh.review_status = ReviewStatus.REJECTED.value
-    session.commit()
+    # 提交在 90 分钟前、截止在一小时前，仍在本人纠错窗口。
+    _backdate_within_deadline(
+        session, sc["sem_id"], sc["task_id"], submitted_ago=timedelta(minutes=90)
+    )
+    sub_id = int(r.json()["data"]["id"])
+    withdrawn = client.post(
+        f"{_SUBS}/{sub_id}/withdraw", headers=vh, json={"reason": "重新核对"}
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["data"]["submission_state"] == "WITHDRAWN"
+    assert withdrawn.json()["data"]["review_status"] == ReviewStatus.APPROVED.value
     _settle(client, h, {"semester_id": sc["sem_id"], "task_ids": [sc["task_id"]]})
     asmt = _assessment(session, sc["task_id"])
     assert asmt is not None

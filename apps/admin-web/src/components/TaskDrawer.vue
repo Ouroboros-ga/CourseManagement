@@ -130,7 +130,7 @@ function openCorrectDialog(item: EnrichedRosterItem) {
   if (!record) return
   correctingRecord.value = record
   correctTargetType.value = record.effective_type || 'NORMAL'
-  correctReason.value = '补交假条，辅导员已签批'
+  correctReason.value = ''
   correctDialogVisible.value = true
 }
 
@@ -436,9 +436,11 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
         <div>
           <label class="form-label">更正理由 / 审批依据 *</label>
           <select
+            :key="`${correctingRecord?.id}:${correctDialogVisible}`"
             class="input w-full mb-1.5"
             @change="(e) => { const v = (e.target as HTMLSelectElement).value; if (v) correctReason = v }"
           >
+            <option value="">选择常用理由（选填，请核实后使用）</option>
             <option value="补交假条，辅导员已签批">预设理由：补交假条，辅导员已签批</option>
             <option value="现场误记，核实全勤到课">预设理由：现场误记，核实全勤到课</option>
             <option value="复核漏查，确认为旷课">预设理由：复核漏查，确认为旷课</option>

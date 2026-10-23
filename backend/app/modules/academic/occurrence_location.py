@@ -52,6 +52,7 @@ from app.modules.academic.occurrence_location_models import (
     OccurrenceLocationOverride,
 )
 from app.modules.academic.staff_repository import StaffRepository
+from app.modules.attendance.effect_scope import see_withdrawn
 from app.modules.attendance.models import AttendanceRecord
 from app.modules.audit.models import AuditLog
 from app.modules.audit.provenance import scoped_snapshot
@@ -917,7 +918,9 @@ class OccurrenceLocationService:
             ):
                 continue
             if self.db.scalar(
-                select(AttendanceRecord.id).where(AttendanceRecord.task_id == task.id).limit(1)
+                see_withdrawn(
+                    select(AttendanceRecord.id).where(AttendanceRecord.task_id == task.id).limit(1)
+                )
             ):
                 continue
             out.append(task)

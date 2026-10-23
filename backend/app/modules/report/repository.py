@@ -29,6 +29,7 @@ from app.modules.inspection.models import (
     InspectionSubmission,
     InspectionTask,
     ReviewStatus,
+    SubmissionState,
     TaskDeadlineAssessment,
     TaskRosterMember,
 )
@@ -77,12 +78,13 @@ class ReportRepository:
 
     @staticmethod
     def _approved_submission_exists(aliased_task_id: Any) -> ColumnElement[bool]:
-        """是否存在审核通过提交（EXISTS 子查询，用于筛"符合条件任务"）。"""
+        """当前有效提交才参与统计，撤回及被替代的历史不计入。"""
         return (
             select(InspectionSubmission.id)
             .where(
                 InspectionSubmission.task_id == aliased_task_id,
                 InspectionSubmission.review_status == ReviewStatus.APPROVED.value,
+                InspectionSubmission.submission_state == SubmissionState.ACTIVE.value,
             )
             .exists()
         )

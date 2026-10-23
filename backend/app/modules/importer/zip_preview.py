@@ -28,7 +28,7 @@ def expand_zip(
 
     if len(content) > MAX_ARCHIVE_BYTES:
         invalid("ZIP 文件不能超过 50 MiB")
-    members, names, total, count, actual_names = [], set(), 0, 0, set()
+    members, names, total, total_actual, count, actual_names = [], set(), 0, 0, 0, set()
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as archive:
             if len(archive.infolist()) > MAX_ARCHIVE_ENTRIES:
@@ -55,6 +55,8 @@ def expand_zip(
                 names.add(key)
                 actual_names.add(str(path))
                 count += 1
+                # 整包预算按 ZIP 头部**声明**值先判，越界成员在解压前就被拒；
+                # 但头部可伪造，真实累计以内层读出字节为准（见下方 total_actual）。
                 total += info.file_size
                 if (
                     count > MAX_QUEUE_FILES
@@ -70,6 +72,9 @@ def expand_zip(
                     data = source.read(MAX_FILE + 1)
                 if len(data) > MAX_FILE:
                     invalid("ZIP 内单个文件超过 10 MiB")
+                total_actual += len(data)
+                if total_actual > MAX_EXPANDED_BYTES:
+                    invalid("解压后合计超过 200 MiB，请拆分压缩包")
                 members.append((str(path), data))
     except (zipfile.BadZipFile, RuntimeError, OSError, NotImplementedError, EOFError) as exc:
         invalid(f"ZIP 无法读取，请重新压缩后上传（{type(exc).__name__}）")

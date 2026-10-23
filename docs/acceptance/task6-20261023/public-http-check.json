@@ -1,0 +1,28 @@
+{
+  "/health/live": {
+    "status": 200
+  },
+  "/health/ready": {
+    "status": 200
+  },
+  "/api/v1/me": {
+    "status": 401
+  },
+  "/": {
+    "status": 200
+  },
+  "assets": [
+    {
+      "path": "/assets/school-logo-D3o5-qwZ.png",
+      "status": 200
+    },
+    {
+      "path": "/assets/index-O3reBMeW.js",
+      "status": 200
+    },
+    {
+      "path": "/assets/index-cg6tf4nE.css",
+      "status": 200
+    }
+  ]
+}

@@ -66,6 +66,15 @@ def changes_for(service, batch):
             )
             before = {"enabled": existing.enabled} if existing else None
             after = {"enabled": row["enabled"]}
+            if student and existing and row["enabled"]:
+                from app.modules.identity.models import UserAccount
+                from app.modules.identity.repository import IdentityRepository
+
+                account = db.scalar(select(UserAccount).where(UserAccount.student_id == student.id))
+                if account is None or "VOLUNTEER" not in IdentityRepository(db).list_role_codes(account.id):
+                    # 已有资格可能来自旧导入；确认集合不能把缺失底册误判为完全无变化。
+                    before["roster_ready"] = False
+                    after["roster_ready"] = True
             change(
                 "CREATE" if existing is None else "UNCHANGED" if before == after else "UPDATE",
                 "qualification",

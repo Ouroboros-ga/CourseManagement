@@ -46,7 +46,7 @@ export const campusActionLabels: Record<string, string> = {
   'volunteer.read': '查看本院志愿者资格',
   'attendance.read': '查看本院考勤', 'attendance.correct': '更正本院考勤',
   'objection.read': '查看本院异议', 'objection.final_review': '审核本院异议',
-  'submission.read': '查看本院查课提交', 'submission.review': '审核本院查课提交',
+  'submission.read': '查看本院查课提交', 'submission.review': '历史审核兼容项（无需提交审核）',
   'inspection.read': '查看本院查课任务', 'inspection.roster.read': '查看本院任务名单',
   'inspection.generate': '生成本院查课任务', 'inspection.cancel': '取消本院查课任务',
   'inspection.roster.manage': '维护本院任务名单',

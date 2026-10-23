@@ -15,14 +15,17 @@
 from __future__ import annotations
 
 import threading
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
 from app.core.config import get_settings
+from app.core.database import session_scope
 from app.core.exceptions import AppError, ConflictError, ErrorCode
 from app.core.permissions import PermissionCode, RoleCode
 from app.core.security import hash_password
+from app.modules.academic.enrollment_models import CourseParticipation, StudentEnrollment
+from app.modules.academic.models import AdministrativeClass
 from app.modules.audit.models import AuditLog
 from app.modules.identity.models import Permission, Role, UserAccount, UserStatus
 from app.modules.identity.seed import sync_registry
@@ -43,8 +46,9 @@ from app.modules.inspection.schemas import (
     AssignmentSetRequest,
 )
 from app.modules.inspection.service import InspectionService
+from app.modules.organization.models import College, School
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -64,6 +68,40 @@ _MON1 = "2026-09-07"  # 第 1 周周一
 def _bootstrap(session: Session) -> None:
     sync_registry(session)
     session.commit()
+
+
+def _seed_college_scope(on_date: date) -> None:
+    """把本场景补成现行的学院作用域与在读区间。
+
+    旧建档 API 只写学院名文本，AdministrativeClass.college_id 留空；学籍与选课参与记录的
+    effective_from 又固定写 business_today()。现行规则一律按执行日核对：college_id 为空或
+    区间不覆盖查课日时，RosterIndex.at() 会把学生整批排除出正式名单（表现为 expected_count=0
+    与提交 422 not_in_roster），qualification_policy.qualified_on 也直接判无资格。
+    每个用例都是新建 schema，按场景整体补齐不会跨用例串味。
+    """
+    with session_scope() as s:
+        if s.execute(select(College).limit(1)).scalar_one_or_none() is None:
+            s.add(School(id=1, code="FIXTURE", name="夹具学校"))
+            s.flush()
+            s.add(College(id=1, school_id=1, code="CS", name="计算机学院"))
+    since = on_date - timedelta(days=7)
+    with session_scope() as s:
+        s.execute(
+            update(AdministrativeClass)
+            .where(AdministrativeClass.college_id.is_(None))
+            .values(college_id=1)
+        )
+        s.execute(
+            update(StudentEnrollment)
+            .where(StudentEnrollment.effective_from > on_date)
+            .values(effective_from=since)
+        )
+        s.execute(
+            update(CourseParticipation)
+            .where(CourseParticipation.effective_from > on_date)
+            .values(effective_from=since)
+        )
+
 
 
 def _role(session: Session, code: str) -> Role:
@@ -265,6 +303,7 @@ def _make_volunteer(
     roles = [RoleCode.VOLUNTEER.value] if volunteer else [RoleCode.STUDENT.value]
     acct = _make_user(session, username, roles, student_id=sid)
     if qualify:
+        _seed_college_scope(date.fromisoformat(_MON1))
         _grant_qual(client, h, sem_id, sid)
     return acct
 
@@ -292,6 +331,7 @@ def _one_task_scene(client: TestClient, h: dict[str, str]) -> dict:
     t1 = _create_tc(client, h, sem_id, course, "T1")
     _enroll(client, h, t1, [s1, s2])
     _schedule(client, h, t1, 1, 2, "A101")
+    _seed_college_scope(date.fromisoformat(_MON1))
     assert _gen_course(client, h, sem_id, [t1]) == 1
     tasks = _list_tasks(client, h, sem_id)
     assert len(tasks) == 1
@@ -468,6 +508,7 @@ def test_manual_task_time_conflict_422(client: TestClient, session: Session) -> 
         [_create_student(client, h, "S201", _create_admin_class(client, h, "CS3301"))],
     )
     _schedule(client, h, t2, 2, 3, "A102")
+    _seed_college_scope(date.fromisoformat(_MON1))
     assert _gen_course(client, h, sc["sem_id"], [t2]) == 1
     tasks = _list_tasks(client, h, sc["sem_id"])
     task1 = next(t for t in tasks if t["start_period"] == 1)
@@ -818,6 +859,7 @@ def test_auto_in_batch_time_conflict(client: TestClient, session: Session) -> No
         [_create_student(client, h, "S201", _create_admin_class(client, h, "CS3301"))],
     )
     _schedule(client, h, t2, 2, 3, "A102")
+    _seed_college_scope(date.fromisoformat(_MON1))
     assert _gen_course(client, h, sc["sem_id"], [t2]) == 1
     other = _create_admin_class(client, h, "CS2402")
     # 仅一名志愿者，两重叠任务 → 批内只有一个能给他，另一个因时段冲突落单。
@@ -851,6 +893,7 @@ def test_auto_day_cap_soft_constraint(
         [_create_student(client, h, "S201", _create_admin_class(client, h, "CS3301"))],
     )
     _schedule(client, h, t2, 8, 9, "A103")
+    _seed_college_scope(date.fromisoformat(_MON1))
     assert _gen_course(client, h, sc["sem_id"], [t2]) == 1
     other = _create_admin_class(client, h, "CS2402")
     _make_volunteer(
@@ -945,6 +988,7 @@ def test_concurrent_same_volunteer_overlapping_day_one_wins(
     other_roster = _create_admin_class(client, h, "CS3301")
     _enroll(client, h, tc2, [_create_student(client, h, "S201", other_roster)])
     _schedule(client, h, tc2, 2, 3, "B101")
+    _seed_college_scope(date.fromisoformat(_MON1))
     assert _gen_course(client, h, sc["sem_id"], [tc2]) == 1
     session.commit()  # 释放夹具读视图，令随后独立会话看到已提交任务。
 

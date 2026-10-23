@@ -2,12 +2,9 @@
 import { useDisplayPage } from '../composables/useDisplayPage'
 import { formatBeijingTime } from '@/utils/datetime'
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import {
   listManagementSubmissions,
-  reviewSubmission,
-  batchReviewSubmissions,
   type ManagementSubmissionItem
 } from '../api/submissions'
 import AppPagination from '../components/AppPagination.vue'
@@ -17,13 +14,10 @@ import AppIcon from '../components/AppIcon.vue'
 const sessionStore = useSessionStore()
 
 const loading = ref(false)
-const singleReviewLoading = ref(false)
-const batchLoading = ref(false)
 const submissions = ref<ManagementSubmissionItem[]>([])
 const activeId = ref<string>('')
-const statusFilter = ref<string>('PENDING')
+const statusFilter = ref<string>('')
 const searchQuery = ref<string>('')
-const selectedIds = ref<string[]>([])
 const page = ref(1), total = ref(0)
 const summary = ref({ pending: 0, normal: 0, abnormal: 0, reviewed: 0 })
 const epoch = new ContextEpoch(() => JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId,
@@ -62,10 +56,10 @@ async function fetchSubmissions() {
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 watch([statusFilter, searchQuery, () => sessionStore.currentSemesterId, () => sessionStore.workspaceCollegeId,
   () => sessionStore.currentUser?.id], () => {
-  epoch.invalidate(); selectedIds.value = []; submissions.value = []; activeId.value = ''; page.value = 1
+  epoch.invalidate(); submissions.value = []; activeId.value = ''; page.value = 1
   clearTimeout(searchTimer); searchTimer = setTimeout(() => void fetchSubmissions(), 250)
 })
-watch(page, () => { selectedIds.value = []; clearTimeout(searchTimer); searchTimer = setTimeout(() => void fetchSubmissions(), 0) })
+watch(page, () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => void fetchSubmissions(), 0) })
 
 onMounted(() => {
   fetchSubmissions()
@@ -77,7 +71,6 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
 })
 
-const pendingSubmissions = computed(() => submissions.value.filter(s => s.review_status === 'PENDING'))
 const pendingCount = computed(() => summary.value.pending)
 const pendingNormalCount = computed(() => summary.value.normal)
 const pendingAbnormalCount = computed(() => summary.value.abnormal)
@@ -97,37 +90,6 @@ watch(filteredSubmissions, (newList) => {
     activeId.value = newList[0].id
   }
 })
-
-// 多选管理
-const isAllSelected = computed(() => {
-  if (filteredSubmissions.value.length === 0) return false
-  return filteredSubmissions.value.every(s => selectedIds.value.includes(s.id))
-})
-
-const isIndeterminate = computed(() => {
-  const count = filteredSubmissions.value.filter(s => selectedIds.value.includes(s.id)).length
-  return count > 0 && count < filteredSubmissions.value.length
-})
-
-function toggleSelectAll() {
-  if (isAllSelected.value) {
-    const filteredIdSet = new Set(filteredSubmissions.value.map(s => s.id))
-    selectedIds.value = selectedIds.value.filter(id => !filteredIdSet.has(id))
-  } else {
-    const set = new Set(selectedIds.value)
-    filteredSubmissions.value.forEach(s => set.add(s.id))
-    selectedIds.value = Array.from(set)
-  }
-}
-
-function toggleSelect(id: string) {
-  const idx = selectedIds.value.indexOf(id)
-  if (idx >= 0) {
-    selectedIds.value.splice(idx, 1)
-  } else {
-    selectedIds.value.push(id)
-  }
-}
 
 // 键盘 ↑ / ↓ 方向键无缝切换审核条目
 function handleKeyDown(e: KeyboardEvent) {
@@ -159,195 +121,6 @@ function scrollActiveIntoView() {
 }
 
 // 单笔通过
-async function handleApprove(sub?: ManagementSubmissionItem) {
-  const target = sub || currentSubmission.value
-  if (!target) return
-  singleReviewLoading.value = true
-  try {
-    await reviewSubmission(target.id, { decision: 'APPROVED' })
-    ElMessage.success(`提交 #${target.id} 审核通过！考勤事实已固化入库。`)
-    await fetchSubmissions()
-  } catch (err: unknown) {
-    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '审核失败'
-    ElMessage.error(msg)
-  } finally {
-    singleReviewLoading.value = false
-  }
-}
-
-// 单笔驳回
-async function handleReject(sub?: ManagementSubmissionItem) {
-  const target = sub || currentSubmission.value
-  if (!target) return
-  try {
-    const { value: comment } = await ElMessageBox.prompt(
-      '请输入驳回理由（该说明将反馈给小程序端志愿者并完整记入审计日志）：',
-      `驳回考勤提交 #${target.id}`,
-      {
-        confirmButtonText: '确认驳回',
-        cancelButtonText: '取消',
-        inputPattern: /\S+/,
-        inputErrorMessage: '驳回理由不能为空'
-      }
-    )
-
-    if (comment) {
-      singleReviewLoading.value = true
-      await reviewSubmission(target.id, {
-        decision: 'REJECTED',
-        comment
-      })
-      ElMessage.warning(`提交 #${target.id} 已驳回，理由：${comment}`)
-      await fetchSubmissions()
-    }
-  } catch {
-    // cancelled
-  } finally {
-    singleReviewLoading.value = false
-  }
-}
-
-// ⚡ 一键通过所有全勤正常项（核心推荐加速）
-async function handleBatchApproveNormal() {
-  const context = JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])
-  const normalPending = pendingSubmissions.value.filter(
-    s => s.result === 'NORMAL' && s.abnormal_items.length === 0
-  )
-  if (normalPending.length === 0) {
-    ElMessage.info('当前没有待审核的全勤提交记录')
-    return
-  }
-
-  try {
-    await ElMessageBox.confirm(
-      `检测到本页共有 ${normalPending.length} 笔【全员到齐（无异常）】的待审核记录。\n\n• 点击确定将一键批量通过并固化全勤事实；\n• 其余含异常学生名单的提交将安全保留在队列中，供人工重点核查。`,
-      '⚡ 一键通过全勤正常提交',
-      {
-        confirmButtonText: `确认通过 (${normalPending.length} 笔)`,
-        cancelButtonText: '取消',
-        type: 'success',
-        confirmButtonClass: 'el-button--success'
-      }
-    )
-
-    if (context !== JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])) return
-    batchLoading.value = true
-    const res = await batchReviewSubmissions({
-      submission_ids: normalPending.map(s => s.id),
-      decision: 'APPROVED',
-      comment: '管理端一键批量通过全勤提交'
-    })
-
-    ElMessage.success(`批量处理完成！成功通过 ${res.success_count} 笔全勤考勤提交。`)
-    await fetchSubmissions()
-  } catch (err: unknown) {
-    if (err !== 'cancel') {
-      const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '批量审核失败'
-      ElMessage.error(msg)
-    }
-  } finally {
-    batchLoading.value = false
-  }
-}
-
-// 批量通过勾选项
-async function handleBatchApproveSelected() {
-  const context = JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])
-  const selectedPending = submissions.value.filter(
-    s => selectedIds.value.includes(s.id) && s.review_status === 'PENDING'
-  )
-  if (selectedPending.length === 0) {
-    ElMessage.warning('所选记录中没有处于待审核状态的提交')
-    return
-  }
-
-  const normalCount = selectedPending.filter(s => s.result === 'NORMAL' && s.abnormal_items.length === 0).length
-  const abnormalCount = selectedPending.length - normalCount
-
-  const warningText = abnormalCount > 0
-    ? `\n\n⚠️ 注意：选中的条目中包含 ${abnormalCount} 笔存在异常学生的考勤记录，通过后将正式固化缺勤事实！`
-    : ''
-
-  try {
-    await ElMessageBox.confirm(
-      `确定要批量通过选中的 ${selectedPending.length} 笔待审核提交吗？（其中全勤到齐 ${normalCount} 笔，含异常 ${abnormalCount} 笔）${warningText}`,
-      '批量通过已选提交',
-      {
-        confirmButtonText: `确认通过 (${selectedPending.length} 笔)`,
-        cancelButtonText: '取消',
-        type: abnormalCount > 0 ? 'warning' : 'info'
-      }
-    )
-
-    if (context !== JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])) return
-    batchLoading.value = true
-    const res = await batchReviewSubmissions({
-      submission_ids: selectedPending.map(s => s.id),
-      decision: 'APPROVED',
-      comment: '管理端批量审核通过'
-    })
-
-    ElMessage.success(`批量审核成功！已通过 ${res.success_count} 笔，失败 ${res.failed_count} 笔。`)
-    selectedIds.value = []
-    await fetchSubmissions()
-  } catch (err: unknown) {
-    if (err !== 'cancel') {
-      const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '批量审核失败'
-      ElMessage.error(msg)
-    }
-  } finally {
-    batchLoading.value = false
-  }
-}
-
-// 通过本页全部待审（包含异常高危警示）
-async function handleBatchApproveAllPending() {
-  const context = JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])
-  const pending = [...pendingSubmissions.value]
-  if (pending.length === 0) {
-    ElMessage.info('当前没有待审核的提交记录')
-    return
-  }
-
-  const normalCount = pending.filter(row => row.result === 'NORMAL' && !row.abnormal_items.length).length
-  const abnormalCount = pending.length - normalCount
-
-  const warningContent = abnormalCount > 0
-    ? `⚠️ 高危提示：本页待审队列中包含 ${abnormalCount} 笔【存在异常学生】的查课记录！\n\n一键全部通过后，相关学生的旷课/迟到记录将直接固化记入正式考勤档案。\n\n全勤记录：${normalCount} 笔\n异常记录：${abnormalCount} 笔\n总计通过：${pending.length} 笔`
-    : `本页待审共 ${pending.length} 笔，均为全勤到齐。确认全部通过吗？`
-
-  try {
-    await ElMessageBox.confirm(
-      warningContent,
-      '通过本页全部待审记录',
-      {
-        confirmButtonText: `确认全部通过 (${pending.length} 笔)`,
-        cancelButtonText: '取消',
-        type: abnormalCount > 0 ? 'warning' : 'info',
-        confirmButtonClass: abnormalCount > 0 ? 'el-button--danger' : 'el-button--primary'
-      }
-    )
-
-    if (context !== JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId, page.value, statusFilter.value, searchQuery.value])) return
-    batchLoading.value = true
-    const res = await batchReviewSubmissions({
-      submission_ids: pending.map(s => s.id),
-      decision: 'APPROVED',
-      comment: '管理端一键全部审核通过'
-    })
-
-    ElMessage.success(`本页审核完成！共完成 ${res.success_count} 笔，失败 ${res.failed_count} 笔。`)
-    await fetchSubmissions()
-  } catch (err: unknown) {
-    if (err !== 'cancel') {
-      const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '一键全部通过失败'
-      ElMessage.error(msg)
-    }
-  } finally {
-    batchLoading.value = false
-  }
-}
-
 const typeMap: Record<string, string> = {
   'LATE': '迟到',
   'ABSENT': '旷课',
@@ -358,7 +131,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
 </script>
 
 <template>
-  <div v-loading="loading || batchLoading">
+  <div v-loading="loading">
     <!-- 页头 -->
       <header class="page-head">
         <h1>查课提交管理审核</h1>
@@ -457,39 +230,6 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
           />
         </div>
 
-        <!-- ⚡ 通过本页全勤待审（主力推荐） -->
-        <button
-          class="btn btn-sm btn-flash inline-flex items-center gap-1.5 shadow-sm"
-          :disabled="pendingNormalCount === 0 || batchLoading"
-          title="一键通过所有到课清点全勤（0异常）的待审核提交，其余异常项保留人工复查"
-          @click="handleBatchApproveNormal"
-        >
-          <AppIcon name="sparkles" :size="13" />
-          <span>⚡ 通过本页全勤待审</span>
-        </button>
-
-        <!-- 批量通过勾选项 -->
-        <button
-          v-if="selectedIds.length > 0"
-          class="btn btn-sm btn-dark inline-flex items-center gap-1.5"
-          :disabled="batchLoading"
-          @click="handleBatchApproveSelected"
-        >
-          <AppIcon name="check" :size="13" />
-          <span>批量通过勾选 ({{ selectedIds.length }})</span>
-        </button>
-
-        <!-- 一键全部通过（含异常高危弹窗确认） -->
-        <button
-          v-if="pendingCount > 0"
-          class="btn btn-sm btn-ghost inline-flex items-center gap-1 text-xs"
-          :disabled="batchLoading"
-          title="将本页待审核提交一次性通过（包含异常考勤项）"
-          @click="handleBatchApproveAllPending"
-        >
-          <span>通过本页全部待审</span>
-        </button>
-
         <button class="btn btn-sm btn-ghost" @click="fetchSubmissions">⟳ 刷新</button>
       </div>
     </div>
@@ -499,16 +239,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
       <!-- 左栏：待审队列卡片列表 -->
       <aside class="queue-panel">
         <div class="queue-panel-head">
-          <label class="select-all-label">
-            <input
-              type="checkbox"
-              :checked="isAllSelected"
-              :indeterminate="isIndeterminate"
-              class="chk"
-              @change="toggleSelectAll"
-            />
-            <span class="head-title font-mono">待审队列 ({{ filteredSubmissions.length }})</span>
-          </label>
+          <span class="head-title font-mono">提交记录 ({{ filteredSubmissions.length }})</span>
           <span class="kbd-hint font-mono">支持 ↑ / ↓ 键连选</span>
         </div>
 
@@ -517,21 +248,9 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
             v-for="sub in filteredSubmissions"
             :key="sub.id"
             class="queue-card"
-            :class="{
-              active: currentSubmission?.id === sub.id,
-              checked: selectedIds.includes(sub.id)
-            }"
+            :class="{ active: currentSubmission?.id === sub.id }"
             @click="activeId = sub.id"
           >
-            <div class="card-left-check">
-              <input
-                type="checkbox"
-                :checked="selectedIds.includes(sub.id)"
-                class="chk"
-                @click.stop="toggleSelect(sub.id)"
-              />
-            </div>
-
             <div class="card-body">
               <div class="card-meta font-mono">
                 <span class="sub-id">#{{ sub.id }}</span>
@@ -557,7 +276,13 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
               <div class="card-footer-badges">
                 <!-- 审核状态标签 -->
                 <span
-                  v-if="sub.review_status === 'APPROVED'"
+                  v-if="sub.submission_state && sub.submission_state !== 'ACTIVE'"
+                  class="tag text-xs"
+                >
+                  {{ sub.submission_state === 'WITHDRAWN' ? '已撤回' : '已被新版替代' }}
+                </span>
+                <span
+                  v-else-if="sub.review_status === 'APPROVED'"
                   class="tag tag-green text-xs"
                 >
                   已通过
@@ -611,7 +336,11 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
                   }"
                 >
                   {{
-                    currentSubmission.review_status === 'PENDING'
+                    currentSubmission.submission_state === 'WITHDRAWN'
+                      ? '已撤回 SUBMISSION-#' + currentSubmission.id
+                      : currentSubmission.submission_state === 'SUPERSEDED'
+                      ? '已被新版替代 SUBMISSION-#' + currentSubmission.id
+                      : currentSubmission.review_status === 'PENDING'
                       ? '待初审 SUBMISSION-#' + currentSubmission.id
                       : (currentSubmission.review_status === 'APPROVED' ? '已通过' : '已驳回') + ' SUBMISSION-#' + currentSubmission.id
                   }}
@@ -737,33 +466,10 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
                 </div>
               </div>
 
-              <!-- 审核决策动作栏 -->
-              <div class="decision-wrap">
-                <div class="sec-heading">管理审核决策</div>
-                <p class="dec-hint">
-                  审核通过将自动固化学生考勤事实并入库，驳回将留存驳回原因并通知小程序端。
-                </p>
-
-                <div v-if="currentSubmission.review_status === 'PENDING'" class="action-btn-row">
-                  <button
-                    class="btn btn-dark inline-flex items-center gap-1.5"
-                    :disabled="singleReviewLoading"
-                    @click="handleApprove(currentSubmission)"
-                  >
-                    <AppIcon v-if="!singleReviewLoading" name="check" :size="14" />
-                    <span>{{ singleReviewLoading ? '处理中…' : '审核通过' }}</span>
-                  </button>
-                  <button
-                    class="btn btn-outline-danger inline-flex items-center gap-1.5"
-                    :disabled="singleReviewLoading"
-                    @click="handleReject(currentSubmission)"
-                  >
-                    <AppIcon name="close" :size="14" />
-                    <span>驳回并填写原因</span>
-                  </button>
-                </div>
-
-                <div v-else-if="currentSubmission.review_status === 'APPROVED'" class="decision-done success">
+              <div v-if="currentSubmission.submission_state && currentSubmission.submission_state !== 'ACTIVE'" class="decision-done">
+                <span>{{ currentSubmission.submission_state === 'WITHDRAWN' ? '已撤回，保留历史材料' : '已被新版替代，保留历史材料' }}</span>
+              </div>
+              <div v-else-if="currentSubmission.review_status === 'APPROVED'" class="decision-done success">
                   <AppIcon name="check-circle" :size="16" class="t-green" />
                   <span>已审核通过 · 考勤记录已固化落库</span>
                 </div>

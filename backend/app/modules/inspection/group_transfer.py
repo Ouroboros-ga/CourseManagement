@@ -13,6 +13,7 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.modules.academic.campus_models import CourseType
 from app.modules.academic.models import Semester, TeachingClass
 from app.modules.academic.time_router import require_scheduling_enabled
+from app.modules.attendance.effect_scope import see_withdrawn
 from app.modules.attendance.models import AttendanceRecord
 from app.modules.audit.models import AuditLog
 from app.modules.identity.deps import CurrentUserDep
@@ -100,7 +101,9 @@ class TaskGroupTransferService:
         if self.db.scalar(
             select(InspectionSubmission.id).where(InspectionSubmission.task_id == tid).limit(1)
         ) or self.db.scalar(
-            select(AttendanceRecord.id).where(AttendanceRecord.task_id == tid).limit(1)
+            see_withdrawn(
+                select(AttendanceRecord.id).where(AttendanceRecord.task_id == tid).limit(1)
+            )
         ):
             raise ConflictError(message="任务已有提交或考勤，不允许更换执行组或规则快照")
         from app.modules.volunteer.preparation_models import semester_group_config

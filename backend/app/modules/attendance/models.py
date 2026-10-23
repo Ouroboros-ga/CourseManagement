@@ -4,7 +4,8 @@
 
 - attendance_record         当前有效考勤：一任务一学生一条（task_id+student_id 联合唯一），
                             审核通过时为该名单版本每名学生建立初始记录（未列异常者 NORMAL，
-                            技术方案 12）；effective_type 为当前认定，current_version 为乐观锁
+                            技术方案 12）；effective_type 为当前认定，effect_state 为结论是否
+                            仍然有效（本人撤回后转 WITHDRAWN，行保留），current_version 为乐观锁
                             与"更正不覆盖他人新认定"的版本校验锚点，source_submission_item_id
                             指向据以生成的异常明细（NORMAL 行为空）；
 - attendance_record_version 考勤历史版本：每次生成 / 更正 / 异议终审追加一条不可变版本，
@@ -58,10 +59,24 @@ class AttendanceSourceType(enum.StrEnum):
     SUBMISSION = "SUBMISSION"  # 审核通过初始生成：source_id = 异常明细 id（NORMAL 为空）
     CORRECTION = "CORRECTION"  # 管理员更正：source_id = 更正所属 attendance_record.id
     OBJECTION_FINAL = "OBJECTION_FINAL"  # 异议终审更正：source_id = objection.id（P6）
+    WITHDRAWAL = "WITHDRAWAL"  # 本人撤回提交：source_id = 撤回所属 attendance_record.id
+
+
+class AttendanceEffectState(enum.StrEnum):
+    """考勤结论的有效性轴，与 effective_type（认定是什么）分轴。
+
+    志愿者本人撤回提交后，该任务的考勤退出有效结论（WITHDRAWN）但行不删除：
+    attendance_record_version 是不可变历史、objection.attendance_record_id 是 CASCADE 外键，
+    删行会连带销毁历史与异议。所有业务读取默认只看 EFFECTIVE，历史/证据/级联清理路径显式豁免。
+    """
+
+    EFFECTIVE = "EFFECTIVE"
+    WITHDRAWN = "WITHDRAWN"
 
 
 _ATTENDANCE_TYPES = "('NORMAL','LEAVE','LATE','ABSENT')"
-_ATTENDANCE_SOURCE_TYPES = "('SUBMISSION','CORRECTION','OBJECTION_FINAL')"
+_ATTENDANCE_SOURCE_TYPES = "('SUBMISSION','CORRECTION','OBJECTION_FINAL','WITHDRAWAL')"
+_ATTENDANCE_EFFECT_STATES = "('EFFECTIVE','WITHDRAWN')"
 
 
 # --------------------------------------------------------------------------- #
@@ -74,6 +89,9 @@ class AttendanceRecord(CreateTimeMixin, Base):
     未列者取 NORMAL，从而把"全部正常"与"未提交"清晰区分。后续更正修改 effective_type 并
     追加 attendance_record_version，不重写原提交。current_version 用于乐观锁与异议终审的
     "版本落后即业务冲突"判断（技术方案 14、15）。
+
+    effect_state 是第二条轴：志愿者本人撤回后该行转 WITHDRAWN 并被默认查询隐藏，行与历史
+    版本都不删除。见 app/modules/attendance/effect_scope.py。
     """
 
     __tablename__ = "attendance_record"
@@ -82,6 +100,10 @@ class AttendanceRecord(CreateTimeMixin, Base):
         CheckConstraint(
             f"effective_type IN {_ATTENDANCE_TYPES}",
             name="ck_attendance_record_effective_type",
+        ),
+        CheckConstraint(
+            f"effect_state IN {_ATTENDANCE_EFFECT_STATES}",
+            name="ck_attendance_record_effect_state",
         ),
         CheckConstraint(
             "current_version >= 1", name="ck_attendance_record_current_version"
@@ -97,6 +119,13 @@ class AttendanceRecord(CreateTimeMixin, Base):
         ForeignKey("student.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     effective_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    effect_state: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=AttendanceEffectState.EFFECTIVE.value,
+        server_default=AttendanceEffectState.EFFECTIVE.value,
+        index=True,
+    )
     current_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default=text("1")
     )
@@ -149,7 +178,15 @@ class AttendanceRecordVersion(CreateTimeMixin, Base):
     record: Mapped[AttendanceRecord] = relationship(back_populates="versions")
 
 
+# 定义完成后注册默认过滤：本模块是可引用 AttendanceRecord 的唯一入口，任何能查询它的
+# 进程都已装载该监听器，不依赖调用方额外 import。
+from app.modules.attendance.effect_scope import install as _install_effect_filter  # noqa: E402
+
+_install_effect_filter(AttendanceRecord, AttendanceEffectState.EFFECTIVE.value)
+
+
 __all__ = [
+    "AttendanceEffectState",
     "AttendanceType",
     "AttendanceSourceType",
     "AttendanceRecord",

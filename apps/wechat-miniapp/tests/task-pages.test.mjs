@@ -58,6 +58,46 @@ const task = (id, status, startPeriod = 1) => ({
   status,
 });
 
+test('withdrawn history never locks an overdue task as submitted', async () => {
+  const { page } = mountPage('pages/task/detail/index.js', {
+    getMySubmissions: async () => ({ items: [{ id: '1', submission_state: 'WITHDRAWN', result: 'NORMAL' }] }),
+  });
+  page.data.task = { status: '已逾期' };
+  page.data.hasSubmission = true;
+  await page.fetchSubmission('9');
+  assert.equal(page.data.hasSubmission, false);
+  assert.equal(page.data.submissionId, '');
+});
+
+test('active attempt is selected independently from submission history order', async () => {
+  const { page } = mountPage('pages/task/detail/index.js', {
+    getMySubmissions: async () => ({ items: [
+      { id: '1', submission_state: 'SUPERSEDED', result: 'NORMAL' },
+      { id: '2', submission_state: 'ACTIVE', result: 'NORMAL', can_correct: true },
+    ] }),
+  });
+  page.data.task = { status: '已完成' };
+  await page.fetchSubmission('9');
+  assert.equal(page.data.submissionId, '2');
+  assert.equal(page.data.canAmend, true);
+});
+
+test('revision may reuse previously uploaded required photos', async () => {
+  let submitted;
+  const { page } = mountPage('pages/task/detail/index.js', {
+    reviseSubmission: async (id, body) => { submitted = { id, body }; },
+    getTaskDetail: async () => task('9', '已完成'),
+    getMySubmissions: async () => ({ items: [] }),
+  });
+  Object.assign(page.data, {
+    taskId: '9', task: { requirePhoto: true }, resultType: 'NORMAL',
+    reviseMode: true, submissionId: '2', previousFileIds: ['7'], fileList: [],
+  });
+  await page.handleSubmit();
+  assert.equal(submitted?.id, '2');
+  assert.deepEqual(Array.from(submitted.body.file_ids), ['7']);
+});
+
 test('task list reads later pages before filtering backend Chinese statuses', async () => {
   const requestedPages = [];
   const { page } = mountPage('pages/task/list/index.js', {

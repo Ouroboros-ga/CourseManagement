@@ -165,7 +165,12 @@ def test_import_timetable_rejects_foreign_course_type(campus):
     assert exc_info.value.code == "VALIDATION_ERROR"
 
 
-def test_bulk_import_with_course_type(campus):
+def test_bulk_import_with_course_type(campus, monkeypatch):
+    # prepare_importer 发布的是学院作息网格映射，与生产 CAMPUS_SCHEDULING_ENABLED=true 一致；
+    # 关闭该开关时 ScopedImporterService 回落到学校节次口径，会因缺少学校节次而失败。
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "campus_scheduling_enabled", True)
     service, db, college_a, _, sid = prepare_importer(campus)
     ac = AdministrativeClass(
         college_id=college_a,

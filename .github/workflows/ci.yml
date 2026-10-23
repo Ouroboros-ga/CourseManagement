@@ -1,0 +1,178 @@
+name: CI
+
+# 门禁原则（与 backend/scripts/ci_gate.py 一致）：
+#   1. 测试必须真的执行——执行数不足或出现跳过，直接红。
+#   2. 新功能测试必须在 --require-pass 清单里通过，不受历史基线豁免。
+#   3. 历史红测单独记账在 tests/ci_baseline_unit.txt，只允许变短，不允许变长。
+# 这里跑的 MySQL 8.4 是 GitHub Actions 每次新建的**临时容器**，与生产库、
+# 生产服务器和生产 MySQL 账号完全无关，也不会连接它们。
+
+on:
+  push:
+    branches: [dev-main, main, 'test/*', 'codex/integration-*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-caching: true
+      - run: uv sync --locked
+      - name: 单元测试
+        continue-on-error: true # 仅允许下方棘轮门禁认定的历史失败
+        run: |
+          uv run pytest tests/unit -q -p no:cacheprovider \
+            --junit-xml=reports/unit.xml
+      - name: 门禁（新测试必须通过，历史红测只允许记账）
+        if: always()
+        run: |
+          mkdir -p reports
+          uv run python scripts/ci_gate.py reports/unit.xml \
+            --baseline tests/ci_baseline_unit.txt \
+            --require-ran 800 \
+            --allow-skip-max 10 \
+            --require-pass tests/unit/test_integration_revision_probe.py \
+            --require-pass tests/unit/test_report_submission_validity.py \
+            --require-pass tests/unit/test_submission_correction_window.py \
+            --require-pass tests/unit/test_parsing_budgets.py \
+            --require-pass tests/unit/test_manager_workspace_capabilities.py \
+            --require-pass tests/unit/test_ci_gate_ratchet.py \
+            --require-pass tests/unit/test_attendance_effect_migration.py
+      - name: 失败时保留报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-junit
+          path: backend/reports/unit.xml
+
+  # 迁移链取证单独一个 job：alembic 用的是"业务库"名，而集成夹具会 drop_all/create_all
+  # 测试库。conftest 的第二道硬闸拒绝 DATABASE_URL 与 TEST_DATABASE_URL 同库，
+  # 所以两者不能塞在同一个 MySQL 实例的同一个库里。
+  backend-migration:
+    runs-on: ubuntu-latest
+    needs: []
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-pw
+          MYSQL_DATABASE: course_management
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-root-pw"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      DATABASE_URL: mysql+pymysql://root:ci-root-pw@127.0.0.1:3306/course_management?charset=utf8mb4
+      SECRET_KEY: ci-only-not-a-real-secret
+      APP_ENV: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-caching: true
+      - run: uv sync --locked
+      - name: 迁移链能否建出可用 schema（C4 取证）
+        run: |
+          uv run alembic upgrade head
+          uv run alembic heads
+          uv run alembic downgrade -1
+          uv run alembic upgrade head
+
+  backend-integration:
+    runs-on: ubuntu-latest
+    needs: []
+    defaults:
+      run:
+        working-directory: backend
+    # 独立、一次性的 MySQL 服务：库名以 _test 结尾，夹具的 drop_all/create_all
+    # 只会作用到这个容器里的空库。这里刻意不设 DATABASE_URL——conftest 会把应用
+    # Engine 直接指向测试库，与服务器上的实跑方式（只导出 TEST_DATABASE_URL）保持一致。
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-pw
+          MYSQL_DATABASE: course_management_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-root-pw"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      TEST_DATABASE_URL: mysql+pymysql://root:ci-root-pw@127.0.0.1:3306/course_management_test?charset=utf8mb4
+      SECRET_KEY: ci-only-not-a-real-secret
+      APP_ENV: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-caching: true
+      - run: uv sync --locked
+      - name: 本人纠错回归必须在真实 MySQL 通过
+        env:
+          CAMPUS_TEST_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+        run: |
+          uv run pytest tests/unit/test_submission_correction_window.py tests/unit/test_report_submission_validity.py -q -p no:cacheprovider
+      - name: 真实 MySQL 集成测试
+        continue-on-error: true # 新增失败和跳过由下一步硬拦截
+        run: |
+          mkdir -p reports
+          uv run pytest tests/integration -q -p no:cacheprovider \
+            --junit-xml=reports/integration.xml
+      - name: 门禁（必须真的跑过，新功能测试必须通过，历史红测只允许记账）
+        if: always()
+        run: |
+          uv run python scripts/ci_gate.py reports/integration.xml \
+            --baseline tests/ci_baseline_integration_mysql.txt \
+            --require-ran 350 \
+            --allow-skip-max 0 \
+            --require-pass tests/integration/test_inspection_review_attendance.py \
+            --require-pass tests/integration/test_inspection_submission.py \
+            --require-pass tests/integration/test_management_submissions.py \
+            --require-pass tests/integration/test_report_source_revision.py \
+            --require-pass tests/integration/test_report_statistics.py \
+            --require-pass tests/integration/test_report_version.py \
+            --require-pass tests/integration/test_correction_downgrade.py \
+            --require-pass tests/integration/test_file_upload.py::test_upload_normalizes \
+            --require-pass tests/integration/test_inspection_review_attendance.py::test_legacy_review_endpoints_are_removed \
+            --require-pass tests/integration/test_inspection_generate.py::test_legacy_task_key_still_blocks_duplicate_occurrence \
+            --require-pass tests/integration/test_importer.py::test_roster_import_is_additive_and_never_deletes_absent_members \
+            --require-pass tests/integration/test_importer.py::test_roster_import_without_replace_flag_has_no_warning \
+            --require-pass tests/integration/test_importer.py::test_manager_without_appointment_has_no_import_capability \
+            --require-pass tests/integration/test_importer.py::test_manager_account_can_import_only_timetable
+      - name: 保留报告以便核对基线
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-junit
+          path: backend/reports/integration.xml
+
+  admin-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: 本人纠错客户端回归
+        run: node --test --test-name-pattern='withdrawn history|active attempt|revision may' ../wechat-miniapp/tests/task-pages.test.mjs
+      - run: npm run build

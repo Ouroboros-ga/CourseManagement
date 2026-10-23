@@ -2,7 +2,7 @@
 
 覆盖技术方案 16.1、16.2 与 DEVELOPMENT_PLAN P5 文件波：
 - 认证：无令牌 401。
-- 上传校验：真实签名 + 扩展名 + 声明 MIME 三方一致、单文件字节上限、图像像素上限、
+- 上传校验：按真实签名归一扩展名与 MIME、单文件字节上限、图像像素上限、
   空内容 / 未知类别；通过则建 READY 行、固化 expires_at、写 file.upload 审计，
   并经可插拔本地存储落盘（对象键服务端随机）。
 - 访问：上传者本人得短时签名链接；他人 / 未知 id 统一 404 防枚举；已过期 410 FILE_EXPIRED。
@@ -205,29 +205,36 @@ def test_upload_jpeg_and_webp_dimensions(
 # --------------------------------------------------------------------------- #
 # 上传校验拒绝路径
 # --------------------------------------------------------------------------- #
-def test_upload_rejects_disallowed_extension(
-    client: TestClient, admin_headers, storage_dir
+def test_upload_normalizes_client_extension(
+    client: TestClient, admin_headers, storage_dir, session: Session
 ) -> None:
     resp = _upload(client, admin_headers, content=_png(2, 2), filename="x.gif", mime="image/png")
-    assert resp.status_code == 422
-    assert "file" in resp.json()["fieldErrors"]
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["content_type"] == "image/png"
+    row = session.get(FileObject, int(data["id"]))
+    assert row.object_key.endswith(".png")
 
 
-def test_upload_rejects_ext_signature_mismatch(
-    client: TestClient, admin_headers, storage_dir
+def test_upload_normalizes_ext_signature_mismatch(
+    client: TestClient, admin_headers, storage_dir, session: Session
 ) -> None:
     # PNG 真实内容伪装成 .jpg 扩展名。
     resp = _upload(client, admin_headers, content=_png(2, 2), filename="x.jpg", mime="image/png")
-    assert resp.status_code == 422
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["content_type"] == "image/png"
+    assert session.get(FileObject, int(data["id"])).object_key.endswith(".png")
 
 
-def test_upload_rejects_mime_mismatch(
+def test_upload_normalizes_mime_mismatch(
     client: TestClient, admin_headers, storage_dir
 ) -> None:
     resp = _upload(
         client, admin_headers, content=_png(2, 2), filename="x.png", mime="image/jpeg"
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["content_type"] == "image/png"
 
 
 def test_upload_rejects_fake_signature(

@@ -27,6 +27,7 @@ from app.modules.inspection.models import (
     SubmissionDeadlineDay,
     SubmissionDeadlineVersion,
     SubmissionFile,
+    SubmissionState,
     TaskDeadlineAssessment,
     TaskRosterMember,
     TaskRosterVersion,
@@ -75,6 +76,9 @@ class InspectionRepository:
     # ==================== 通用 ====================
     def add(self, obj: object) -> None:
         self._session.add(obj)
+
+    def add_all(self, objects: Sequence[object]) -> None:
+        self._session.add_all(objects)
 
     def flush(self) -> None:
         self._session.flush()
@@ -632,12 +636,17 @@ class InspectionRepository:
         )
 
     def has_open_submission(self, task_id: int) -> bool:
-        """调用者先锁任务；当前读防止 RR 旧快照漏掉刚提交的审核/提交事实。"""
+        """调用者先锁任务；当前读防止 RR 旧快照漏掉刚提交的审核/提交事实。
+
+        只算 ACTIVE：撤回或改版后的旧 attempt 不再占用"至多一个开放提交"名额，
+        本人才能在同一任务上重新提交（DEC-01）。
+        """
         return (
             self._session.execute(
                 select(InspectionSubmission.id)
                 .where(
                     InspectionSubmission.task_id == task_id,
+                    InspectionSubmission.submission_state == SubmissionState.ACTIVE.value,
                     InspectionSubmission.review_status.in_(
                         [ReviewStatus.PENDING.value, ReviewStatus.APPROVED.value]
                     ),
@@ -648,13 +657,39 @@ class InspectionRepository:
             is not None
         )
 
+    def get_active_submission(self, task_id: int) -> InspectionSubmission | None:
+        """当前有效提交：同一任务至多一条 ACTIVE，由服务层在任务行锁内维持。"""
+        return self._session.execute(
+            select(InspectionSubmission)
+            .where(
+                InspectionSubmission.task_id == task_id,
+                InspectionSubmission.submission_state == SubmissionState.ACTIVE.value,
+            )
+            .limit(1)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+
+    def first_submitted_at(self, task_id: int) -> datetime | None:
+        """纠错窗口起点：任务首次成功提交时刻，改版与重交都不重置。"""
+        return self._session.scalar(
+            select(func.min(InspectionSubmission.submitted_at)).where(
+                InspectionSubmission.task_id == task_id
+            )
+        )
+
     def has_approved_submission(self, task_id: int) -> bool:
-        """该任务是否已有审核通过提交（据以生成考勤）——已生成考勤者不可再取消（技术方案 51）。"""
+        """该任务是否已有生效中的审核通过提交（据以生成考勤）。
+
+        已生成考勤者不可再取消任务（技术方案 51）。WITHDRAWN 不计：本人撤回后该任务
+        回到"尚无有效结论"，取消任务的闸门随之打开。
+        """
         return (
             self._session.execute(
                 select(InspectionSubmission.id)
                 .where(
                     InspectionSubmission.task_id == task_id,
+                    InspectionSubmission.submission_state == SubmissionState.ACTIVE.value,
                     InspectionSubmission.review_status == ReviewStatus.APPROVED.value,
                 )
                 .limit(1)
@@ -679,6 +714,7 @@ class InspectionRepository:
         """批量派生各任务"有审核通过 / 有待审核"标记，供五态推导（禁 N+1，技术方案 12）。
 
         单次按任务聚合条件计数即可，不逐任务查询；(has_approved, has_pending)。
+        只数当前有效提交：改版与撤回留下的历史 attempt 不能再把任务显示成已结论。
         """
         ids = list(task_ids)
         if not ids:
@@ -699,7 +735,10 @@ class InspectionRepository:
                     )
                 ),
             )
-            .where(InspectionSubmission.task_id.in_(ids))
+            .where(
+                InspectionSubmission.task_id.in_(ids),
+                InspectionSubmission.submission_state == SubmissionState.ACTIVE.value,
+            )
             .group_by(InspectionSubmission.task_id)
         ).all()
         return {int(r[0]): (int(r[1] or 0) > 0, int(r[2] or 0) > 0) for r in rows}

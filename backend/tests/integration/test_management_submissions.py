@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from datetime import datetime, timedelta
+
 import pytest
+from app.core.exceptions import ErrorCode
 from app.core.permissions import RoleCode
 from app.modules.audit.models import AuditLog
 from app.modules.inspection.models import InspectionSubmission, InspectionTask
@@ -18,10 +22,23 @@ pytestmark = pytest.mark.integration
 MANAGEMENT = "/api/v1/management/submissions"
 
 
-def _pending(client: TestClient, session: Session):
+@contextmanager
+def _before_class(monkeypatch: pytest.MonkeyPatch):
+    """只移动时钟，不绕过名单是否可改的业务判断。"""
+    before_class = scene._MON1_D - timedelta(days=1)
+    with monkeypatch.context() as clock:
+        clock.setattr("app.modules.identity.role_scope.business_today", lambda: before_class)
+        clock.setattr(
+            "app.modules.academic.enrollment_service.utcnow",
+            lambda: datetime.combine(before_class, datetime.min.time()),
+        )
+        yield
+
+
+def _submitted(client: TestClient, session: Session):
     admin = scene._admin_headers(client, session)
     data = scene._scene(client, admin)
-    submission_id = scene._pending_submission(client, admin, session, data)
+    submission_id = scene._submit_once(client, admin, session, data, abnormal=True)
     return admin, data, submission_id
 
 
@@ -34,7 +51,7 @@ def _read(client: TestClient, path: str, headers: dict[str, str], **params):
 def test_management_list_and_detail_allow_teacher_and_super_admin(
     client: TestClient, session: Session
 ) -> None:
-    admin, data, submission_id = _pending(client, session)
+    admin, data, submission_id = _submitted(client, session)
     scene._make_user(session, "teacher", [RoleCode.TEACHER_ADMIN.value])
     teacher = scene._bearer(scene._login(client, "teacher"))
 
@@ -45,7 +62,9 @@ def test_management_list_and_detail_allow_teacher_and_super_admin(
         detail = _read(client, f"{MANAGEMENT}/{submission_id}", headers)
         assert int(detail["id"]) == submission_id
         assert int(detail["task_id"]) == data["task_id"]
-        assert detail["review_status"] == "PENDING"
+        # 提交即定稿：管理员从未介入，历史读取得到的就是 APPROVED / ACTIVE。
+        assert detail["review_status"] == "APPROVED"
+        assert detail["submission_state"] == "ACTIVE"
         assert int(detail["task"]["semester_id"]) == data["sem_id"]
         assert detail["task"]["inspection_date"] == "2026-09-07"
         assert detail["task"]["class_name_snapshot"]
@@ -53,10 +72,15 @@ def test_management_list_and_detail_allow_teacher_and_super_admin(
         assert detail["task"]["classroom_snapshot"] == "A101"
 
 
+def _volunteer_headers(client: TestClient, session: Session, data: dict):
+    name = scene._vol_name(data, abnormal=True)
+    return scene._bearer(scene._login(client, name))
+
+
 def test_management_read_denies_volunteer_and_manager_and_keeps_self_route(
     client: TestClient, session: Session
 ) -> None:
-    admin, data, submission_id = _pending(client, session)
+    admin, data, submission_id = _submitted(client, session)
     scene._make_user(session, "manager", [RoleCode.STUDENT_AFFAIRS_MANAGER.value])
     manager = scene._bearer(scene._login(client, "manager"))
     owner_id = session.get(InspectionSubmission, submission_id).volunteer_user_id
@@ -78,18 +102,15 @@ def test_management_read_denies_volunteer_and_manager_and_keeps_self_route(
 
 
 def test_management_filters_and_stable_pagination(client: TestClient, session: Session) -> None:
-    admin, data, first_id = _pending(client, session)
-    owner_id = session.get(InspectionSubmission, first_id).volunteer_user_id
-    owner = session.get(submission_scene.UserAccount, owner_id)
-    assert owner is not None
-    volunteer = scene._bearer(scene._login(client, owner.username))
-    for previous_id in (first_id,):
-        reviewed = client.post(
-            f"/api/v1/submissions/{previous_id}/review",
-            headers=admin,
-            json={"decision": "REJECTED", "comment": "重查"},
-        )
-        assert reviewed.status_code == 200, reviewed.text
+    admin, data, first_id = _submitted(client, session)
+    volunteer = _volunteer_headers(client, session, data)
+    # 现行规则下的"两条历史"来自本人撤回 + 重新提交，而不是管理员驳回。
+    withdrawn = client.post(
+        f"/api/v1/submissions/{first_id}/withdraw",
+        headers=volunteer,
+        json={"reason": "重查"},
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
     next_response = client.post(
         f"/api/v1/inspection-tasks/{data['task_id']}/submissions",
         headers=volunteer,
@@ -106,10 +127,17 @@ def test_management_filters_and_stable_pagination(client: TestClient, session: S
         first_id,
     ]
 
-    pending = _read(client, MANAGEMENT, admin, review_status="PENDING")
-    rejected = _read(client, MANAGEMENT, admin, review_status="REJECTED")
-    assert [int(row["id"]) for row in pending["items"]] == [second_id]
-    assert [int(row["id"]) for row in rejected["items"]] == [first_id]
+    # 两条历史的结论状态都留在 APPROVED（撤回只改有效性轴，不伪装成驳回）。
+    approved = _read(client, MANAGEMENT, admin, review_status="APPROVED")
+    assert [int(row["id"]) for row in approved["items"]] == [second_id, first_id]
+    assert _read(client, MANAGEMENT, admin, review_status="REJECTED")["total"] == 0
+    # 结果类型与生命周期状态仍可在历史里分别核对。
+    abnormal = _read(client, MANAGEMENT, admin, result="ABNORMAL")
+    normal = _read(client, MANAGEMENT, admin, result="NORMAL")
+    assert [int(row["id"]) for row in abnormal["items"]] == [first_id]
+    assert [int(row["id"]) for row in normal["items"]] == [second_id]
+    states = {int(row["id"]): row["submission_state"] for row in approved["items"]}
+    assert states == {first_id: "WITHDRAWN", second_id: "ACTIVE"}
     assert _read(client, MANAGEMENT, admin, semester_id=data["sem_id"])["total"] == 2
     assert _read(client, MANAGEMENT, admin, semester_id=data["sem_id"] + 1)["total"] == 0
     assert _read(client, MANAGEMENT, admin, task_id=data["task_id"])["total"] == 2
@@ -121,22 +149,24 @@ def test_management_filters_and_stable_pagination(client: TestClient, session: S
 
 
 def test_management_detail_preserves_roster_and_file_ids_without_storage_secret(
-    client: TestClient, session: Session
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     admin = scene._admin_headers(client, session)
     data = scene._scene(client, admin)
     scene._shift_deadline(session, data["sem_id"], scene._MON1_D, hours=48)
     volunteer, volunteer_headers = scene._make_volunteer(client, admin, session, data)
     task = scene._task(session, data["task_id"])
-    changed = client.post(
-        f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
-        headers=admin,
-        json={
-            "student_ids": [data["s1"], data["s2"]],
-            "reason": "核对名单",
-            "lock_version": task.lock_version,
-        },
-    )
+    # 名单改版在查课前完成；退出时恢复当前时间，随后才提交并验证历史。
+    with _before_class(monkeypatch):
+        changed = client.post(
+            f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
+            headers=admin,
+            json={
+                "student_ids": [data["s1"], data["s2"]],
+                "reason": "核对名单",
+                "lock_version": task.lock_version,
+            },
+        )
     assert changed.status_code == 200, changed.text
     photo = submission_scene._make_file(session, volunteer.id, tag="management-detail")
     submitted = client.post(
@@ -163,7 +193,7 @@ def test_management_detail_preserves_roster_and_file_ids_without_storage_secret(
 def test_management_get_does_not_mutate_submission_task_or_audit(
     client: TestClient, session: Session
 ) -> None:
-    admin, data, submission_id = _pending(client, session)
+    admin, data, submission_id = _submitted(client, session)
     session.commit()
     session.expire_all()
     before_submission = session.get(InspectionSubmission, submission_id)
@@ -190,50 +220,76 @@ def test_management_get_does_not_mutate_submission_task_or_audit(
     assert set(session.execute(select(AuditLog.id)).scalars()) == audit_ids
 
 
-@pytest.mark.parametrize("approve", [False, True])
 def test_roster_revise_rejected_after_submission_exists(
-    client: TestClient, session: Session, approve: bool
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    admin, data, submission_id = _pending(client, session)
-    if approve:
-        reviewed = client.post(
-            f"/api/v1/submissions/{submission_id}/review",
-            headers=admin,
-            json={"decision": "APPROVED"},
-        )
-        assert reviewed.status_code == 200, reviewed.text
+    # 提交即定稿并冻结名单版本；本人撤回也不解冻——历史提交仍是名单版本的依据。
+    admin, data, submission_id = _submitted(client, session)
     session.expire_all()
     task = session.get(InspectionTask, data["task_id"])
     assert task is not None
-    revision = client.post(
-        f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
-        headers=admin,
-        json={
-            "student_ids": [data["s1"], data["s2"]],
-            "reason": "名单核对",
-            "lock_version": task.lock_version,
-        },
-    )
+    with _before_class(monkeypatch):
+        revision = client.post(
+            f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
+            headers=admin,
+            json={
+                "student_ids": [data["s1"], data["s2"]],
+                "reason": "名单核对",
+                "lock_version": task.lock_version,
+            },
+        )
     assert revision.status_code == 409, revision.text
     session.expire_all()
     assert session.get(InspectionTask, data["task_id"]).roster_version == 1
 
+    volunteer = _volunteer_headers(client, session, data)
+    withdrawn = client.post(
+        f"/api/v1/submissions/{submission_id}/withdraw",
+        headers=volunteer,
+        json={"reason": "撤回重排"},
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    session.expire_all()
+    after_withdraw = session.get(InspectionTask, data["task_id"])
+    assert after_withdraw is not None
+    with _before_class(monkeypatch):
+        again = client.post(
+            f"/api/v1/inspection-tasks/{data['task_id']}/roster-versions",
+            headers=admin,
+            json={
+                "student_ids": [data["s1"], data["s2"]],
+                "reason": "撤回后再核对",
+                "lock_version": after_withdraw.lock_version,
+            },
+        )
+    assert again.status_code == 409, again.text
+    session.expire_all()
+    assert session.get(InspectionTask, data["task_id"]).roster_version == 1
 
-def test_review_after_management_read_rejects_stale_action(
+
+def test_withdraw_after_management_read_rejects_stale_action(
     client: TestClient, session: Session
 ) -> None:
-    admin, _data, submission_id = _pending(client, session)
+    # 管理读取只是查看：随后本人撤回成功，重复撤回被拒，审核状态仍留在 APPROVED。
+    admin, data, submission_id = _submitted(client, session)
     seen = _read(client, f"{MANAGEMENT}/{submission_id}", admin)
-    assert seen["review_status"] == "PENDING"
+    assert seen["review_status"] == "APPROVED"
+    assert seen["submission_state"] == "ACTIVE"
+    volunteer = _volunteer_headers(client, session, data)
     first = client.post(
-        f"/api/v1/submissions/{submission_id}/review",
-        headers=admin,
-        json={"decision": "REJECTED"},
+        f"/api/v1/submissions/{submission_id}/withdraw",
+        headers=volunteer,
+        json={"reason": "撤回"},
     )
     assert first.status_code == 200, first.text
+    assert first.json()["data"]["submission_state"] == "WITHDRAWN"
     stale = client.post(
-        f"/api/v1/submissions/{submission_id}/review",
-        headers=admin,
-        json={"decision": "APPROVED"},
+        f"/api/v1/submissions/{submission_id}/withdraw",
+        headers=volunteer,
+        json={"reason": "重复撤回"},
     )
     assert stale.status_code == 409, stale.text
+    assert stale.json()["code"] == ErrorCode.STATE_CONFLICT.value
+    # 撤回不改写审核结论，只把有效性让位给下一 attempt。
+    after = _read(client, f"{MANAGEMENT}/{submission_id}", admin)
+    assert after["review_status"] == "APPROVED"

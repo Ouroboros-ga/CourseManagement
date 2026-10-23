@@ -37,9 +37,8 @@ from app.modules.inspection.schemas import (
     ReviewStatusLiteral,
     RosterVersionCreateRequest,
     SmartSampleRequest,
-    SubmissionBatchReviewRequest,
     SubmissionCreateRequest,
-    SubmissionReviewRequest,
+    SubmissionWithdrawRequest,
     TaskBatchDeleteRequest,
     TaskCancelRequest,
     TaskDeletionSelection,
@@ -684,6 +683,33 @@ def create_inspection_submission(
     return success(result.model_dump(), _rid(request))
 
 
+# ---- 本人纠错（DEC-01：首次成功提交后两小时内）----
+@router.post("/submissions/{submission_id}/revise")
+def revise_submission(
+    submission_id: int,
+    body: SubmissionCreateRequest,
+    actor: SubmissionCreateDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    """修改并重新提交：旧 attempt 转历史，新 attempt 成为当前有效考勤来源。"""
+    result = service.revise_submission(actor, submission_id, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+
+
+@router.post("/submissions/{submission_id}/withdraw")
+def withdraw_submission(
+    submission_id: int,
+    body: SubmissionWithdrawRequest,
+    actor: SubmissionCreateDep,
+    service: ServiceDep,
+    request: Request,
+) -> dict[str, object]:
+    """撤回本人当前有效提交：考勤退出有效结论，原始提交与证据保留可读。"""
+    result = service.withdraw_submission(actor, submission_id, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+
+
 # ---- 本人提交历史（submission.read，强制本人范围；须在 /{id} 之前声明）----
 @router.get("/me/submissions")
 def list_my_submissions(
@@ -749,37 +775,6 @@ def get_management_submission(
 ) -> dict[str, object]:
     result = service.get_management_submission(actor, submission_id)
     return success(result.model_dump(), _rid(request))
-
-
-# ---- 审核待审核提交（submission.review，管理人员）----
-@router.post("/submissions/{submission_id}/review")
-def review_submission(
-    submission_id: int,
-    body: SubmissionReviewRequest,
-    actor: SubmissionReviewDep,
-    service: ServiceDep,
-    request: Request,
-) -> dict[str, object]:
-    result = service.review_submission(actor, submission_id, body, _rid(request))
-    return success(result.model_dump(), _rid(request))
-
-
-# ---- 批量审核待审核提交（submission.review，管理人员）----
-@router.post("/management/submissions/batch-review")
-def batch_review_submissions(
-    body: SubmissionBatchReviewRequest,
-    actor: SubmissionReviewDep,
-    service: ServiceDep,
-    request: Request,
-) -> dict[str, object]:
-    result = service.batch_review_submissions(
-        actor,
-        submission_ids=body.submission_ids,
-        decision=body.decision,
-        comment=body.comment,
-        request_id=_rid(request),
-    )
-    return success(result, _rid(request))
 
 
 # ---- 人工调整任务当前应到人数（attendance.expected_count_adjust，保留初始快照与历史）----

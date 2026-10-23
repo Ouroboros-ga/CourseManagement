@@ -65,13 +65,16 @@ def sync_responsibility(db, task):
     if task.college_id is None:
         return
     db.scalar(select(College.id).where(College.id == task.college_id).with_for_update())
+    from app.modules.attendance.effect_scope import see_withdrawn
     from app.modules.attendance.models import AttendanceRecord
     from app.modules.inspection.models import TaskDeadlineAssessment
 
     if (
         task.canceled_at
         and not db.scalar(
-            select(AttendanceRecord.id).where(AttendanceRecord.task_id == task.id).limit(1)
+            see_withdrawn(
+                select(AttendanceRecord.id).where(AttendanceRecord.task_id == task.id).limit(1)
+            )
         )
         and not db.scalar(
             select(TaskDeadlineAssessment.id)

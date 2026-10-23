@@ -735,7 +735,7 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
           }}</b>
           人
         </div>
-        <div class="note">已审核通过 · 纳入统计分母</div>
+        <div class="note">已形成正式考勤 · 纳入统计分母</div>
       </div>
 
       <div class="stat-cell">

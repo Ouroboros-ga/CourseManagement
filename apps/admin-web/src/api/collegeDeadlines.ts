@@ -9,6 +9,7 @@ export interface CollegeDeadline {
   reason?: string | null
 }
 export interface DeadlineVersion {
+  changed_by: string | null
   version_no: number
   deadline_at: string
   created_at: string

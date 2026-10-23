@@ -353,7 +353,7 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 | 方法 路径 | 守卫 | 说明 |
 |---|---|---|
 | `GET /import-templates/{target}` | target-manage | 返回 `{target, scope_fields, columns[], example_rows[]}`；`target∈{roster,timetable,volunteer}`，未知 422 |
-| `POST /imports`（multipart） | import.execute（+服务纵深） | 表单：`file`(xlsx)、`target`、`semester_id?`、`teaching_class_id?`、`replace=true`。成功 `200`：`data={id,target,status:"PREVIEW",semester_id,teaching_class_id,summary,errors[],warnings[],expires_at,can_confirm}`。非法/损坏 xlsx→422；行数超 `IMPORT_MAX_ROWS`→422；作用域缺失→422、作用域资源不存在→404；写审计 `import.batch.preview` |
+| `POST /imports`（multipart） | import.execute（+服务纵深） | 表单：`file`(xlsx)、`target`、`semester_id?`、`teaching_class_id?`、`replace=false`。`replace` 默认 `false`，且**不会**整体覆盖：`roster`/`elective_course` 一律按补充/差异确认执行，未出现在文件中的现有成员保留；显式传 `replace=true` 时预览返回 `warnings[].code="roster_additive_only"` 说明实际语义，减少成员须走学生数据差异预览与学籍异动流程。成功 `200`：`data={id,target,status:"PREVIEW",semester_id,teaching_class_id,summary,errors[],warnings[],expires_at,can_confirm}`。非法/损坏 xlsx→422；行数超 `IMPORT_MAX_ROWS`→422；作用域缺失→422、作用域资源不存在→404；写审计 `import.batch.preview` |
 | `GET /imports/{id}` | import.execute（+纵深） | 复用预览视图；批次不存在 404 |
 | `GET /imports/{id}/errors` | import.execute（+纵深） | 返回 `{errors[], warnings[]}`（按 severity 拆分） |
 | `POST /imports/{id}/confirm` | import.execute（+纵深） | 成功 `200`：`data={id,target,status:"CONFIRMED",summary}`（并入创建计数）。`409`（已确认 / 非 PREVIEW / 已过期）；`422`（存在 error 项、两步之间外部引用失效、周次超学期范围）。**任一失败整批回滚、业务零副作用**；成功写审计 `import.batch.confirm` |
@@ -461,19 +461,22 @@ PRE_BINDING 是会话状态，不是角色：仅当账号 `student_id` 为空 **
 
 不变式"至多一个待审核/审核通过"：存在 `PENDING|APPROVED` 提交时再次提交 → 409；真实并发恰好一成一拒（任务 `FOR UPDATE` 串行化）。
 
-### D.3 审核通过生成考勤（Wave 5d，`submission.review`）
+### D.3 提交即生效与本人纠错（`submission.create`）
 
 | 端点 | 守卫 | 说明 |
 |---|---|---|
-| `POST /submissions/{submission_id}/review` | `submission.review` | `SubmissionReviewRequest{decision∈{APPROVED,REJECTED},comment?(≤512)}`。锁序遵 §15：先探提交（不加锁，缺失 404）→ `get_task_for_update`（任务先于提交）→ 再 `FOR UPDATE` 提交行；非 `PENDING` → 409 `STATE_CONFLICT`（提交已处理），任务已取消 → 409（提交已处理）。`APPROVED`：先幂等结算锁截止事实，再**按提交记录的 `roster_version` 对应名单逐生生成考勤**（命中异常明细者取 `attendance_type` + `source_submission_item_id`，未列者 `NORMAL`；`current_version=1`、写 `AttendanceRecordVersion v1 source=SUBMISSION`），`AttendanceRecord` 批量 `add→flush` 取 id 再补版本行。`REJECTED` 仅记审核痕迹、不生成考勤、不改事实（可再次提交 `attempt_no+1`）。`task.lock_version++`；审计 `submission.review.approved`/`.rejected` |
+| `POST /submissions/{submission_id}/revise` | `submission.create`（仅本人） | DEC-01 本人纠错：修改并重新提交。请求体同 `POST /inspection-tasks/{task_id}/submissions`。窗口起点是该任务**首次成功提交**时刻，改版不重置；时长取 `SUBMISSION_CORRECTION_WINDOW_MINUTES`（默认 120，`0` 关闭本人纠错），由服务端自身 UTC 时钟判定。锁序：先探提交（不加锁，缺失 404）→ `get_task_for_update`（任务先于提交）→ 再 `FOR UPDATE` 提交行及考勤行；保护事实用当前读复核。旧 attempt 置 `submission_state=SUPERSEDED` 并回填 `superseded_by_submission_id`，`review_status` **保持 `APPROVED` 不变**（考勤、名单、归档、统计等读取以它判断"已形成正式结论"）；新 attempt 为 `ACTIVE`，就地改写当前有效考勤并追加版本行，原提交、异常明细与照片全部保留。非本人提交 ID→404（不泄露存在性）；窗口已过 / 任务已取消 / 该提交已非 `ACTIVE`→409；该任务考勤已存在 `CORRECTION` 或 `OBJECTION_FINAL` 版本、或存在任何已发起异议（含未结案、终审驳回、维持原认定的通过）→409，本人不得覆盖管理员认定。旧提交失效、新提交、替代指针、考勤版本和审计在同一事务单次提交；任何校验或写入失败完整回滚。返回新 `SubmissionResponse`；审计 `submission.revise` 与 `submission.create` 各一条 |
+| `POST /submissions/{submission_id}/withdraw` | `submission.create`（仅本人） | DEC-01 本人撤回：请求体 `{reason?(≤512)}`。资格判定与 `/revise` 完全同一条（同一锁序、同一窗口、同一"管理员已处理即不得覆盖"闸门）。提交置 `submission_state=WITHDRAWN` 并写 `withdrawn_at`/`withdraw_reason`，`review_status` **保持 `APPROVED` 不变**；该任务当前有效考勤整体转 `effect_state=WITHDRAWN`、`current_version++`，并各追加一条 `source_type=WITHDRAWAL` 版本行。**行不删除**（`attendance_record_version` 是不可变历史，`objection.attendance_record_id` 为 ON DELETE CASCADE），原始提交、异常明细与照片继续可读。撤回不擦除截止时事实：`TaskDeadlineAssessment` 原样保留。撤回后该任务回到"尚无有效结论"——`map_submission_flags_by_task_ids` 与 `has_approved_submission` 转 `False`，取消任务的闸门随之重新打开，本人可在窗口内通过普通提交入口重新提交；已有提交历史时该入口同样检查首次提交窗口与管理员/异议保护，窗口关闭或配置为 0 返回 409，首次逾期补交仍保留（同一结论也要重新生效，考勤行按 `unique(task_id, student_id)` 复用，不新插）。返回 `SubmissionResponse`；审计 `submission.withdraw`；`SourceRevisionService` 修订号递增，周报下次计算不再计入该结论 |
 
-管理读取与本人读取保持两条独立路径。学生工作负责人默认没有 `submission.review`；另一管理员已处理提交后，旧审核动作返回 409 `STATE_CONFLICT`。管理端前端联调仍待完成。
+管理读取与本人读取保持两条独立路径。**查课提交没有人工审核闸口**：`45e850b` 起志愿者提交即 `APPROVED` 并同事务生成正式考勤，`POST /submissions/{id}/review` 与 `POST /management/submissions/batch-review` 已于 2026-10-22 删除（生产库当时 3 条提交全为 `APPROVED`，无历史 `PENDING` 遗留）。`submission.review` 权限保留，但现在只用于管理读取与提交材料可见性（`file/service.py`），不再对应任何写操作；`DEFAULT_ROLE_PERMISSIONS["STUDENT_AFFAIRS_MANAGER"]` 仍含该权限，属未裁定项。
 
-考勤事实唯一约束 `unique(task_id, student_id)`；审核与取消互斥（都锁任务，恰一成功，绝不"既取消又生成考勤"，集成测试 `threading.Barrier` 断言 `canceled XOR has_attendance`）。已有 `APPROVED` 提交（考勤已成立）后取消任务 → 409 `STATE_CONFLICT`（技术方案 51）。
+考勤事实唯一约束 `unique(task_id, student_id)`；提交与取消互斥（都锁任务，恰一成功，绝不"既取消又生成考勤"，集成测试 `threading.Barrier` 断言 `canceled XOR has_attendance`）。存在**当前有效** `APPROVED` 提交（考勤已成立）后取消任务 → 409 `STATE_CONFLICT`（技术方案 51）；本人撤回使该 `APPROVED` 不再"当前有效"，取消闸门按 `submission_state=ACTIVE` 判定而重新打开，历史提交与考勤版本仍保留。
 
 ### D.4 考勤读取 / 更正 / 应到人数调整（Wave 5d）
 
 数据可见性（PERMISSIONS.md 6.3）：`attendance.read` 全五角色持有，但 **SA/TA/SAM=全院 `MANAGE` 范围、VOLUNTEER+STUDENT=仅本人 `SELF_STUDENT`**。
+
+在此之上有第二条独立轴：志愿者撤回后，该任务的考勤行转 `effect_state=WITHDRAWN` 并对**全部 ORM 读取默认隐身**（`attendance/effect_scope.py` 的 Session 监听器给每条查询加谓词，覆盖实体查询、只选列、聚合、join 进其他实体、IN 子查询、`aliased()` 与 `session.get()`）。因此 `GET /attendance*`、`GET /me/attendance`、统计与报表、异议可申诉判定、任务取消/删除守卫看到的都是"没有这条结论"，而不是"有一条已撤回的记录"；管理更正与学生对已撤回结论提异议都会得 404。显式放行（`see_withdrawn()`）只用在历史可达、证据鉴权与级联清理路径：撤回后本人仍能读自己那份现场照片，已撤回行仍阻止学期归档、任务物理删除、换组、换地点与学生物理删除。原生 SQL 不经该监听器，新增原生读取需自带 `effect_state='EFFECTIVE'`。
 
 | 端点 | 守卫 | 说明 |
 |---|---|---|

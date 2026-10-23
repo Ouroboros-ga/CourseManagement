@@ -1294,18 +1294,20 @@ class AcademicService:
 
         # 仅复用已明确关联 Student.id 的账号。用户名恰好等于学号不证明
         # 该账号属于此学生；重名走下面的唯一用户名分配，不能自动认领账号。
+        # 全局唯一用户名检查只取存在性；ORM院级过滤不能隐藏同名的无关账号。
+        account_names = UserAccount.__table__.c
         base_username = stu.student_no or f"stu_{stu.id}"
         username = base_username
         if (
             self._session.execute(
-                select(UserAccount.id).where(UserAccount.username == username)
+                select(account_names.id).where(account_names.username == username)
             ).scalar_one_or_none()
             is not None
         ):
             username = f"stu_{base_username}"
             if (
                 self._session.execute(
-                    select(UserAccount.id).where(UserAccount.username == username)
+                    select(account_names.id).where(account_names.username == username)
                 ).scalar_one_or_none()
                 is not None
             ):
@@ -1313,7 +1315,7 @@ class AcademicService:
                 counter = 1
                 while (
                     self._session.execute(
-                        select(UserAccount.id).where(UserAccount.username == username)
+                        select(account_names.id).where(account_names.username == username)
                     ).scalar_one_or_none()
                     is not None
                 ):
@@ -1722,6 +1724,7 @@ class AcademicService:
 
         from sqlalchemy import delete
 
+        from app.modules.attendance.effect_scope import see_withdrawn
         from app.modules.attendance.models import AttendanceRecord, AttendanceRecordVersion
         from app.modules.inspection.models import (
             AssignmentChangeRequest,
@@ -1746,9 +1749,12 @@ class AcademicService:
         )
         cleared_tasks_count = len(task_ids)
         if task_ids:
+            # 学期重置的级联清理必须连已撤回（隐身）的考勤行一起取，否则留下孤儿版本行。
             att_ids = list(
                 self._session.scalars(
-                    select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(task_ids))
+                    see_withdrawn(
+                        select(AttendanceRecord.id).where(AttendanceRecord.task_id.in_(task_ids))
+                    )
                 ).all()
             )
             if att_ids:
@@ -1983,6 +1989,7 @@ class AcademicService:
 
         from sqlalchemy import delete
 
+        from app.modules.attendance.effect_scope import see_withdrawn
         from app.modules.attendance.models import AttendanceRecord
         from app.modules.identity.models import IdentityBindingToken, UserAccount
         from app.modules.inspection.models import TaskRosterMember
@@ -2016,12 +2023,14 @@ class AcademicService:
                 f"学生【{name_display} ({sno_display})】已绑定账号，无法物理删除，请先解绑或停用",
             )
 
-        # 2. 检查考勤事实记录
+        # 2. 检查考勤事实记录（已撤回仍是事实，学生不得据此被物理删除）
         att_rows = list(
             self._session.execute(
-                select(AttendanceRecord.student_id)
-                .where(AttendanceRecord.student_id.in_(target_ids))
-                .limit(1)
+                see_withdrawn(
+                    select(AttendanceRecord.student_id)
+                    .where(AttendanceRecord.student_id.in_(target_ids))
+                    .limit(1)
+                )
             ).all()
         )
         if att_rows:

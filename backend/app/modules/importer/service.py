@@ -42,7 +42,7 @@ from app.core.exceptions import (
     PermissionDeniedError,
     UnauthenticatedError,
 )
-from app.core.permissions import PermissionCode, RoleCode
+from app.core.permissions import PermissionCode
 from app.modules.academic.models import (
     AdministrativeClass,
     Course,
@@ -58,7 +58,6 @@ from app.modules.academic.models import (
 from app.modules.academic.repository import AcademicRepository
 from app.modules.audit.models import AuditLog
 from app.modules.audit.provenance import scoped_snapshot
-from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
 from app.modules.importer import permissions as iperm
@@ -233,7 +232,10 @@ class ImporterService:
         else:
             try:
                 rows = read_tabular_rows(
-                    content, required_headers=iperm.required_headers(target), include_source=True
+                    content,
+                    required_headers=iperm.required_headers(target),
+                    include_source=True,
+                    max_rows=settings.import_max_rows,
                 )
             except ValueError as exc:
                 raise AppError(
@@ -254,11 +256,12 @@ class ImporterService:
                 )
 
             if target == ImportTarget.ROSTER.value:
-                payload, issues, summary = self._parse_roster(rows, teaching_class_id)
+                payload, issues, summary = self._parse_roster(rows, teaching_class_id, replace)
             elif target == ImportTarget.VOLUNTEER.value:
                 payload, issues, summary = self._parse_volunteer(rows, semester_id)
             elif target == ImportTarget.ELECTIVE_COURSE.value:
                 payload, issues, summary = self._parse_elective_course(rows, semester_id)
+                payload["preserve_existing"] = True
             else:
                 payload, issues, summary = self._parse_timetable(rows, semester_id)
 
@@ -361,7 +364,10 @@ class ImporterService:
 
     # ---- 解析器：产出 (payload, issues, summary) ----
     def _parse_roster(
-        self, rows: list[dict[str, str]], teaching_class_id: int | None
+        self,
+        rows: list[dict[str, str]],
+        teaching_class_id: int | None,
+        replace: bool = False,
     ) -> tuple[dict, list[dict], dict]:
         issues: list[dict] = []
         seen: dict[str, int] = {}
@@ -392,8 +398,23 @@ class ImporterService:
                 continue
             student_nos.append(no)
             student_sources[no] = {"row": idx, "sheet": raw.get("_source_sheet")}
-        payload = {"student_nos": student_nos, "student_sources": student_sources,
-                   "replace": bool(teaching_class_id)}
+        payload = {
+            "student_nos": student_nos,
+            "student_sources": student_sources,
+            # 名单导入只做补充/差异确认：未出现在文件中的现有成员一律保留。
+            # 减少成员必须走显式差异确认或学籍异动流程，不能靠 replace 隐式整体覆盖。
+            "preserve_existing": True,
+            "replace": False,
+        }
+        if replace:
+            issues.append(
+                _issue(
+                    "roster_additive_only",
+                    "名单导入按补充语义执行，未出现在本文件中的现有成员不会被删除；"
+                    "需要减少成员请改用学生数据差异预览与学籍异动流程。",
+                    severity="warning",
+                )
+            )
         summary = {"row_total": len(rows), "student_total": len(student_nos)}
         return payload, issues, summary
 
@@ -764,7 +785,10 @@ class ImporterService:
             if enabled:
                 from app.modules.identity.role_scope import current_student_college
                 vq.college_id = current_student_college(self._session, stu)
-                granted_roles += int(self._grant_volunteer_if_bound(stu.id))
+                # 导入与手工资格办理共用底册规则；微信绑定不是提前排班的条件。
+                from app.modules.academic.service import AcademicService
+
+                granted_roles += int(AcademicService(self._session)._grant_volunteer_role(stu.id))
         return {
             "qualification_created": created_rows,
             "qualification_updated": updated_rows,
@@ -772,19 +796,6 @@ class ImporterService:
             "resource_type": "volunteer_qualification",
             "resource_id": str(sem.id),
         }
-
-    def _grant_volunteer_if_bound(self, student_id: int) -> bool:
-        acct = self._session.execute(
-            select(UserAccount).where(UserAccount.student_id == student_id)
-        ).scalar_one_or_none()
-        if acct is None:
-            return False
-        if RoleCode.VOLUNTEER.value in self._identity.list_role_codes(acct.id):
-            return False
-        role = self._identity.get_or_create_role(RoleCode.VOLUNTEER.value, RoleCode.VOLUNTEER.value)
-        self._identity.grant_role(acct.id, role.id)
-        acct.lock_version += 1
-        return True
 
     def _resolve_course_type(
         self, college_id: int | None, course_type_id: int | None
@@ -1068,7 +1079,8 @@ class ImporterService:
                     if counselor_col >= 0 and counselor_col < len(row)
                     else None
                 )
-                if sno and re.match(r"^\d{6,20}$", sno):
+                # 有姓名或编号的资料行必须进入字段校验，不能静默丢掉缺学号行。
+                if sno or name:
                     parsed_rows.append(
                         {
                             "student_no": sno,
