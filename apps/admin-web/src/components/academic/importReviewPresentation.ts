@@ -11,7 +11,7 @@ const fields: Record<string, string> = {
   classroom: '教室', teacher: '任课教师', teacher_staff_no: '教师工号',
   head_teacher: '班主任', counselor: '辅导员', head_teacher_staff_no: '班主任工号',
   counselor_staff_no: '辅导员工号', college: '学院', grade_year: '入学年级',
-  enabled: '启用', student_nos: '学号名单', present: '在名单中', status: '状态',
+  enabled: '启用', roster_ready: '排班底册已准备', student_nos: '学号名单', present: '在名单中', status: '状态',
   college_id: '学院编号', grade: '年级', phone: '联系电话', email: '邮箱',
   staff_name: '责任人', teacher_name: '任课教师', anchor_type: '授课范围',
   covered_colleges: '覆盖学院', staff_type: '教职工类别',

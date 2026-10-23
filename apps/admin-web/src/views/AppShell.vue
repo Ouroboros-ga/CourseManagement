@@ -172,7 +172,8 @@ const roleNameMap: Record<string, string> = {
 
 const userRoleBadge = computed(() => {
   const roles = currentUser.value?.roles || []
-  const primary = roles[0] || ''
+  const primary = ['SUPER_ADMIN', 'TEACHER_ADMIN', 'STUDENT_AFFAIRS_MANAGER', 'VOLUNTEER', 'STUDENT']
+    .find(role => roles.includes(role)) || roles[0] || ''
   return roleNameMap[primary] || (primary ? primary : '未分配角色')
 })
 
@@ -265,6 +266,10 @@ async function handleLogout() {
           :class="{ on: route.path.startsWith(item.path) }"
           @click="mobileNavigation = false"
         >{{ item.label }}</router-link>
+        <div class="mobile-account">
+          <span>{{ userDisplayName }} · {{ userRoleBadge }}</span>
+          <button class="u-logout" title="退出登录" @click="handleLogout">登出 →</button>
+        </div>
       </nav>
 
       <main class="main">
@@ -283,6 +288,7 @@ async function handleLogout() {
 .mobile-menu { display: none; }
 .mobile-nav { display: flex; flex-wrap: wrap; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
 .mobile-nav a { padding: 6px 12px; color: var(--ink); }
+.mobile-account { flex-basis: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border-top: 1px solid var(--line); }
 .shell {
   display: grid;
   grid-template-columns: 240px 1fr;

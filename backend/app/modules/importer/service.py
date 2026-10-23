@@ -42,7 +42,7 @@ from app.core.exceptions import (
     PermissionDeniedError,
     UnauthenticatedError,
 )
-from app.core.permissions import PermissionCode, RoleCode
+from app.core.permissions import PermissionCode
 from app.modules.academic.models import (
     AdministrativeClass,
     Course,
@@ -58,7 +58,6 @@ from app.modules.academic.models import (
 from app.modules.academic.repository import AcademicRepository
 from app.modules.audit.models import AuditLog
 from app.modules.audit.provenance import scoped_snapshot
-from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
 from app.modules.importer import permissions as iperm
@@ -786,7 +785,10 @@ class ImporterService:
             if enabled:
                 from app.modules.identity.role_scope import current_student_college
                 vq.college_id = current_student_college(self._session, stu)
-                granted_roles += int(self._grant_volunteer_if_bound(stu.id))
+                # 导入与手工资格办理共用底册规则；微信绑定不是提前排班的条件。
+                from app.modules.academic.service import AcademicService
+
+                granted_roles += int(AcademicService(self._session)._grant_volunteer_role(stu.id))
         return {
             "qualification_created": created_rows,
             "qualification_updated": updated_rows,
@@ -794,19 +796,6 @@ class ImporterService:
             "resource_type": "volunteer_qualification",
             "resource_id": str(sem.id),
         }
-
-    def _grant_volunteer_if_bound(self, student_id: int) -> bool:
-        acct = self._session.execute(
-            select(UserAccount).where(UserAccount.student_id == student_id)
-        ).scalar_one_or_none()
-        if acct is None:
-            return False
-        if RoleCode.VOLUNTEER.value in self._identity.list_role_codes(acct.id):
-            return False
-        role = self._identity.get_or_create_role(RoleCode.VOLUNTEER.value, RoleCode.VOLUNTEER.value)
-        self._identity.grant_role(acct.id, role.id)
-        acct.lock_version += 1
-        return True
 
     def _resolve_course_type(
         self, college_id: int | None, course_type_id: int | None
@@ -1090,7 +1079,8 @@ class ImporterService:
                     if counselor_col >= 0 and counselor_col < len(row)
                     else None
                 )
-                if sno and re.match(r"^\d{6,20}$", sno):
+                # 有姓名或编号的资料行必须进入字段校验，不能静默丢掉缺学号行。
+                if sno or name:
                     parsed_rows.append(
                         {
                             "student_no": sno,

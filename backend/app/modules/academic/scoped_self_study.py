@@ -188,7 +188,7 @@ def create_self_study(service, body):
                     service.db.add(CourseScheduleWeek(schedule_id=schedule.id, week_no=w))
                     existing_weeks.add(w)
 
-    return {
+    result = {
         "status": "SUCCESS",
         "study_type": body.study_type,
         "classes_count": len(admin_classes),
@@ -196,3 +196,12 @@ def create_self_study(service, body):
         "schedules_created": schedules_created,
         "students_linked": students_linked,
     }
+    service.db.flush()
+    service._audit(
+        "academic.course.batch_self_study_create",
+        course,
+        None,
+        body.reason,
+        after_extra=result,
+    )
+    return result

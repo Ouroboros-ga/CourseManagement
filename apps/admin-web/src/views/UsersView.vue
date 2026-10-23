@@ -484,7 +484,7 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
       <div class="stat-cell">
         <div class="label">本院功能配置</div>
         <div class="value" style="color: var(--blue)">{{ stats.initialReviewCount }} <span class="text-xs font-normal text-[var(--ink-mute)]">人</span></div>
-        <div class="note">已赋权初审学生异议申请</div>
+        <div class="note">已授权一次审核学生异议</div>
       </div>
       <div class="stat-cell">
         <div class="label">本页数据统计查阅权</div>
@@ -631,7 +631,7 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
           </div>
         </div>
 
-        <table class="tbl">
+        <table class="tbl manager-table">
           <thead>
             <tr>
               <th style="width: 140px;">学生学号/用户名</th>
@@ -861,4 +861,7 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
   cursor: pointer;
   font-weight: 500;
 }
+.manager-table { min-width: 1120px; }
+.manager-table td, .manager-table th { word-break: normal; }
+.manager-table .cell-main, .manager-table button { white-space: nowrap; }
 </style>

@@ -1294,18 +1294,20 @@ class AcademicService:
 
         # 仅复用已明确关联 Student.id 的账号。用户名恰好等于学号不证明
         # 该账号属于此学生；重名走下面的唯一用户名分配，不能自动认领账号。
+        # 全局唯一用户名检查只取存在性；ORM院级过滤不能隐藏同名的无关账号。
+        account_names = UserAccount.__table__.c
         base_username = stu.student_no or f"stu_{stu.id}"
         username = base_username
         if (
             self._session.execute(
-                select(UserAccount.id).where(UserAccount.username == username)
+                select(account_names.id).where(account_names.username == username)
             ).scalar_one_or_none()
             is not None
         ):
             username = f"stu_{base_username}"
             if (
                 self._session.execute(
-                    select(UserAccount.id).where(UserAccount.username == username)
+                    select(account_names.id).where(account_names.username == username)
                 ).scalar_one_or_none()
                 is not None
             ):
@@ -1313,7 +1315,7 @@ class AcademicService:
                 counter = 1
                 while (
                     self._session.execute(
-                        select(UserAccount.id).where(UserAccount.username == username)
+                        select(account_names.id).where(account_names.username == username)
                     ).scalar_one_or_none()
                     is not None
                 ):

@@ -34,6 +34,7 @@ export function savedSummary(summary: Record<string, unknown>): string {
     schedule_created: '新增课表',
     qualification_created: '新增资格',
     qualification_updated: '更新资格',
+    volunteer_role_granted: '补全排班身份',
     roster_after: '保存后名单人数',
     students_linked: '关联学生',
     class_duties_count: '更新班级责任人',

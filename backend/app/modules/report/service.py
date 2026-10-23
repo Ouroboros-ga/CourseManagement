@@ -147,6 +147,14 @@ class StatisticsService:
             "date_to": str(query.date_to) if query.date_to else None,
             "eligible_task_count": stats_resp.eligible_task_count,
         }
+        # attendance_stats 已按当前账号核验范围；标题只来自该范围，不信任客户端名称。
+        if self._college_id is not None:
+            from app.modules.organization.models import College
+
+            college = self._session.get(College, self._college_id)
+            meta["scope_name"] = college.name if college else "授权范围"
+        else:
+            meta["scope_name"] = "授权范围"
         task_ids = [int(t.task_id) for t in (stats_resp.tasks or []) if t.task_id]
         details = self._repo.abnormal_details(task_ids)
         payload = {

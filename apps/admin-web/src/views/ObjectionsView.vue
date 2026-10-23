@@ -586,7 +586,7 @@ const decisionOptions: DecisionOption[] = [
             <div class="f-bad font-mono">
               当前判定：{{ typeMap[activeAttendance?.effective_type || ''] || activeAttendance?.effective_type || '-' }} · v{{ activeAttendance?.current_version || activeObjection.base_attendance_version }}
             </div>
-            <div v-if="changedSinceFiling" class="f-changed">
+            <div v-if="changedSinceFiling && activeObjection.final_status === 'PENDING'" class="f-changed">
               发起异议时是 v{{ activeObjection.base_attendance_version }}，现在已是
               v{{ activeAttendance?.current_version }}：认定在申诉期间被改过，请核对下面的流转时间线与认定历史后再作决定。
             </div>
