@@ -112,6 +112,12 @@ def test_self_study_success_survives_request_close_and_repeat_does_not_duplicate
         )
     repeated = ScopedAcademicWriteService(db, actor, int(a["id"])).batch_self_study(body)
     assert repeated["classes_created"] == 0 and repeated["schedules_created"] == 0
+    from app.modules.audit.models import AuditLog
+
+    audit = db.scalar(
+        select(AuditLog).where(AuditLog.action == "academic.course.batch_self_study_create")
+    )
+    assert audit.after_json["status"] == "ACTIVE", "操作成功状态不能覆盖课程审计状态"
 
 
 def test_statistics_excel_title_uses_authorized_college(campus, monkeypatch):

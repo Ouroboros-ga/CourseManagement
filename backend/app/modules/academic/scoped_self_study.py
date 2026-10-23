@@ -202,6 +202,6 @@ def create_self_study(service, body):
         course,
         None,
         body.reason,
-        after_extra=result,
+        after_extra={"batch_result": result},
     )
     return result
