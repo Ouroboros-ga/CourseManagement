@@ -1207,7 +1207,7 @@ class InspectionService:
     ) -> str:
         """五种当前状态派生（技术方案 12、13.3）。
 
-        优先级：已取消 → 已完成（有审核通过提交）→ 待审核（有待审核提交）→ 已逾期 → 待执行。
+        优先级：已取消 → 异常 → 已完成（有审核通过提交）→ 待审核（有待审核提交）→ 已逾期 → 待执行。
 
         ``submission_flags`` = (has_approved, has_pending)：由批量提交聚合得出，避免逐任务查询。
         截止时刻维度沿用 Wave 3c：无待审核/审核通过提交且服务端时间**严格超过**该日适用截止
@@ -1215,6 +1215,8 @@ class InspectionService:
         """
         if task.canceled_at is not None:
             return "已取消"
+        if task.exception_reported_at is not None:
+            return "异常"
         has_approved, has_pending = submission_flags
         if has_approved:
             return "已完成"
@@ -1309,6 +1311,10 @@ class InspectionService:
             deadline_at=day.deadline_at if day is not None else None,
             deadline_version_id=deadline_version_id,
             deadline_assessment=assessment_brief,
+            exception_reported_at=task.exception_reported_at,
+            exception_reported_by=task.exception_reported_by,
+            exception_reporter_name=task.exception_reporter_name,
+            exception_reason=task.exception_reason,
             canceled_at=task.canceled_at,
             cancel_reason=task.cancel_reason,
         )
@@ -1913,6 +1919,7 @@ class InspectionService:
             .where(
                 InspectionTask.semester_id == semester_id,
                 InspectionTask.canceled_at.is_(None),
+                InspectionTask.exception_reported_at.is_(None),
                 InspectionTask.id.notin_(select(InspectionAssignment.task_id).where(
                     InspectionAssignment.revoked_at.is_(None)
                 )),
@@ -1978,6 +1985,8 @@ class InspectionService:
             raise NotFoundError("查课任务不存在")
         if task.canceled_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可排班")
+        if task.exception_reported_at is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "异常任务须先恢复后再排班")
         if task.lock_version != body.lock_version:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "任务版本已变化，请刷新后重试")
         prof = self._load_volunteer(target_uid)
@@ -2335,7 +2344,9 @@ class InspectionService:
             else []
         )
         if len(locked_tasks) != len(plan_ids) or any(
-            task.canceled_at is not None or task.lock_version != versions[task.id]
+            task.canceled_at is not None
+            or task.exception_reported_at is not None
+            or task.lock_version != versions[task.id]
             for task in locked_tasks
         ):
             raise ConflictError(ErrorCode.ASSIGNMENT_CONFLICT, "任务已变化，请重新排班")
@@ -2440,6 +2451,8 @@ class InspectionService:
             raise NotFoundError("查课任务不存在")
         if task.canceled_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可发起调班申请")
+        if task.exception_reported_at is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "异常任务须先恢复后再申请调班")
         if self._repo.has_pending_change_request(assignment.id):
             raise ConflictError(ErrorCode.STATE_CONFLICT, "该受派已有待处理调班申请，请先等待处理")
         req = AssignmentChangeRequest(
@@ -2472,16 +2485,21 @@ class InspectionService:
         )
         return self._change_request_page(rows, total, params)
 
+    def _require_change_request_read(self, actor: CurrentUser) -> None:
+        self._require(actor.id, perms.CHANGE_REVIEW_PERMISSION)
+
     def list_change_requests(
-        self, actor: CurrentUser, params: PageParams, *, status: str | None
+        self, actor: CurrentUser, params: PageParams, *, status: str | None,
+        semester_id: int | None = None,
     ) -> dict:
         # 管理视图：assignment.change_review 读取全部申请（可按状态过滤）。
-        self._require(actor.id, perms.CHANGE_REVIEW_PERMISSION)
+        self._require_change_request_read(actor)
         rows, total = self._repo.list_change_requests_with_task(
-            params, status=status, requester_user_id=None
+            params, status=status, requester_user_id=None, semester_id=semester_id
         )
         return self._change_request_page(rows, total, params)
 
+    @atomic_write
     def review_change_request(
         self,
         actor: CurrentUser,
@@ -2490,19 +2508,35 @@ class InspectionService:
         request_id_str: str | None,
     ) -> ChangeRequestResponse:
         self._require(actor.id, perms.CHANGE_REVIEW_PERMISSION)
+        probe = self._repo.get_change_request(request_id)
+        assignment = self._repo.get_assignment(probe.assignment_id) if probe else None
+        if assignment is None:
+            raise NotFoundError("调班申请不存在")
+        task_probe = self._repo.get_task(assignment.task_id)
+        if task_probe is None:
+            raise NotFoundError("查课任务不存在")
+        semester = self._academic.get_semester_for_update(task_probe.semester_id)
+        if semester is None or semester.status != "ACTIVE":
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "学期已归档，不可处理换班申请")
+        # 与改派一致先锁任务，再锁受派和申请，防止旧预览在驳回后继续提交。
+        task = self._repo.get_task_for_update(assignment.task_id)
+        if task is None:
+            raise NotFoundError("查课任务不存在")
+        assignment = self._repo.get_assignment_for_update(assignment.id)
         req = self._repo.get_change_request_for_update(request_id)
         if req is None:
             raise NotFoundError("调班申请不存在")
         if req.status != ChangeRequestStatus.PENDING.value:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "该申请已处理，不可重复处理")
-        assignment = self._repo.get_assignment(req.assignment_id)
         if assignment is None or assignment.revoked_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "受派已失效，不可处理旧调班申请")
         prev_status = req.status
+        previous_task_version = task.lock_version
         req.status = body.decision
         req.processed_by = actor.id
         req.processed_at = utcnow()
         req.comment = body.comment
+        task.lock_version += 1
         self._repo.flush()
         assignment = self._repo.get_assignment(req.assignment_id)
         task_id = assignment.task_id if assignment is not None else 0
@@ -2511,8 +2545,9 @@ class InspectionService:
             action="assignment.change_request.review",
             resource_type="assignment_change_request",
             resource_id=f"{req.id}",
-            before={"status": prev_status},
-            after={"status": req.status, "comment": body.comment},
+            before={"status": prev_status, "task_lock_version": previous_task_version},
+            after={"status": req.status, "comment": body.comment,
+                   "task_lock_version": task.lock_version},
             reason=body.comment,
             request_id=request_id_str,
         )
@@ -2541,8 +2576,10 @@ class InspectionService:
         total: int,
         params: PageParams,
     ) -> dict:
+        from app.modules.inspection.change_request_query import enrich_requests
+        items = enrich_requests(self._session, rows, self._to_change_request_dto)
         return {
-            "items": [self._to_change_request_dto(r, tid).model_dump() for r, tid in rows],
+            "items": items,
             "page": params.page,
             "page_size": params.page_size,
             "total": total,
@@ -2602,6 +2639,12 @@ class InspectionService:
         now = utcnow()
         if task.canceled_at is not None and task.canceled_at <= day.deadline_at:
             result = DeadlineAssessmentResult.CANCELED
+        elif (
+            task.exception_reported_at is not None
+            and task.exception_reported_at <= day.deadline_at
+            and now > day.deadline_at
+        ):
+            result = DeadlineAssessmentResult.EXCEPTION
         elif now > day.deadline_at:
             if self._repo.has_on_time_submission(task.id, day.deadline_at):
                 result = DeadlineAssessmentResult.VALID_SUBMISSION
@@ -2749,6 +2792,8 @@ class InspectionService:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "已受派任务不可直接改时段，请取消并重新生成、排班")
         if task.canceled_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "已取消任务不可修改")
+        if task.exception_reported_at is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "异常任务须先恢复后再编辑")
         if self._repo.has_approved_submission(task.id):
             raise ConflictError(
                 ErrorCode.STATE_CONFLICT, "任务已有审核通过提交并生成考勤，不可修改"
@@ -3315,19 +3360,8 @@ class InspectionService:
         self._session.refresh(sub)
         return self._assemble_submissions([sub])[0]
 
-    def _create_submission(
-        self,
-        actor: CurrentUser,
-        task_id: int,
-        body: SubmissionCreateRequest,
-        request_id: str | None,
-    ) -> InspectionSubmission:
-        """志愿者对本人当前受派任务提交查课结果（技术方案 12、13.3、15）。
-
-        身份三重实时校验（VOLUNTEER + 本学期资格 + 当前受派 + 未取消）与"至多一个待审核/
-        审核通过提交"不变式，全在任务行锁内成立；补交前先幂等结算锁定截止时事实；
-        提交时刻以服务端 UTC 记录，等于截止仍按时；迟交与适用截止版本一并冻结不被后续改写。
-        """
+    def _require_execution_task(self, actor: CurrentUser, task_id: int) -> InspectionTask:
+        """结果提交与异常上报共用实时身份、受派和资格校验；调用方持有原子事务。"""
         self._require(actor.id, perms.SUBMISSION_CREATE_PERMISSION)
         if actor.pre_binding:
             raise PermissionDeniedError("请先完成身份绑定")
@@ -3364,8 +3398,6 @@ class InspectionService:
         assignment = self._repo.get_assignment_by_task(task.id)
         if assignment is None or assignment.volunteer_user_id != actor.id:
             raise PermissionDeniedError("仅可提交本人当前受派的任务")
-        if task.roster_review_required or task.expected_count_review_required:
-            raise ConflictError(ErrorCode.STATE_CONFLICT, "学籍异动后名单或应到人数尚待教师复核")
 
         # 本学期有效志愿者资格：资格停用立即禁止提交（保留历史读取，见读取侧）。
         student_id = acct.student_id
@@ -3390,6 +3422,42 @@ class InspectionService:
         if not qualified:
             raise PermissionDeniedError("本学期无有效志愿者资格，不可提交")
 
+        return task
+
+    @atomic_write
+    def report_exception(
+        self, actor: CurrentUser, task_id: int, body: TaskCancelRequest,
+        request_id: str | None,
+    ) -> InspectionTaskResponse:
+        from app.modules.inspection.exception_service import report_exception
+        return report_exception(self, actor, task_id, body, request_id)
+
+    @atomic_write
+    def clear_exception(
+        self, actor: CurrentUser, task_id: int, body: TaskCancelRequest,
+        request_id: str | None,
+    ) -> InspectionTaskResponse:
+        from app.modules.inspection.exception_service import clear_exception
+        return clear_exception(self, actor, task_id, body, request_id)
+
+    def _create_submission(
+        self,
+        actor: CurrentUser,
+        task_id: int,
+        body: SubmissionCreateRequest,
+        request_id: str | None,
+    ) -> InspectionSubmission:
+        """志愿者对本人当前受派任务提交查课结果（技术方案 12、13.3、15）。
+
+        身份三重实时校验（VOLUNTEER + 本学期资格 + 当前受派 + 未取消）与"至多一个待审核/
+        审核通过提交"不变式，全在任务行锁内成立；补交前先幂等结算锁定截止时事实；
+        提交时刻以服务端 UTC 记录，等于截止仍按时；迟交与适用截止版本一并冻结不被后续改写。
+        """
+        task = self._require_execution_task(actor, task_id)
+        if task.exception_reported_at is not None:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已记为异常，请由管理员恢复后再提交")
+        if task.roster_review_required or task.expected_count_review_required:
+            raise ConflictError(ErrorCode.STATE_CONFLICT, "学籍异动后名单或应到人数尚待教师复核")
         # "至多一个待审核 / 审核通过提交"不变式：重复提交在锁内命中既有开放提交而拒；
         # 仅有被驳回历史提交时放行，生成下一 attempt（技术方案 12）。
         if self._repo.has_open_submission(task.id):

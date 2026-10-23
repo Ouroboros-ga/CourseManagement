@@ -21,6 +21,9 @@ const statusMeta = computed(() => {
     case '已完成':
     case '已审核':
       return { label: '已完成', cls: 'tag-green' }
+    case 'EXCEPTION':
+    case '异常':
+      return { label: '异常', cls: 'tag-amber' }
     case 'OVERDUE':
     case '已逾期':
       return { label: '已逾期', cls: 'tag-red' }
@@ -34,7 +37,7 @@ const statusMeta = computed(() => {
 
 const isOverdueSnapshot = computed(() => {
   // 当前态已经是“已逾期”时，主标签已明确标红，无需重复显示“逾期未执行”副标
-  if (statusMeta.value.label === '已逾期') return false
+  if (['已逾期', '异常'].includes(statusMeta.value.label)) return false
   if (!props.deadlineAssessment) return false
   if (typeof props.deadlineAssessment === 'string') {
     return props.deadlineAssessment === 'OVERDUE_UNEXECUTED'

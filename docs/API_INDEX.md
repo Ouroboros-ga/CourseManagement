@@ -1,5 +1,9 @@
 # API 路由索引
 
+2026-10-23（候选，未部署）：管理换班申请列表增加可选 `semester_id`、任务与人员上下文及可处理原因；Web新增「查课安排 → 换班申请」。处理申请递增任务版本以使旧改派预览失效。见 [设计与验收](development/CHANGE_REQUEST_WEB_20261023.md)。
+
+2026-10-23（候选，未部署）：新增志愿者即时上报 `POST /api/v1/inspection-tasks/{task_id}/exception`、管理员恢复 `POST /api/v1/inspection-tasks/{task_id}/exception/clear` 及后者学院路径。任务状态新增“异常”，截止结果增加 `EXCEPTION`，既有统计增加异常次数。见 [设计及边界](development/TASK_EXECUTION_EXCEPTION_20261023.md)。
+
 2026-10-23：早晚自习批量生成增加独立 `start_time/end_time`，时间展示增加 `time_basis/time_label`，任务快照携带相同元数据。新增 `POST /api/v1/academic/semesters/{id}/period-definitions/initialize`，仅原子补齐缺失教学节次。详见 [修复与小程序交接](development/SELF_STUDY_CLOCK_TIME_20261023.md)。
 
 2026-10-22 OSS Web 直连：`GET /api/v1/files/{file_id}/access` 新增可选 `delivery=proxy|direct`，默认代理兼容小程序；Web 显式 direct，权限和文件状态校验不变。无新增路由。见 [实施与发布记录](development/OSS_WEB_DIRECT_DOWNLOAD_20261022.md)。

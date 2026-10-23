@@ -22,6 +22,7 @@ for route in legacy_router.routes:
         continue
     if route.methods == {"POST"} and (
         route.path.endswith("/submissions") or route.path.endswith("/change-requests")
+        or route.path.endswith("/exception")
     ):
         continue
     router.add_api_route(

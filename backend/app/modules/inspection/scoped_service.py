@@ -29,3 +29,12 @@ class ScopedInspectionService(InspectionService):
             raise PermissionDeniedError()
         scope = resolve_scope(self._session, actor, self.cid, action)
         return select(InspectionTask).where(scope.task_condition())
+
+    def _require_change_request_read(self, actor):
+        if actor.id != self.actor.id:
+            raise PermissionDeniedError()
+        scope = resolve_scope(
+            self._session, actor, self.cid, "assignment.change_review", write=False
+        )
+        self._repo.resource_scope = scope
+        self._repo.college_ids = frozenset({self.cid})

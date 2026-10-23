@@ -4,7 +4,7 @@
 - 请求体字段沿用 snake_case；BIGINT 主键/外键对外统一以字符串（复用 academic.schemas
   的 IdStr/OptIdStr，构造接受 int 或 str）。
 - 响应绝不直接返回 ORM 实体；日期由 Pydantic 序列化为 ISO 字符串，时刻为 UTC-naive。
-- 当前状态 status 为服务端派生只读字段（五种：待执行/待审核/已完成/已逾期/已取消），
+- 当前状态 status 为服务端派生只读字段（待执行/待审核/已完成/已逾期/已取消/异常），
   计算依据来自任务本身 + 受派 + 提交/截止事实（Wave 2 仅用取消占位，Wave 3c 精化）。
 """
 
@@ -126,7 +126,7 @@ class InspectionGenerateRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 # 任务视图
 # --------------------------------------------------------------------------- #
-InspectionTaskStatus = Literal["待执行", "待审核", "已完成", "已逾期", "已取消"]
+InspectionTaskStatus = Literal["待执行", "待审核", "已完成", "已逾期", "已取消", "异常"]
 
 
 class TaskAssignmentBrief(BaseModel):
@@ -143,7 +143,9 @@ class TaskAssignmentBrief(BaseModel):
     change_request_at: datetime | None = None
 
 
-DeadlineAssessmentResultLiteral = Literal["VALID_SUBMISSION", "OVERDUE_UNEXECUTED", "CANCELED"]
+DeadlineAssessmentResultLiteral = Literal[
+    "VALID_SUBMISSION", "OVERDUE_UNEXECUTED", "CANCELED", "EXCEPTION"
+]
 
 
 class DeadlineAssessmentBrief(BaseModel):
@@ -200,6 +202,10 @@ class InspectionTaskResponse(BaseModel):
     deadline_at: datetime | None = None
     deadline_version_id: OptIdStr = None
     deadline_assessment: DeadlineAssessmentBrief | None = None
+    exception_reported_at: datetime | None = None
+    exception_reported_by: OptIdStr = None
+    exception_reporter_name: str | None = None
+    exception_reason: str | None = None
     canceled_at: datetime | None = None
     cancel_reason: str | None = None
 
@@ -425,6 +431,22 @@ class ChangeRequestResponse(BaseModel):
     comment: str | None
     created_at: datetime
     updated_at: datetime
+
+    requester_name: str | None = None
+    requester_student_no: str | None = None
+    processor_name: str | None = None
+    semester_id: OptIdStr = None
+    inspection_date: date | None = None
+    course_name: str | None = None
+    class_name: str | None = None
+    classroom: str | None = None
+    start_period: int | None = None
+    end_period: int | None = None
+    time_snapshot: dict | None = None
+    activity_start_at: datetime | None = None
+    activity_end_at: datetime | None = None
+    can_process: bool = False
+    blocked_reason: str | None = None
 
 
 # --------------------------------------------------------------------------- #

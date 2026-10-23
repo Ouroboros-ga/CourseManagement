@@ -57,6 +57,10 @@ export interface InspectionTaskItem {
     change_request_at?: string | null
   } | null
   lock_version?: number
+  exception_reported_at?: string | null
+  exception_reported_by?: string | null
+  exception_reporter_name?: string | null
+  exception_reason?: string | null
   canceled_at?: string | null
   cancel_reason?: string | null
   created_at?: string
@@ -123,7 +127,7 @@ export interface OccurrencesQueryResult {
 }
 
 export interface TaskListResult extends PaginatedResult<InspectionTaskItem> {
-  summary?: { total: number; assigned: number; unassigned: number; reviewed: number; pending_change: number; dates: Record<string, number> }
+  summary?: { total: number; assigned: number; unassigned: number; reviewed: number; exception: number; pending_change: number; dates: Record<string, number> }
 }
 function taskQueryParams(query: TaskListQuery) {
   const params = new URLSearchParams()
@@ -407,4 +411,44 @@ export async function reviewChangeRequest(
     method: 'POST',
     body: JSON.stringify(body)
   })
+}
+
+/** 管理员恢复误报；服务端保留异常审计与既有截止考核。 */
+export function clearTaskException(id: string, lock_version: number, reason = '') {
+  return request<InspectionTaskItem>(`/api/v1/inspection-tasks/${id}/exception/clear`, {
+    method: 'POST', body: JSON.stringify({ lock_version, reason })
+  })
+}
+
+export type ChangeRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export interface ChangeRequestItem {
+  id: string
+  task_id: string
+  assignment_id: string
+  request_user_id: string
+  requester_name: string | null
+  requester_student_no: string | null
+  status: ChangeRequestStatus
+  reason: string
+  comment: string | null
+  created_at: string
+  processed_at: string | null
+  processor_name: string | null
+  semester_id: string
+  inspection_date: string
+  course_name: string | null
+  class_name: string | null
+  classroom: string | null
+  start_period: number
+  end_period: number
+  time_snapshot: Record<string, unknown> | null
+  activity_start_at: string | null
+  activity_end_at: string | null
+  can_process: boolean
+  blocked_reason: string | null
+}
+export function listChangeRequests(query: { semester_id: string; status?: ChangeRequestStatus; page?: number }) {
+  const params = new URLSearchParams({ semester_id: query.semester_id, page: String(query.page || 1), page_size: '50' })
+  if (query.status) params.set('status', query.status)
+  return request<PaginatedResult<ChangeRequestItem>>(`/api/v1/assignment-change-requests?${params}`)
 }

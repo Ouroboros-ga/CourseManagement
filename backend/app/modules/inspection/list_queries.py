@@ -62,6 +62,7 @@ def task_status_expression():
     )
     return case(
         (InspectionTask.canceled_at.is_not(None), "CANCELLED"),
+        (InspectionTask.exception_reported_at.is_not(None), "EXCEPTION"),
         (submitted("APPROVED"), "REVIEWED"),
         (submitted("PENDING"), "SUBMITTED"),
         (overdue, "OVERDUE"),

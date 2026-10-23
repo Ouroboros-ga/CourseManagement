@@ -124,6 +124,10 @@ class StatisticsService:
             week_no=query.week_no,
             date_from=query.date_from,
             date_to=query.date_to,
+            exception_count=self._repo.exception_count(
+                semester_id=query.semester_id, week_no=query.week_no,
+                date_from=query.date_from, date_to=query.date_to,
+            ),
             eligible_task_count=len(ids),
             overall=overall,
             classes=classes,
@@ -145,6 +149,7 @@ class StatisticsService:
             "week_no": query.week_no,
             "date_from": str(query.date_from) if query.date_from else None,
             "date_to": str(query.date_to) if query.date_to else None,
+            "exception_count": stats_resp.exception_count,
             "eligible_task_count": stats_resp.eligible_task_count,
         }
         # attendance_stats 已按当前账号核验范围；标题只来自该范围，不信任客户端名称。
@@ -276,6 +281,8 @@ class StatisticsService:
             week_no=week_no,
             date_from=date_from,
             date_to=date_to,
+            exception_count=self._repo.exception_count(semester_id=semester_id, week_no=week_no,
+                date_from=date_from, date_to=date_to),
             current_incomplete_count=cur_incomplete_total,
             overdue_unexecuted_count=overdue_total,
             items=items,

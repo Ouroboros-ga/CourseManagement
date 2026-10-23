@@ -33,7 +33,8 @@ SemesterId = Annotated[int, Query(gt=0, le=2**63 - 1)]
 
 def totals(rows):
     return {key: sum(row[key] for row in rows) for key in (
-        "task_count", "assigned_count", "submitted_count", "completed_count", "incomplete_count")}
+        "task_count", "assigned_count", "submitted_count", "completed_count",
+        "incomplete_count", "exception_count")}
 
 
 def aggregate(db, semester_id, conditions, *, attendance=False):
@@ -67,11 +68,13 @@ def aggregate(db, semester_id, conditions, *, attendance=False):
         InspectionTask.group_id,
         InspectionTask.group_name_snapshot,
     ]
+    effective = InspectionTask.exception_reported_at.is_(None)
     statement = (
         select(
             *dimensions,
-            func.count().label("task_count"),
-            func.sum(case((assigned, 1), else_=0)).label("assigned_count"),
+            func.sum(case((effective, 1), else_=0)).label("task_count"),
+            func.sum(case((~effective, 1), else_=0)).label("exception_count"),
+            func.sum(case((effective & assigned, 1), else_=0)).label("assigned_count"),
             func.sum(case((submitted, 1), else_=0)).label("submitted_count"),
             func.sum(case((completed, 1), else_=0)).label("completed_count"),
             func.sum(case((completed, InspectionTask.expected_count_current), else_=0)).label(
@@ -102,7 +105,7 @@ def aggregate(db, semester_id, conditions, *, attendance=False):
         for *key, kind, count in db.execute(att):
             counts.setdefault(tuple(key), {})[kind] = count
     result = []
-    for *key, total, allocated, sent, done, expected in db.execute(statement):
+    for *key, total, exceptional, allocated, sent, done, expected in db.execute(statement):
         item = dict(
             zip(
                 ["college_id", "course_type_id", "course_type_name", "group_id", "group_name"],
@@ -113,11 +116,12 @@ def aggregate(db, semester_id, conditions, *, attendance=False):
         for name in ("college_id", "course_type_id", "group_id"):
             item[name] = str(item[name]) if item[name] is not None else None
         item.update(
-            task_count=total,
+            task_count=int(total or 0),
+            exception_count=int(exceptional or 0),
             assigned_count=int(allocated or 0),
             submitted_count=int(sent or 0),
             completed_count=int(done or 0),
-            incomplete_count=total - int(done or 0),
+            incomplete_count=int(total or 0) - int(done or 0),
         )
         if attendance:
             item.update(

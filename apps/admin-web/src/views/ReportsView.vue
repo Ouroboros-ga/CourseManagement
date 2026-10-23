@@ -668,6 +668,7 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
     </header>
 
     <!-- 宏观统计分栏（无边框 · 细线分隔） -->
+    <el-alert v-if="attendanceStats?.exception_count" :title="`查课异常 ${attendanceStats.exception_count} 次，已从有效应查和漏查统计中排除；可在查课安排筛选异常查看。`" type="warning" :closable="false" />
     <section v-if="attendanceStats" class="stat-row kpi-row">
       <div class="stat-cell">
         <div class="label">全院综合到课率</div>

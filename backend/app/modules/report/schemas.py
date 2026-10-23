@@ -19,7 +19,9 @@ from app.modules.academic.schemas import IdStr
 AttendanceTypeLiteral = Literal["NORMAL", "LEAVE", "LATE", "ABSENT"]
 # 与技术方案 17：未完成两指标互不混用。currentStatus=当前状态派生；
 # deadlineAssessment=截止时点快照（VALID_SUBMISSION/OVERDUE_UNEXECUTED/CANCELED，未到期 null）。
-DeadlineAssessmentLiteral = Literal["VALID_SUBMISSION", "OVERDUE_UNEXECUTED", "CANCELED"]
+DeadlineAssessmentLiteral = Literal[
+    "VALID_SUBMISSION", "OVERDUE_UNEXECUTED", "CANCELED", "EXCEPTION"
+]
 
 
 class AttendanceStatsQuery(BaseModel):
@@ -146,6 +148,7 @@ class AttendanceStatsResponse(BaseModel):
     week_no: int | None
     date_from: date_type | None
     date_to: date_type | None
+    exception_count: int = 0  # 执行异常单列，不进入有效应查与漏查分母
     eligible_task_count: int  # 命中范围内"已审核通过且未取消"的任务数
     overall: OverallStats
     classes: list[ClassStatsItem]
@@ -180,6 +183,7 @@ class IncompleteTasksResponse(BaseModel):
     week_no: int | None
     date_from: date_type | None
     date_to: date_type | None
+    exception_count: int = 0
     current_incomplete_count: int  # 当前未完成总数（未取消且无 APPROVED 提交）
     overdue_unexecuted_count: int  # 截止时逾期未执行总数（快照事实）
     items: list[IncompleteTaskItem]

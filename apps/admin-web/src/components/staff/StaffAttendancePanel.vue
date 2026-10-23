@@ -40,6 +40,7 @@ const session = useSessionStore()
 const labels: Record<string, string> = { NORMAL: '正常', LEAVE: '请假', LATE: '迟到', ABSENT: '旷课' }
 const states: Record<string, string> = {
   RECORDED: '已查课',
+  EXCEPTION: '异常',
   PENDING_SUBMISSION: '待提交',
   PENDING_REVIEW: '待复核',
   CANCELED: '已取消'

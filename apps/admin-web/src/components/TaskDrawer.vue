@@ -4,7 +4,7 @@ import AppPagination from '../components/AppPagination.vue'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { ContextEpoch } from '../utils/contextEpoch'
 import { collectPages } from '../utils/collectPages'
-import type { InspectionTaskItem } from '../api/tasks'
+import { clearTaskException, type InspectionTaskItem } from '../api/tasks'
 import { getTaskRoster, listManagementSubmissions, type RosterStudentItem, type ManagementSubmissionItem } from '../api/submissions'
 import { listAttendance, correctAttendanceRecord, type AttendanceRecord, type AttendanceType } from '../api/attendance'
 import { useSessionStore } from '../stores/session'
@@ -12,7 +12,7 @@ import TaskStatusTag from './TaskStatusTag.vue'
 import AppIcon from './AppIcon.vue'
 import { formatPeriodText } from '../utils/period'
 import { formatBeijingTime } from '../utils/datetime'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 interface Props {
   visible: boolean
@@ -95,9 +95,11 @@ const enrichedStudents = computed<EnrichedRosterItem[]>(() => {
   })
 })
 
-const detailEpoch = new ContextEpoch(() => JSON.stringify([props.task?.id, props.task?.lock_version,
-  props.visible, sessionStore.currentUser?.id, sessionStore.workspaceCollegeId]))
-onUnmounted(() => detailEpoch.invalidate())
+const detailContext = () => JSON.stringify([props.task?.id, props.task?.lock_version,
+  props.visible, sessionStore.currentUser?.id, sessionStore.workspaceCollegeId])
+const detailEpoch = new ContextEpoch(detailContext)
+const exceptionEpoch = new ContextEpoch(detailContext)
+onUnmounted(() => { detailEpoch.invalidate(); exceptionEpoch.invalidate() })
 async function loadTaskDetails(newTask: InspectionTaskItem) {
   const ticket = detailEpoch.begin()
   loadingData.value = true
@@ -119,7 +121,7 @@ async function loadTaskDetails(newTask: InspectionTaskItem) {
   } finally { if (ticket.isLatest()) loadingData.value = false }
 }
 watch(() => [props.task, props.visible, sessionStore.currentUser?.id, sessionStore.workspaceCollegeId], () => {
-  detailEpoch.invalidate()
+  detailEpoch.invalidate(); exceptionEpoch.invalidate()
   if (props.task && props.visible) void loadTaskDetails(props.task)
   else { students.value = []; attendanceRecords.value = []; submission.value = null }
 }, { immediate: true })
@@ -158,6 +160,25 @@ async function handleConfirmCorrect() {
   } finally {
     correctSubmitting.value = false
   }
+}
+
+const clearingException = ref(false)
+async function restoreException() {
+  const task = props.task
+  if (clearingException.value || !task || task.lock_version === undefined) return
+  const ticket = exceptionEpoch.begin()
+  try {
+    await ElMessageBox.confirm('恢复后将按当前截止时间显示待执行或逾期。原异常上报与截止考核会保留在操作记录中。', '恢复查课', { type: 'warning' })
+    if (!ticket.isCurrent() || props.task?.id !== task.id || props.task?.lock_version !== task.lock_version) return
+    clearingException.value = true
+    await clearTaskException(task.id, task.lock_version)
+    if (!ticket.isCurrent()) return
+    ElMessage.success('已恢复查课')
+    emit('corrected')
+    emit('update:visible', false)
+  } catch (e) {
+    if (ticket.isCurrent() && e instanceof Error) ElMessage.error(e.message)
+  } finally { clearingException.value = false }
 }
 
 function formatType(t?: AttendanceType): string {
@@ -203,6 +224,15 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
         <div class="d-id font-mono">任务 ID：#{{ task.id }} · lock_version: {{ task.lock_version }}</div>
         <div class="d-course font-serif">{{ task.course_name_snapshot || task.course_name || '未命名课程' }}</div>
         <TaskStatusTag :status="task.status" :deadline-assessment="task.deadline_assessment" />
+      </section>
+
+      <section v-if="task.exception_reported_at" class="d-section">
+        <h4 class="d-heading">查课异常</h4>
+        <p>{{ task.exception_reporter_name || '受派志愿者' }} · {{ formatBeijingTime(task.exception_reported_at, 'minute') }}</p>
+        <p>{{ task.exception_reason || '未填写说明' }}</p>
+        <p class="d-label">本次不计入有效应查次数，不生成学生考勤。</p>
+        <el-button v-if="sessionStore.hasPermission('inspection.cancel') && !task.canceled_at"
+          :loading="clearingException" @click="restoreException">恢复查课</el-button>
       </section>
 
       <!-- 课次与地点 -->
@@ -321,7 +351,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
       <section class="d-section">
         <div class="d-heading-row">
           <h4 class="d-heading">受派志愿者</h4>
-          <button class="btn btn-ghost btn-sm" @click="emit('reassign', task)">调整 / 改派</button>
+          <button v-if="!task.exception_reported_at" class="btn btn-ghost btn-sm" @click="emit('reassign', task)">调整 / 改派</button>
         </div>
         <div v-if="(task as any).assignment || task.assigned_volunteer_id" class="d-volunteer">
           <div>
@@ -476,7 +506,7 @@ const { page: display0Page, rows: display0Rows, total: display0Total } = useDisp
         </button>
         <div style="display: flex; gap: 8px;">
           <button class="btn" @click="close">关闭</button>
-          <button v-if="task" class="btn btn-dark" @click="emit('reassign', task)">人工指派 / 改派</button>
+          <button v-if="task && !task.exception_reported_at" class="btn btn-dark" @click="emit('reassign', task)">人工指派 / 改派</button>
         </div>
       </div>
     </template>

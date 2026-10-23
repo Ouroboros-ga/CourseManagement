@@ -76,6 +76,7 @@ class DeadlineAssessmentResult(enum.StrEnum):
     """截止时考核快照结果（技术方案 13.3）。非当前状态，一旦结算不被后续业务改写。"""
 
     VALID_SUBMISSION = "VALID_SUBMISSION"  # 截止时存在按时有效提交
+    EXCEPTION = "EXCEPTION"  # 截止时已上报执行异常
     OVERDUE_UNEXECUTED = "OVERDUE_UNEXECUTED"  # 截止时无有效提交且未取消 → 逾期未执行
     CANCELED = "CANCELED"  # 截止时任务已取消 → 不纳入未完成
 
@@ -101,7 +102,7 @@ _ABNORMAL_TYPES = "('LEAVE','LATE','ABSENT')"
 _INSPECTION_TYPES = "('COURSE','MORNING_STUDY','EVENING_STUDY')"
 _ASSIGN_METHODS = "('AUTO','MANUAL')"
 _CHANGE_STATUSES = "('PENDING','APPROVED','REJECTED')"
-_ASSESSMENT_RESULTS = "('VALID_SUBMISSION','OVERDUE_UNEXECUTED','CANCELED')"
+_ASSESSMENT_RESULTS = "('VALID_SUBMISSION','OVERDUE_UNEXECUTED','CANCELED','EXCEPTION')"
 _SUBMISSION_RESULTS = "('NORMAL','ABNORMAL')"
 _REVIEW_STATUSES = "('PENDING','APPROVED','REJECTED')"
 
@@ -219,7 +220,15 @@ class InspectionTask(CollegeOwned, TimestampMixin, Base):
         Integer, nullable=False, default=1, server_default=text("1")
     )
 
-    # 取消信息（技术方案 9.2：canceled_at/by/reason）。有取消标记 → 状态已取消。
+    # 执行异常即时生效；恢复清当前字段，审计保留每次上报与恢复历史。
+    exception_reported_at: Mapped[datetime | None] = mapped_column(DATETIME_3, nullable=True)
+    exception_reported_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("user_account.id", ondelete="SET NULL"), nullable=True
+    )
+    exception_reporter_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    exception_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    # 取消信息。有取消标记 → 状态已取消。
     canceled_at: Mapped[datetime | None] = mapped_column(DATETIME_3)
     canceled_by: Mapped[int | None] = mapped_column(
         ForeignKey("user_account.id", ondelete="SET NULL")

@@ -84,6 +84,8 @@ class AssignmentPlanService:
         tasks = list(self.db.scalars(statement.execution_options(populate_existing=True)))
         if {task.id for task in tasks} != set(task_ids):
             raise NotFoundError("计划包含不可见、其他组或其他学期的任务")
+        if any(task.exception_reported_at is not None for task in tasks):
+            raise ConflictError(message="异常任务须先恢复后再排班")
         if any(task.canceled_at is not None for task in tasks):
             raise ConflictError(message="计划任务已取消")
         if self.db.scalar(

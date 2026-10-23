@@ -58,7 +58,8 @@ class StaffInspectionRecordCard(BaseModel):
     end_period: int | None = None
     classroom: str | None = None
     location_revision: str | None = None
-    attendance_state: str  # "RECORDED", "PENDING_SUBMISSION", "PENDING_REVIEW", "CANCELED"
+    # 执行异常独立于学生考勤；不伪造 RECORDED。
+    attendance_state: str  # RECORDED / PENDING_SUBMISSION / PENDING_REVIEW / CANCELED / EXCEPTION
     scope: StaffCardScope
     counts: AttendanceCounts | None = None
     allowed_actions: list[str] = Field(default_factory=lambda: ["view_detail"])

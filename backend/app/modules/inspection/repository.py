@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date as date_
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import ColumnElement, Select, and_, case, func, or_, select, tuple_
 from sqlalchemy.dialects.mysql import insert as mysql_insert
@@ -190,7 +191,10 @@ class InspectionRepository:
         if not include_canceled:
             stmt = stmt.where(InspectionTask.canceled_at.is_(None))
         if needs_attention:
-            stmt = stmt.where(InspectionTask.canceled_at.is_(None))
+            stmt = stmt.where(
+                InspectionTask.canceled_at.is_(None),
+                InspectionTask.exception_reported_at.is_(None),
+            )
             if needs_attention == "unassigned":
                 stmt = stmt.where(InspectionTask.id.not_in(select(InspectionAssignment.task_id).where(
                     InspectionAssignment.revoked_at.is_(None))))
@@ -239,11 +243,12 @@ class InspectionRepository:
                 source.c.date, source.c.status, source.c.assigned, source.c.pending, func.count()
             ).group_by(source.c.date, source.c.status, source.c.assigned, source.c.pending)
         )
-        out = {
+        out: dict[str, Any] = {
             "total": 0,
             "assigned": 0,
             "unassigned": 0,
             "reviewed": 0,
+            "exception": 0,
             "pending_change": 0,
             "dates": {},
         }
@@ -251,6 +256,7 @@ class InspectionRepository:
             out["total"] += count
             out["assigned" if assigned else "unassigned"] += count
             out["reviewed"] += count if status == "REVIEWED" else 0
+            out["exception"] += count if status == "EXCEPTION" else 0
             out["pending_change"] += count if pending else 0
             key = day.isoformat()
             out["dates"][key] = out["dates"].get(key, 0) + count
@@ -963,6 +969,7 @@ class InspectionRepository:
         *,
         status: str | None,
         requester_user_id: int | None,
+        semester_id: int | None = None,
     ) -> tuple[list[tuple[AssignmentChangeRequest, int]], int]:
         """分页联查申请及其任务 id（元组查询需自行 count + 取行，不走 scalars 的 _paged）。"""
         conds: list[ColumnElement[bool]] = []
@@ -970,6 +977,10 @@ class InspectionRepository:
             conds.append(AssignmentChangeRequest.status == status)
         if requester_user_id is not None:
             conds.append(AssignmentChangeRequest.request_user_id == requester_user_id)
+        if semester_id is not None:
+            conds.append(InspectionAssignment.task_id.in_(
+                select(InspectionTask.id).where(InspectionTask.semester_id == semester_id)
+            ))
         where = and_(*conds) if conds else None
         base = select(AssignmentChangeRequest, InspectionAssignment.task_id).join(
             InspectionAssignment,
@@ -991,7 +1002,7 @@ class InspectionRepository:
             count_sub = count_sub.where(where)
         total = int(self._session.execute(count_sub).scalar_one())
         rows = self._session.execute(
-            base.order_by(AssignmentChangeRequest.id).limit(params.limit).offset(params.offset)
+            base.order_by(AssignmentChangeRequest.id.desc()).limit(params.limit).offset(params.offset)
         ).all()
         return [(r[0], int(r[1])) for r in rows], total
 

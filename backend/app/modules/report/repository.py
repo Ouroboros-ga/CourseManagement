@@ -56,11 +56,14 @@ class ReportRepository:
         week_no: int | None,
         date_from: date_ | None,
         date_to: date_ | None,
+        include_exceptions: bool = False,
     ) -> Select:
         clauses: list[Any] = [
             InspectionTask.semester_id == semester_id,
             InspectionTask.canceled_at.is_(None),
         ]
+        if not include_exceptions:
+            clauses.append(InspectionTask.exception_reported_at.is_(None))
         clauses.extend(self.dimensions.conditions())
         if self._college_ids is not None:
             clauses.append(InspectionTask.college_id.in_(self._college_ids))
@@ -75,6 +78,17 @@ class ReportRepository:
                 )
             )
         return select(InspectionTask.id).where(*clauses)
+
+    def exception_count(self, *, semester_id, week_no, date_from, date_to):
+        scope = self._task_ids_subq(
+            semester_id=semester_id, week_no=week_no,
+            date_from=date_from, date_to=date_to, include_exceptions=True,
+        )
+        return int(self._session.scalar(
+            select(func.count()).select_from(InspectionTask).where(
+                InspectionTask.id.in_(scope), InspectionTask.exception_reported_at.is_not(None),
+            )
+        ) or 0)
 
     @staticmethod
     def _approved_submission_exists(aliased_task_id: Any) -> ColumnElement[bool]:

@@ -19483,7 +19483,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED)$"
+                  "pattern": "^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED|EXCEPTION)$"
                 },
                 {
                   "type": "null"
@@ -19734,7 +19734,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED)$"
+                  "pattern": "^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED|EXCEPTION)$"
                 },
                 {
                   "type": "null"
@@ -20401,13 +20401,31 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "maxLength": 16
+                  "pattern": "^(PENDING|APPROVED|REJECTED)$"
                 },
                 {
                   "type": "null"
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Semester Id"
             }
           },
           {
@@ -21265,6 +21283,124 @@
             "HTTPBearer": []
           }
         ]
+      }
+    },
+    "/api/v1/inspection-tasks/{task_id}/exception": {
+      "post": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Report Task Exception",
+        "operationId": "report_task_exception_api_v1_inspection_tasks__task_id__exception_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCancelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Report Task Exception Api V1 Inspection Tasks  Task Id  Exception Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inspection-tasks/{task_id}/exception/clear": {
+      "post": {
+        "tags": [
+          "inspection"
+        ],
+        "summary": "Clear Task Exception",
+        "operationId": "clear_task_exception_api_v1_inspection_tasks__task_id__exception_clear_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCancelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Clear Task Exception Api V1 Inspection Tasks  Task Id  Exception Clear Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/inspection-tasks/{task_id}/submissions": {
@@ -22505,7 +22641,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED)$"
+                  "pattern": "^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED|EXCEPTION)$"
                 },
                 {
                   "type": "null"
@@ -22767,7 +22903,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED)$"
+                  "pattern": "^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED|EXCEPTION)$"
                 },
                 {
                   "type": "null"
@@ -23559,13 +23695,31 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "maxLength": 16
+                  "pattern": "^(PENDING|APPROVED|REJECTED)$"
                 },
                 {
                   "type": "null"
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "name": "semester_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Semester Id"
             }
           },
           {
@@ -24485,6 +24639,76 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response College Settle Deadlines Submission Deadlines Settle Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/colleges/{cid}/inspection-tasks/{task_id}/exception/clear": {
+      "post": {
+        "tags": [
+          "college-inspection"
+        ],
+        "summary": "College Clear Task Exception",
+        "operationId": "college_clear_task_exception_inspection_tasks__task_id__exception_clear_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCancelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response College Clear Task Exception Inspection Tasks  Task Id  Exception Clear Post"
                 }
               }
             }

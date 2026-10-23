@@ -35,7 +35,7 @@ const sessionStore = useSessionStore()
 const route = useRoute()
 const needsAttention = computed(() => ['unassigned', 'roster'].includes(String(route.query.needs_attention)) ? route.query.needs_attention as 'unassigned' | 'roster' : undefined)
 const attentionPage = ref(1), attentionTotal = ref(0)
-const summary = ref({ total: 0, assigned: 0, unassigned: 0, reviewed: 0, pending_change: 0, dates: {} as Record<string, number> })
+const summary = ref({ total: 0, assigned: 0, unassigned: 0, reviewed: 0, exception: 0, pending_change: 0, dates: {} as Record<string, number> })
 const taskEpoch = new ContextEpoch(() => JSON.stringify([sessionStore.currentUser?.id, sessionStore.workspaceCollegeId,
   sessionStore.currentSemesterId, sessionStore.currentWeekNo, needsAttention.value, attentionPage.value,
   deletedOnly.value, searchQuery.value, selectedStatus.value, selectedDayFilter.value, filterOnlyChangeRequests.value]))
@@ -157,7 +157,7 @@ async function fetchTasks() {
   }
 }
 
-const statusCodes: Record<string, string> = { '待执行': 'NOT_STARTED', '已逾期': 'OVERDUE', '已取消': 'CANCELLED', '已完成': 'REVIEWED' }
+const statusCodes: Record<string, string> = { '异常': 'EXCEPTION', '待执行': 'NOT_STARTED', '已逾期': 'OVERDUE', '已取消': 'CANCELLED', '已完成': 'REVIEWED' }
 const filteredTasks = computed(() => tasks.value)
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 watch([searchQuery, selectedStatus, selectedDayFilter, filterOnlyChangeRequests, deletedOnly, needsAttention,
@@ -329,6 +329,7 @@ async function handleExportTasks() {
       SUBMITTED: '待审核',
       REVIEWED: '已完成',
       CANCELLED: '已取消',
+      EXCEPTION: '异常',
       OVERDUE: '已逾期'
     }
     const statusStr = statusMap[t.status] || t.status || '待执行'
@@ -614,6 +615,8 @@ async function handleConfirmCancelFromEdit() {
       </div>
     </div>
 
+    <el-alert v-if="summary.exception" :title="`异常 ${summary.exception} 次：不计正常完成或有效应查次数，可筛选异常查看说明。`" type="warning" :closable="false" />
+
     <!-- 换班申请待处理提醒条 -->
     <div v-if="pendingChangeRequestsCount > 0" class="cr-alert-bar">
       <div class="cr-alert-left">
@@ -653,6 +656,7 @@ async function handleConfirmCancelFromEdit() {
             <option value="待执行">待执行</option>
             <option value="未分配">未分配</option>
             <option value="已逾期">已逾期</option>
+            <option value="异常">异常</option>
             <option value="已取消">已取消</option>
             <option value="已完成">已完成</option>
           </select>
@@ -824,7 +828,7 @@ async function handleConfirmCancelFromEdit() {
                     {{ (task as any).assignment?.change_request_status === 'PENDING' ? '处理调班' : ((task as any).assignment || task.assigned_volunteer_id ? '改派' : '人工指派') }}
                   </button>
                   <button
-                    v-if="task.status !== '已取消' && task.status !== 'CANCELLED' && task.status !== '已完成' && task.status !== 'REVIEWED'"
+                    v-if="!task.exception_reported_at && task.status !== '已取消' && task.status !== 'CANCELLED' && task.status !== '已完成' && task.status !== 'REVIEWED'"
                     class="btn btn-ghost btn-action inline-flex items-center gap-1"
                     @click="openEditTask(task)"
                   >

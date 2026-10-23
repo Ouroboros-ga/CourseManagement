@@ -92,6 +92,8 @@ class TaskGroupTransferService:
         )
         if task is None:
             raise NotFoundError()
+        if task.exception_reported_at is not None:
+            raise ConflictError(message="异常任务须先恢复后再变更执行组")
         if task.lock_version != version or task.canceled_at is not None:
             raise ConflictError(message="任务已变化或已取消")
         if task.inspection_date < business_today():

@@ -4,6 +4,7 @@ import { useSessionStore } from '../stores/session'
 import { usePageTabs } from '../composables/usePageTabs'
 import ScheduleView from './ScheduleView.vue'
 import TaskListView from './TaskListView.vue'
+import ChangeRequestsPanel from '../components/inspection/ChangeRequestsPanel.vue'
 import CampusWorkspace from '../components/workspace/CampusWorkspace.vue'
 import GroupOperations from '../components/campus/GroupOperations.vue'
 import ConfigurationImpacts from '../components/campus/ConfigurationImpacts.vue'
@@ -11,6 +12,7 @@ import CollegeDeadlines from '../components/campus/CollegeDeadlines.vue'
 const session = useSessionStore()
 const tabs = computed(() => [
   ...(session.hasPermission('inspection.read') || session.hasPermission('submission.read') ? [{ id: 'tasks', label: '任务与排班' }] : []),
+  ...(session.hasPermission('assignment.change_review') ? [{ id: 'change-requests', label: '换班申请' }] : []),
   ...(session.hasPermission('inspection.generate') ? [{ id: 'selection', label: '选择具体课次' }, { id: 'sampling', label: '组范围抽查' }] : []),
   ...(session.hasPermission('inspection.read') ? [{ id: 'impacts', label: '未来变更处置' }] : []),
   ...(session.hasPermission('submission_deadline.read') ? [{ id: 'deadlines', label: '提交截止' }] : [])
@@ -24,6 +26,7 @@ const tab = usePageTabs(() => tabs.value.map(row => row.id))
     <div class="tab-stage">
       <Transition name="tab-fade" mode="out-in">
         <TaskListView v-if="tab === 'tasks'" key="tasks" />
+        <ChangeRequestsPanel v-else-if="tab === 'change-requests'" key="change-requests" />
         <ScheduleView v-else-if="tab === 'selection'" key="selection" mode="inspection" />
         <CampusWorkspace v-else key="workspace" v-slot="scope">
           <Transition name="tab-fade" mode="out-in">

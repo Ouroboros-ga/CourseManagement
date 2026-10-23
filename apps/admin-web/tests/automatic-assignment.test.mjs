@@ -98,3 +98,12 @@ test('scope change while reading later pages discards the plan input', async () 
   })
   assert.equal(result.length, 0)
 })
+
+
+test('execution exceptions never enter automatic assignment, including compatibility states', () => {
+  const { isUnassignedTask } = targetLoader()
+  assert.equal(isUnassignedTask({ status: '异常' }), false)
+  assert.equal(isUnassignedTask({ status: 'EXCEPTION' }), false)
+  assert.equal(isUnassignedTask({ status: '待执行', exception_reported_at: '2026-10-23T10:00:00Z' }), false)
+  assert.equal(isUnassignedTask({ status: '待执行' }), true)
+})

@@ -144,6 +144,7 @@ export interface AttendanceStatsResponse {
   week_no?: number | null
   date_from?: string | null
   date_to?: string | null
+  exception_count: number
   eligible_task_count: number
   overall: OverallStats
   classes: ClassStatsItem[]

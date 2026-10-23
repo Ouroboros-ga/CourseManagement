@@ -392,6 +392,8 @@ class StaffRecordQueryService:
         for task in tasks:
             if task.canceled_at is not None:
                 result[task.id] = ("CANCELED", None)
+            elif task.exception_reported_at is not None:
+                result[task.id] = ("EXCEPTION", None)
             elif task.id in recorded:
                 result[task.id] = ("RECORDED", self._counts(by_task.get(task.id, {})))
             else:

@@ -318,7 +318,7 @@ def list_inspection_tasks(
     deleted_only: bool = False,
     keyword: Annotated[str | None, Query(max_length=128)] = None,
     status: Annotated[
-        str | None, Query(pattern="^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED)$")
+        str | None, Query(pattern="^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED|EXCEPTION)$")
     ] = None,
     pending_change: bool = False,
 ) -> dict[str, object]:
@@ -359,7 +359,7 @@ def export_inspection_tasks(
     deleted_only: bool = False,
     keyword: Annotated[str | None, Query(max_length=128)] = None,
     status: Annotated[
-        str | None, Query(pattern="^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED)$")
+        str | None, Query(pattern="^(NOT_STARTED|OVERDUE|SUBMITTED|REVIEWED|CANCELLED|EXCEPTION)$")
     ] = None,
     pending_change: bool = False,
 ) -> dict[str, object]:
@@ -486,9 +486,10 @@ def list_change_requests(
     service: ServiceDep,
     request: Request,
     params: Annotated[PageParams, Depends(page_params)],
-    status: Annotated[str | None, Query(max_length=16)] = None,
+    status: Annotated[str | None, Query(pattern="^(PENDING|APPROVED|REJECTED)$")] = None,
+    semester_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
 ) -> dict[str, object]:
-    data = service.list_change_requests(actor, params, status=status)
+    data = service.list_change_requests(actor, params, status=status, semester_id=semester_id)
     return success(data, _rid(request))
 
 
@@ -671,6 +672,24 @@ def settle_deadlines(
 # Wave P5c：查课提交（志愿者本人受派任务提交结果 + 本人历史读取）
 # ================================================================== #
 # ---- 提交查课结果（submission.create，仅本人当前受派任务，Service 内纵深校验）----
+@router.post("/inspection-tasks/{task_id}/exception")
+def report_task_exception(
+    task_id: int, body: TaskCancelRequest, actor: SubmissionCreateDep,
+    service: ServiceDep, request: Request,
+) -> dict[str, object]:
+    result = service.report_exception(actor, task_id, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+
+
+@router.post("/inspection-tasks/{task_id}/exception/clear")
+def clear_task_exception(
+    task_id: int, body: TaskCancelRequest, actor: InspectionCancelDep,
+    service: ServiceDep, request: Request,
+) -> dict[str, object]:
+    result = service.clear_exception(actor, task_id, body, _rid(request))
+    return success(result.model_dump(), _rid(request))
+
+
 @router.post("/inspection-tasks/{task_id}/submissions")
 def create_inspection_submission(
     task_id: int,

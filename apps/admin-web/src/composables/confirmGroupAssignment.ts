@@ -30,8 +30,8 @@ export async function confirmGroupPlan(collegeId: string, groupId: string, body:
   return { ...result, operation_warning_codes: warningCodes }
 }
 
-export async function confirmGroupAssignment(task: InspectionTaskItem, userId: string, reason = '') {
+export async function confirmGroupAssignment(task: InspectionTaskItem, userId: string, reason = '', isCurrent?: () => boolean) {
   return confirmGroupPlan(task.college_id || '', task.group_id || '', {
     semester_id: task.semester_id, task_ids: [task.id], assignments: { [task.id]: userId }, reason
-  })
+  }, { isCurrent })
 }

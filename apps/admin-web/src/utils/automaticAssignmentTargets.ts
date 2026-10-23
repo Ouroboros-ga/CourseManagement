@@ -2,7 +2,7 @@ import { listTasks, type InspectionTaskItem, type TaskListQuery } from '../api/t
 import { collectPages } from './collectPages'
 
 export function isUnassignedTask(task: InspectionTaskItem): boolean {
-  return !task.canceled_at && task.status !== '已取消' && !task.assignment?.volunteer_user_id && !task.assigned_volunteer_id
+  return !task.exception_reported_at && !['异常', 'EXCEPTION'].includes(task.status) && !task.canceled_at && task.status !== '已取消' && !task.assignment?.volunteer_user_id && !task.assigned_volunteer_id
 }
 
 /** Full filtered selection is an explicit batch action, independent of the visible 50-row page. */

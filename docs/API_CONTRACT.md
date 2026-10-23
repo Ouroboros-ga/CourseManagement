@@ -903,3 +903,13 @@ Web入口：“志愿者组织→组织与规则→组行的导入成员Excel”
 新 `POST /api/v1/academic/semesters/{semester_id}/period-definitions/initialize` 使用原学校写权限/超管守卫，返回 `{created,preserved}`，仅补齐缺少的预置1—12节，事务原子提交。已有时间不覆盖；非法已有配置导致整批拒绝。修改/删除仍被课表引用的学校节次返回409；改时走教务资料“作息与校历”的版本预览发布，删除先处置引用。现有任务时间快照保持原值。
 
 完整边界与小程序适配见 [自习时间修复](development/SELF_STUDY_CLOCK_TIME_20261023.md)。
+
+
+## 2026-10-23 查课执行异常（候选，未部署）
+
+接口、权限、版本、即时生效、截止历史与统计口径见 [异常交接契约](integration/WECHAT_TASK_EXCEPTION_HANDOFF_20261023.md) 和 [业务规则](development/TASK_EXECUTION_EXCEPTION_20261023.md)。上报复用 `TaskCancelRequest` 的 `lock_version/reason` 字段形状，但不会取消任务；异常只描述执行，不是学生考勤类型。
+
+
+## 2026-10-23 Web换班申请增补（候选）
+
+管理列表字段、分页/范围、处理锁顺序及旧预览失效约定见 [换班申请契约](development/CHANGE_REQUEST_WEB_20261023.md)。无新增路由，保留小程序原申请协议。
