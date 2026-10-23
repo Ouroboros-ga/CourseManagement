@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useDisplayPage } from '../composables/useDisplayPage'
 import AppPagination from '../components/AppPagination.vue'
+import { periodDuration, periodSlotName, periodCoverage } from '../utils/periodDefinitionPresentation'
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
@@ -13,6 +14,7 @@ import {
   type SemesterResetPreview,
   listPeriodDefinitions,
   upsertPeriodDefinition,
+  initializePeriodDefinitions,
   deletePeriodDefinition,
   listCalendarOverrides,
   createCalendarOverride,
@@ -430,25 +432,9 @@ async function fetchPeriods() {
   }
 }
 
-const periodCoverageText = computed(() => {
-  if (periods.value.length === 0) return ''
-  const firstObj = periods.value[0]
-  const lastObj = periods.value[periods.value.length - 1]
-  const first = firstObj && firstObj.start_time ? firstObj.start_time.slice(0, 5) : '08:10'
-  const last = lastObj && lastObj.end_time ? lastObj.end_time.slice(0, 5) : '21:15'
-  return `覆盖 ${first} 至 ${last} 高校标准作息`
-})
-
-function getPeriodSlotName(pNo: number): string {
-  if (pNo <= 4) return '上午'
-  if (pNo <= 9) return '下午'
-  return '晚间'
-}
-
-function getPeriodTagClass(pNo: number): string {
-  if (pNo <= 4) return 'tag-blue'
-  if (pNo <= 9) return 'tag-amber'
-  return 'tag-red'
+const periodCoverageText = computed(() => periodCoverage(periods.value))
+function getPeriodTagClass(row: PeriodDefinitionItem): string {
+  return { '上午': 'tag-blue', '下午': 'tag-amber', '晚间': 'tag-red', '未设置': '' }[periodSlotName(row)] || ''
 }
 
 function openEditPeriodDialog(p: PeriodDefinitionItem) {
@@ -508,47 +494,25 @@ async function handleDeletePeriod(p: PeriodDefinitionItem) {
     await deletePeriodDefinition(sessionStore.currentSemesterId, p.id)
     ElMessage.success(`第 ${p.period_no} 节作息定义已删除`)
     await fetchPeriods()
-  } catch {}
+  } catch (err: unknown) {
+    if (err !== 'cancel' && err !== 'close') ElMessage.error(err instanceof Error ? err.message : '删除节次失败')
+  }
 }
 
 async function handleInitDefaultPeriods() {
   if (!sessionStore.currentSemesterId) return
   try {
     await ElMessageBox.confirm(
-      '一键重置将根据高校标准作息表覆盖本学期第 1 至 12 节的上下课时间。确定继续吗？',
-      '标准作息重置确认',
-      { confirmButtonText: '确认重置', cancelButtonText: '取消', type: 'info' }
+      '仅补齐缺少的预置教学节次，不覆盖已配置时间。已有课表调整请使用学院作息版本的预览与发布。',
+      '补齐教学节次', { confirmButtonText: '确认补齐', cancelButtonText: '取消', type: 'info' }
     )
     periodsLoading.value = true
-    const standardPeriods = [
-      { no: 1, start: '08:10:00', end: '08:55:00' },
-      { no: 2, start: '09:00:00', end: '09:45:00' },
-      { no: 3, start: '10:05:00', end: '10:50:00' },
-      { no: 4, start: '10:55:00', end: '11:40:00' },
-      { no: 5, start: '13:30:00', end: '14:15:00' },
-      { no: 6, start: '14:20:00', end: '15:05:00' },
-      { no: 7, start: '15:25:00', end: '16:10:00' },
-      { no: 8, start: '16:15:00', end: '17:00:00' },
-      { no: 9, start: '17:05:00', end: '17:50:00' },
-      { no: 10, start: '18:50:00', end: '19:35:00' },
-      { no: 11, start: '19:40:00', end: '20:25:00' },
-      { no: 12, start: '20:30:00', end: '21:15:00' }
-    ]
-
-    await Promise.all(
-      standardPeriods.map(sp =>
-        upsertPeriodDefinition(sessionStore.currentSemesterId, sp.no, {
-          start_time: sp.start,
-          end_time: sp.end,
-          reason: '一键写入高校标准作息定义'
-        })
-      )
-    )
-    ElMessage.success('已成功写入高校标准 1–12 节作息时间表！')
+    const result = await initializePeriodDefinitions(sessionStore.currentSemesterId)
+    ElMessage.success(`已补齐 ${result.created} 个节次，保留 ${result.preserved} 个已有节次`)
     await fetchPeriods()
   } catch (err: unknown) {
-    const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '重置作息时间表失败'
-    ElMessage.error(msg)
+    if (err === 'cancel' || err === 'close') return
+    ElMessage.error(err instanceof Error ? err.message : '补齐教学节次失败')
   } finally {
     periodsLoading.value = false
   }
@@ -861,13 +825,13 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
           <div>
             <h3>高校节次作息时刻表 (Period Definitions)</h3>
             <div class="meta">
-              定义当前学期各小节上下课时刻。排课导入、点名任务生成与下发均以此时刻为时间锚点。
+              定义普通课教学节次。早晚自习在正式课表中按独立起止时间生成，不新增或占用教学节次。
             </div>
           </div>
           <div class="tbl-tools">
             <button class="btn btn-sm btn-ghost" @click="handleInitDefaultPeriods">
               <AppIcon name="refresh" :size="12" />
-              <span>一键恢复高校标准作息 (1–12节)</span>
+              <span>补齐缺失教学节次 (1–12节)</span>
             </button>
             <button class="btn btn-sm btn-dark" @click="openCreatePeriodDialog">
               <AppIcon name="plus" :size="12" />
@@ -883,7 +847,7 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
               <th style="width: 130px;">时段分类</th>
               <th style="width: 180px;">上课开始时刻</th>
               <th style="width: 180px;">下课结束时刻</th>
-              <th>单节学时</th>
+              <th>时长</th>
               <th style="width: 160px; text-align: right;">操作</th>
             </tr>
           </thead>
@@ -891,13 +855,13 @@ const { page: display2Page, rows: display2Rows, total: display2Total } = useDisp
             <tr v-for="p in display2Rows" :key="p.id">
               <td class="cell-main font-bold">第 {{ p.period_no }} 节</td>
               <td>
-                <span class="tag" :class="getPeriodTagClass(p.period_no)">
-                  {{ getPeriodSlotName(p.period_no) }}
+                <span class="tag" :class="getPeriodTagClass(p)">
+                  {{ periodSlotName(p) }}
                 </span>
               </td>
               <td class="cell-mono font-bold">{{ p.start_time ? p.start_time.slice(0, 5) : '—' }}</td>
               <td class="cell-mono font-bold">{{ p.end_time ? p.end_time.slice(0, 5) : '—' }}</td>
-              <td class="cell-sub">45 分钟标准学时</td>
+              <td class="cell-sub">{{ periodDuration(p) }}</td>
               <td style="text-align: right;">
                 <div class="flex items-center justify-end gap-3">
                   <button class="btn-text text-xs t-blue hover:underline" @click="openEditPeriodDialog(p)">

@@ -347,6 +347,8 @@ class AdminClassBrief(BaseModel):
 
 
 class MasterTimetableItemResponse(BaseModel):
+    time_basis: str = "PERIODS"
+    time_label: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: IdStr  # schedule_id

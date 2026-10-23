@@ -21,7 +21,7 @@ from app.modules.academic.models import (
 from app.modules.identity.repository import IdentityRepository
 
 MAX_EXPORT_ROWS = 10000
-HEADERS = ("教学班", "课程", "教师", "周次", "星期", "开始节次", "结束节次", "教室")
+HEADERS = ("教学班", "课程", "教师", "周次", "星期", "开始节次/时刻", "结束节次/时刻", "教室")
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
@@ -119,6 +119,25 @@ class CourseScheduleExportService:
                 .order_by(CourseScheduleWeek.schedule_id, CourseScheduleWeek.week_no)
             ):
                 weeks[schedule_id].append(week_no)
+        from app.modules.academic.time_service import TimeResolver
+        from app.modules.identity.role_scope import business_today
+        resolver = TimeResolver(self._session)
+        clocks = {}
+        semester = self._session.get(Semester, semester_id)
+        assert semester is not None  # 已在授权入口验证学期存在。
+        day = min(max(business_today(), semester.start_date), semester.end_date)
+        for cid in {tc.college_id for _, tc, _ in records if tc.time_profile_id}:
+            if cid is not None:
+                resolver.prefetch(cid, semester_id)
+        for schedule, tc, _ in records:
+            version = (resolver.version(tc.college_id, semester_id, day,
+                profile_id=tc.time_profile_id) if tc.time_profile_id else None)
+            if version and version.configuration.get("time_basis") == "CLOCK":
+                timing = resolver.interval(tc.college_id, semester_id, day, schedule.start_period,
+                    schedule.end_period, teaching_class_id=tc.id)
+                clocks[schedule.id] = (
+                    f"{timing['start_minute'] // 60:02}:{timing['start_minute'] % 60:02}",
+                    f"{timing['end_minute'] // 60:02}:{timing['end_minute'] % 60:02}")
         rows = [
             (
                 teaching_class.class_name,
@@ -126,8 +145,8 @@ class CourseScheduleExportService:
                 schedule.teacher or teaching_class.teacher_name or "",
                 ",".join(str(week) for week in weeks[schedule.id]),
                 schedule.weekday,
-                schedule.start_period,
-                schedule.end_period,
+                clocks[schedule.id][0] if schedule.id in clocks else schedule.start_period,
+                clocks[schedule.id][1] if schedule.id in clocks else schedule.end_period,
                 schedule.classroom or "",
             )
             for schedule, teaching_class, course in records

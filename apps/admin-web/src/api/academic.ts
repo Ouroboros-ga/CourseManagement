@@ -240,6 +240,8 @@ export interface MasterTimetableItem {
   head_teacher?: string | null
   counselor?: string | null
   weekday: number
+  time_basis?: string
+  time_label?: string | null
   start_period: number
   end_period: number
   classroom?: string | null
@@ -510,3 +512,6 @@ export async function exportCourseSchedulesExcel(semesterId: string | number): P
 }
 
 
+
+export const initializePeriodDefinitions = (semesterId: string | number) =>
+  request<{ created: number; preserved: number }>(`/api/v1/academic/semesters/${semesterId}/period-definitions/initialize`, { method: 'POST' })

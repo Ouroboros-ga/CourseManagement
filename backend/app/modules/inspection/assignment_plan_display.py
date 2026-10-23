@@ -53,6 +53,7 @@ def plan_display(
                 "inspection_date": task.inspection_date.isoformat(),
                 "start_period": task.start_period,
                 "end_period": task.end_period,
+                "time_snapshot": task.time_snapshot,
             }
             for task in tasks
         },

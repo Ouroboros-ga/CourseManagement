@@ -434,6 +434,8 @@ class StaffRecordQueryService:
                      if task.activity_end_at else None),
             start_period=task.start_period,
             end_period=task.end_period,
+            time_basis=(task.time_snapshot or {}).get("time_basis", "PERIODS"),
+            time_label=(task.time_snapshot or {}).get("time_label"),
             classroom=task.classroom_snapshot,
             location_revision=location_revision,
             attendance_state=state,
@@ -642,6 +644,7 @@ class StaffRecordQueryService:
             TaskRosterMember.class_name_snapshot.label("class_snapshot"),
             InspectionTask.inspection_date, InspectionTask.course_name_snapshot,
             InspectionTask.start_period, InspectionTask.end_period,
+            InspectionTask.time_snapshot,
             InspectionTask.classroom_snapshot, TaskRosterMember.student_no,
             TaskRosterMember.name.label("student_name"),
             AttendanceRecord.effective_type, AttendanceRecord.current_version,
@@ -665,7 +668,9 @@ class StaffRecordQueryService:
                         "college_name": item["college_name"] or "",
                         "inspection_date": item["inspection_date"].isoformat(),
                         "course_name": item["course_name_snapshot"] or "",
-                        "period_desc": f"第{item['start_period']}-{item['end_period']}节",
+                        "period_desc": ((item["time_snapshot"] or {}).get("time_label")
+                            if (item["time_snapshot"] or {}).get("time_basis") == "CLOCK"
+                            else f"第{item['start_period']}-{item['end_period']}节"),
                         "classroom": item["classroom_snapshot"] or "",
                         "student_no": item["student_no"],
                         "student_name": item["student_name"],

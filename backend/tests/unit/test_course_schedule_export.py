@@ -13,7 +13,7 @@ def test_export_columns_and_formula_like_text_are_literal() -> None:
     sheet = book.active
     assert sheet is not None
     assert list(next(sheet.values)) == [
-        "教学班", "课程", "教师", "周次", "星期", "开始节次", "结束节次", "教室"
+        "教学班", "课程", "教师", "周次", "星期", "开始节次/时刻", "结束节次/时刻", "教室"
     ]
     cells = list(sheet.iter_rows())[1]
     assert [cell.value for cell in cells] == list(rows[0])

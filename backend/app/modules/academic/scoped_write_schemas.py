@@ -1,7 +1,7 @@
-from datetime import date
+from datetime import date, time
 from typing import Annotated
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.modules.academic import schemas as legacy
 from app.modules.identity.role_scope import business_today
@@ -69,12 +69,32 @@ class SelfStudyBatchCreate(StrictModel):
     class_ids: list[PositiveId] = Field(min_length=1, max_length=200)
     weeks: list[int] = Field(min_length=1, max_length=60)
     weekdays: list[int] = Field(min_length=1, max_length=7)
-    start_period: int = Field(ge=1, le=60)
-    end_period: int = Field(ge=1, le=60)
+    start_time: time | None = None
+    end_time: time | None = None
+    # 旧调用兼容；新界面仅提交实际时刻，不能同时混用两种时间来源。
+    start_period: int | None = Field(default=None, ge=1, le=60)
+    end_period: int | None = Field(default=None, ge=1, le=60)
     classrooms: dict[str, str] = Field(default_factory=dict)
     default_classroom: str | None = Field(default=None, max_length=128)
     teacher_name: str | None = Field(default=None, max_length=128)
     reason: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def timing(self):
+        clocks = self.start_time is not None or self.end_time is not None
+        periods = self.start_period is not None or self.end_period is not None
+        if clocks == periods:
+            raise ValueError("请填写独立起止时间，不要混用教学节次")
+        if clocks:
+            if self.start_time is None or self.end_time is None or self.start_time >= self.end_time:
+                raise ValueError("开始时间须早于结束时间，跨日时段须拆开")
+            if any(t.tzinfo or t.second or t.microsecond for t in (self.start_time, self.end_time)):
+                raise ValueError("自习时刻须为本地分钟精度")
+        elif self.start_period is None or self.end_period is None:
+            raise ValueError("教学节次范围无效")
+        if any(not 1 <= d <= 7 for d in self.weekdays):
+            raise ValueError("星期须为1至7")
+        return self
 
 
 CREATE_SCHEMAS = {

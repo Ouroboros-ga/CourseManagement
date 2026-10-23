@@ -83,6 +83,11 @@ def master_timetable(
     roster_cache = {}
     roster_details_cache = {}
     result = []
+    from app.core.config import get_settings
+    from app.modules.academic.time_service import TimeResolver
+
+    resolver = TimeResolver(service.db)
+    resolver.prefetch(service.college_id, semester.id)
     for schedule, teaching, course in rows:
         weeks = sorted(row.week_no for row in schedule.weeks)
         if week_no is not None and week_no not in weeks:
@@ -128,6 +133,10 @@ def master_timetable(
             continue
         physical = is_physical_education(course.course_name)
         item = MasterTimetableItemResponse(
+            **({k: v for k, v in resolver.interval(
+                service.college_id, semester.id, day, schedule.start_period, schedule.end_period,
+                teaching_class_id=teaching.id).items() if k in ("time_basis", "time_label")}
+               if get_settings().campus_scheduling_enabled else {}),
             id=schedule.id,
             semester_id=semester.id,
             course_id=course.id,

@@ -1129,7 +1129,7 @@ const { page: classPage, rows: classRows, total: classTotal } = useDisplayPage((
             <div>
               <div class="t-name font-bold">{{ t.course_name_snapshot || '课程' }} · {{ t.class_name_snapshot || '教学班' }}</div>
               <div class="t-sub font-mono">
-                {{ t.inspection_date }} {{ formatPeriodText(t.start_period, t.end_period) }} · {{ t.classroom_snapshot || '教室' }}
+                {{ t.inspection_date }} {{ formatPeriodText(t.start_period, t.end_period, t) }} · {{ t.classroom_snapshot || '教室' }}
               </div>
             </div>
             <button class="btn btn-sm btn-dark" @click="assignTaskToStudent(t)">指派此课 →</button>

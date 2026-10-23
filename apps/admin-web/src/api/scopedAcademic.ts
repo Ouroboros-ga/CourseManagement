@@ -24,8 +24,8 @@ export interface SelfStudyBatchBody {
   class_ids: Array<number | string>
   weeks: number[]
   weekdays: number[]
-  start_period: number
-  end_period: number
+  start_time: string
+  end_time: string
   classrooms?: Record<string, string>
   default_classroom?: string | null
   teacher_name?: string | null

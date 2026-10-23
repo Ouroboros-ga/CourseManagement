@@ -49,6 +49,7 @@ from app.modules.academic.models import (
     VolunteerQualification,
 )
 from app.modules.academic.repository import AcademicRepository
+from app.modules.organization.service import atomic_write
 from app.modules.academic.schemas import (
     AdminClassBrief,
     AdministrativeClassCreateRequest,
@@ -337,6 +338,7 @@ class AcademicService:
     # ================================================================== #
     # 节次定义（学期子资源）
     # ================================================================== #
+    @atomic_write
     def upsert_period_definition(
         self,
         actor: CurrentUser,
@@ -363,6 +365,16 @@ class AcademicService:
                 ErrorCode.VALIDATION_ERROR, "节次结束时刻须晚于开始时刻", http_status=422
             )
         existing = self._repo.get_period_definition_by_no(sem.id, period_no)
+        from app.modules.academic.period_definitions import referenced, snapshot, validate_order
+        before = snapshot(existing) if existing else None
+        if (
+            existing
+            and (existing.start_time, existing.end_time) != (body.start_time, body.end_time)
+            and referenced(self._session, sem.id, period_no)
+        ):
+            raise ConflictError(
+                message="该节次仍被课表引用；请通过学院作息版本预览影响后调整，不能直接覆盖学校节次"
+            )
         created = existing is None
         pd = (
             existing
@@ -373,14 +385,18 @@ class AcademicService:
             self._repo.add(pd)
         pd.start_time = body.start_time
         pd.end_time = body.end_time
+        with self._session.no_autoflush:
+            others = [r for r in self._repo.list_period_definitions(sem.id)
+                      if r.period_no != period_no]
+        validate_order([*others, pd])
         self._repo.flush()
         self._record_audit(
             actor_user_id=actor.id,
             action="academic.period_definition.upsert",
             resource_type="period_definition",
             resource_id=str(pd.id),
-            before=None if created else {"start_time": str(pd.start_time or "")},
-            after={"period_no": pd.period_no, "semester_id": sem.id},
+            before=before,
+            after=snapshot(pd),
             reason=body.reason,
             request_id=request_id,
         )
@@ -393,6 +409,14 @@ class AcademicService:
         rows = self._repo.list_period_definitions(semester_id)
         return [PeriodDefinitionResponse.model_validate(r) for r in rows]
 
+    @atomic_write
+    def initialize_period_definitions(self, actor, semester_id, request_id):
+        self._require_actor_permission(actor.id, PermissionCode.ACADEMIC_MANAGE.value)
+        self._require_active_semester(semester_id)
+        from app.modules.academic.period_definitions import initialize
+        return initialize(self, actor, semester_id, request_id)
+
+    @atomic_write
     def delete_period_definition(
         self,
         actor: CurrentUser,
@@ -406,13 +430,18 @@ class AcademicService:
         pd = self._repo.get_period_definition(period_id)
         if pd is None or pd.semester_id != semester_id:
             raise NotFoundError("节次定义不存在")
+        from app.modules.academic.period_definitions import referenced, snapshot
+        if referenced(self._session, semester_id, pd.period_no):
+            raise ConflictError(
+                message="该节次仍被课表引用，请先迁移或删除引用的排课后再删除节次；历史任务保留原时间"
+            )
         self._session.delete(pd)
         self._record_audit(
             actor_user_id=actor.id,
             action="academic.period_definition.delete",
             resource_type="period_definition",
             resource_id=str(period_id),
-            before={"period_no": pd.period_no},
+            before=snapshot(pd),
             after=None,
             reason=reason,
             request_id=request_id,

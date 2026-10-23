@@ -26,6 +26,8 @@ class AttendanceTaskBrief(BaseModel):
     """考勤所属查课任务的展示信息（列表按任务上下文回看，技术方案 14）。"""
 
     task_id: IdStr
+    time_basis: str = "PERIODS"
+    time_label: str | None = None
     inspection_date: date
     inspection_type: str
     course_name_snapshot: str | None = None
@@ -131,6 +133,8 @@ class AttendanceCounts(BaseModel):
 
 
 class AttendanceGroup(AttendanceCounts):
+    time_basis: str = "PERIODS"
+    time_label: str | None = None
     task_id: OptIdStr = None
     course_name: str | None = None
     teaching_class_name: str | None = None

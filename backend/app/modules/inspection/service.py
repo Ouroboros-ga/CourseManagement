@@ -914,6 +914,7 @@ class InspectionService:
             InspectionTask.week_no,
             InspectionTask.start_period,
             InspectionTask.end_period,
+            InspectionTask.time_snapshot,
             InspectionTask.course_name_snapshot,
             InspectionTask.class_name_snapshot,
             InspectionTask.classroom_snapshot,

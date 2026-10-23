@@ -54,3 +54,5 @@
 
 - [2026-10-20 统一分页正式发布与成套回滚记录](development/LIST_PAGINATION_RELEASE_20261020.md)
 - [2026-10-20 全校操作日志查看页发布记录](development/AUDIT_LOG_VIEWER_RELEASE_20261020.md)
+
+- [普通课节次与自习独立时间：业务边界、接口和发布记录](development/SELF_STUDY_CLOCK_TIME_20261023.md)

@@ -106,14 +106,14 @@ onUnmounted(() => epoch.invalidate())
       <el-form-item label="方案名称"><el-input v-model="draft.name" /></el-form-item>
       <el-form-item label="新版本生效日期"><el-date-picker v-model="draft.configuration.effective_from" type="date" value-format="YYYY-MM-DD" /></el-form-item>
       <el-table :data="draft.configuration.periods">
-        <el-table-column label="节次" width="140"><template #default="{ row }"><el-input-number v-model="row.period_no" :min="1" :max="60" :disabled="busy || current?.status === 'ARCHIVED'" /></template></el-table-column>
+        <el-table-column label="时间来源" width="160"><template #default="{ row }"><span v-if="draft.configuration.time_basis === 'CLOCK'">独立自习时段</span><el-input-number v-else v-model="row.period_no" :min="1" :max="60" :disabled="busy || current?.status === 'ARCHIVED'" /></template></el-table-column>
         <el-table-column label="稳定标识"><template #default="{ row }">{{ row.slot_id || `period-${row.period_no}` }}</template></el-table-column>
         <el-table-column label="时段名称"><template #default="{ row }"><el-input v-model="row.name" placeholder="如早自习、第一节" :disabled="busy || current?.status === 'ARCHIVED'" /></template></el-table-column>
         <el-table-column label="开始"><template #default="{ row }"><el-time-select v-model="row.start_time" start="00:00" end="23:55" step="00:05" :disabled="busy || current?.status === 'ARCHIVED'" /></template></el-table-column>
         <el-table-column label="结束"><template #default="{ row }"><el-time-select v-model="row.end_time" start="00:00" end="23:55" step="00:05" :disabled="busy || current?.status === 'ARCHIVED'" /></template></el-table-column>
         <el-table-column label="操作"><template #default="{ $index }"><el-button :disabled="busy || current?.status === 'ARCHIVED' || draft.configuration.periods.length <= 1" @click="draft.configuration.periods.splice($index, 1)">移除</el-button></template></el-table-column>
       </el-table>
-      <el-button @click="addPeriod">添加时段</el-button>
+      <el-button v-if="draft.configuration.time_basis !== 'CLOCK'" @click="addPeriod">添加时段</el-button>
       <el-button :disabled="!draft.name || !semesterId" @click="execute('save')">保存草稿</el-button>
       <el-button v-if="current" @click="execute('publish')">预览并发布已保存草稿</el-button>
       <el-button v-if="current" @click="execute('archive')">归档</el-button>

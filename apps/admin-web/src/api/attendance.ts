@@ -4,6 +4,8 @@ export type AttendanceType = 'NORMAL' | 'LEAVE' | 'LATE' | 'ABSENT'
 export type AttendanceSourceType = 'SUBMISSION' | 'CORRECTION' | 'OBJECTION_FINAL'
 
 export interface AttendanceTaskBrief {
+  time_basis?: string
+  time_label?: string | null
   task_id: string
   responsible_college_id?: string | null
   responsible_college_name?: string | null
@@ -83,6 +85,8 @@ export interface AttendanceCounts {
   late_count: number; absent_count: number; leave_count: number
 }
 export interface AttendanceGroup extends AttendanceCounts {
+  time_basis?: string
+  time_label?: string | null
   task_id?: string; course_name?: string | null; teaching_class_name?: string | null
   inspection_date?: string; start_period?: number; end_period?: number; classroom?: string | null
   volunteer_name?: string | null; administrative_class_id?: string | null; class_name?: string | null

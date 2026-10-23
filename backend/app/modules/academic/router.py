@@ -55,6 +55,7 @@ def guard_legacy_academic(
         name = getattr(route, "name", None)
         shared_reads = {"list_semesters", "get_semester", "list_period_definitions", "list_calendar_overrides"}
         shared_writes = {"create_semester", "update_semester", "upsert_period_definition",
+                         "initialize_period_definitions",
                          "delete_period_definition", "create_calendar_override", "delete_calendar_override"}
         from app.modules.identity.repository import IdentityRepository
         school_admin = "SUPER_ADMIN" in IdentityRepository(db).list_role_codes(actor.id)
@@ -155,6 +156,14 @@ def reset_semester_data(
 # =========================================================================== #
 # 节次定义
 # =========================================================================== #
+@router.post("/semesters/{semester_id}/period-definitions/initialize")
+def initialize_period_definitions(
+    semester_id: int, actor: AcademicManageDep, service: ServiceDep, request: Request
+):
+    result = service.initialize_period_definitions(actor, semester_id, _rid(request))
+    return success(result, _rid(request))
+
+
 @router.put("/semesters/{semester_id}/period-definitions/{period_no}")
 def upsert_period_definition(
     semester_id: int,

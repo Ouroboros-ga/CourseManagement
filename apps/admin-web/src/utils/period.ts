@@ -47,8 +47,12 @@ export const PERIOD_PRESET_OPTIONS = [
 export function formatPeriodText(
   start?: number | null,
   end?: number | null,
-  _withTime: boolean = false
+  context: boolean | { time_basis?: string; time_label?: string | null; time_snapshot?: Record<string, unknown> | null } = false
 ): string {
+  if (typeof context === 'object') {
+    const timing = context.time_snapshot || context
+    if (timing.time_basis === 'CLOCK') return String(timing.time_label || '自习时间待核对')
+  }
   if (start == null && end == null) return '—'
   const s = start ?? end ?? 1
   const e = end ?? start ?? 1

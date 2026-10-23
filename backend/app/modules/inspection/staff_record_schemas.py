@@ -51,6 +51,8 @@ class StaffInspectionRecordCard(BaseModel):
     responsible_college: CollegeBrief
     inspection_date: str
     starts_at: str | None = None
+    time_basis: str = "PERIODS"
+    time_label: str | None = None
     ends_at: str | None = None
     start_period: int | None = None
     end_period: int | None = None

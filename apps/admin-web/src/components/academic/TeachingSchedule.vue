@@ -201,8 +201,8 @@ const selfStudyForm = ref({
   start_week: 1,
   end_week: 18,
   weekdays: [1, 2, 3, 4, 5] as number[],
-  period_start: 1,
-  period_end: 2,
+  start_time: '07:30',
+  end_time: '07:50',
   classroom: '',
   teacher_name: '',
   remark: ''
@@ -562,11 +562,11 @@ async function triggerDispatch() {
 // ---- 批量生成早/晚自习逻辑 ----
 function handleSelfStudyTypeChange() {
   if (selfStudyForm.value.self_study_type === 'morning_study') {
-    selfStudyForm.value.period_start = 1
-    selfStudyForm.value.period_end = 2
+    selfStudyForm.value.start_time = '07:30'
+    selfStudyForm.value.end_time = '07:50'
   } else {
-    selfStudyForm.value.period_start = 9
-    selfStudyForm.value.period_end = 10
+    selfStudyForm.value.start_time = '18:50'
+    selfStudyForm.value.end_time = '20:25'
   }
 }
 
@@ -581,8 +581,8 @@ function openSelfStudyDialog() {
     start_week: 1,
     end_week: sessionStore.totalWeeks || 18,
     weekdays: [1, 2, 3, 4, 5],
-    period_start: 1,
-    period_end: 2,
+    start_time: '07:30',
+    end_time: '07:50',
     classroom: '',
     teacher_name: '',
     remark: ''
@@ -638,25 +638,29 @@ async function handleBatchSubmitSelfStudy() {
     ElMessage.warning('起始周次不能大于结束周次')
     return
   }
-  if (selfStudyForm.value.period_start > selfStudyForm.value.period_end) {
-    ElMessage.warning('开始节次不能大于结束节次')
+  if (!selfStudyForm.value.start_time || !selfStudyForm.value.end_time || selfStudyForm.value.start_time >= selfStudyForm.value.end_time) {
+    ElMessage.warning('请选择有效的起止时间，开始须早于结束')
     return
   }
 
   selfStudySubmitting.value = true
   try {
+    await ElMessageBox.confirm(
+      `${selfStudyForm.value.self_study_type === 'morning_study' ? '早自习' : '晚自习'} · ${selfStudyForm.value.start_time}—${selfStudyForm.value.end_time}；${selfStudyForm.value.selected_class_ids.length} 个班，第 ${selfStudyForm.value.start_week}—${selfStudyForm.value.end_week} 周，星期 ${selfStudyForm.value.weekdays.join('、')}。请核对后生成；学校教学节次保持原定义。`,
+      '核对自习安排', { confirmButtonText: '确认生成', cancelButtonText: '返回修改', type: 'info' }
+    )
     const weeks = Array.from(
       { length: selfStudyForm.value.end_week - selfStudyForm.value.start_week + 1 },
       (_, i) => selfStudyForm.value.start_week + i
     )
     const res = await batchCreateSelfStudy(cid, {
       study_type: selfStudyForm.value.self_study_type === 'morning_study' ? 'EARLY' : 'LATE',
-      semester_id: Number(sessionStore.currentSemesterId),
-      class_ids: selfStudyForm.value.selected_class_ids.map(Number),
+      semester_id: sessionStore.currentSemesterId,
+      class_ids: selfStudyForm.value.selected_class_ids,
       weeks,
       weekdays: selfStudyForm.value.weekdays,
-      start_period: selfStudyForm.value.period_start,
-      end_period: selfStudyForm.value.period_end,
+      start_time: selfStudyForm.value.start_time,
+      end_time: selfStudyForm.value.end_time,
       default_classroom: selfStudyForm.value.classroom.trim() || undefined,
       teacher_name: selfStudyForm.value.teacher_name.trim() || undefined,
       reason: selfStudyForm.value.remark.trim() || undefined
@@ -683,6 +687,7 @@ async function handleBatchSubmitSelfStudy() {
       await loadData()
     }
   } catch (err: unknown) {
+    if (err === 'cancel' || err === 'close') return
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '批量生成自习排课失败'
     ElMessage.error(msg)
   } finally {
@@ -1163,7 +1168,7 @@ function applySmartSample() {
                 <td class="cell-mono font-medium">{{ item.inspection_date }}</td>
                 <td>
                   <div class="font-bold">周{{ formatWeekday(item.inspection_date) }}</div>
-                  <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period) }}</div>
+                  <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period, item) }}</div>
                 </td>
                 <td>
                   <div class="cell-main font-semibold">{{ item.course_name }}</div>
@@ -1229,7 +1234,7 @@ function applySmartSample() {
             <tr v-for="t in weekTasks" :key="t.id">
               <td class="cell-mono code">#{{ t.id }}</td>
               <td>{{ t.inspection_date }}</td>
-              <td class="cell-mono">{{ formatPeriodText(t.start_period, t.end_period) }}</td>
+              <td class="cell-mono">{{ formatPeriodText(t.start_period, t.end_period, t) }}</td>
               <td>{{ t.course_name_snapshot || '—' }}</td>
               <td>{{ t.class_name_snapshot || '—' }}</td>
               <td>{{ t.classroom_snapshot || '—' }}</td>
@@ -1335,7 +1340,7 @@ function applySmartSample() {
               <tr v-for="item in visibleMasterRows" :key="item.id">
                 <td>
                   <div class="font-bold">周{{ item.weekday }}</div>
-                  <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period) }}</div>
+                  <div class="cell-sub font-mono">{{ formatPeriodText(item.start_period, item.end_period, item) }}</div>
                 </td>
                 <td>
                   <div class="cell-main font-bold">{{ item.course_name }}</div>
@@ -2029,7 +2034,7 @@ function applySmartSample() {
               <span class="cr-class">{{ item.class_name }}</span>
             </div>
             <div class="cr-right font-mono">
-              <span class="cell-main">{{ item.inspection_date }} (周{{ formatWeekday(item.inspection_date) }})</span> · {{ formatPeriodText(item.start_period, item.end_period) }} · {{ item.classroom }}
+              <span class="cell-main">{{ item.inspection_date }} (周{{ formatWeekday(item.inspection_date) }})</span> · {{ formatPeriodText(item.start_period, item.end_period, item) }} · {{ item.classroom }}
             </div>
           </div>
           <div v-if="smartSampleResult.items.length > 15" class="more-row font-mono">
@@ -2088,14 +2093,14 @@ function applySmartSample() {
               <input type="radio" v-model="selfStudyForm.self_study_type" value="morning_study" @change="handleSelfStudyTypeChange" />
               <div>
                 <div class="rt">早自习 (Morning Study)</div>
-                <div class="rs">通常安排在清晨或上午第 1-2 节前/时段</div>
+                <div class="rs">按学院实际晨间起止时间安排，不占用普通课节次</div>
               </div>
             </label>
             <label class="radio-card" :class="{ selected: selfStudyForm.self_study_type === 'evening_study' }">
               <input type="radio" v-model="selfStudyForm.self_study_type" value="evening_study" @change="handleSelfStudyTypeChange" />
               <div>
                 <div class="rt">晚自习 (Evening Study)</div>
-                <div class="rs">通常安排在晚间第 9-10 节或 10-11 节时段</div>
+                <div class="rs">按学院实际晚间起止时间安排，不换算为教学节次</div>
               </div>
             </label>
           </div>
@@ -2168,25 +2173,21 @@ function applySmartSample() {
             </div>
           </div>
           <div>
-            <label class="form-label mb-1">节次时段 (节)</label>
+            <label class="form-label mb-1">自习起止时间</label>
             <div class="flex items-center gap-2">
               <input
-                v-model.number="selfStudyForm.period_start"
-                type="number"
-                min="1"
-                max="20"
-                class="input text-center font-mono w-20"
+                v-model="selfStudyForm.start_time"
+                type="time"
+                class="input font-mono self-study-clock-input"
               />
               <span class="dim">至</span>
               <input
-                v-model.number="selfStudyForm.period_end"
-                type="number"
-                min="1"
-                max="20"
-                class="input text-center font-mono w-20"
+                v-model="selfStudyForm.end_time"
+                type="time"
+                class="input font-mono self-study-clock-input"
               />
-              <span class="dim-note font-mono">第 {{ selfStudyForm.period_start }}-{{ selfStudyForm.period_end }} 节</span>
             </div>
+            <p class="dim-note">独立时段，不占用学校教学节次；默认时间请按学院实际情况调整。</p>
           </div>
         </div>
 
@@ -2264,6 +2265,7 @@ function applySmartSample() {
 </template>
 
 <style scoped>
+.self-study-clock-input { width: 125px; min-width: 110px; }
 .import-only-panel {
   max-width: 620px;
   margin: 32px auto;

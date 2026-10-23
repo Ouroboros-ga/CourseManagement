@@ -322,7 +322,7 @@ async function handleExportTasks() {
   }
   const headers = ['任务编号', '查课日期', '周次', '节次', '课程名称', '教学班级', '查课教室', '受派志愿者', '任务状态']
   const rows = exportRows.map(t => {
-    const periodStr = formatPeriodText(t.start_period, t.end_period)
+    const periodStr = formatPeriodText(t.start_period, t.end_period, t)
     const volName = t.assigned_volunteer_name || (t as any).assignment?.volunteer_name || '未指派'
     const statusMap: Record<string, string> = {
       NOT_STARTED: '待执行',
@@ -727,9 +727,9 @@ async function handleConfirmCancelFromEdit() {
               <td>
                 <div
                   class="cell-main font-medium"
-                  :title="`${formatTaskDateWithWeekday(task.inspection_date)} ${formatPeriodText(task.start_period, task.end_period)}`"
+                  :title="`${formatTaskDateWithWeekday(task.inspection_date)} ${formatPeriodText(task.start_period, task.end_period, task)}`"
                 >
-                  {{ formatTaskDateWithWeekday(task.inspection_date) }} {{ formatPeriodText(task.start_period, task.end_period) }}
+                  {{ formatTaskDateWithWeekday(task.inspection_date) }} {{ formatPeriodText(task.start_period, task.end_period, task) }}
                 </div>
                 <div class="cell-sub" :title="task.classroom_snapshot || ''">
                   {{ task.classroom_snapshot || '未指定教室' }}
@@ -910,7 +910,7 @@ async function handleConfirmCancelFromEdit() {
           <div class="task-info-meta">
             <span>教学班：{{ assigningTask.class_name_snapshot || '—' }}</span>
             <span>·</span>
-            <span>{{ assigningTask.inspection_date }} {{ formatPeriodText(assigningTask.start_period, assigningTask.end_period) }}</span>
+            <span>{{ assigningTask.inspection_date }} {{ formatPeriodText(assigningTask.start_period, assigningTask.end_period, assigningTask) }}</span>
             <span>·</span>
             <span>教室：{{ assigningTask.classroom_snapshot || '未指定教室' }}</span>
           </div>

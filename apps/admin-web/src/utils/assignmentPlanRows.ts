@@ -11,6 +11,7 @@ export function assignmentPlanRows(plan: AssignmentPlan, fallback: InspectionTas
       teachingClassName: task?.teaching_class_name || legacy?.class_name_snapshot || '—',
       classroom: task?.classroom || legacy?.classroom_snapshot || '地点未填写',
       inspectionDate: task?.inspection_date || legacy?.inspection_date || '',
+      time_snapshot: task?.time_snapshot,
       startPeriod: task?.start_period ?? legacy?.start_period,
       endPeriod: task?.end_period ?? legacy?.end_period,
     }

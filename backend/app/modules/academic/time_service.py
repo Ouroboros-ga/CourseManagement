@@ -68,6 +68,8 @@ class CollegeTimeService:
                 raise ConflictError(message="作息方案已归档或不属于本院本学期")
             if body.calendar or body.grid_slot_mapping:
                 raise ConflictError(message="教学班方案只调整时段；校历与教务映射统一由学院默认方案管理")
+        elif body.time_basis != "PERIODS":
+            raise ConflictError(message="学院默认作息必须使用教学节次，独立时段请使用专用方案")
         stmt = select(Semester).where(Semester.id == self.sid)
         if lock:
             stmt = stmt.with_for_update().execution_options(populate_existing=True)
@@ -350,6 +352,10 @@ class TimeResolver:
         return {
             "start_minute": first.hour * 60 + first.minute,
             "end_minute": last.hour * 60 + last.minute,
+            "time_basis": (
+                version.configuration.get("time_basis", "PERIODS") if version else "PERIODS"
+            ),
+            "time_label": f"{first:%H:%M}—{last:%H:%M}",
             "time_version_id": str(version.id) if version else None,
             "time_profile_id": str(version.profile_id) if version and version.profile_id else None,
             "source": source,

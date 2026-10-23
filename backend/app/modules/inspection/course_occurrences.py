@@ -23,6 +23,26 @@ if TYPE_CHECKING:
     from app.modules.inspection.service import InspectionService, PlanItem
 
 
+def occurrence_times(service, semester, items):
+    """按实际时间统一排序与展示，独立时段内部索引不参与教学节次含义。"""
+    from app.core.config import get_settings
+    from app.modules.academic.models import TeachingClass
+    from app.modules.academic.time_service import TimeResolver
+
+    if not get_settings().campus_scheduling_enabled:
+        return {}
+    resolver = TimeResolver(service._session)
+    colleges = {tid: cid for tid, cid in service._session.execute(
+        select(TeachingClass.id, TeachingClass.college_id).where(
+            TeachingClass.id.in_({i.teaching_class_id for i in items}))) }
+    for cid in set(colleges.values()):
+        if cid is not None:
+            resolver.prefetch(cid, semester.id)
+    return {item.task_key: resolver.interval(colleges.get(item.teaching_class_id), semester.id,
+        item.inspection_date, item.start_period, item.end_period,
+        teaching_class_id=item.teaching_class_id) for item in items}
+
+
 def occurrence_location_terms(service, items) -> list[tuple[str, int]]:
     """课次地点修订摘要项：覆盖行修订号变化 → 选择摘要变化 → 旧生成预览 409。"""
     from app.modules.academic.occurrence_location import selection_summary_terms
@@ -146,7 +166,9 @@ def build_scope(
     from app.modules.inspection.execution_group import validate
     items = validate(service, items, strict=False)
     service._check_scale(len(items))
-    items.sort(key=lambda i: (i.inspection_date, i.start_period, i.course_schedule_id or 0))
+    timings = occurrence_times(service, semester, items)
+    items.sort(key=lambda i: (i.inspection_date,
+        timings.get(i.task_key, {}).get("start_minute", i.start_period), i.course_schedule_id or 0))
     periods = service._academic.list_period_definitions(semester.id)
     payload = {
         "execution_group": ([service._generation_group[0].id, service._generation_group[0].lock_version,
@@ -253,6 +275,7 @@ def list_occurrences(
     )
     views = {t.task_key: t for t in service._assemble_tasks(tasks)}
     result = []
+    timings = occurrence_times(service, semester, selected)
     for item in selected:
         existing = views.get(item.task_key)
         canceled = existing is not None and (existing.status == "已取消" or existing.deleted_at is not None)
@@ -262,6 +285,8 @@ def list_occurrences(
                 "inspection_date": item.inspection_date,
                 "start_period": item.start_period,
                 "end_period": item.end_period,
+                **{k: v for k, v in timings.get(item.task_key, {}).items()
+                   if k in ("time_basis", "time_label")},
                 "teaching_class_id": str(item.teaching_class_id),
                 "class_name": item.class_name_snapshot,
                 "teaching_class_name": item.class_name_snapshot,
@@ -560,7 +585,10 @@ def smart_sample_occurrences(
         sampled = rng.sample(sampled, target_cnt)
 
     # 最终结果按日期与节次升序排序，便于教务老师直观核对
-    sampled.sort(key=lambda x: (x.inspection_date, x.start_period, x.class_name_snapshot or ""))
+    timings = occurrence_times(service, semester, sampled)
+    sampled.sort(key=lambda x: (
+        x.inspection_date, timings.get(x.task_key, {}).get("start_minute", x.start_period),
+        x.class_name_snapshot or ""))
 
     out_occurrences = [
         {"course_schedule_id": str(it.course_schedule_id), "inspection_date": it.inspection_date}
@@ -573,6 +601,8 @@ def smart_sample_occurrences(
             "inspection_date": it.inspection_date,
             "start_period": it.start_period,
             "end_period": it.end_period,
+            **{k: v for k, v in timings.get(it.task_key, {}).items()
+               if k in ("time_basis", "time_label")},
             "teaching_class_id": str(it.teaching_class_id),
             "class_name": it.class_name_snapshot,
             "teaching_class_name": it.class_name_snapshot,

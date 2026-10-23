@@ -1,5 +1,7 @@
 # API 路由索引
 
+2026-10-23：早晚自习批量生成增加独立 `start_time/end_time`，时间展示增加 `time_basis/time_label`，任务快照携带相同元数据。新增 `POST /api/v1/academic/semesters/{id}/period-definitions/initialize`，仅原子补齐缺失教学节次。详见 [修复与小程序交接](development/SELF_STUDY_CLOCK_TIME_20261023.md)。
+
 2026-10-22 OSS Web 直连：`GET /api/v1/files/{file_id}/access` 新增可选 `delivery=proxy|direct`，默认代理兼容小程序；Web 显式 direct，权限和文件状态校验不变。无新增路由。见 [实施与发布记录](development/OSS_WEB_DIRECT_DOWNLOAD_20261022.md)。
 
 2026-10-21 微信换绑修复：`DELETE /me/student-binding` 保留原学生业务UID，只迁出微信登录身份；学生认领、登录/刷新并发和管理纠错历史保护同步补齐。无新增路由，353路径/414操作；见 [审查与修复记录](development/WECHAT_REBIND_IDENTITY_FIX_20261021.md)。

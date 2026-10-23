@@ -46,6 +46,7 @@ class TimeCalendarOverride(StrictModel):
 
 class TimeConfiguration(StrictModel):
     effective_from: date
+    time_basis: Literal["PERIODS", "CLOCK"] = "PERIODS"
     periods: list[PeriodTime] = Field(min_length=1, max_length=60)
     calendar: list[TimeCalendarOverride] = Field(default_factory=list, max_length=420)
     grid_slot_mapping: dict[str, int] = Field(default_factory=dict, max_length=60)
@@ -53,6 +54,10 @@ class TimeConfiguration(StrictModel):
 
     @model_validator(mode="after")
     def grid_mapping_valid(self):
+        if self.time_basis == "CLOCK" and (
+            len(self.periods) != 1 or self.periods[0].period_no != 1 or self.grid_slot_mapping
+        ):
+            raise ValueError("独立时段仅使用一个内部时间槽，不接受教学节次映射")
         periods = {period.period_no for period in self.periods}
         for raw, target in self.grid_slot_mapping.items():
             if (

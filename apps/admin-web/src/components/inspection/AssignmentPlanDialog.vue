@@ -67,7 +67,7 @@ function updateOpen(value: boolean) { if (!value) finish(false) }
           <template #default="{ row }"><strong class="assignment-preview__primary">{{ row.courseName }}</strong><span class="assignment-preview__secondary">{{ row.teachingClassName }}</span></template>
         </el-table-column>
         <el-table-column label="查课时间与地点" min-width="195">
-          <template #default="{ row }"><span class="assignment-preview__primary assignment-preview__date">{{ row.inspectionDate || '日期待核对' }}<span v-if="row.startPeriod"> · {{ formatPeriodText(row.startPeriod, row.endPeriod) }}</span></span><span class="assignment-preview__secondary">{{ row.classroom }}</span></template>
+          <template #default="{ row }"><span class="assignment-preview__primary assignment-preview__date">{{ row.inspectionDate || '日期待核对' }}<span v-if="row.startPeriod"> · {{ formatPeriodText(row.startPeriod, row.endPeriod, row) }}</span></span><span class="assignment-preview__secondary">{{ row.classroom }}</span></template>
         </el-table-column>
         <el-table-column v-if="tab === 'assigned'" label="受派志愿者" min-width="195">
           <template #default="{ row }"><strong class="assignment-preview__primary">{{ row.volunteerName }}</strong><span class="assignment-preview__secondary">{{ [row.studentNo, row.volunteerClass].filter(Boolean).join(' · ') || '档案资料暂不可用' }}</span></template>

@@ -143,5 +143,11 @@ def grouped_page(db, statement, params, group_by):
             .outerjoin(Student, Student.id == UserAccount.student_id)).all())
         for row in items:
             row["volunteer_name"] = names.get(int(row["task_id"]))
+        timings = dict(db.execute(select(InspectionTask.id, InspectionTask.time_snapshot).where(
+            InspectionTask.id.in_([int(row["task_id"]) for row in items]))).all())
+        for row in items:
+            snapshot = timings.get(int(row["task_id"])) or {}
+            row["time_basis"] = snapshot.get("time_basis", "PERIODS")
+            row["time_label"] = snapshot.get("time_label")
     return dict(items=items, total=total, page=params.page, page_size=params.page_size,
                 group_by=group_by, summary=summary)

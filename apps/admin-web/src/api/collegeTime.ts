@@ -16,6 +16,7 @@ export interface CollegeCalendarOverride {
 }
 
 export interface CollegeTimeConfiguration {
+  time_basis?: 'PERIODS' | 'CLOCK'
   effective_from: string
   periods: CollegePeriodTime[]
   calendar: CollegeCalendarOverride[]

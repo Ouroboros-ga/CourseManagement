@@ -14,6 +14,8 @@ export interface InspectionTaskItem {
   semester_id: string
   inspection_type: string
   inspection_date: string
+  time_basis?: string
+  time_label?: string | null
   start_period: number
   end_period: number
   status: string
@@ -86,6 +88,8 @@ export interface PaginatedResult<T> {
 export interface CourseOccurrence {
   course_schedule_id: string
   inspection_date: string
+  time_basis?: string
+  time_label?: string | null
   start_period: number
   end_period: number
   course_name: string
@@ -267,6 +271,8 @@ export interface SmartSampleResult {
   items: Array<{
     course_schedule_id: string
     inspection_date: string
+    time_basis?: string
+    time_label?: string | null
     start_period: number
     end_period: number
     teaching_class_id: string

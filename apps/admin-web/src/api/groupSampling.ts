@@ -82,6 +82,7 @@ export interface AssignmentPlan {
       teaching_class_name: string | null
       classroom: string | null
       inspection_date: string
+      time_snapshot?: Record<string, unknown> | null
       start_period: number
       end_period: number
     }>

@@ -5091,6 +5091,51 @@
         }
       }
     },
+    "/api/v1/academic/semesters/{semester_id}/period-definitions/initialize": {
+      "post": {
+        "tags": [
+          "academic"
+        ],
+        "summary": "Initialize Period Definitions",
+        "operationId": "initialize_period_definitions_api_v1_academic_semesters__semester_id__period_definitions_initialize_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "semester_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Semester Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/academic/semesters/{semester_id}/period-definitions/{period_no}": {
       "put": {
         "tags": [
@@ -31168,6 +31213,22 @@
             "type": "integer",
             "title": "Leave Count"
           },
+          "time_basis": {
+            "type": "string",
+            "title": "Time Basis",
+            "default": "PERIODS"
+          },
+          "time_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Label"
+          },
           "task_id": {
             "anyOf": [
               {
@@ -31639,6 +31700,22 @@
           "task_id": {
             "type": "string",
             "title": "Task Id"
+          },
+          "time_basis": {
+            "type": "string",
+            "title": "Time Basis",
+            "default": "PERIODS"
+          },
+          "time_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Label"
           },
           "inspection_date": {
             "type": "string",
@@ -35681,6 +35758,22 @@
             "type": "string",
             "title": "Task Id"
           },
+          "time_basis": {
+            "type": "string",
+            "title": "Time Basis",
+            "default": "PERIODS"
+          },
+          "time_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Label"
+          },
           "inspection_date": {
             "type": "string",
             "format": "date",
@@ -38288,16 +38381,54 @@
             "minItems": 1,
             "title": "Weekdays"
           },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
           "start_period": {
-            "type": "integer",
-            "maximum": 60.0,
-            "minimum": 1.0,
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 60.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Start Period"
           },
           "end_period": {
-            "type": "integer",
-            "maximum": 60.0,
-            "minimum": 1.0,
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 60.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "End Period"
           },
           "classrooms": {
@@ -38351,9 +38482,7 @@
           "study_type",
           "class_ids",
           "weeks",
-          "weekdays",
-          "start_period",
-          "end_period"
+          "weekdays"
         ],
         "title": "SelfStudyBatchCreate"
       },
@@ -40449,6 +40578,15 @@
             "format": "date",
             "title": "Effective From"
           },
+          "time_basis": {
+            "type": "string",
+            "enum": [
+              "PERIODS",
+              "CLOCK"
+            ],
+            "title": "Time Basis",
+            "default": "PERIODS"
+          },
           "periods": {
             "items": {
               "$ref": "#/components/schemas/PeriodTime"
@@ -40620,6 +40758,15 @@
             "format": "date",
             "title": "Effective From"
           },
+          "time_basis": {
+            "type": "string",
+            "enum": [
+              "PERIODS",
+              "CLOCK"
+            ],
+            "title": "Time Basis",
+            "default": "PERIODS"
+          },
           "periods": {
             "items": {
               "$ref": "#/components/schemas/PeriodTime"
@@ -40665,6 +40812,15 @@
             "type": "string",
             "format": "date",
             "title": "Effective From"
+          },
+          "time_basis": {
+            "type": "string",
+            "enum": [
+              "PERIODS",
+              "CLOCK"
+            ],
+            "title": "Time Basis",
+            "default": "PERIODS"
           },
           "periods": {
             "items": {

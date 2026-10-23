@@ -373,6 +373,8 @@ class AttendanceService:
                 if task and task.start_period and task.end_period
                 else None
             )
+            if task and (task.time_snapshot or {}).get("time_basis") == "CLOCK":
+                period_text = period_simple = (task.time_snapshot or {}).get("time_label")
             task_brief = (
                 ManagementAttendanceTaskBrief(
                     task_id=task.id,
@@ -386,6 +388,8 @@ class AttendanceService:
                     classroom_snapshot=task.classroom_snapshot,
                     start_period=task.start_period,
                     end_period=task.end_period,
+                    time_basis=(task.time_snapshot or {}).get("time_basis", "PERIODS"),
+                    time_label=(task.time_snapshot or {}).get("time_label"),
                     period_text=period_text,
                     week_no=task.week_no,
                 )
