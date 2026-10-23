@@ -1,0 +1,65 @@
+{
+  "release": "20261023-inspection-5d21eca5f6",
+  "source_commit": "5d21eca5f6156d21196dc7abf48ba3770e6af974",
+  "migration_head": "f26a1023x001",
+  "deployed_at_utc": "2026-10-23T15:50:07.168638+00:00",
+  "mysql_acceptance": {
+    "migration_upgrade": true,
+    "synthetic_history_preserved": true,
+    "downgrade_round_trip": true,
+    "lossy_downgrade_refused": true,
+    "mysql_tests_passed": 63,
+    "concurrency_tests_passed": 2
+  },
+  "business_row_counts_preserved": true,
+  "production_business_data_written_by_release": false,
+  "runtime_configuration_unchanged": true,
+  "backend_files_sha256_verified": 627,
+  "web_files_sha256_verified": 71,
+  "public": {
+    "release": "20261023-inspection-5d21eca5f6",
+    "source_commit": "5d21eca5f6156d21196dc7abf48ba3770e6af974",
+    "dns": [
+      "101.34.52.163"
+    ],
+    "public_files_verified": 71,
+    "checks": {
+      "GET /health/live": 200,
+      "GET /health/ready": 200,
+      "GET /api/v1/me": 401,
+      "GET /api/v1/files/1/access?delivery=direct": 401,
+      "POST /api/v1/inspection-tasks/1/exception": 401,
+      "POST /api/v1/colleges/1/inspection-tasks/1/exception/clear": 401,
+      "GET /api/v1/colleges/1/assignment-change-requests?semester_id=1&page_size=50": 401
+    },
+    "spa_route": 200,
+    "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://oss-pai-um7e66idcat8ihfw7v-cn-shanghai.oss-cn-shanghai.aliyuncs.com; connect-src 'self' https://oss-pai-um7e66idcat8ihfw7v-cn-shanghai.oss-cn-shanghai.aliyuncs.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    "synthetic_business_writes": false
+  },
+  "server": {
+    "backend": "/opt/course-management/releases/20261023-inspection-5d21eca5f6",
+    "web": "/opt/course-management/admin-web/releases/20261023-inspection-5d21eca5f6",
+    "migration_head": "f26a1023x001",
+    "runtime_cwd_verified": true,
+    "temporary_mysql_cleaned": true,
+    "configuration_unchanged": true,
+    "rollback_preview_readonly_verified": true,
+    "service": "active"
+  },
+  "backup_directory": "/var/backups/course-management/20261023-inspection-5d21eca5f6",
+  "database_backup_directory": "/var/backups/course-management/20261023T154942Z.CqClv0",
+  "rollback_script": "/var/backups/course-management/20261023-inspection-5d21eca5f6/rollback.py",
+  "rollback_preview_readonly_verified": true,
+  "rollback_guard": "Refuses old application when exception facts exist; retain additive schema and repair forward",
+  "local_backend_passed": 61,
+  "local_web_tests_passed": 19,
+  "local_build_typecheck": true,
+  "synthetic_browser_flows": [
+    "exception details and restore",
+    "reject change request",
+    "approve and reassign",
+    "request history"
+  ],
+  "miniapp_source_modified": false,
+  "miniapp_device_acceptance": false
+}
