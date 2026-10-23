@@ -97,6 +97,8 @@ class TimeProfileService:
         self.campus._version(row, body.lock_version)
         if row.status == "ARCHIVED":
             raise ConflictError(message="归档方案只读")
+        if row.draft_configuration.get("time_basis", "PERIODS") != body.configuration.time_basis:
+            raise ConflictError(message="作息方案的时间来源不能切换，请新建独立方案并预览绑定影响")
         before = self.campus._dto(row)
         row.name, row.normalized_name = body.name, normalized_name(body.name)
         row.draft_configuration = self._configuration(body)

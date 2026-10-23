@@ -33,6 +33,8 @@ class PublishResult(StrictModel):
 
 
 class SourceEntry(StrictModel):
+    time_basis: Literal["PERIODS", "CLOCK"] = "PERIODS"
+    time_label: str | None = None
     source_schedule_id: str
     teaching_class_id: str
     college_id: str

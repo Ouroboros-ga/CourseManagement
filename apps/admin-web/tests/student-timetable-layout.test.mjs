@@ -14,8 +14,17 @@ const {
   splitClassroom,
   getWeekDateHeaders,
   computeDayLayoutBlocks,
+  partitionTimedCourses,
   formatWeeksText
 } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
+
+test('clock self-study never occupies the school period-one grid', () => {
+  const ordinary = { id: 'course', start_period: 1, time_basis: 'PERIODS' }
+  const early = { id: 'study', start_period: 1, time_basis: 'CLOCK', time_label: '07:30—07:50' }
+  const result = partitionTimedCourses([ordinary, early])
+  assert.deepEqual(result.periods, [ordinary])
+  assert.deepEqual(result.clock, [early])
+})
 
 test('MORANDI_PALETTE and getCourseColorIndex', () => {
   assert.equal(MORANDI_PALETTE.length, 12)

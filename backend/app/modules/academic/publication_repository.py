@@ -147,6 +147,7 @@ class AcademicPublicationRepository:
         timed_audiences: dict[int, dict[tuple[int, int], dict[int, list[str]]]] = defaultdict(
             lambda: defaultdict(lambda: defaultdict(list))
         )
+        time_bases = {}
         day = semester.start_date
         while day <= semester.end_date:
             teaching_day = (
@@ -175,6 +176,7 @@ class AcademicPublicationRepository:
                             teaching_class_id=schedule.teaching_class_id,
                         )
                         timing = (interval["start_minute"], interval["end_minute"])
+                        time_bases[schedule.id, timing] = interval["time_basis"]
                         timed_audiences[schedule.id][timing]
                     for student in roster[schedule.teaching_class_id]:
                         audiences[schedule.id][student.id].append(str(day))
@@ -213,6 +215,7 @@ class AcademicPublicationRepository:
                 "end_period": schedule.end_period,
                 "start_time": str(complete[0][0]),
                 "end_time": str(complete[-1][1]),
+                "time_basis": "PERIODS",
             }
             if resolver:
                 for (start, end), audience in timed_audiences[schedule.id].items():
@@ -222,6 +225,11 @@ class AcademicPublicationRepository:
                                 **snapshot,
                                 "start_time": str(time(start // 60, start % 60)),
                                 "end_time": str(time(end // 60, end % 60)),
+                                "time_basis": time_bases[schedule.id, (start, end)],
+                                "time_label": (
+                                    f"{start // 60:02}:{start % 60:02}—"
+                                    f"{end // 60:02}:{end % 60:02}"
+                                ),
                             },
                             dict(audience),
                         )

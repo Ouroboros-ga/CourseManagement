@@ -155,3 +155,38 @@ def test_clock_study_export_uses_clock_strings_not_school_period_one(campus, mon
     workbook = load_workbook(BytesIO(blob), read_only=True)
     row = list(workbook.active.values)[1]
     assert row[5:7] == ("07:30", "07:50")
+
+
+def test_publication_marks_clock_source_without_touching_personal_copy(campus, monkeypatch):
+    from app.modules.academic.publication_models import PublishedSchedule
+    from app.modules.academic.publication_service import AcademicPublicationService
+
+    db, service, body = prepare(campus, monkeypatch)
+    service.batch_self_study(body)
+    publisher = AcademicPublicationService(db, service.actor, service.college_id)
+    preview = publisher.preview(body["semester_id"])
+    publisher.publish(body["semester_id"], preview["source_revision"])
+    snapshot = db.scalar(select(PublishedSchedule)).snapshot
+    assert snapshot["time_basis"] == "CLOCK"
+    assert snapshot["time_label"] == "07:30—07:50"
+    assert snapshot["start_time"] == "07:30:00"
+
+
+def test_clock_profile_cannot_be_reinterpreted_as_school_periods(campus, monkeypatch):
+    from app.modules.academic.time_models import CollegeTimeProfile
+    from app.modules.academic.time_profiles import TimeProfileService
+
+    db, service, body = prepare(campus, monkeypatch)
+    service.batch_self_study(body)
+    profile = db.scalar(select(CollegeTimeProfile))
+    api = TimeProfileService(db, service.actor, service.college_id, body["semester_id"])
+    configuration = {**profile.draft_configuration, "time_basis": "PERIODS"}
+    with pytest.raises(ConflictError, match="时间来源"):
+        api.save(
+            profile.id,
+            {
+                "name": profile.name,
+                "lock_version": profile.lock_version,
+                "configuration": configuration,
+            },
+        )

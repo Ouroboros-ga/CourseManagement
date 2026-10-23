@@ -264,3 +264,10 @@ export function formatWeeksText(weeks: number[] = []): string {
   }
   return `${min}-${max}周(部分)`
 }
+/** 独立时段不放进学校第1节网格；其实际时刻由独立课程条目展示。 */
+export function partitionTimedCourses<T extends { time_basis?: string }>(rows: T[]) {
+  return {
+    periods: rows.filter(row => row.time_basis !== 'CLOCK'),
+    clock: rows.filter(row => row.time_basis === 'CLOCK'),
+  }
+}

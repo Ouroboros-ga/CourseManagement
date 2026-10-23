@@ -11,6 +11,7 @@ import {
   DEFAULT_PERIODS,
   getWeekDateHeaders,
   computeDayLayoutBlocks,
+  partitionTimedCourses,
   formatWeeksText,
   MORANDI_PALETTE,
   getCourseColorIndex,
@@ -124,6 +125,7 @@ const currentWeekCourses = computed(() => {
     return Array.isArray(item.weeks) && item.weeks.includes(w)
   })
 })
+const timedCourses = computed(() => partitionTimedCourses(currentWeekCourses.value))
 
 // 表头日期（周一至周五，或周一至周日）
 const dateHeaders = computed<DateHeaderItem[]>(() => {
@@ -140,7 +142,7 @@ interface DayColumnData {
 
 const dayColumns = computed<DayColumnData[]>(() => {
   const headers = dateHeaders.value
-  const courses = currentWeekCourses.value
+  const courses = timedCourses.value.periods
 
   return headers.map(header => {
     const dayCourseInputs: DayCourseInput[] = courses
@@ -339,6 +341,14 @@ onMounted(() => {
       </div>
     </div>
 
+    <section v-if="timedCourses.clock.length" class="clock-course-list">
+      <h4>自习与独立时段</h4>
+      <p class="t-mute">按实际时间安排，不占用下方普通课教学节次。</p>
+      <button v-for="course in timedCourses.clock" :key="course.id" class="btn"
+        @click="activeCourse = course; showCourseDetail = true">
+        周{{ course.weekday }} · {{ course.time_label }} · {{ course.course_name }} · {{ course.classroom || '教室未填写' }}
+      </button>
+    </section>
     <!-- 核心课表视窗容器 -->
     <div v-loading="loadingTimetable" class="timetable-viewport">
       <!-- 星期与公历日期表头 -->
@@ -477,7 +487,7 @@ onMounted(() => {
           </div>
           <div class="bg-deep p-2.5 rounded border border-[var(--line)]">
             <span class="t-mute block mb-0.5">上课时间</span>
-            <span class="font-bold t-soft">周{{ activeCourse.weekday }} {{ formatPeriodText(activeCourse.start_period, activeCourse.end_period) }}</span>
+            <span class="font-bold t-soft">周{{ activeCourse.weekday }} {{ formatPeriodText(activeCourse.start_period, activeCourse.end_period, activeCourse) }}</span>
           </div>
           <div class="bg-deep p-2.5 rounded border border-[var(--line)]">
             <span class="t-mute block mb-0.5">生效周次</span>
@@ -520,6 +530,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.clock-course-list { padding: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+.clock-course-list h4, .clock-course-list p { flex-basis: 100%; margin: 0; }
 .student-preview-card {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);

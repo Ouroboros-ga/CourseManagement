@@ -38867,6 +38867,26 @@
       },
       "SourceEntry": {
         "properties": {
+          "time_basis": {
+            "type": "string",
+            "enum": [
+              "PERIODS",
+              "CLOCK"
+            ],
+            "title": "Time Basis",
+            "default": "PERIODS"
+          },
+          "time_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Label"
+          },
           "source_schedule_id": {
             "type": "string",
             "title": "Source Schedule Id"
