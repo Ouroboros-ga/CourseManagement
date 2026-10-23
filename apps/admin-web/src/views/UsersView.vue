@@ -201,12 +201,12 @@ async function handleToggleManagerRole(user: RoleAssignmentTarget, makeManager: 
 const stats = computed(() => {
   const teachersCount = totalTeachers.value
   const managersCount = managersTotal.value
-  const initialReviewCount = studentAffairsManagers.value.filter(m => getOptionalPermState(m.id, 'objection.initial_review')).length
+  const visibleManagerCount = studentAffairsManagers.value.length
   const statsReadCount = studentAffairsManagers.value.filter(m => getOptionalPermState(m.id, 'statistics.read')).length
   return {
     teachersCount,
     managersCount,
-    initialReviewCount,
+    visibleManagerCount,
     statsReadCount
   }
 })
@@ -482,9 +482,9 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
         <div class="note">协助开展查课、排班与考勤协同</div>
       </div>
       <div class="stat-cell">
-        <div class="label">本院功能配置</div>
-        <div class="value" style="color: var(--blue)">{{ stats.initialReviewCount }} <span class="text-xs font-normal text-[var(--ink-mute)]">人</span></div>
-        <div class="note">已授权一次审核学生异议</div>
+        <div class="label">本页负责人</div>
+        <div class="value" style="color: var(--blue)">{{ stats.visibleManagerCount }} <span class="text-xs font-normal text-[var(--ink-mute)]">人</span></div>
+        <div class="note">具体功能按人打开设置查看</div>
       </div>
       <div class="stat-cell">
         <div class="label">本页数据统计查阅权</div>
@@ -608,7 +608,7 @@ onUnmounted(() => { teacherEpoch.invalidate(); ++candidateRevision; ++managerRev
         <div>
           <div class="b-title">学生工作负责人（STUDENT_AFFAIRS_MANAGER）职责与授权机制</div>
           <div class="b-desc">
-            学生工作负责人由教师管理员或超级管理员在已完成微信认证的学生中委任，协助开展学院日常查课与核验工作。
+            学生工作负责人由教师管理员或超级管理员在已关联本人在读学生档案的账号中委任，协助开展学院日常查课与核验工作。
             【异议处理等本院功能】与【数据统计查阅】功能由教师按需逐人开启。
           </div>
         </div>
