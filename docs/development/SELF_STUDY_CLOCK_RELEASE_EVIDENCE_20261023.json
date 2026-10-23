@@ -1,0 +1,103 @@
+{
+  "deployment": {
+    "release": "20261023-clock-study-60b15ca2d0",
+    "source_commit": "60b15ca2d0de7d871e0af3bf04f1d0c78bbbb478",
+    "old_backend": "/opt/course-management/releases/20261023-clock-study-f46e9bb547",
+    "old_web": "/opt/course-management/admin-web/releases/20261023-clock-study-f46e9bb547",
+    "backup": "/var/backups/course-management/20261023-clock-study-60b15ca2d0",
+    "migration_head": "f26a1022e001",
+    "configuration_sha256": "f58b2c00d50561e2455df97860cc90e77d19787fef27f72387c5d6cd85bb27d0",
+    "migration_executed": false,
+    "production_business_data_written": false,
+    "status": "deployed",
+    "mysql_acceptance": {
+      "isolated_mysql": true,
+      "returncode": 0,
+      "database_suffix": "_test"
+    },
+    "candidate": {
+      "GET /api/v1/me": 401,
+      "GET /api/v1/files/1/access?delivery=direct": 401,
+      "GET /api/v1/colleges/1/academic/master-timetable?semester_id=1": 401,
+      "POST /api/v1/colleges/1/academic/teaching-classes/batch-self-study": 401,
+      "POST /api/v1/academic/semesters/1/period-definitions/initialize": 401
+    },
+    "live": {
+      "GET /api/v1/me": 401,
+      "GET /api/v1/files/1/access?delivery=direct": 401,
+      "GET /api/v1/colleges/1/academic/master-timetable?semester_id=1": 401,
+      "POST /api/v1/colleges/1/academic/teaching-classes/batch-self-study": 401,
+      "POST /api/v1/academic/semesters/1/period-definitions/initialize": 401
+    },
+    "deployed_at": "2026-10-23T10:55:29.013408+00:00",
+    "files_verified": 571,
+    "web_files_verified": 71
+  },
+  "public_verification": {
+    "release": "20261023-clock-study-60b15ca2d0",
+    "source_commit": "60b15ca2d0de7d871e0af3bf04f1d0c78bbbb478",
+    "domain": "https://course.zsitai.xyz",
+    "static_files_verified": 71,
+    "checks": {
+      "/health/live": 200,
+      "/health/ready": 200,
+      "/api/v1/me": 401,
+      "/api/v1/files/1/access?delivery=direct": 401
+    },
+    "paired_release": "20261023-clock-study-60b15ca2d0",
+    "rollback_dry_run": true,
+    "isolated_mysql_cleaned": true,
+    "school_periods": [
+      "1\t08:10\t08:55",
+      "13\t07:30\t07:50"
+    ]
+  },
+  "browser_synthetic_verification": {
+    "browser": "Browser plugin absent; bundled Playwright + Edge",
+    "url": "http://127.0.0.1:3128/dashboard/academic?workspace_id=1&tab=publication",
+    "title": "绍兴理工学院 · 课堂查课考勤管理系统",
+    "viewport": {
+      "width": 1500,
+      "height": 1000
+    },
+    "synthetic": true,
+    "errors": [],
+    "school_period_preserved": true,
+    "morning_label": true,
+    "duration_minutes20": true,
+    "clock_submission": true,
+    "bigint_string": true,
+    "clock_separate_from_teaching_grid": true
+  },
+  "isolated_mysql": {
+    "passed": 18,
+    "seconds": 78.97,
+    "cleaned": true
+  },
+  "local_verification": {
+    "first_targeted_backend_passed": 65,
+    "publication_targeted_passed": 26,
+    "final_clock_and_binding_passed": 14,
+    "web_targeted_passed": 13,
+    "web_publication_and_layout_passed": 11,
+    "web_build": "passed",
+    "mypy_existing_errors": 60,
+    "mypy_baseline_errors": 60,
+    "first_full_unit_snapshot": {
+      "passed": 916,
+      "failed_existing_baseline": 12,
+      "skipped": 6
+    },
+    "full_web_tests": {
+      "passed": 147,
+      "failed_existing_mock_baseline": 5
+    }
+  },
+  "not_performed": [
+    "mini_program_code_changes",
+    "mini_program_device_acceptance",
+    "production_business_data_repair",
+    "migration",
+    "seed"
+  ]
+}
