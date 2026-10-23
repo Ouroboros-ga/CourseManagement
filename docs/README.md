@@ -22,6 +22,7 @@
 | --- | --- |
 | [后端 README](../backend/README.md)、[Web README](../apps/admin-web/README.md)、[小程序 README](../apps/wechat-miniapp/README.md) | 环境、启动和端侧开发入口 |
 | [API 契约](API_CONTRACT.md)、[API 索引](API_INDEX.md)、[OpenAPI](openapi.json) | 已有接口及兼容行为；实际以已挂载路由/schema为准，运行能力可能尚未开启 |
+| [小程序阿里云OSS直连下载交接](integration/WECHAT_OSS_DIRECT_DOWNLOAD_HANDOFF_20261022.md) | 已上线后端接口、精确下载域名、小程序适配参考、错误处理、开发者资料与真机验收；小程序尚待接入，旧代理保持兼容 |
 | [权限策略](PERMISSIONS.md) | 授权、资源范围和身份规则；分日期历史章节不能覆盖后续确认 |
 | [排班规则参考](SCHEDULING_RULES.md) | 原有调度约束与实现基础；新组织模式结合最新总体设计及 scheduling 模块阅读 |
 | [2026-10-16小程序接口增量](integration/WECHAT_API_CHANGES_20261016.md) | 学生旧契约保持不变；正式来源、恢复与单次修改为独立可选能力 |
