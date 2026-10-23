@@ -8,7 +8,7 @@
   →预览 error 不可确认；确认前学号被删→422 且名单零副作用（原子）；审计 preview/confirm 各一条。
 - 课表：周次解析（1-16周/单双周）、确认建课/教学班/课表+周次；周次越界 422；
   结束早于开始 422（预览 error）。
-- 志愿者资格：绑定学生确认即时补授 VOLUNTEER；未绑定仅落资格；停用不补授。
+- 志愿者资格：确认时准备无口令排班底册；微信身份后续认领同一账号；停用不补授。
 - "先导入资格后绑定"：先导入启用资格→后绑定微信→bind_student 反向补授 VOLUNTEER。
 - 状态机：确认重复 409；预览过期 409（并置 EXPIRED）。
 """
@@ -35,6 +35,7 @@ from app.modules.identity.models import (
     Role,
     UserAccount,
     UserStatus,
+    WechatIdentity,
 )
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.seed import sync_registry
@@ -93,6 +94,16 @@ def _make_bound_account(
     )
     user.roles = [_role(session, c) for c in role_codes]
     session.add(user)
+    session.commit()
+    return user
+
+
+def _make_wechat_candidate(session: Session, name: str) -> UserAccount:
+    """匹配首次微信登录产生的空白身份，不伪造带Web凭据的账号认领。"""
+    user = UserAccount(display_name=name, status=UserStatus.ACTIVE.value)
+    session.add(user)
+    session.flush()
+    session.add(WechatIdentity(user_id=user.id, appid="import-fixture", openid=name))
     session.commit()
     return user
 
@@ -702,7 +713,7 @@ def test_volunteer_bound_student_grants_role(client: TestClient, session: Sessio
     assert vq.enabled is True
 
 
-def test_volunteer_unbound_creates_qualification_only(client: TestClient, session: Session) -> None:
+def test_volunteer_unbound_prepares_passwordless_roster(client: TestClient, session: Session) -> None:
     h = _admin_headers(client, session)
     sc = _scene(client, h)
     content = _xlsx(["学号", "是否启用"], [{"学号": "S002", "是否启用": "1"}])
@@ -711,8 +722,15 @@ def test_volunteer_unbound_creates_qualification_only(client: TestClient, sessio
     ).json()["data"]
     conf = client.post(f"{_IM}/{int(pdata['id'])}/confirm", headers=h)
     assert conf.status_code == 200
-    assert int(conf.json()["data"]["summary"]["volunteer_role_granted"]) == 0
+    assert int(conf.json()["data"]["summary"]["volunteer_role_granted"]) == 1
     session.expire_all()
+    account = session.scalar(select(UserAccount).where(
+        UserAccount.student_id == int(sc["students"]["S002"]["id"])))
+    assert account is not None and account.password_hash is None
+    assert {r.code for r in account.roles} == {"STUDENT", "VOLUNTEER"}
+    assert session.scalar(
+        select(WechatIdentity.id).where(WechatIdentity.user_id == account.id)
+    ) is None
     assert (
         session.execute(
             select(VolunteerQualification).where(
@@ -754,8 +772,11 @@ def test_qualification_imported_before_binding_grants_on_bind(
     ).json()["data"]
     assert client.post(f"{_IM}/{int(pdata['id'])}/confirm", headers=h).status_code == 200
 
-    # 2) 建无角色未绑定账号 + 一次性绑定码。
-    user = _make_user(session, "wx_late", [])
+    # 2) 后续首次微信登录产生空白身份；必须认领原底册，不另建学生身份。
+    target = session.scalar(select(UserAccount).where(
+        UserAccount.student_id == int(sc["students"]["S002"]["id"])))
+    target_id = target.id
+    user = _make_wechat_candidate(session, "wx_late")
     code = "LATE-BIND-CODE-123"
     session.add(
         IdentityBindingToken(
@@ -770,7 +791,11 @@ def test_qualification_imported_before_binding_grants_on_bind(
     # 3) 绑定：bind_student 应反向补授 VOLUNTEER。
     IdentityService(session).bind_student(user.id, "S002", code)
     session.expire_all()
-    acct = session.execute(select(UserAccount).where(UserAccount.id == user.id)).scalar_one()
+    acct = session.get(UserAccount, target_id)
+    assert session.scalar(
+        select(WechatIdentity.user_id).where(WechatIdentity.openid == "wx_late")
+    ) == target_id
+    assert session.get(UserAccount, user.id).student_id is None
     role_codes = {r.code for r in acct.roles}
     assert RoleCode.STUDENT.value in role_codes
     assert RoleCode.VOLUNTEER.value in role_codes
@@ -810,7 +835,10 @@ def _bind_volunteer_via_import_then_bind(
     ).json()["data"]
     assert client.post(f"{_IM}/{int(pdata['id'])}/confirm", headers=h).status_code == 200
 
-    user = _make_user(session, username, [])
+    target = session.scalar(select(UserAccount).where(
+        UserAccount.student_id == int(sc["students"]["S002"]["id"])))
+    target_id = target.id
+    user = _make_wechat_candidate(session, username)
     session.add(
         IdentityBindingToken(
             student_id=int(sc["students"]["S002"]["id"]),
@@ -822,7 +850,10 @@ def _bind_volunteer_via_import_then_bind(
     session.commit()
     IdentityService(session).bind_student(user.id, "S002", code)
     session.expire_all()
-    return int(user.id)
+    assert session.scalar(
+        select(WechatIdentity.user_id).where(WechatIdentity.openid == username)
+    ) == target_id
+    return int(target_id)
 
 
 def test_volunteer_inherits_student_base_via_bound_student_role_union(
