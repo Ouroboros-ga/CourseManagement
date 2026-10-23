@@ -1,0 +1,56 @@
+[
+  {
+    "name": "01-行政班与学生.xlsx",
+    "uploaded_in_browser": true,
+    "sha256": "413d452f5b920d7aff60dba6f52922aeca45b00dce271d30c60c73d30fc49a1f",
+    "bytes": 3866
+  },
+  {
+    "name": "02-教职工.xlsx",
+    "uploaded_in_browser": true,
+    "sha256": "a2fa099e88f5691da1df08c03ff90251e8497ace83e2c85bf7a636153c40baa8",
+    "bytes": 3745
+  },
+  {
+    "name": "03-标准课表.xlsx",
+    "uploaded_in_browser": true,
+    "sha256": "25275f730d899e29cd4ddc70ffcf3b77ce87b2978aefd5fd931bd49b513134ed",
+    "bytes": 3881
+  },
+  {
+    "name": "04-志愿者资格.xlsx",
+    "uploaded_in_browser": true,
+    "sha256": "2440f8c3c6abd9f410d133aed6eced30dbca21a179f1505698be7ebf8c81cede",
+    "bytes": 3596
+  },
+  {
+    "name": "05-完整补充名单.xlsx",
+    "uploaded_in_browser": true,
+    "sha256": "e300f61c50d4d2f1e8011fc6777a6d0de4fa376ea28e311265fba8e3b3c72797",
+    "bytes": 3629
+  },
+  {
+    "name": "06-B3首表名单.xlsx",
+    "uploaded_in_browser": true,
+    "sha256": "f2a007ab0b5ebef02bd5c2f31b079f834170438dfee7848f3cc6c719d5369e63",
+    "bytes": 4173
+  },
+  {
+    "name": "07-错误学生资料.xlsx",
+    "uploaded_in_browser": true,
+    "sha256": "28313d3881b7eea7fc8e6e8af87a25dbc5fe2fba2ce2dc9a8705aad548bbe7e9",
+    "bytes": 3697
+  },
+  {
+    "name": "08-班级负责关系.xlsx",
+    "uploaded_in_browser": true,
+    "sha256": "61041172aef6f382d57d255e5be14978d8066bd56ec8431ab63b0d6c75401146",
+    "bytes": 3754
+  },
+  {
+    "name": "09-选修资料.xlsx",
+    "uploaded_in_browser": true,
+    "sha256": "46a55f1ac1c445764ca7405ee82ab4f34ba0f1db7fbff4f9c2f67ad2fd150086",
+    "bytes": 3838
+  }
+]

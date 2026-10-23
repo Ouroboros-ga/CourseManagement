@@ -1,0 +1,422 @@
+[
+  {
+    "file": "screenshots/01-created-test-college.jpg",
+    "sha256": "e560b7a7df57d9441d2003281ea61f8c7c329bef4a21c126a5cf3afa8ca28ed6",
+    "bytes": 85072,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/02-test-import-empty.jpg",
+    "sha256": "d0fe50fd1b6c565c7ec0863b5903159d50a5f68d1297c0bbb1f85c0c784d02a3",
+    "bytes": 67952,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/03-teacher-login.jpg",
+    "sha256": "61d488addaf140f4aa8f3ed07380c6abdaf878c0cba7eb8871c0e8e8031dbc8f",
+    "bytes": 91355,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/04-staff-preview-two.jpg",
+    "sha256": "d97e17377e3c2ad0f898a48634dd04704fa8bb8b0532602a026ffcb5001beb62",
+    "bytes": 85587,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/05-staff-saved.jpg",
+    "sha256": "c568ebcea342f07c90acc1001b0fe3c724ae343f24b2b6752d23fd6030a157e4",
+    "bytes": 81951,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/06-invalid-import-blocked.jpg",
+    "sha256": "b13569f46735e3053defc9c57c61ba32ba7fbf069fba4faadc8b61cecf587ae1",
+    "bytes": 45589,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/07-students-and-staff-saved.jpg",
+    "sha256": "0f61716a935e29f1799c1e52e1d359f67f577c9b5a746634edb68405bac262ae",
+    "bytes": 82238,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/08-student-query-six.jpg",
+    "sha256": "22636efa75ba912083d8d7829e4d26ae940abd9e2f53270f49ad26c310855edd",
+    "bytes": 87135,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/17-manager-appointment-recheck.jpg",
+    "sha256": "8c231c6e6d5325d23c340698ad1b6167a524258a2361b92637f3c56b1c096253",
+    "bytes": 84807,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/18-permission-codes-and-statistics.jpg",
+    "sha256": "2eb5a803c2f23e0942efe614bef0a5714d5ded51b780b52a30c1961a01f4c8af",
+    "bytes": 59819,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/19-narrow-menu-without-logout.jpg",
+    "sha256": "789dfdf696e7eb53af09d67bb2933549a28835e666297a3f85550f65eda182b0",
+    "bytes": 34284,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/20-manager-web-login.jpg",
+    "sha256": "818a0c28ece6520c638dfaa641d6e01035067b59bad35ea7abec4ed0e66a501d",
+    "bytes": 53805,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/21-manager-workbench-task-filter.jpg",
+    "sha256": "aa1fa2431d8430f1e5f9090d2e36094b978501a722b78ebc94edb2955b14b767",
+    "bytes": 45249,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/22-manager-course-query.jpg",
+    "sha256": "b27abbb34bd8cf253106bcf36f27bb628853e2aecc5bf24476b350d5114b0d01",
+    "bytes": 44523,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/23-manager-authorized-statistics.jpg",
+    "sha256": "57bde85448a7a4d8f0f09ce0e5461ec76fa1cfb19debb3a20ece51f929eb1d73",
+    "bytes": 56452,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/24-manager-staff-import-denied.jpg",
+    "sha256": "e68fed71cb343d2f1fe4a701c2ce14c53c92234794d1fbc0dedb71d35538a0da",
+    "bytes": 47735,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/25-manager-student-read-only.jpg",
+    "sha256": "243ffdb5dca4818916ee73579ef9d32dd596415d36ffc5e0f9f35302a4b08dae",
+    "bytes": 73978,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/26-manager-created-group-rules.jpg",
+    "sha256": "f0a206ab6ce356e62883c7e63cfb8434d9f06236ded5552649baf202ff84bf16",
+    "bytes": 42120,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/27-manager-members-two.jpg",
+    "sha256": "70177a9f84234180c5a95e6a225ffd5e7e2059c170f79db5a3387f7a454a28c1",
+    "bytes": 47159,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/28-group-enabled.jpg",
+    "sha256": "9b3af15e1725e08daa0c8cbb03d5f5f2b29abf121adf2618db7a1d29c4a078e0",
+    "bytes": 47204,
+    "valid": true,
+    "purpose": "Still pending enable; does NOT prove enabled; use screenshot30"
+  },
+  {
+    "file": "screenshots/29-manager-roster-import-denied.jpg",
+    "sha256": "c98e50ce65237739ce2258ee61cf2ed9d07b49912397ff16679060da8d711751",
+    "bytes": 47337,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/30-group-enabled-confirmed.jpg",
+    "sha256": "74f4eba231ac59bd9ab411cb34f2549caa33a853401e1a2f3b9903dba7970608",
+    "bytes": 67714,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/31-roster-three-saved.jpg",
+    "sha256": "ce69b5574e8d1664a0df8d75f986d4c8082cf659474db5a5069e585108c3d25c",
+    "bytes": 58524,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/32-multisheet-roster-blocked.jpg",
+    "sha256": "63196123b85985a79e083f653696630a6ff644089f1a7a2e69a2b3af2cc8cbf9",
+    "bytes": 72947,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/33-course-occurrences-with-roster.jpg",
+    "sha256": "de761b2d9fc41eaaacf919b25524be9efdc7be92a5354474579028017dddd259",
+    "bytes": 59863,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/34-task-generated-plan-unassigned.jpg",
+    "sha256": "2a9ed6a934246785a6ebead4b665dd0df4b4c93eb3064848aacb958f4767113e",
+    "bytes": 45758,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/35-generated-task-retained.jpg",
+    "sha256": "c891b4a84ec46989417c7cf6491faa683acf7cef42933531d439ddfaa7ddfe69",
+    "bytes": 35227,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/36-qualification-two-unbound.jpg",
+    "sha256": "7d5eb949467a1c7eb53c638cee0b0fcf04b111238b8d8b7de2632590ff112247",
+    "bytes": 66583,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/37-manual-qualification-third-student.jpg",
+    "sha256": "b4d0d42b5174b58eca0e112749eca5221ca6fc75aa8785813c39b80a9df048ff",
+    "bytes": 69535,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/38-plan-manual-qualified-volunteer.jpg",
+    "sha256": "6c1592f2db1668f0e52af340b1aee4f274e094fd1d9d16ef7ece9c7a44bc0577",
+    "bytes": 48362,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/39-one-task-assigned.jpg",
+    "sha256": "92ff2eaf79e5c70521383076616f1cd56af1f8a47762f4e733737f8c15852ea4",
+    "bytes": 70402,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/40-web-attendance-fixture-visible.jpg",
+    "sha256": "23f9e7b6dc2b1c6a86b8b0088d6cd7f6f85857c19b7e29fb05b08ecd9d6dfb2a",
+    "bytes": 43637,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/41-correction-form-before-submit.jpg",
+    "sha256": "8166fc92f531a91c69548597c1a11e1ccb3b4c37af36e7d7a0e476f5e34d1b70",
+    "bytes": 46724,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/42-attendance-corrected-two-normal.jpg",
+    "sha256": "a14dfa55c5d82a80946e96e7692faf282819a2d501da6ccde5b8f2f0ece134e9",
+    "bytes": 51473,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/43-record-version-two-photo-panel.jpg",
+    "sha256": "0481e76328071e02fb9b749f74117ecc91057e8613dea057250ebdfb23aee5de",
+    "bytes": 31356,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/44-objection-proof-preview.jpg",
+    "sha256": "68302facd347861e56c9dfca05d791187727e715288c431353c7a86e4eba5d14",
+    "bytes": 24230,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/45-objection-approved-version-two.jpg",
+    "sha256": "113f23c4a19c08c799081e315ac140426e2c121c26bfb1317e5b4720344f318d",
+    "bytes": 66170,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/46-weekly-statistics-three-normal.jpg",
+    "sha256": "35278e9fccb3e195d580dfdad6a817b084821624fc8cb14682b02abdc977056e",
+    "bytes": 74798,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/47-timetable-roster-three.jpg",
+    "sha256": "8229da53f179392507778c4e959d321f4a13848548f1936ec5e263f8e3c262ed",
+    "bytes": 44946,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/48-responsibility-import-single-file-retest.jpg",
+    "sha256": "3d5a49f1be8f91f1d3d1b7b14e351b76684e8b7f8fa36a3a4dc5dc1793b89bee",
+    "bytes": 71830,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/49-responsibility-preview-retest.jpg",
+    "sha256": "009f82af0af268e9d23432c2db1cbb0fce81e1fe2e86c7a5b40cd67f2994dcb1",
+    "bytes": 62766,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/50-responsibility-import-saved.jpg",
+    "sha256": "4fcd471691166a190c5e4d48a2e070c7465394526c2f2164ca48db155626e84c",
+    "bytes": 59737,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/51-synthetic-course-type-disabled.jpg",
+    "sha256": "48ba105744746acc6726b84f67a80ca2bc47dd593364d938be471bee910e1a0d",
+    "bytes": 50869,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/52-study-generation-one-week-form.jpg",
+    "sha256": "0f500664ab58db66ffcc7bb77732fafa6f7a4988595cd522d4beba5a818337a1",
+    "bytes": 69324,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/53-study-generation-success.jpg",
+    "sha256": "abb85c08c0dd0aa2294d97c3f71bde2dae86cf454de14ac04e24927a8dafafcf",
+    "bytes": 38225,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/54-study-success-but-no-saved-schedule.jpg",
+    "sha256": "79387f122ae04468bfac747490b0836f2fc2e8a4cbe0d11d4685bb9f799cf094",
+    "bytes": 57812,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/55-publication-version-one-confirmed.jpg",
+    "sha256": "299ee93bbcabad94893f1c10e3f61413988b7dc35556d478013e41d6c2275703",
+    "bytes": 83607,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/56-deadline-history-version-two.jpg",
+    "sha256": "e9fc0420d360f9ef8dbc3acf109fbbdf7fdfd67078335432a27050c7927c8a19",
+    "bytes": 67476,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/57-retained-delete-preview-zero-permanent.jpg",
+    "sha256": "2c521b07c0aa7fb8f8af89d42bdc7eccb9442b580b06b947beb3277b180f3cd6",
+    "bytes": 38584,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/58-retained-task-original-assignee-completed.jpg",
+    "sha256": "255e0882c649e4dcbd9c7f518007cbb1c1b74cd96d4859001c5921bfca9fd279",
+    "bytes": 76019,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/59-statistics-retained-deletion-unchanged.jpg",
+    "sha256": "2941bf22c685b703a5d595392b5646b43da2b3043298ed0117cfd025aca5180e",
+    "bytes": 87872,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/60-restored-task-original-assignee-completed.jpg",
+    "sha256": "cb4aab144ea712bb60491d3d9c0ee320162f1418d1f116b3320bd65314627231",
+    "bytes": 76381,
+    "valid": true,
+    "purpose": "Browser screenshot; read corresponding observations text"
+  },
+  {
+    "file": "screenshots/invalid-old-tab/INVALID-09-search-one-student.jpg",
+    "sha256": "7332fd56d3b977069a487d54162c560fa0c343a41cb8c934594fbc24a7db62ae",
+    "bytes": 87059,
+    "valid": false,
+    "purpose": "INVALID old-tab capture; excluded from conclusions"
+  },
+  {
+    "file": "screenshots/invalid-old-tab/INVALID-10-manager-appointed.jpg",
+    "sha256": "7332fd56d3b977069a487d54162c560fa0c343a41cb8c934594fbc24a7db62ae",
+    "bytes": 87059,
+    "valid": false,
+    "purpose": "INVALID old-tab capture; excluded from conclusions"
+  },
+  {
+    "file": "screenshots/invalid-old-tab/INVALID-11-manager-settings-raw-permissions.jpg",
+    "sha256": "7332fd56d3b977069a487d54162c560fa0c343a41cb8c934594fbc24a7db62ae",
+    "bytes": 87059,
+    "valid": false,
+    "purpose": "INVALID old-tab capture; excluded from conclusions"
+  },
+  {
+    "file": "screenshots/invalid-old-tab/INVALID-12-manager-statistics-enabled.jpg",
+    "sha256": "7332fd56d3b977069a487d54162c560fa0c343a41cb8c934594fbc24a7db62ae",
+    "bytes": 87059,
+    "valid": false,
+    "purpose": "INVALID old-tab capture; excluded from conclusions"
+  },
+  {
+    "file": "screenshots/invalid-old-tab/INVALID-13-import-identification-stuck.jpg",
+    "sha256": "7332fd56d3b977069a487d54162c560fa0c343a41cb8c934594fbc24a7db62ae",
+    "bytes": 87059,
+    "valid": false,
+    "purpose": "INVALID old-tab capture; excluded from conclusions"
+  },
+  {
+    "file": "screenshots/invalid-old-tab/INVALID-14-responsibility-elective-http500.jpg",
+    "sha256": "7332fd56d3b977069a487d54162c560fa0c343a41cb8c934594fbc24a7db62ae",
+    "bytes": 87059,
+    "valid": false,
+    "purpose": "INVALID old-tab capture; excluded from conclusions"
+  },
+  {
+    "file": "screenshots/invalid-old-tab/INVALID-15-course-saved-despite-other-failure.jpg",
+    "sha256": "7332fd56d3b977069a487d54162c560fa0c343a41cb8c934594fbc24a7db62ae",
+    "bytes": 87059,
+    "valid": false,
+    "purpose": "INVALID old-tab capture; excluded from conclusions"
+  },
+  {
+    "file": "screenshots/invalid-old-tab/INVALID-16-volunteer-qualification-saved.jpg",
+    "sha256": "7332fd56d3b977069a487d54162c560fa0c343a41cb8c934594fbc24a7db62ae",
+    "bytes": 87059,
+    "valid": false,
+    "purpose": "INVALID old-tab capture; excluded from conclusions"
+  }
+]

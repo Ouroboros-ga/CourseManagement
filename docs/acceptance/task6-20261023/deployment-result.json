@@ -1,0 +1,21 @@
+{
+  "source_commit": "163030740bf505034bc2f8ed81e078ebd11a3ade",
+  "release": "20261023-task6-163030740b",
+  "previous_backend": "/opt/course-management/releases/20261023-task3-73a69fb6d8",
+  "previous_web": "/opt/course-management/admin-web/releases/20261023-task3-73a69fb6d8",
+  "backend": "/opt/course-management/releases/20261023-task6-163030740b",
+  "web": "/opt/course-management/admin-web/releases/20261023-task6-163030740b",
+  "record": "/var/backups/course-management/20261023-task6-163030740b-deployment",
+  "started_utc": "2026-10-23T08:24:07.413100+00:00",
+  "migration_head": "f26a1022e001",
+  "schema_changed": false,
+  "config_sha256": "f58b2c00d50561e2455df97860cc90e77d19787fef27f72387c5d6cd85bb27d0",
+  "ci_url": "https://github.com/Ouroboros-ga/CourseManagement/actions/runs/39921490040",
+  "status": "deployed",
+  "database_backup": "/var/backups/course-management/20261023T082407Z.asS3nt",
+  "backup_verified": true,
+  "ready": 200,
+  "existing_table_counts_preserved": 85,
+  "credentials_unchanged": true,
+  "rollback": "restore both application symlinks and restart; no database downgrade or backup restore was performed"
+}

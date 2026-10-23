@@ -1,0 +1,98 @@
+[
+  {
+    "file": "screenshots/01-qualification-reimport-saved.jpg",
+    "sha256": "7ec56357ff854ec9ecd7897afe25c283fcd2729557a0dbc6a1b6917b065adcb3",
+    "usable": true,
+    "note": "旧流程失败过程，非最终通过"
+  },
+  {
+    "file": "screenshots/02-qualification-repair-preview.jpg",
+    "sha256": "7ec56357ff854ec9ecd7897afe25c283fcd2729557a0dbc6a1b6917b065adcb3",
+    "usable": true,
+    "note": "隔离QA实际操作"
+  },
+  {
+    "file": "screenshots/03-qualification-repair-saved.jpg",
+    "sha256": "7ec56357ff854ec9ecd7897afe25c283fcd2729557a0dbc6a1b6917b065adcb3",
+    "usable": true,
+    "note": "隔离QA实际操作"
+  },
+  {
+    "file": "screenshots/04-imported-volunteer-plan-valid.jpg",
+    "sha256": "7ec56357ff854ec9ecd7897afe25c283fcd2729557a0dbc6a1b6917b065adcb3",
+    "usable": true,
+    "note": "隔离QA实际操作"
+  },
+  {
+    "file": "screenshots/05-imported-volunteer-dispatched.jpg",
+    "sha256": "7ec56357ff854ec9ecd7897afe25c283fcd2729557a0dbc6a1b6917b065adcb3",
+    "usable": true,
+    "note": "隔离QA实际操作"
+  },
+  {
+    "file": "screenshots/06-study-generation-success.jpg",
+    "sha256": "7ec56357ff854ec9ecd7897afe25c283fcd2729557a0dbc6a1b6917b065adcb3",
+    "usable": true,
+    "note": "隔离QA实际操作"
+  },
+  {
+    "file": "screenshots/07-study-saved-and-queryable.jpg",
+    "sha256": "7ec56357ff854ec9ecd7897afe25c283fcd2729557a0dbc6a1b6917b065adcb3",
+    "usable": true,
+    "note": "隔离QA实际操作"
+  },
+  {
+    "file": "screenshots/08-study-roster-three.jpg",
+    "sha256": "7ec56357ff854ec9ecd7897afe25c283fcd2729557a0dbc6a1b6917b065adcb3",
+    "usable": true,
+    "note": "隔离QA实际操作"
+  },
+  {
+    "file": "screenshots/10-manager-functions-business-labels.jpg",
+    "sha256": "4eeb1e04d8ee4821e14c7ab92829b6ef36e32aaf23b0cfde3dc60ddd2b8a5eac",
+    "usable": false,
+    "note": "加载中，非通过证据"
+  },
+  {
+    "file": "screenshots/11-manager-functions-loaded.jpg",
+    "sha256": "99a904d4215ed07c5923dcc16e41c3cc8612aabe55183a8e8ba7bf4a4f574150",
+    "usable": true,
+    "note": "隔离QA实际操作"
+  },
+  {
+    "file": "screenshots/12-manager-summary-current-scope.jpg",
+    "sha256": "8df452f99dc61a33e798890d2fb0fcb8fcb12366730cca077a7c013cf7399a02",
+    "usable": true,
+    "note": "隔离QA实际操作"
+  },
+  {
+    "file": "screenshots/13-deadline-history-actor-visible.jpg",
+    "sha256": "30565c2062655cfbaac84a00bb4d6186744505377b4eaeba098f42886ac66008",
+    "usable": true,
+    "note": "隔离QA实际操作"
+  },
+  {
+    "file": "screenshots/15-live-correction-reason-blank.jpg",
+    "sha256": "da9e3bc4109bca14a78c9cdd293f670350a39fedd10c2cf7c5b5e88c4624f036",
+    "usable": true,
+    "note": "服务器已部署版本实际操作"
+  },
+  {
+    "file": "screenshots/16-live-approved-objection.jpg",
+    "sha256": "6854d2b02a18da635e377a1707a9fb5b0aa2dd092fa37c2ee651b56e0f2d3981",
+    "usable": true,
+    "note": "服务器已部署版本实际操作"
+  },
+  {
+    "file": "screenshots/17-live-proof-image.jpg",
+    "sha256": "8682754ee07739fdfdd26366c5851584081f8b69a5e917d95e443a2cb0c25d91",
+    "usable": true,
+    "note": "服务器已部署版本实际操作"
+  },
+  {
+    "file": "screenshots/18-live-weekly-statistics.jpg",
+    "sha256": "83a8dc0216b8b8a7d33796b9fbdd7346dc5e3064704212cebaa9966384d28523",
+    "usable": true,
+    "note": "服务器已部署版本实际操作"
+  }
+]
