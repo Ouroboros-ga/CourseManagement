@@ -141,6 +141,11 @@ class TimeProfileService:
         profile = self._row(pid, lock=write) if pid is not None else None
         if profile and profile.status != "ACTIVE":
             raise ConflictError(message="只能绑定已发布的有效方案")
+        previous = self._row(teaching.time_profile_id, lock=write) if teaching.time_profile_id else None
+        old_basis = previous.draft_configuration.get("time_basis", "PERIODS") if previous else "PERIODS"
+        new_basis = profile.draft_configuration.get("time_basis", "PERIODS") if profile else "PERIODS"
+        if old_basis != new_basis:
+            raise ConflictError(message="独立时段与教学节次的时间来源不能互换，请新建相应排期并处置未来任务")
         impact = future_impact(self.db, self.cid, "teaching_class", teaching.id, teaching.classification_revision)
         source = {"teaching": [teaching.id, teaching.time_profile_id, teaching.ownership_version, teaching.classification_revision],
                   "profile": [profile.id, profile.lock_version] if profile else None,

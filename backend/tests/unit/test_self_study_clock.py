@@ -190,3 +190,14 @@ def test_clock_profile_cannot_be_reinterpreted_as_school_periods(campus, monkeyp
                 "configuration": configuration,
             },
         )
+
+
+def test_clock_class_cannot_be_rebound_to_school_period_one(campus, monkeypatch):
+    from app.modules.academic.time_profiles import TimeProfileService
+
+    db, service, body = prepare(campus, monkeypatch)
+    service.batch_self_study(body)
+    teaching = db.scalar(select(TeachingClass).where(TeachingClass.time_profile_id.is_not(None)))
+    api = TimeProfileService(db, service.actor, service.college_id, body["semester_id"])
+    with pytest.raises(ConflictError, match="时间来源"):
+        api.binding_preview(teaching.id, None)
