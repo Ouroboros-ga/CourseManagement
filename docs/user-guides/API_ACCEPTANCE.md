@@ -136,4 +136,3 @@ rid 为合成考勤记录 ID，不是任务 ID。读取版本，再按 T27 更�
 | `POST /api/v1/colleges/{cid}/inspection-tasks/{tid}/execution-group/confirm` | target_group_id、lock_version、revision | 无 |
 
 预期和常见错误与 [AC-B09](ACCEPTANCE_CASES.md#b09) 同步；本轮状态为未执行。
-

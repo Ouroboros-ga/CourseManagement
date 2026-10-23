@@ -401,4 +401,3 @@
 - 需要推送：另行明确平台模板、授权和送达要求，不承诺现有系统自动提醒
 
 **核对依据：**SRC-MINIAPP、SRC-REQUIREMENT，详见[证据清单](EVIDENCE.md)。
-
