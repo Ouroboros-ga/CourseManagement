@@ -369,6 +369,9 @@ class AssignmentPlanService:
             reason=payload["reason"],
             request_id=request_id,
         )
+        from app.modules.organization.impact_service import close_resolved_impacts
+
+        close_resolved_impacts(self.db, self.actor.id, list(assignments))
         row.status, row.result = "COMMITTED", result
         self.db.commit()
         return result

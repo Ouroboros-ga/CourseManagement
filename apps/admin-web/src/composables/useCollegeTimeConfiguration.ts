@@ -95,14 +95,10 @@ export function useCollegeTimeConfiguration(collegeId: () => string) {
     const preview = previewResult.value, snapshot = previewSnapshot.value
     const cid = collegeId(), sid = semesterId.value
     if (!preview || !snapshot || !cid || !sid || submitting.value) return
-    if (preview.retained_future_task_ids.length > 0 && !form.value.confirm_existing_tasks) {
-      error.value = '未来已有任务将保留原作息快照，请勾选确认后发布'
-      return
-    }
     const currentFormKey = formKey(form.value)
     const ticket = publishEpoch.begin()
     const payload: CollegeTimeConfiguration = {
-      ...clone(snapshot), confirm_existing_tasks: form.value.confirm_existing_tasks
+      ...clone(snapshot), confirm_existing_tasks: true
     }
     submitting.value = true; error.value = ''; message.value = ''
     try {

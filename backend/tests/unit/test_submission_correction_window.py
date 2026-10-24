@@ -10,7 +10,7 @@ from datetime import timedelta
 
 import pytest
 from app.core.config import get_settings
-from app.modules.academic.models import Student, VolunteerQualification
+from app.modules.academic.models import VolunteerQualification
 from app.modules.attendance.effect_scope import see_withdrawn
 from app.modules.attendance.models import (
     AttendanceEffectState,
@@ -54,8 +54,8 @@ def _submitted(campus, monkeypatch, *, result="NORMAL"):
     """建立"志愿者已对本人受派任务成功提交一次"的起始状态。"""
     db, admin, a, sem, group, own, *_ = arrange(campus, monkeypatch)
     sync_registry(db)
-    foreign = db.scalar(select(Student).where(Student.student_no == "B"))
-    volunteer = UserAccount(display_name="志愿者", student_id=foreign.id, status="ACTIVE")
+    volunteer_student = own
+    volunteer = UserAccount(display_name="志愿者", student_id=volunteer_student.id, status="ACTIVE")
     db.add(volunteer)
     db.flush()
     for code in ("STUDENT", "VOLUNTEER"):
@@ -66,19 +66,18 @@ def _submitted(campus, monkeypatch, *, result="NORMAL"):
         )
     db.add(
         VolunteerQualification(
-            student_id=foreign.id, semester_id=sem.id, college_id=int(campus[5]["id"]),
+            student_id=volunteer_student.id, semester_id=sem.id, college_id=int(a["id"]),
             enabled=True,
         )
     )
     db.commit()
     members = GroupMemberService(db, admin, int(a["id"]), int(group["id"]))
     body = {
-        "student_id": str(foreign.id),
+        "student_id": str(volunteer_student.id),
         "semester_id": str(sem.id),
         "effective_from": "2026-09-01",
         "effective_to": "2027-01-30",
     }
-    members.authorize_support(body)
     members.create(body)
     sampling = GroupSamplingService(db, admin, int(a["id"]), int(group["id"]))
     request = {

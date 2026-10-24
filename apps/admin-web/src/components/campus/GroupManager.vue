@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { sameGroupRules } from '../../utils/groupRules'
 import PaginatedTable from '../../components/PaginatedTable.vue'
 import { computed, reactive, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -56,7 +57,10 @@ function edit(row: VolunteerGroup | null) {
   editing.value = true
 }
 const updateExisting = (row: VolunteerGroup, body: Parameters<typeof updateGroup>[2]) => run(async cid => {
-  const revision = await confirmImpact('groups', row.id)
+  const affectsTasks = (body.status !== undefined && body.status !== row.status)
+    || (body.starts_on !== undefined && body.starts_on !== row.starts_on)
+    || (body.ends_on !== undefined && body.ends_on !== row.ends_on)
+  const revision = affectsTasks ? await confirmImpact('groups', row.id) : ''
   return updateGroup(cid, row, body, revision)
 })
 async function save() {
@@ -69,8 +73,11 @@ async function save() {
 }
 async function publish(row: VolunteerGroup, configuration: GroupConfiguration) {
   if (await run(async cid => {
-    const revision = await confirmImpact('groups', row.id)
-    const result = await publishGroup(cid, row, configuration, revision)
+    const sid = configuring.value ? '' : session.currentSemesterId
+    const current = sid ? overview.data.value?.[row.id]?.configuration : row.configuration
+    const revision = sameGroupRules(current, configuration) ? '' : await confirmImpact('groups', row.id, sid, true)
+    if (sid && sid !== session.currentSemesterId) throw new Error('学期已切换，请在当前学期重新保存')
+    const result = await publishGroup(cid, row, configuration, revision, sid)
     if (!configuring.value && cid === props.collegeId && selected.value?.id === row.id) {
       await router.replace({ query: { ...route.query, panel: 'members' } })
     }

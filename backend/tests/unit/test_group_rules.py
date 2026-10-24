@@ -27,8 +27,6 @@ def prepared_task(campus):
         {
             "lock_version": group["lock_version"],
             "course_type_ids": [kind["id"]],
-            "type_overrides": {kind["id"]: "ALLOW"},
-            "teaching_class_overrides": {"1": "BLOCK"},
         },
     )
     config.update_group(
@@ -40,6 +38,17 @@ def prepared_task(campus):
     version = db.scalar(
         select(GroupConfigVersion).where(GroupConfigVersion.group_id == int(group["id"]))
     )
+    # Simulate a task using an immutable pre-simplification rule version.
+    version.configuration = {
+        **version.configuration,
+        "type_overrides": {kind["id"]: "ALLOW"},
+        "teaching_class_overrides": {"1": "BLOCK"},
+    }
+    from app.modules.academic.models import TeachingClass
+
+    teaching = db.scalar(select(TeachingClass).where(TeachingClass.college_id == int(a["id"])))
+    teaching.course_type_id = int(kind["id"])
+    db.commit()
     member_service = GroupMemberService(db, admin, int(a["id"]), int(group["id"]))
     member_service.create(
         {
@@ -51,6 +60,8 @@ def prepared_task(campus):
     )
     task = InspectionTask(
         task_key="GROUP",
+        teaching_class_id=teaching.id,
+        classification_revision_snapshot=teaching.classification_revision,
         semester_id=sem.id,
         college_id=int(a["id"]),
         inspection_date=date(2026, 9, 7),

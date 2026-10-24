@@ -70,15 +70,20 @@ export const updateCollege = (cid: string, body: { name?: string; status?: strin
 export const listCourseTypes = (cid: string) => request<CourseType[]>(path(cid, '/course-types'))
 export const createCourseType = (cid: string, body: Pick<CourseType, 'name' | 'description' | 'display_color' | 'sort_order'>) => request<CourseType>(path(cid, '/course-types'), json('POST', body))
 export type ImpactKind = 'course-types' | 'groups' | 'teaching-classes'
-export const getConfigurationImpact = (cid: string, kind: ImpactKind, id: string) => request<ConfigurationImpact>(path(cid,
-  kind === 'teaching-classes' ? `/academic/teaching-classes/${encodeURIComponent(id)}/classification-impact` : `/${kind}/${encodeURIComponent(id)}/impact`))
+export const getConfigurationImpact = (cid: string, kind: ImpactKind, id: string, semesterId = '', configurationOnly = false) => {
+  const suffix = kind === 'teaching-classes' ? `/academic/teaching-classes/${encodeURIComponent(id)}/classification-impact` : `/${kind}/${encodeURIComponent(id)}/impact`
+  const query = new URLSearchParams()
+  if (semesterId) query.set('semester_id', semesterId)
+  if (configurationOnly) query.set('configuration_only', 'true')
+  return request<ConfigurationImpact>(path(cid, suffix + (query.size ? `?${query}` : '')))
+}
 export const updateCourseType = (cid: string, row: CourseType, body: Partial<CourseType>, revision = '') => request<CourseType>(path(cid, `/course-types/${row.id}`), json('PATCH', { ...body, lock_version: row.lock_version, future_impact_revision: revision }))
 export const deleteCourseType = (cid: string, row: CourseType) => request<void>(path(cid, `/course-types/${row.id}`), json('DELETE', { lock_version: row.lock_version }))
 export const listGroups = (cid: string) => request<VolunteerGroup[]>(path(cid, '/volunteer-groups'))
 export const createGroup = (cid: string, body: { name: string; owner_user_id: string; starts_on?: string | null; ends_on?: string | null }) => request<VolunteerGroup>(path(cid, '/volunteer-groups'), json('POST', body))
 export const updateGroup = (cid: string, row: VolunteerGroup, body: { name?: string; status?: 'ACTIVE' | 'INACTIVE'; owner_user_id?: string; starts_on?: string | null; ends_on?: string | null }, revision = '') => request<VolunteerGroup>(path(cid, `/groups/${row.id}`), json('PATCH', { ...body, lock_version: row.lock_version, future_impact_revision: revision }))
 export const deleteGroup = (cid: string, row: VolunteerGroup) => request<void>(path(cid, `/groups/${row.id}`), json('DELETE', { lock_version: row.lock_version }))
-export const publishGroup = (cid: string, row: VolunteerGroup, configuration: GroupConfiguration, revision = '') => request<VolunteerGroup>(path(cid, `/groups/${row.id}/configuration/publish`), json('POST', { ...configuration, lock_version: row.lock_version, future_impact_revision: revision }))
+export const publishGroup = (cid: string, row: VolunteerGroup, configuration: GroupConfiguration, revision = '', semesterId = '') => request<VolunteerGroup>(path(cid, `/groups/${row.id}/configuration/publish${semesterId ? `?semester_id=${encodeURIComponent(semesterId)}` : ''}`), json('POST', { ...configuration, lock_version: row.lock_version, future_impact_revision: revision }))
 export const listGrants = (cid: string) => request<ScopedGrant[]>(path(cid, '/grants'))
 export const createGrant = (cid: string, user_id: string, actions: string[], expires_at: string | null) => request<ScopedGrant>(path(cid, '/grants'), json('POST', { user_id, actions, expires_at }))
 export const revokeGrant = (cid: string, row: ScopedGrant) => request<ScopedGrant>(path(cid, `/grants/${row.id}/revoke`), json('POST', { lock_version: row.lock_version }))

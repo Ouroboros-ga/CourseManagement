@@ -27,8 +27,16 @@ def test_group_change_records_impact_and_keeps_immutable_task(campus, monkeypatc
     original = (task.group_config_version_id, task.activity_start_at, task.lock_version)
     current = config._resource(__import__('app.modules.volunteer.models', fromlist=['VolunteerGroup']).VolunteerGroup, int(a["id"]), int(group["id"]))
     preview = config.configuration_impact(admin, int(a["id"]), "group", int(group["id"]))
-    config.update_group(admin, int(a["id"]), int(group["id"]), {"lock_version": current.lock_version,
-        "name": "调整名称", "future_impact_revision": preview["revision"]})
+    config.update_group(
+        admin,
+        int(a["id"]),
+        int(group["id"]),
+        {
+            "lock_version": current.lock_version,
+            "status": "INACTIVE",
+            "future_impact_revision": preview["revision"],
+        },
+    )
     service = ConfigurationImpactService(db, admin, int(a["id"]))
     item = service.list()["items"][0]
     assert item["task_id"] == str(task.id)

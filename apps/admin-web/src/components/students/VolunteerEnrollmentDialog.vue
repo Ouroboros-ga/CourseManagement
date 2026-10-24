@@ -33,7 +33,7 @@ async function search() {
   if (!gid || !dates.from || dates.from >= dates.to) return
   busy.value = true; error.value = ''
   try {
-    const result = await groupMemberApi.candidates(session.workspaceCollegeId, gid, session.currentSemesterId, dates.from, dates.to, keyword.value, false)
+    const result = await groupMemberApi.candidates(session.workspaceCollegeId, gid, session.currentSemesterId, dates.from, dates.to, keyword.value)
     if (ticket === epoch && context === key()) candidates.value = result
   } catch (e) { if (ticket === epoch) error.value = e instanceof Error ? e.message : '学籍查询失败' }
   finally { if (ticket === epoch) busy.value = false }

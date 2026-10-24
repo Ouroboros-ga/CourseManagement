@@ -13,7 +13,7 @@ from app.modules.identity.models import UserAccount
 from app.modules.identity.role_scope import business_today
 from app.modules.inspection.models import InspectionAssignment, InspectionTask
 from app.modules.organization.service import CampusService, atomic_write, validated
-from app.modules.volunteer.member_models import VolunteerGroupMember, VolunteerGroupSupport
+from app.modules.volunteer.member_models import VolunteerGroupMember
 from app.modules.volunteer.member_schemas import MemberCreate, MemberUpdate
 from app.modules.volunteer.models import VolunteerGroup
 
@@ -25,6 +25,7 @@ class GroupMemberService:
 
     def _scope(self, action, *, write=False):
         from app.modules.identity.resource_scope import resolve_scope
+
         scope = resolve_scope(self.db, self.actor, self.cid, action, write=write)
         if not scope.permits_group(self.gid):
             raise NotFoundError("组不在授权范围")
@@ -58,23 +59,9 @@ class GroupMemberService:
             )
         )
 
-    def supports(self, semester_id: int):
-        self._group("volunteer.group.read")
-        return self._rows_dto(
-            self.db.scalars(
-                select(VolunteerGroupSupport)
-                .where(
-                    VolunteerGroupSupport.college_id == self.cid,
-                    VolunteerGroupSupport.group_id == self.gid,
-                    VolunteerGroupSupport.semester_id == semester_id,
-                )
-                .order_by(VolunteerGroupSupport.id)
-            )
-        )
-
     def _rows_dto(self, rows):
         rows = list(rows)
-        # Names are authorized through the already-scoped membership/support rows.
+        # Names are authorized through the already-scoped membership rows.
         students = {
             s.id: s
             for s in self.db.scalars(
@@ -92,47 +79,13 @@ class GroupMemberService:
             for row in rows
         ]
 
-    def candidates(self, semester_id, effective_from, effective_to, keyword="", *, school=False):
-        from app.modules.academic.enrollment_models import StudentEnrollment
+    def candidates(self, semester_id, effective_from, effective_to, keyword=""):
+        from app.modules.volunteer.college_membership import local_student_ids
 
         self._group("volunteer.member.manage")
-        if school:
-            self.campus._super(self.actor)
         if effective_from >= effective_to:
             raise ConflictError(message="候选成员有效期不正确")
-        timeline_ids = select(StudentEnrollment.student_id)
-        dated = select(StudentEnrollment.student_id).where(
-            StudentEnrollment.superseded.is_(False),
-            StudentEnrollment.effective_from <= effective_from,
-            (
-                StudentEnrollment.effective_to.is_(None)
-                | (StudentEnrollment.effective_to > effective_from)
-            ),
-            StudentEnrollment.status == "ENROLLED",
-        )
-        fallback = (
-            Student.id.not_in(timeline_ids)
-            & (Student.status == "ACTIVE")
-            & Student.administrative_class_id.in_(
-                select(AdministrativeClass.id).where(AdministrativeClass.college_id.is_not(None))
-            )
-        )
-        eligible = Student.id.in_(dated) | fallback
-        if not school:
-            dated_home = dated.where(StudentEnrollment.college_id == self.cid)
-            fallback_home = fallback & Student.administrative_class_id.in_(
-                select(AdministrativeClass.id).where(AdministrativeClass.college_id == self.cid)
-            )
-            supported = select(VolunteerGroupSupport.student_id).where(
-                VolunteerGroupSupport.college_id == self.cid,
-                VolunteerGroupSupport.group_id == self.gid,
-                VolunteerGroupSupport.semester_id == semester_id,
-                VolunteerGroupSupport.status == "ACTIVE",
-                VolunteerGroupSupport.effective_from <= effective_from,
-                VolunteerGroupSupport.effective_to >= effective_to,
-            )
-            eligible &= Student.id.in_(dated_home) | fallback_home | Student.id.in_(supported)
-        stmt = select(Student).where(eligible)
+        stmt = select(Student).where(Student.id.in_(local_student_ids(self.cid, effective_from)))
         if keyword:
             stmt = stmt.where(
                 Student.student_no.contains(keyword, autoescape=True)
@@ -163,8 +116,8 @@ class GroupMemberService:
             stmt = stmt.with_for_update()
         return [str(tid) for tid in self.db.scalars(stmt)]
 
-    def _existing(self, rid, support=False, *, lock=False):
-        model = VolunteerGroupSupport if support else VolunteerGroupMember
+    def _existing(self, rid, *, lock=False):
+        model = VolunteerGroupMember
         stmt = select(model).where(
             model.id == rid, model.college_id == self.cid, model.group_id == self.gid
         )
@@ -175,9 +128,9 @@ class GroupMemberService:
             raise NotFoundError()
         return row
 
-    def impact(self, rid, *, support=False):
+    def impact(self, rid):
         self._group("volunteer.group.read")
-        row = self._existing(rid, support)
+        row = self._existing(rid)
         return {
             "lock_version": row.lock_version,
             "retained_future_task_ids": self._future(row),
@@ -185,16 +138,14 @@ class GroupMemberService:
         }
 
     @atomic_write
-    def update(self, rid, data, *, support=False):
+    def update(self, rid, data):
         body = validated(MemberUpdate, data)
-        if support:
-            self.campus._super(self.actor)
         self._scope("volunteer.member.manage", write=True)
-        original = self._existing(rid, support)
+        original = self._existing(rid)
         college, group = self._group(
             "volunteer.member.manage", write=True, semester_id=original.semester_id
         )
-        row = self._existing(rid, support, lock=True)
+        row = self._existing(rid, lock=True)
         if row.lock_version != body.lock_version:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "成员资料已变化")
         if row.effective_from < business_today() and body.effective_from != row.effective_from:
@@ -229,23 +180,8 @@ class GroupMemberService:
             )
             if overlap:
                 raise ConflictError(message="同组已有重叠有效期或相同开始日期记录")
-            if origin != self.cid and not support:
-                approved = self.db.scalar(
-                    select(VolunteerGroupSupport.id)
-                    .where(
-                        VolunteerGroupSupport.college_id == self.cid,
-                        VolunteerGroupSupport.group_id == self.gid,
-                        VolunteerGroupSupport.student_id == row.student_id,
-                        VolunteerGroupSupport.semester_id == row.semester_id,
-                        VolunteerGroupSupport.status == "ACTIVE",
-                        VolunteerGroupSupport.effective_from <= body.effective_from,
-                        VolunteerGroupSupport.effective_to >= body.effective_to,
-                    )
-                    .limit(1)
-                    .with_for_update()
-                )
-                if approved is None:
-                    raise ConflictError(message="跨院支援未覆盖成员有效期")
+            if origin != self.cid:
+                raise ConflictError(message="仅允许本学院学生作为有效组成员")
         affected = self._future(row, lock=True)
         if affected and not body.confirm_future_assignments:
             raise ConflictError(message="存在未来受派任务，须确认保留并安排改派")
@@ -256,13 +192,21 @@ class GroupMemberService:
         )
         row.lock_version += 1
         from app.modules.organization.impact_service import capture_impacts
-        capture_impacts(self.db, self.cid, "support" if support else "member", row.id, row.lock_version,
-                        task_ids=[int(value) for value in affected], after=self.campus._dto(row))
+
+        capture_impacts(
+            self.db,
+            self.cid,
+            "member",
+            row.id,
+            row.lock_version,
+            task_ids=[int(value) for value in affected],
+            after=self.campus._dto(row),
+        )
         result = self._save(
             row,
             college,
             group,
-            "volunteer.support.update" if support else "volunteer.member.update",
+            "volunteer.member.update",
         )
         return {**result, "retained_future_task_ids": affected}
 
@@ -343,22 +287,7 @@ class GroupMemberService:
         )
         body, student, origin = self._input(data)
         if origin != self.cid:
-            supported = self.db.scalar(
-                select(VolunteerGroupSupport.id)
-                .where(
-                    VolunteerGroupSupport.college_id == self.cid,
-                    VolunteerGroupSupport.group_id == self.gid,
-                    VolunteerGroupSupport.student_id == student.id,
-                    VolunteerGroupSupport.semester_id == int(body.semester_id),
-                    VolunteerGroupSupport.status == "ACTIVE",
-                    VolunteerGroupSupport.effective_from <= body.effective_from,
-                    VolunteerGroupSupport.effective_to >= body.effective_to,
-                )
-                .limit(1)
-                .with_for_update()
-            )
-            if not supported:
-                raise ConflictError(message="跨院成员须先由超管授权支援，且覆盖整个成员有效期")
+            raise ConflictError(message="仅允许本学院学生加入本组")
         overlap = self.db.scalar(
             select(VolunteerGroupMember.id)
             .where(
@@ -391,66 +320,17 @@ class GroupMemberService:
     def create(self, data):
         if data.get("enable_qualification"):
             from app.modules.volunteer.member_batch import GroupMemberBatchService
+
             return GroupMemberBatchService(self.db, self.actor, self.cid, self.gid).enroll_one(data)
         row, college, group = self._prepare_create(data)
         return self._save(row, college, group, "volunteer.member.create")
 
     @atomic_write
-    def authorize_support(self, data):
-        self.campus._super(self.actor)
-        requested = validated(MemberCreate, data)
-        college, group = self._group(
-            "volunteer.member.manage", write=True, semester_id=int(requested.semester_id)
-        )
-        body, student, origin = self._input(data)
-        if origin == self.cid:
-            raise ConflictError(message="本院成员不需要跨院支援授权")
-        overlap = self.db.scalar(
-            select(VolunteerGroupSupport.id)
-            .where(
-                VolunteerGroupSupport.college_id == self.cid,
-                VolunteerGroupSupport.group_id == self.gid,
-                VolunteerGroupSupport.student_id == student.id,
-                VolunteerGroupSupport.semester_id == int(body.semester_id),
-                VolunteerGroupSupport.status == "ACTIVE",
-                VolunteerGroupSupport.effective_from < body.effective_to,
-                VolunteerGroupSupport.effective_to > body.effective_from,
-            )
-            .limit(1)
-            .with_for_update()
-        )
-        if overlap:
-            raise ConflictError(message="同组、同学期已有重叠的有效支援授权")
-        from app.modules.volunteer.preparation_models import semester_group_config
-        version = semester_group_config(self.db, group, int(body.semester_id))
-        config = version.configuration if version else {}
-        row = VolunteerGroupSupport(
-            college_id=self.cid,
-            group_id=self.gid,
-            student_id=student.id,
-            semester_id=int(body.semester_id),
-            effective_from=body.effective_from,
-            effective_to=body.effective_to,
-            authorized_by=self.actor.id,
-            scope_snapshot={
-                "group_config_version_id": str(version.id) if version else None,
-                "course_type_ids": list(config.get("course_type_ids", [])),
-                "class_mode": config.get("class_mode", "SPECIFIC"),
-                "class_ids": list(config.get("class_ids", [])),
-            },
-        )
-        return self._save(row, college, group, "volunteer.support.authorize")
-
-    @atomic_write
-    def revoke(
-        self, member_id: int, version: int, *, support=False, confirm_future_assignments=False
-    ):
-        if support:
-            self.campus._super(self.actor)
-        model = VolunteerGroupSupport if support else VolunteerGroupMember
+    def revoke(self, member_id: int, version: int, *, confirm_future_assignments=False):
+        model = VolunteerGroupMember
         self._scope("volunteer.member.manage", write=True)
         original = cast(
-            VolunteerGroupSupport | VolunteerGroupMember | None,
+            VolunteerGroupMember | None,
             self.db.scalar(
                 select(model).where(
                     model.id == member_id, model.college_id == self.cid, model.group_id == self.gid
@@ -463,7 +343,7 @@ class GroupMemberService:
             "volunteer.member.manage", write=True, semester_id=original.semester_id
         )
         row = cast(
-            VolunteerGroupSupport | VolunteerGroupMember | None,
+            VolunteerGroupMember | None,
             self.db.scalar(
                 select(model)
                 .where(
@@ -476,7 +356,7 @@ class GroupMemberService:
         if row is None:
             raise NotFoundError()
         if row.lock_version != version:
-            raise ConflictError(ErrorCode.VERSION_CONFLICT, "成员或支援授权已变化")
+            raise ConflictError(ErrorCode.VERSION_CONFLICT, "成员资料已变化")
         affected = list(
             self.db.scalars(
                 select(InspectionTask.id)
@@ -503,12 +383,20 @@ class GroupMemberService:
         row.status = "INACTIVE"
         row.lock_version += 1
         from app.modules.organization.impact_service import capture_impacts
-        capture_impacts(self.db, self.cid, "support" if support else "member", row.id, row.lock_version,
-                        task_ids=affected, after=self.campus._dto(row))
+
+        capture_impacts(
+            self.db,
+            self.cid,
+            "member",
+            row.id,
+            row.lock_version,
+            task_ids=affected,
+            after=self.campus._dto(row),
+        )
         result = self._save(
             row,
             college,
             group,
-            "volunteer.support.revoke" if support else "volunteer.member.revoke",
+            "volunteer.member.revoke",
         )
         return {**result, "retained_future_task_ids": [str(tid) for tid in affected]}

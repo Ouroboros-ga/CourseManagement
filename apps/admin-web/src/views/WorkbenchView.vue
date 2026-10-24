@@ -9,7 +9,7 @@ const staff = useStaffContext()
 const entries = computed(() => primaryPages.filter(row => row.id !== 'home' && canAccessPage(row.id, session)))
 const descriptions: Record<string, string> = {
   academic: '导入课表、核对教学班、配置作息并发布给学生。', students: '维护当前学生档案、行政班、学籍及绑定。',
-  organizations: '管理组织、成员、学期资格和请假支援。', inspections: '选择具体课次、范围抽查、生成任务和确认排班。',
+  organizations: '管理组织、本院成员、学期资格和请假。', inspections: '选择具体课次、范围抽查、生成任务和确认排班。',
   attendance: '查看考勤、现场照片及处理学生异议。', reports: '按当前学期查看统计和导出报告。'
 }
 // 本人入口只依赖有效任职关系；没有学院管理权限的教工同样可以进入自己的工作视图。

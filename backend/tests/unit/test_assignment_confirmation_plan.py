@@ -81,6 +81,31 @@ def test_warn_requires_specific_confirmation_and_commit_is_idempotent(prepared):
     assert len(list(db.scalars(select(InspectionAssignment)))) == 1
 
 
+def test_successful_assignment_plan_closes_matching_impact_in_same_transaction(
+    prepared, monkeypatch
+):
+    from datetime import date
+
+    from app.modules.organization.impact_models import ConfigurationImpactItem
+    from app.modules.organization.impact_service import capture_impacts
+
+    monkeypatch.setattr(
+        "app.modules.organization.future_impact.business_today", lambda: date(2026, 9, 7)
+    )
+    db, service, sem, tasks, _ = prepared
+    task = db.get(InspectionTask, int(tasks[0]))
+    capture_impacts(db, task.college_id, "group", task.group_id, 99, task_ids=[task.id])
+    db.commit()
+    preview = service.preview({"semester_id": str(sem.id), "task_ids": tasks})
+    with pytest.raises(ConflictError):
+        service.commit(preview["id"], {"revision": preview["revision"], "confirmations": []})
+    assert db.scalar(select(ConfigurationImpactItem)).status == "OPEN"
+    service.commit(
+        preview["id"], {"revision": preview["revision"], "confirmations": preview["assigned"]}
+    )
+    assert db.scalar(select(ConfigurationImpactItem)).status == "REASSIGNED"
+
+
 def test_automatic_and_manual_preview_agree_for_available_member_without_dispatch(prepared):
     db, service, sem, tasks, user = prepared
     automatic = service.preview({"semester_id": str(sem.id), "task_ids": tasks})

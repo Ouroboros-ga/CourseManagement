@@ -70,8 +70,8 @@ function dispatch() {
       </el-tab-pane>
       <el-tab-pane name="rules" label="查课范围与排班规则">
         <div class="rule-content">
-          <p v-if="term && !term.error" class="rule-source">{{ term.specific ? '本学期使用已确认的专用规则。以下为实际生效设置；修改组织默认规则不会覆盖它。' : '本学期沿用组织默认规则。保存前会检查未来任务影响，已有任务保留原快照。' }}</p>
-          <GroupRuleEditor v-if="term && !term.error && !term.specific && canPublish && openSemester" :key="`${group.id}:${group.config_version}`" :college-id="collegeId" :group-id="group.id" :initial="term.configuration" :types="types" :saving="saving" @publish="emit('publish', $event)" />
+          <p v-if="term && !term.error" class="rule-source">{{ term.specific ? '本学期使用已确认的专用规则。可以直接修改本学期设置；组织默认规则和历史任务保持不变。' : '本学期沿用组织默认规则；修改后单独保存本学期版本，已有任务保留原快照。' }}</p>
+          <GroupRuleEditor v-if="term && !term.error && canPublish && openSemester" :key="`${group.id}:${JSON.stringify(term.configuration)}`" :college-id="collegeId" :group-id="group.id" :initial="term.configuration" :types="types" :saving="saving" @publish="emit('publish', $event)" />
           <el-descriptions v-else-if="configuration && !term?.error" :column="1" border>
             <el-descriptions-item label="课程类型">{{ scopeLabel }}</el-descriptions-item>
             <el-descriptions-item label="班级范围">{{ configuration.class_mode === 'SPECIFIC' ? `指定 ${configuration.class_ids?.length || 0} 个班级` : '全部授权班级' }}</el-descriptions-item>
@@ -79,11 +79,11 @@ function dispatch() {
             <el-descriptions-item label="次数上限">每天 {{ configuration.daily_limit }} 次，每周 {{ configuration.weekly_limit }} 次；{{ configuration.count_scope === 'ALL_GROUPS' ? '跨全部组织累计' : '本组累计' }}</el-descriptions-item>
             <el-descriptions-item label="检查本人班级">{{ configuration.own_class_effect === 'BLOCK' ? '禁止' : configuration.own_class_effect === 'WARN' ? '人工确认后允许' : '允许' }}</el-descriptions-item>
             <el-descriptions-item label="移动缓冲">{{ configuration.buffer_minutes }} 分钟</el-descriptions-item>
-            <el-descriptions-item label="按本人课程类型的例外"><span v-if="!Object.keys(configuration.type_overrides).length">全部沿用默认冲突处理</span><div v-for="(effect, id) in configuration.type_overrides" :key="id">{{ types.find(t => t.id === id)?.name || '历史课程类型' }}：{{ effect === 'BLOCK' ? '禁止' : effect === 'WARN' ? '人工确认后允许' : '允许' }}</div></el-descriptions-item>
-            <el-descriptions-item label="具体课程例外">{{ Object.keys(configuration.teaching_class_overrides || {}).length }} 项；跨组织同时到场的任务始终禁止。</el-descriptions-item>
+            <el-descriptions-item v-if="Object.keys(configuration.type_overrides || {}).length" label="旧版本课程类型例外（重新保存后清除）"><div v-for="(effect, id) in configuration.type_overrides" :key="id">{{ types.find(t => t.id === id)?.name || '历史课程类型' }}：{{ effect === 'BLOCK' ? '禁止' : effect === 'WARN' ? '人工确认后允许' : '允许' }}</div></el-descriptions-item>
+            <el-descriptions-item v-if="Object.keys(configuration.teaching_class_overrides || {}).length" label="旧版本教学班例外（重新保存后清除）">{{ Object.keys(configuration.teaching_class_overrides || {}).length }} 项。</el-descriptions-item>
           </el-descriptions>
           <el-empty v-else-if="!loading && !term?.error" description="尚无可查看的本学期规则。" />
-          <el-button v-if="term?.specific && canPublish" @click="emit('command', 'defaults')">维护供其他学期沿用的默认规则</el-button>
+          <el-button v-if="term?.specific && canPublish" @click="emit('command', 'defaults')">维护供新学期复用的默认规则</el-button>
         </div>
       </el-tab-pane>
     </el-tabs>

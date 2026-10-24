@@ -9,7 +9,6 @@ from app.modules.inspection.group_sampling import GroupSamplingService
 from app.modules.inspection.models import InspectionAssignment, InspectionTask
 from app.modules.inspection.schemas import SubmissionCreateRequest
 from app.modules.inspection.service import InspectionService
-from app.modules.volunteer.member_service import GroupMemberService
 from sqlalchemy import select
 
 from tests.unit.test_campus_configuration import campus as campus_fixture
@@ -21,7 +20,7 @@ def fixture():
     yield from campus_fixture.__wrapped__()
 
 
-def test_current_cross_college_assignee_can_submit_with_origin_qualification(campus, monkeypatch):
+def test_legacy_cross_college_assignee_can_finish_existing_task(campus, monkeypatch):
     db, admin, a, sem, group, own, *_ = arrange(campus, monkeypatch)
     sync_registry(db)
     foreign = db.scalar(select(Student).where(Student.student_no == "B"))
@@ -40,15 +39,22 @@ def test_current_cross_college_assignee_can_submit_with_origin_qualification(cam
         )
     )
     db.commit()
-    members = GroupMemberService(db, admin, int(a["id"]), int(group["id"]))
-    body = {
-        "student_id": str(foreign.id),
-        "semester_id": str(sem.id),
-        "effective_from": "2026-09-01",
-        "effective_to": "2027-01-30",
-    }
-    support = members.authorize_support(body)
-    members.create(body)
+    from datetime import date
+
+    from app.modules.volunteer.member_models import VolunteerGroupMember
+
+    db.add(
+        VolunteerGroupMember(
+            college_id=int(a["id"]),
+            group_id=int(group["id"]),
+            student_id=foreign.id,
+            semester_id=sem.id,
+            effective_from=date(2026, 9, 1),
+            effective_to=date(2027, 1, 30),
+            status="INACTIVE",
+        )
+    )
+    db.commit()
     sampling = GroupSamplingService(db, admin, int(a["id"]), int(group["id"]))
     request = {
         "semester_id": str(sem.id),
@@ -69,8 +75,7 @@ def test_current_cross_college_assignee_can_submit_with_origin_qualification(cam
         )
     )
     db.commit()
-    # 撤销支援只停止新派发；已受派义务必须由管理员明确改派/取消。
-    members.revoke(int(support["id"]), support["lock_version"], support=True)
+    # 仅验证历史既有受派可履行；不通过已退役的支援能力新建成员或排班。
     if db.get_bind().dialect.name != "mysql":
         from app.modules.report.source_revision import SourceRevisionService
 

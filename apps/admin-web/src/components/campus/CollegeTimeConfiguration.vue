@@ -10,13 +10,14 @@ import { markWorkspaceSaved } from '../../composables/useWorkspaceChanges'
 
 const props = defineProps<{ collegeId: string }>()
 const session = useSessionStore()
+const profilesLoaded = shallowRef(false)
+function showProfiles(event: Event) { if ((event.target as HTMLDetailsElement).open) profilesLoaded.value = true }
 const draftRoot = shallowRef<HTMLElement | null>(null)
 const state = useCollegeTimeConfiguration(() => props.collegeId)
 const { semesterId, form, previewResult, versions, busy, error, message, preview, publish } = state
 watch(message, value => { if (value) markWorkspaceSaved(draftRoot.value) })
 const formMethods = computed(() => form.value)
 function fillTemplatePeriods(periods: CollegePeriodTime[]) { form.value = { ...form.value, periods } }
-const hasRetainedTasks = computed(() => (previewResult.value?.retained_future_task_ids.length || 0) > 0)
 const mappingError = shallowRef('')
 const mappingText = computed(() => Object.entries(form.value.grid_slot_mapping || {})
   .sort(([a], [b]) => Number(a) - Number(b)).map(([raw, period]) => `${raw}=${period}`).join(', '))
@@ -80,9 +81,6 @@ function updateCalendar(index: number, field: 'date' | 'override_type' | 'source
 function removeCalendar(index: number) {
   form.value = { ...form.value, calendar: form.value.calendar.filter((_, row) => row !== index) }
 }
-function updateConfirmation(value: boolean | string | number) {
-  form.value = { ...form.value, confirm_existing_tasks: Boolean(value) }
-}
 </script>
 
 <template>
@@ -102,7 +100,10 @@ function updateConfirmation(value: boolean | string | number) {
       />
     </div>
 
-    <h3>节次时间</h3>
+    <h3>当前节次时间</h3>
+    <p>日常停课、补课直接在下方校历中调整。节次与导入映射仅在学校安排变化时修改。</p>
+    <PaginatedTable :data="formMethods.periods"><el-table-column prop="period_no" label="节次" /><el-table-column prop="name" label="名称" /><el-table-column prop="start_time" label="开始" /><el-table-column prop="end_time" label="结束" /></PaginatedTable>
+    <details><summary>调整节次时间（高级）</summary>
     <el-table :data="formMethods.periods" row-key="period_no">
       <el-table-column label="节次" width="130">
         <template #default="scope">
@@ -128,12 +129,14 @@ function updateConfirmation(value: boolean | string | number) {
     </el-table>
     <el-button class="section-action" :disabled="formMethods.periods.length >= 60" @click="addPeriod">增加节次</el-button>
 
-    <h3>教务网格课表小节映射</h3>
+    </details>
+    <details><summary>教务导入节次映射（高级）</summary>
     <p>例如本院节次 1 为早自习、节次 2 为第一大节时，填写 1=2, 2=2。留空时不能导入网格课表。</p>
     <el-input :model-value="mappingText" placeholder="1=2, 2=2, 3=3, 4=3" @change="updateMapping" />
     <el-alert v-if="mappingError" :title="mappingError" type="error" :closable="false" />
 
-    <h3>校历覆盖</h3>
+    </details>
+    <h3>停课与补课安排</h3>
     <el-table :data="formMethods.calendar">
       <el-table-column label="日期">
         <template #default="scope">
@@ -172,14 +175,10 @@ function updateConfirmation(value: boolean | string | number) {
     </div>
     <div v-if="previewResult" class="preview-result">
       <p>预览为第 {{ previewResult.next_version }} 版；{{ previewResult.retained_future_task_ids.length }} 个未来任务保留原作息快照。</p>
-      <el-checkbox
-        v-if="hasRetainedTasks" :model-value="formMethods.confirm_existing_tasks"
-        @update:model-value="updateConfirmation"
-      >确认未来已有任务保留原作息快照</el-checkbox>
-      <el-button type="primary" :disabled="busy || !!mappingError || (hasRetainedTasks && !formMethods.confirm_existing_tasks)" :loading="busy" @click="publish">确认发布</el-button>
+      <el-button type="primary" :disabled="busy || !!mappingError" :loading="busy" @click="publish">确认发布以上作息（已有任务保留原快照）</el-button>
     </div>
 
-    <h3>历史作息版本</h3>
+    <details><summary>查看历史作息版本</summary>
     <el-empty v-if="!versions.length && !busy" description="暂无作息版本" />
     <PaginatedTable v-else :data="versions" row-key="id" v-loading="busy">
       <el-table-column prop="version" label="版本" width="100" />
@@ -192,7 +191,10 @@ function updateConfirmation(value: boolean | string | number) {
       </el-table-column>
       <el-table-column prop="id" label="版本 ID" />
     </PaginatedTable>
-    <TimeProfiles v-if="semesterId" :key="`${collegeId}:${semesterId}`" :college-id="collegeId" :semester-id="semesterId" :default-configuration="form" />
+    </details>
+    <details @toggle="showProfiles"><summary>特殊作息方案与教学班绑定（高级）</summary>
+    <TimeProfiles v-if="semesterId && profilesLoaded" :key="`${collegeId}:${semesterId}`" :college-id="collegeId" :semester-id="semesterId" :default-configuration="form" />
+    </details>
   </section>
 </template>
 

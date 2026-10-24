@@ -9,13 +9,15 @@ const form = reactive<GroupConfiguration>(props.initial ? JSON.parse(JSON.string
   course_type_ids: [], default_effect: 'BLOCK', type_overrides: {}, own_class_effect: 'BLOCK',
   task_conflict_effect: 'BLOCK', daily_limit: 3, weekly_limit: 10, count_scope: 'ALL_GROUPS', buffer_minutes: 0
 })
+const replacesLegacyExceptions = Object.keys(form.type_overrides || {}).length > 0
+  || Object.keys(form.teaching_class_overrides || {}).length > 0
+form.type_overrides = {}
+form.teaching_class_overrides = {}
 form.class_mode ||= 'ALL_AUTHORIZED'
 form.class_ids ||= []
-form.teaching_class_overrides ||= {}
 const availableTypes = shallowRef<CourseType[]>(props.types)
-const conflictTypes = shallowRef<CourseType[]>(props.types)
-const classes = shallowRef<ScopedAcademicRow[]>([]), teaching = shallowRef<ScopedAcademicRow[]>([])
-const loading = shallowRef(false), loadError = shallowRef(''), exceptionId = shallowRef('')
+const classes = shallowRef<ScopedAcademicRow[]>([])
+const loading = shallowRef(false), loadError = shallowRef('')
 let disposed = false
 onUnmounted(() => { disposed = true })
 onMounted(async () => {
@@ -24,32 +26,18 @@ onMounted(async () => {
     const references = await groupReferences(props.collegeId, props.groupId)
     if (disposed) return
     classes.value = references.classes.filter(row => row.status === 'ACTIVE')
-    teaching.value = references.teaching_classes.filter(row => row.status === 'ACTIVE')
     availableTypes.value = references.types
-    conflictTypes.value = references.conflict_types
 
   } catch (error) { if (!disposed) loadError.value = error instanceof Error ? error.message : '读取范围失败' }
   finally { if (!disposed) loading.value = false }
 })
-const teachingName = (id: string) => String(teaching.value.find(row => row.id === id)?.class_name || `教学班 ${id}`)
-function addException() {
-  if (exceptionId.value) form.teaching_class_overrides![exceptionId.value] = 'BLOCK'
-  exceptionId.value = ''
-}
 const effects: { value: Effect; label: string }[] = [{ value: 'BLOCK', label: '禁止' }, { value: 'WARN', label: '人工确认后允许' }, { value: 'ALLOW', label: '允许' }]
 const missingTypeIds = computed(() => form.course_type_ids.filter(id => !availableTypes.value.some(row => row.id === id)))
-const missingOverrideIds = computed(() => Object.keys(form.type_overrides).filter(
-  id => !conflictTypes.value.some(row => row.id === id && row.status === 'ACTIVE')
-))
 function publish() {
-  if (loading.value || loadError.value || missingTypeIds.value.length || missingOverrideIds.value.length) return
+  if (loading.value || loadError.value || missingTypeIds.value.length) return
   const payload: GroupConfiguration = JSON.parse(JSON.stringify(form))
   if (payload.class_mode === 'ALL_AUTHORIZED') payload.class_ids = []
   emit('publish', payload)
-}
-function updateOverride(id: string, value: Effect | '') {
-  if (value) form.type_overrides[id] = value
-  else delete form.type_overrides[id]
 }
 </script>
 <template>
@@ -70,43 +58,20 @@ function updateOverride(id: string, value: Effect | '') {
       </el-select>
     </el-form-item>
     <h3>3. 组员什么时候可以查？</h3>
-    <section v-if="!loading && !loadError && missingOverrideIds.length" class="stale-rules">
-      <p>以下冲突规则引用了已删除、停用或不可见的课程类型，请先移除失效规则再保存。其他规则会保留。</p>
-      <div v-for="id in missingOverrideIds" :key="id">
-        <span>课程类型 {{ id }}</span>
-        <el-button :disabled="saving" link type="danger" @click="delete form.type_overrides[id]">移除失效规则</el-button>
-      </div>
-    </section>
+    <el-alert v-if="replacesLegacyExceptions" title="本次保存将清除旧的课程类型及教学班例外，统一采用下方默认课程冲突处理；历史任务不变。" type="warning" :closable="false" />
     <el-form-item label="默认课程冲突处理"><el-select v-model="form.default_effect"><el-option v-for="effect in effects" :key="effect.value" :value="effect.value" :label="effect.label" /></el-select></el-form-item>
-    <el-form-item v-for="row in conflictTypes" :key="row.id" :label="`本人正在上：${row.name}`">
-      <el-select :model-value="form.type_overrides[row.id] || ''" placeholder="使用默认规则" @update:model-value="updateOverride(row.id, $event)">
-        <el-option value="" label="使用默认规则" />
-        <el-option v-for="effect in effects" :key="effect.value" :value="effect.value" :label="effect.label" />
-      </el-select>
-    </el-form-item>
+    <p>组员本人有课且时间重叠时，所有课程统一按此规则处理。</p>
     <el-form-item label="检查本人班级"><el-select v-model="form.own_class_effect"><el-option v-for="effect in effects" :key="effect.value" :value="effect.value" :label="effect.label" /></el-select></el-form-item>
     <h3>4. 每个人安排多少次？</h3>
     <el-form-item label="每日 / 每周上限"><el-input-number v-model="form.daily_limit" :min="1" :max="100" /><el-input-number v-model="form.weekly_limit" :min="1" :max="700" /></el-form-item>
     <el-form-item label="上限统计口径"><el-radio-group v-model="form.count_scope"><el-radio value="ALL_GROUPS">本人所有组</el-radio><el-radio value="GROUP">仅本组</el-radio></el-radio-group></el-form-item>
-    <el-collapse><el-collapse-item title="5. 特殊课程例外与移动缓冲（按需设置）" name="advanced">
-    <h3>本人具体教学班的冲突例外</h3>
-    <p>具体教学班优先于类型规则；这不是被查课程的分类，也不改变本人考勤。</p>
-    <el-select v-model="exceptionId" filterable :loading="loading" placeholder="选择本人可能参与的正式教学班"><el-option v-for="row in teaching" :key="row.id" :value="row.id" :label="`${row.class_name}（学期 ${row.semester_id}）`" /></el-select>
-    <el-button :disabled="!exceptionId || saving" @click="addException">添加例外</el-button>
-    <el-form-item v-for="(_effect, id) in form.teaching_class_overrides" :key="id" :label="teachingName(String(id))">
-      <el-select v-model="form.teaching_class_overrides![id]"><el-option v-for="effect in effects" :key="effect.value" :value="effect.value" :label="effect.label" /></el-select>
-      <el-button :disabled="saving" @click="delete form.teaching_class_overrides![id]">移除例外</el-button>
-    </el-form-item>
     <el-form-item label="移动缓冲（分钟）"><el-input-number v-model="form.buffer_minutes" :min="0" :max="120" /></el-form-item>
-    </el-collapse-item></el-collapse>
     <p>另一组同时到场的任务始终禁止；允许本人课程重叠不会修改本人考勤。</p>
-    <el-button type="primary" :loading="saving" :disabled="loading || !!loadError || !form.course_type_ids.length || missingTypeIds.length > 0 || missingOverrideIds.length > 0 || (form.class_mode === 'SPECIFIC' && !form.class_ids?.length)" @click="publish">保存查课范围与排班规则</el-button>
+    <el-button type="primary" :loading="saving" :disabled="loading || !!loadError || !form.course_type_ids.length || missingTypeIds.length > 0 || (form.class_mode === 'SPECIFIC' && !form.class_ids?.length)" @click="publish">保存查课范围与排班规则</el-button>
   </el-form>
 </template>
 
 <style scoped>
-.stale-rules { padding: 12px; border: 1px solid var(--line); margin-bottom: 14px; }
-.stale-rules div { display: flex; gap: 16px; align-items: center; }
 h3 { margin: 22px 0 14px; }
 p { font-size: var(--text-sm); color: var(--ink-mute); line-height: 1.7; }
 </style>

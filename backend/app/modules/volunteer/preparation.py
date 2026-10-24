@@ -1,4 +1,4 @@
-"""Prepare a new semester explicitly without cloning identities or support grants."""
+"""Prepare a new semester explicitly without cloning identities."""
 
 from copy import deepcopy
 from datetime import date
@@ -15,7 +15,7 @@ from app.modules.audit.provenance import scoped_snapshot
 from app.modules.inspection.assignment_fingerprint import fingerprint
 from app.modules.organization.schemas import StrictModel
 from app.modules.organization.service import atomic_write, validated
-from app.modules.volunteer.member_models import VolunteerGroupMember, VolunteerGroupSupport
+from app.modules.volunteer.member_models import VolunteerGroupMember
 from app.modules.volunteer.member_service import GroupMemberService
 from app.modules.volunteer.models import GroupConfigVersion, GroupScopeType
 from app.modules.volunteer.preparation_models import GroupSemesterPreparation, semester_group_config
@@ -103,36 +103,24 @@ class GroupPreparationService:
         if source is None:
             raise ConflictError(message="来源组织尚无已发布规则")
         config = deepcopy(source.configuration)
-        overrides = config.get("teaching_class_overrides", {})
-        if set(body.teaching_class_mapping) != set(overrides):
-            raise ConflictError(message="请为来源规则中每个教学班例外明确映射目标教学班")
-        mapped = list(
-            self.db.scalars(
-                select(TeachingClass).where(
-                    TeachingClass.college_id == self.cid,
-                    TeachingClass.semester_id == self.sid,
-                    TeachingClass.status == "ACTIVE",
-                    TeachingClass.id.in_([int(x) for x in body.teaching_class_mapping.values()]),
-                )
-            )
-        )
-        if {str(t.id) for t in mapped} != set(body.teaching_class_mapping.values()):
-            raise NotFoundError("目标教学班不属于本院目标学期或已停用")
-        types = set(config["course_type_ids"]) | set(config.get("type_overrides", {}))
+        # 只简化新生成的目标学期版本，不修改来源版本及历史任务。
+        config["type_overrides"] = {}
+        config["teaching_class_overrides"] = {}
+        if body.teaching_class_mapping:
+            raise ConflictError(message="仅支持默认课程冲突处理，无需映射教学班例外")
+        types = set(config["course_type_ids"])
         active_types = list(
             self.db.scalars(
                 select(CourseType).where(
                     CourseType.college_id == self.cid,
                     CourseType.id.in_([int(x) for x in types]),
                     CourseType.status == "ACTIVE",
+                    CourseType.deleted_at.is_(None),
                 )
             )
         )
         if {str(t.id) for t in active_types} != types:
             raise ConflictError(message="来源规则含已停用课程类型，请先整理组织规则")
-        config["teaching_class_overrides"] = {
-            body.teaching_class_mapping[k]: v for k, v in overrides.items()
-        }
         self.members.campus._authorize_group(
             self.actor, self.cid, "volunteer.config.publish", self.gid, write=True, proposed=config
         )
@@ -191,37 +179,23 @@ class GroupPreparationService:
             )
             .with_for_update()
         )
-        support = list(
-            self.db.scalars(
-                select(VolunteerGroupSupport)
-                .where(
-                    VolunteerGroupSupport.college_id == self.cid,
-                    VolunteerGroupSupport.group_id == self.gid,
-                    VolunteerGroupSupport.semester_id == self.sid,
-                )
-                .with_for_update()
-            )
-        )
         preview = {
             "configuration": config,
             "items": items,
             "can_confirm": all(i["ready"] for i in items),
             "source_config_id": str(source.id),
             "identities_reused": True,
-            "support_grants_copied": False,
         }
         preview["revision"] = fingerprint(
             {
                 "actor": self.actor.id,
                 "body": body.model_dump(),
                 "target_semester": self.sid,
-                "college": [college.configuration_revision, college.authorization_revision],
-                "group": self.members.campus._dto(group),
-                "source": self.members.campus._dto(source),
+                "group": [group.id, group.status, str(group.starts_on), str(group.ends_on)],
+                "source": [source.id, source.configuration],
                 "members": [self.members.campus._dto(m) for m in source_members],
                 "target": self.members.campus._dto(target) if target else None,
                 "qualifications": qualifications,
-                "support": [self.members.campus._dto(s) for s in support],
                 "preview": preview,
             }
         )
@@ -301,9 +275,7 @@ class GroupPreparationService:
         )
         self.db.add(config)
         self.db.flush()
-        type_ids = set(config.configuration["course_type_ids"]) | set(
-            config.configuration.get("type_overrides", {})
-        )
+        type_ids = set(config.configuration["course_type_ids"])
         self.db.add_all(
             [
                 GroupScopeType(
@@ -352,5 +324,4 @@ class GroupPreparationService:
             "config_id": str(config.id),
             "created_members": len(members),
             "group_id": str(group.id),
-            "support_grants_copied": False,
         }

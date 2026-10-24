@@ -1,6 +1,6 @@
 import pytest
 from app.core.database import utcnow
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import AppError, NotFoundError
 from app.modules.academic.campus_models import CourseType
 
 from tests.unit.test_campus_configuration import campus as campus_fixture
@@ -32,9 +32,9 @@ def test_references_do_not_offer_deleted_types_as_conflict_rules(campus):
     assert live["id"] in [r["id"] for r in refs["conflict_types"]]
 
 
-def test_stale_deleted_override_returns_actionable_conflict_instead_of_404(campus):
+def test_stale_deleted_override_is_rejected_as_invalid_configuration(campus):
     service, _, actor, cid, group, live, old, _ = setup(campus)
-    with pytest.raises(ConflictError, match="删除"):
+    with pytest.raises(AppError, match="配置格式无效"):
         service.publish_group(
             actor,
             cid,
@@ -57,7 +57,6 @@ def test_foreign_type_still_returns_not_found(campus):
             int(group["id"]),
             {
                 "lock_version": group["lock_version"],
-                "course_type_ids": [live["id"]],
-                "type_overrides": {foreign["id"]: "ALLOW"},
+                "course_type_ids": [live["id"], foreign["id"]],
             },
         )

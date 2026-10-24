@@ -50,6 +50,15 @@ def test_preparation_reuses_identity_rechecks_qualification_and_selects_semester
         "effective_from": target.start_date,
         "effective_to": target.end_date,
     }
+    # Simulate a previously published immutable version with legacy exceptions.
+    old_config = semester_group_config(db, db.get(VolunteerGroup, gid), source.id)
+    old_rules = {
+        **old_config.configuration,
+        "type_overrides": {"999": "ALLOW"},
+        "teaching_class_overrides": {"999": "BLOCK"},
+    }
+    old_config.configuration = old_rules
+    db.commit()
     not_ready = service.preview(body)
     assert not not_ready["can_confirm"]
     with pytest.raises(ConflictError):
@@ -61,8 +70,19 @@ def test_preparation_reuses_identity_rechecks_qualification_and_selects_semester
     )
     db.commit()
     preview = service.preview(body)
-    assert preview["can_confirm"] and not preview["support_grants_copied"]
+    assert preview["can_confirm"] and preview["identities_reused"]
+    assert preview["configuration"]["type_overrides"] == {}
+    assert preview["configuration"]["teaching_class_overrides"] == {}
+    assert old_config.configuration == old_rules
+    campus[0].create_type(admin, cid, {"name": "与本次复用无关的新分类"})
     result = service.confirm({**body, "revision": preview["revision"]})
+    assert (
+        semester_group_config(db, db.get(VolunteerGroup, gid), target.id).configuration[
+            "type_overrides"
+        ]
+        == {}
+    )
+    assert old_config.configuration == old_rules
     assert result["created_members"] == 1 and result["group_id"] == str(gid)
     actual = db.get(VolunteerGroup, gid)
     assert semester_group_config(db, actual, target.id).id == int(result["config_id"])

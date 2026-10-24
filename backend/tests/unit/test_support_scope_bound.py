@@ -1,43 +1,25 @@
+"""旧支援范围仅保留历史，不再参与任何候选或排班判定。"""
+
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
 from app.modules.volunteer.eligibility_index import EligibilityIndex
 
-from tests.unit.test_campus_configuration import campus as campus_fixture
-from tests.unit.test_group_candidates import (
-    test_authorized_foreign_support_appears_only_while_effective as exercise_support,
-)
+from tests.unit.test_support_retirement import legacy as legacy_fixture
 
 
-@pytest.fixture(name="campus")
-def fixture():
-    yield from campus_fixture.__wrapped__()
+@pytest.fixture
+def legacy():
+    yield from legacy_fixture.__wrapped__()
 
 
-def test_support_scope_does_not_expand_with_group_configuration(campus, monkeypatch):
-    # Exercise the real grant and candidate path before inspecting the immutable cap.
-    exercise_support(campus, monkeypatch)
-    from app.modules.volunteer.member_models import VolunteerGroupSupport
-    from sqlalchemy import select
-
-    db = campus[1]
-    support = db.scalar(select(VolunteerGroupSupport))
-    assert support.scope_snapshot["course_type_ids"]
-    allowed = support.scope_snapshot["course_type_ids"][0]
+def test_historical_support_scope_cannot_authorize_foreign_students(legacy):
+    db, _, cid, gid, semester, _, foreign, _, support = legacy
     task = SimpleNamespace(
-        course_type_id_snapshot=int(allowed), id=None, administrative_class_id=None
+        group_id=gid, college_id=cid, semester_id=semester.id, inspection_date=date(2026, 9, 7)
     )
-    assert EligibilityIndex.support_covers_scope(support, task, set())
-    task.course_type_id_snapshot = int(allowed) + 100000
-    assert not EligibilityIndex.support_covers_scope(support, task, set())
-    support.scope_snapshot = {
-        "course_type_ids": [allowed],
-        "class_mode": "SPECIFIC",
-        "class_ids": ["10"],
-    }
-    task.course_type_id_snapshot = int(allowed)
-    assert EligibilityIndex.support_covers_scope(support, task, {10})
-    assert not EligibilityIndex.support_covers_scope(support, task, {10, 11})
-    assert not EligibilityIndex.support_covers_scope(support, task, set())
-    support.scope_snapshot = None
-    assert not EligibilityIndex.support_covers_scope(support, task, {10})
+    for scope in ({"class_mode": "ALL_AUTHORIZED", "course_type_ids": ["1"]}, None):
+        support.scope_snapshot = scope
+        db.commit()
+        assert not EligibilityIndex(db, [foreign.id], [task]).member_allowed(task, foreign.id)

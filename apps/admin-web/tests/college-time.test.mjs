@@ -132,18 +132,13 @@ test('account, college, and semester changes reset the form and require a new ef
   } finally { f.stop() }
 })
 
-test('future tasks require explicit confirmation before a publish request', async () => {
+test('the explicit publish action acknowledges previewed future tasks without a second checkbox', async () => {
   const f = fixture()
   try {
     configure(f.state); await flush()
     const pending = f.state.preview()
     f.previews[0].resolve({ ...response('revision-with-tasks'), retained_future_task_ids: ['9007199254740993123'] })
     await pending
-    await f.state.publish()
-    assert.equal(f.publishes.length, 0)
-    assert.match(f.state.error.value, /勾选确认/)
-    f.state.form.value = { ...f.state.form.value, confirm_existing_tasks: true }
-    await flush()
     await f.state.publish()
     assert.equal(f.publishes.length, 1)
     assert.equal(f.publishes[0][2].confirm_existing_tasks, true)

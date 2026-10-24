@@ -40,6 +40,7 @@ class VolunteerGroupMember(GroupRange, Base):
 
 
 class VolunteerGroupSupport(GroupRange, Base):
+    """已退役功能的历史表映射；不参与成员授权、候选或排班计算。"""
     __tablename__ = "volunteer_group_support"
     __table_args__ = (
         CheckConstraint("effective_to > effective_from", name="ck_group_support_dates"),

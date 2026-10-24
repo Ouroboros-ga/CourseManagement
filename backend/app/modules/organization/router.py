@@ -188,8 +188,20 @@ def update_group(
 
 
 @router.get("/colleges/{cid}/groups/{rid}/impact")
-def group_impact(cid: ResourceId, rid: ResourceId, actor: CurrentUserDep, service: ServiceDep):
-    return success(service.configuration_impact(actor, cid, "group", rid), service.request_id)
+def group_impact(
+    cid: ResourceId,
+    rid: ResourceId,
+    actor: CurrentUserDep,
+    service: ServiceDep,
+    semester_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
+    configuration_only: bool = False,
+):
+    return success(
+        service.configuration_impact(
+            actor, cid, "group", rid, semester_id=semester_id, configuration_only=configuration_only
+        ),
+        service.request_id,
+    )
 
 
 @router.delete("/colleges/{cid}/groups/{rid}")
@@ -221,9 +233,17 @@ def restore_type(cid: ResourceId, rid: ResourceId, body: DeletedRestore, actor: 
 
 @router.post("/colleges/{cid}/groups/{rid}/configuration/publish")
 def publish_group(
-    cid: ResourceId, rid: ResourceId, body: GroupPublish, actor: CurrentUserDep, service: ServiceDep
+    cid: ResourceId,
+    rid: ResourceId,
+    body: GroupPublish,
+    actor: CurrentUserDep,
+    service: ServiceDep,
+    semester_id: Annotated[int | None, Query(gt=0, le=2**63 - 1)] = None,
 ):
-    return success(service.publish_group(actor, cid, rid, body.model_dump()), service.request_id)
+    return success(
+        service.publish_group(actor, cid, rid, body.model_dump(), semester_id=semester_id),
+        service.request_id,
+    )
 
 
 @router.get("/colleges/{cid}/groups/{rid}/references")

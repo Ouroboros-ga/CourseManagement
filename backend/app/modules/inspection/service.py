@@ -1806,7 +1806,7 @@ class InspectionService:
 
             group_rules = GroupRules(self._session, task)
             if prof.student_id is None or not group_rules.member_allowed(prof.student_id):
-                return REASON_NO_QUALIFICATION, "不属于执行日有效组成员或跨院支援已失效"
+                return REASON_NO_QUALIFICATION, "不属于执行学院在该日期的有效组成员"
             limit_reason = group_rules.limit_reason(prof.user_id)
             if limit_reason:
                 return limit_reason, "超过组配置的日/周查课上限"
@@ -2034,6 +2034,9 @@ class InspectionService:
             existing.lock_version += 1
         task.lock_version += 1
         self._repo.flush()
+        from app.modules.organization.impact_service import close_resolved_impacts
+
+        close_resolved_impacts(self._session, actor.id, [task.id])
         # 如果原受派关系存在待处理的调班申请，人工改派时自动将其置为 APPROVED
         if existing is not None and existing.id and old_v is not None and old_v != target_uid:
             pending_crs = self._session.scalars(
@@ -2401,6 +2404,9 @@ class InspectionService:
             assigned.append(PlannedAssignment(task_id=locked.id, volunteer_user_id=vid,
                 warning_codes=list(current.warnings.get((locked.id, vid), ()))))
         self._repo.flush()
+        from app.modules.organization.impact_service import close_resolved_impacts
+
+        close_resolved_impacts(self._session, actor.id, [t.id for t in locked_tasks])
         self._audit(
             actor_user_id=actor.id,
             action="assignment.auto_run",
@@ -2753,6 +2759,9 @@ class InspectionService:
         task.cancel_reason = body.reason
         task.lock_version += 1
         self._repo.flush()
+        from app.modules.organization.impact_service import close_resolved_impacts
+
+        close_resolved_impacts(self._session, actor.id, [task.id])
         from app.modules.inspection.responsibility import sync_responsibility
         sync_responsibility(self._session, task)
         self._audit(

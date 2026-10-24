@@ -30,10 +30,10 @@ const state = useGroupMembers({
   canQualify: () => session.hasPermission('volunteer.manage')
 })
 const memberPage = ref(1)
-const allVisibleRows = computed(() => (state.activeKind.value === 'members' ? state.members.value : state.supports.value).filter(row => !keyword.value.trim() || `${row.name || ''} ${row.student_no || ''}`.includes(keyword.value.trim())))
+const allVisibleRows = computed(() => state.members.value.filter(row => !keyword.value.trim() || `${row.name || ''} ${row.student_no || ''}`.includes(keyword.value.trim())))
 const visibleRows = computed(() => allVisibleRows.value.slice((memberPage.value - 1) * 50, memberPage.value * 50))
 watch(allVisibleRows, () => { memberPage.value = 1 })
-watch(() => JSON.stringify([state.members.value, state.supports.value]), () => emit('changed'))
+watch(() => JSON.stringify(state.members.value), () => emit('changed'))
 watch(() => [state.candidateFrom.value, state.candidateTo.value], () => { if (props.compact && state.creating.value) { state.selectedCandidate.value = null; state.candidates.value = [] } }, { flush: 'sync' })
 function memberStatus(row: { status: string; effective_from: string; effective_to: string }) {
   const day = props.asOf || new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
@@ -41,7 +41,7 @@ function memberStatus(row: { status: string; effective_from: string; effective_t
 }
 const recordName = (row: { name?: string; student_no?: string; student_id: string }) =>
   row.name ? `${row.name}${row.student_no ? `（${row.student_no}）` : ''}` : `学生 ${row.student_id}`
-const canEdit = computed(() => props.canManage && (state.activeKind.value === 'members' || props.isSuper))
+const canEdit = computed(() => props.canManage)
 function startCreate() {
   state.startCreate()
   const dates = memberDates(session.currentSemester)
@@ -58,34 +58,30 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
 
 <template>
   <section class="group-members">
+    <p class="notice">本组仅安排本学院学生。同一学生仍可加入本学院多个组。</p>
     <GroupMemberBatch v-if="canManage && !compact" :key="`${collegeId}:${groupId}:${semesterId}`" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" @changed="state.load" />
     <GroupUnavailability v-if="!compact" :key="`availability:${collegeId}:${groupId}:${semesterId}`" :college-id="collegeId" :group-id="groupId" :semester-id="semesterId" :members="state.members.value" :can-manage="canManage" />
     <header class="toolbar">
-      <nav v-if="!compact" class="tabs" aria-label="成员类别">
-        <button :class="{ active: state.activeKind.value === 'members' }" type="button" @click="state.setKind('members')">组成员</button>
-        <button :class="{ active: state.activeKind.value === 'support-authorizations' }" type="button" @click="state.setKind('support-authorizations')">跨院支援</button>
-      </nav>
+      <h3 v-if="!compact">组成员</h3>
       <el-input v-if="compact" v-model="keyword" placeholder="搜索姓名或学号" clearable aria-label="搜索本组成员" style="max-width:260px" />
       <div class="toolbar-actions">
         <button type="button" :disabled="state.busy.value" @click="state.load">刷新</button>
         <button v-if="canManage" type="button" :disabled="state.busy.value" @click="importing = true">导入成员 Excel</button>
-        <button v-if="canEdit" type="button" :disabled="state.busy.value" @click="startCreate">{{ state.activeKind.value === 'members' ? '添加成员' : '添加支援授权' }}</button>
+        <button v-if="canEdit" type="button" :disabled="state.busy.value" @click="startCreate">添加成员</button>
       </div>
     </header>
     <div v-if="compact" class="secondary-actions">
       <el-button link @click="leaveOpen = true">请假记录与审批</el-button>
-      <el-button link @click="state.setKind(state.activeKind.value === 'members' ? 'support-authorizations' : 'members')">{{ state.activeKind.value === 'members' ? '查看跨院支援' : '返回组成员' }}</el-button>
       <el-button v-if="canManage" link @click="batchOpen = true">粘贴学号批量加入</el-button>
     </div>
 
-    <p v-if="state.activeKind.value === 'support-authorizations'" class="notice">支援权限固定为授权时已发布的课程类型与班级范围。组范围扩大后须由超管重新授权；未发布配置的授权暂不能用于排班。</p>
     <p v-if="state.error.value" class="notice error" role="alert">{{ state.error.value }}</p>
     <p v-if="state.message.value" class="notice success" role="status">{{ state.message.value }}</p>
 
     <div v-if="state.creating.value || state.editing.value" class="editor">
-      <h3>{{ state.editing.value ? '编辑成员有效期' : state.activeKind.value === 'members' ? '新增组成员' : '新增跨院支援授权' }}</h3>
-      <label v-if="!compact && state.creating.value && state.activeKind.value === 'members' && session.hasPermission('volunteer.manage')"><input v-model="state.enableQualification.value" type="checkbox">同时开通本学期志愿者资格</label>
-      <p v-if="compact && state.creating.value && state.activeKind.value === 'members'" class="notice">{{ session.hasPermission('volunteer.manage') ? '选人后同时开通缺失的本学期资格并加入本组，已加入的其他组织保留。' : '你可以维护成员，但无权开通志愿者资格；加入后需由学院管理员核对本学期资格，未满足资格不能排班。' }}</p>
+      <h3>{{ state.editing.value ? '编辑成员有效期' : '新增组成员' }}</h3>
+      <label v-if="!compact && state.creating.value && session.hasPermission('volunteer.manage')"><input v-model="state.enableQualification.value" type="checkbox">同时开通本学期志愿者资格</label>
+      <p v-if="compact && state.creating.value" class="notice">{{ session.hasPermission('volunteer.manage') ? '选人后同时开通缺失的本学期资格并加入本组，已加入的其他组织保留。' : '你可以维护成员，但无权开通志愿者资格；加入后需由学院管理员核对本学期资格，未满足资格不能排班。' }}</p>
       <template v-if="state.creating.value">
         <el-collapse v-if="compact"><el-collapse-item title="调整成员有效期（默认本学期）" name="dates"><div class="date-fields"><label>开始日期<input v-model="state.candidateFrom.value" type="date"></label><label>失效日期（不含）<input v-model="state.candidateTo.value" type="date"></label></div><p>修改有效期后请重新搜索并选择学生。</p></el-collapse-item></el-collapse>
         <div class="candidate-search">
@@ -120,7 +116,7 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
       </div>
       <div class="editor-actions">
         <button type="button" :disabled="state.writing.value" @click="state.cancelEdit">取消</button>
-        <button v-if="state.creating.value" type="button" class="primary" :disabled="state.busy.value || !state.selectedCandidate.value || !state.draft.value.effective_from || !state.draft.value.effective_to" @click="state.create">{{ state.activeKind.value === 'members' ? '确认加入本组' : '确认添加支援授权' }}</button>
+        <button v-if="state.creating.value" type="button" class="primary" :disabled="state.busy.value || !state.selectedCandidate.value || !state.draft.value.effective_from || !state.draft.value.effective_to" @click="state.create">确认加入本组</button>
         <template v-else-if="state.editing.value">
           <button v-if="!state.pendingChange.value" type="button" class="primary" :disabled="state.busy.value || !state.draft.value.effective_from || !state.draft.value.effective_to" @click="state.prepareChange(state.editing.value)">查询影响并继续</button>
           <button v-else type="button" class="primary" :disabled="state.busy.value || (state.pendingChange.value.impact.retained_future_task_ids.length > 0 && !state.confirmFutureAssignments.value)" @click="state.applyChange">{{ state.pendingChange.value.revoke ? '确认停用' : '确认更新' }}</button>
@@ -151,7 +147,7 @@ function chooseCandidate(candidate: { id: string; name: string; student_no: stri
               <button v-else type="button" :disabled="state.busy.value" @click="state.startEdit(row); state.draft.value.status = 'ACTIVE'">重新启用</button>
             </td>
           </tr>
-          <tr v-if="visibleRows.length === 0"><td :colspan="(canEdit ? 6 : 5) - (compact ? 2 : 0)" class="empty">{{ keyword ? '没有匹配的成员' : state.activeKind.value === 'members' ? '本组还没有成员，请添加已有学籍的学生或导入 Excel。' : '暂无跨院支援授权。' }}</td></tr>
+          <tr v-if="visibleRows.length === 0"><td :colspan="(canEdit ? 6 : 5) - (compact ? 2 : 0)" class="empty">{{ keyword ? '没有匹配的成员' : '本组还没有成员，请添加本学院已有学籍的学生或导入 Excel。' }}</td></tr>
         </tbody>
       </table>
       <AppPagination v-model:current-page="memberPage" :total="allVisibleRows.length" />

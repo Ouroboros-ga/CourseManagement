@@ -50,19 +50,19 @@ function fixture(initial = { college: 'C1', group: 'G1', semester: 'S1', canMana
 const flush = async () => { await vue.nextTick(); await Promise.resolve(); await vue.nextTick() }
 const impact = (ids = []) => ({ lock_version: 13, retained_future_task_ids: ids, existing_assignments_preserved: true })
 
-test('empty context sends no requests; authorized workspace can read its member and support lists', async () => {
+test('empty context sends no requests; authorized workspace only reads its member list', async () => {
   const empty = fixture({ college: '', group: 'G1', semester: 'S1', canManage: true, isSuper: true })
   try {
     await flush()
     assert.equal(empty.calls.length, 0)
     empty.values.college.value = 'C1'; await flush()
-    assert.deepEqual(empty.calls.map(call => call[1]), ['members', 'support-authorizations'])
+    assert.deepEqual(empty.calls.map(call => call[1]), ['members'])
   } finally { empty.stop() }
 
   const standard = fixture({ college: 'C1', group: 'G1', semester: 'S1', canManage: true, isSuper: false })
   try {
     await flush()
-    assert.deepEqual(standard.calls.map(call => call[1]), ['members', 'support-authorizations'])
+    assert.deepEqual(standard.calls.map(call => call[1]), ['members'])
   } finally { standard.stop() }
 })
 
@@ -88,7 +88,7 @@ test('context switches clear state and ignore late list/candidate responses and 
   f.stop()
 })
 
-test('candidate IDs and DATE strings pass through unchanged; standard users cannot create support', async () => {
+test('candidate IDs and DATE strings pass through unchanged without support mode', async () => {
   const f = fixture()
   try {
     await flush()
@@ -103,13 +103,7 @@ test('candidate IDs and DATE strings pass through unchanged; standard users cann
     assert.equal(createCall[4].semester_id, 'S1')
     assert.equal(createCall[4].effective_from, '2026-09-01')
     assert.equal(createCall[4].effective_to, '2027-01-31')
-    f.state.setKind('support-authorizations')
-    assert.equal(f.state.activeKind.value, 'support-authorizations')
-    f.values.isSuper.value = false; await flush()
-    assert.equal(f.state.activeKind.value, 'support-authorizations')
-    const before = f.calls.filter(call => call[0] === 'create').length
-    f.state.startCreate(); await f.state.create()
-    assert.equal(f.calls.filter(call => call[0] === 'create').length, before)
+    assert.ok(f.calls.every(call => call[1] !== 'support-authorizations'))
   } finally { f.stop() }
 })
 
@@ -173,7 +167,7 @@ test('API paths encode path identifiers and query IDs without numeric conversion
   const requests = []
   const api = load('../src/api/groupMembers.ts', { './http': { request: async (...args) => { requests.push(args); return [] } } }).groupMemberApi
   await api.list('members', 'C/1', 'G 2', '9007199254740993123')
-  await api.candidates('C1', 'G1', '9007199254740993123', '2026-09-01', '2027-01-31', '李', false)
+  await api.candidates('C1', 'G1', '9007199254740993123', '2026-09-01', '2027-01-31', '李')
   assert.match(requests[0][0], /C%2F1\/groups\/G%202\/members\?semester_id=9007199254740993123/)
   assert.match(requests[1][0], /semester_id=9007199254740993123/)
   assert.equal(requests[1][0].includes('school=true'), false)

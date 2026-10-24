@@ -11,7 +11,7 @@ from app.modules.academic.qualification_policy import enrollment_on
 from app.modules.inspection.assignment_fingerprint import fingerprint
 from app.modules.organization.schemas import StrictModel
 from app.modules.organization.service import atomic_write, validated
-from app.modules.volunteer.member_models import VolunteerGroupMember, VolunteerGroupSupport
+from app.modules.volunteer.member_models import VolunteerGroupMember
 from app.modules.volunteer.member_service import GroupMemberService
 
 
@@ -83,6 +83,8 @@ class GroupMemberBatchService:
                     "effective_to": body.effective_to,
                 }
                 _, _, origin = self.members._input(request)
+                if origin != self.cid:
+                    raise ConflictError(message="仅允许本学院学生加入本组")
                 existing = (
                     self.db.scalar(
                         select(VolunteerGroupMember)
@@ -104,20 +106,6 @@ class GroupMemberBatchService:
                     row, _, _ = self.members._prepare_create(request)
                 else:
                     row = None
-                    if origin != self.cid and not self.db.scalar(
-                        select(VolunteerGroupSupport.id)
-                        .where(
-                            VolunteerGroupSupport.group_id == self.gid,
-                            VolunteerGroupSupport.college_id == self.cid,
-                            VolunteerGroupSupport.student_id == student.id,
-                            VolunteerGroupSupport.semester_id == int(body.semester_id),
-                            VolunteerGroupSupport.status == "ACTIVE",
-                            VolunteerGroupSupport.effective_from <= body.effective_from,
-                            VolunteerGroupSupport.effective_to >= body.effective_to,
-                        )
-                        .with_for_update()
-                    ):
-                        raise ConflictError(message="跨院成员须有覆盖整个成员有效期的支援授权")
                 if body.expected_names and student.name.strip() != body.expected_names[no].strip():
                     raise ConflictError(
                         message="姓名与该学号的已有档案不一致，请核对，不会自动改名"
@@ -139,10 +127,6 @@ class GroupMemberBatchService:
                     and qualification.college_id == origin
                 )
                 if needs_qualification:
-                    if origin != self.cid:
-                        raise ConflictError(
-                            message="跨院学生须先由学籍所属学院开通有效资格，再按支援授权加入本组"
-                        )
                     from app.modules.academic.scoped_writes import ScopedAcademicWriteService
                     from app.modules.identity.role_scope import business_today
 
@@ -191,9 +175,7 @@ class GroupMemberBatchService:
         revision = fingerprint(
             {
                 "body": body.model_dump(mode="json"),
-                "college_revision": college.configuration_revision,
-                "authorization_revision": college.authorization_revision,
-                "group": [group.id, group.lock_version],
+                "group": [group.id, group.status, str(group.starts_on), str(group.ends_on)],
                 "students": snapshots,
                 "issues": issues,
             }
@@ -253,7 +235,7 @@ class GroupMemberBatchService:
     def commit(self, data, revision):
         context = self._preview(data)
         if revision != context[4]["revision"]:
-            raise ConflictError(message="成员、学籍、支援或组配置已变化，请重新预览")
+            raise ConflictError(message="成员、学籍或组织有效期已变化，请重新预览")
         return self._apply(*context)
 
     @atomic_write

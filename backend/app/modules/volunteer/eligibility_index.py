@@ -6,8 +6,7 @@ from sqlalchemy import select
 
 from app.modules.academic.enrollment_models import StudentEnrollment
 from app.modules.academic.models import AdministrativeClass, Student
-from app.modules.inspection.models import InspectionTask, TaskRosterMember
-from app.modules.volunteer.member_models import VolunteerGroupMember, VolunteerGroupSupport
+from app.modules.volunteer.member_models import VolunteerGroupMember
 
 
 class EligibilityIndex:
@@ -41,55 +40,22 @@ class EligibilityIndex:
                 .where(Student.id.in_(student_ids))
             )
         }
-        self.members, self.supports = defaultdict(list), defaultdict(list)
+        self.members = defaultdict(list)
         grouped = [task for task in tasks if task.group_id]
         if grouped:
-            for model, destination in [
-                (VolunteerGroupMember, self.members),
-                (VolunteerGroupSupport, self.supports),
-            ]:
-                for row in rows(
-                    select(model).where(
-                        model.student_id.in_(student_ids),
-                        model.group_id.in_({task.group_id for task in grouped}),
-                        model.semester_id.in_({task.semester_id for task in grouped}),
-                        model.status == "ACTIVE",
-                        model.effective_from <= max(task.inspection_date for task in grouped),
-                        model.effective_to > min(task.inspection_date for task in grouped),
-                    )
-                ).scalars():
-                    destination[row.student_id].append(row)
-        self.task_classes = defaultdict(set)
-        if any(
-            (row.scope_snapshot or {}).get("class_mode") == "SPECIFIC"
-            for supports in self.supports.values()
-            for row in supports
-        ):
-            for task_id, class_id in rows(
-                select(TaskRosterMember.task_id, TaskRosterMember.administrative_class_id_snapshot)
-                .join(InspectionTask, InspectionTask.id == TaskRosterMember.task_id)
-                .where(
-                    TaskRosterMember.task_id.in_([task.id for task in grouped if task.id]),
-                    TaskRosterMember.roster_version == InspectionTask.roster_version,
+            for row in rows(
+                select(VolunteerGroupMember).where(
+                    VolunteerGroupMember.student_id.in_(student_ids),
+                    VolunteerGroupMember.group_id.in_({task.group_id for task in grouped}),
+                    VolunteerGroupMember.semester_id.in_({task.semester_id for task in grouped}),
+                    VolunteerGroupMember.status == "ACTIVE",
+                    VolunteerGroupMember.effective_from
+                    <= max(task.inspection_date for task in grouped),
+                    VolunteerGroupMember.effective_to
+                    > min(task.inspection_date for task in grouped),
                 )
-            ):
-                self.task_classes[task_id].add(class_id)
-
-    @staticmethod
-    def support_covers_scope(support, task, classes):
-        scope = support.scope_snapshot or {}
-        if str(task.course_type_id_snapshot) not in scope.get("course_type_ids", []):
-            return False
-        if scope.get("class_mode") == "ALL_AUTHORIZED":
-            return True
-        classes = set(classes)
-        if task.administrative_class_id is not None:
-            classes.add(task.administrative_class_id)
-        return (
-            bool(classes)
-            and None not in classes
-            and classes.issubset({int(value) for value in scope.get("class_ids", [])})
-        )
+            ).scalars():
+                self.members[row.student_id].append(row)
 
     def enrollment(self, student_id, day):
         return next(
@@ -145,16 +111,6 @@ class EligibilityIndex:
         )
 
     def member_allowed(self, task, student_id):
-        origin = self.origin(student_id, task.inspection_date)
-        return (
-            origin is not None
-            and any(self._covers(row, task) for row in self.members[student_id])
-            and (
-                origin == task.college_id
-                or any(
-                    self._covers(row, task)
-                    and self.support_covers_scope(row, task, self.task_classes[task.id])
-                    for row in self.supports[student_id]
-                )
-            )
+        return self.origin(student_id, task.inspection_date) == task.college_id and any(
+            self._covers(row, task) for row in self.members[student_id]
         )

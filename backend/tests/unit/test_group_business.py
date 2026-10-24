@@ -43,7 +43,7 @@ def test_multi_group_membership_and_same_group_overlap(campus):
     assert len(service.members(semester.id)) == 1
 
 
-def test_cross_college_membership_requires_explicit_support(campus):
+def test_cross_college_membership_is_rejected(campus):
     from app.modules.volunteer.member_service import GroupMemberService
 
     _, db, admin, a, _, semester, group, _, _, foreign = prepare(campus)
@@ -56,8 +56,7 @@ def test_cross_college_membership_requires_explicit_support(campus):
     }
     with pytest.raises(ConflictError):
         service.create(body)
-    service.authorize_support(body)
-    assert service.create(body)["student_id"] == str(foreign.id)
+    assert service.members(semester.id) == []
 
 
 def test_revoke_member_requires_current_version(campus):
@@ -78,20 +77,17 @@ def test_revoke_member_requires_current_version(campus):
     assert service.revoke(int(row["id"]), row["lock_version"])["status"] == "INACTIVE"
 
 
-def test_cross_college_support_cannot_duplicate_an_active_date_range(campus):
+def test_cross_college_batch_does_not_partially_add_local_members(campus):
+    from app.modules.volunteer.member_batch import GroupMemberBatchService
     from app.modules.volunteer.member_service import GroupMemberService
 
-    _, db, admin, a, _, semester, group, _, _, foreign = prepare(campus)
-    service = GroupMemberService(db, admin, int(a["id"]), int(group["id"]))
-    body = {
-        "student_id": str(foreign.id),
-        "semester_id": str(semester.id),
-        "effective_from": "2026-09-07",
-        "effective_to": "2027-01-31",
-    }
-    service.authorize_support(body)
+    _, db, admin, a, _, semester, group, _, own, foreign = prepare(campus)
+    cid, gid = int(a["id"]), int(group["id"])
     with pytest.raises(ConflictError):
-        service.authorize_support({**body, "effective_from": "2026-09-08"})
+        GroupMemberBatchService(db, admin, cid, gid).preview({
+            "semester_id": str(semester.id), "student_nos": [own.student_no, foreign.student_no],
+            "effective_from": "2026-09-07", "effective_to": "2027-01-31"})
+    assert GroupMemberService(db, admin, cid, gid).members(semester.id) == []
 
 
 def test_dynamic_teaching_type_is_college_owned_and_versioned(campus):
@@ -110,7 +106,7 @@ def test_dynamic_teaching_type_is_college_owned_and_versioned(campus):
         service.set_course_type(teaching.id, int(foreign["id"]), 2)
 
 
-def test_group_specific_classes_and_concrete_course_exception_are_configurable(campus):
+def test_group_specific_classes_and_default_course_conflict_are_configurable(campus):
     config, db, admin, _, a, b = campus
     own_class, foreign_class, _, teaching, *_ = records(db, a, b)
     kind = config.create_type(admin, int(a["id"]), {"name": "早查"})
@@ -122,11 +118,12 @@ def test_group_specific_classes_and_concrete_course_exception_are_configurable(c
         "course_type_ids": [kind["id"]],
         "class_mode": "SPECIFIC",
         "class_ids": [str(own_class.id)],
-        "teaching_class_overrides": {str(teaching.id): "ALLOW"},
+        "default_effect": "ALLOW",
     }
     result = config.publish_group(admin, int(a["id"]), int(group["id"]), data)
     assert result["configuration"]["class_mode"] == "SPECIFIC"
-    assert result["configuration"]["teaching_class_overrides"] == {str(teaching.id): "ALLOW"}
+    assert result["configuration"]["default_effect"] == "ALLOW"
+    assert result["configuration"]["teaching_class_overrides"] == {}
     with pytest.raises(NotFoundError):
         config.publish_group(
             admin,

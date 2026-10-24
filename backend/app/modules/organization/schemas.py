@@ -177,6 +177,12 @@ class GroupPublish(Versioned):
     count_scope: Literal["GROUP", "ALL_GROUPS"] = "ALL_GROUPS"
     buffer_minutes: int = Field(default=0, ge=0, le=120)
 
+    @model_validator(mode="after")
+    def default_course_conflicts_only(self):
+        if self.type_overrides or self.teaching_class_overrides:
+            raise ValueError("仅支持默认课程冲突处理，请清除课程类型及教学班例外后重试")
+        return self
+
     @field_validator("course_type_ids", "class_ids")
     @classmethod
     def valid_ids(cls, values):

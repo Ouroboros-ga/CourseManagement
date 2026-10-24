@@ -12,7 +12,7 @@ const props = defineProps<{ collegeId: string; semesterId: string; defaultConfig
 const session = useSessionStore()
 const draftRoot = ref<HTMLElement | null>(null)
 const rows = ref<TimeProfile[]>([]), classes = ref<ScopedAcademicRow[]>([])
-const selected = ref(''), busy = ref(false), error = ref('')
+const selected = ref(''), busy = ref(false), error = ref(''), message = ref('')
 const draft = reactive({ name: '', configuration: copyDefault() })
 const bindingClassId = ref(''), bindingProfileId = ref('')
 const current = computed(() => rows.value.find(row => row.id === selected.value) || null)
@@ -45,27 +45,33 @@ async function load() {
   } catch (e) { if (ticket.isCurrent()) error.value = e instanceof Error ? e.message : '读取方案失败' }
 }
 async function execute(action: 'save' | 'publish' | 'archive') {
+  if (busy.value) return
   const ticket = epoch.begin(), cid = props.collegeId, sid = props.semesterId, row = current.value
-  busy.value = true; error.value = ''
+  const edited = JSON.parse(JSON.stringify(draft)) as typeof draft
+  busy.value = true; error.value = ''; message.value = ''
   try {
-    if (action === 'save') {
-      const result = await saveTimeProfile(cid, sid, draft.name, draft.configuration, row)
+    if (action === 'save' || action === 'publish') {
+      const saved = await saveTimeProfile(cid, sid, edited.name, edited.configuration, row)
       if (!ticket.isCurrent()) return
-      selected.value = result.id
-    } else if (row) {
+      rows.value = [...rows.value.filter(item => item.id !== saved.id), saved]
+      selected.value = saved.id
+      message.value = '当前编辑已保存为草稿，尚未发布。'
+      markWorkspaceSaved(draftRoot.value)
       if (action === 'publish') {
-        const preview = await previewTimeProfile(cid, sid, row.id)
+        const preview = await previewTimeProfile(cid, sid, saved.id)
         if (!ticket.isCurrent()) return
-        await ElMessageBox.confirm(`发布已保存的“${row.name}”草稿？${preview.retained_future_task_ids.length} 个未来任务保留原快照，并加入影响处置清单。未保存的编辑不会发布。`, '发布作息方案')
+        await ElMessageBox.confirm(`发布当前编辑的“${saved.name}”？${preview.retained_future_task_ids.length} 个未来任务保留原快照；相关影响另行处置。取消后草稿仍保留。`, '确认发布作息')
         if (!ticket.isCurrent()) return
-        await publishTimeProfile(cid, sid, row, preview.revision)
-      } else {
-        await ElMessageBox.confirm('归档后不可再编辑或绑定；仍有有效教学班绑定时会拒绝。', '归档作息方案')
+        await publishTimeProfile(cid, sid, saved, preview.revision)
         if (!ticket.isCurrent()) return
-        await archiveTimeProfile(cid, sid, row)
+        message.value = '当前编辑已发布，已有任务保持原快照。'
       }
+    } else if (row) {
+      await ElMessageBox.confirm('归档后不可再编辑或绑定；仍有有效教学班绑定时会拒绝。', '归档作息方案')
+      if (!ticket.isCurrent()) return
+      await archiveTimeProfile(cid, sid, row)
     }
-    if (ticket.isCurrent()) await load(); markWorkspaceSaved(draftRoot.value)
+    if (ticket.isCurrent()) { markWorkspaceSaved(draftRoot.value); await load() }
   } catch (e) { if (ticket.isCurrent() && e !== 'cancel' && e !== 'close') error.value = e instanceof Error ? e.message : '操作失败' }
   finally { busy.value = false }
 }
@@ -99,6 +105,7 @@ onUnmounted(() => epoch.invalidate())
     <h3>教学班可选作息方案</h3>
     <p>默认跟随学院作息；同学院不同校区、年级可以选择独立时段。方案只管理上课时间，校历与教务小节映射保持学院统一。首版生效前使用学院默认时间。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <el-alert v-if="message" :title="message" type="info" :closable="false" />
     <TimeTemplateImport :college-id="collegeId" :semester-id="semesterId" :effective-from="defaultConfiguration.effective_from" :disabled="busy" @imported="imported" />
     <el-select v-model="selected" :disabled="busy"><el-option value="" label="新建草稿（复制当前默认时段）" /><el-option v-for="row in rows" :key="row.id" :value="row.id" :label="`${row.name} · ${row.status}`" /></el-select>
     <p v-if="current?.source_template_version_id">来源学校模板版本 ID：{{ current.source_template_version_id }}；学院可独立调整，不随学校更新覆盖。</p>
@@ -115,7 +122,7 @@ onUnmounted(() => epoch.invalidate())
       </el-table>
       <el-button v-if="draft.configuration.time_basis !== 'CLOCK'" @click="addPeriod">添加时段</el-button>
       <el-button :disabled="!draft.name || !semesterId" @click="execute('save')">保存草稿</el-button>
-      <el-button v-if="current" @click="execute('publish')">预览并发布已保存草稿</el-button>
+      <el-button type="primary" :disabled="busy || !draft.name || !semesterId" @click="execute('publish')">保存当前编辑并发布</el-button>
       <el-button v-if="current" @click="execute('archive')">归档</el-button>
     </el-form>
     <h4>教学班绑定</h4>

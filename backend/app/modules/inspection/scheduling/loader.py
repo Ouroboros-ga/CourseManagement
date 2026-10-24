@@ -332,9 +332,9 @@ def load_snapshot(
               "unavailability": [{column.name: getattr(row, column.name) for column in row.__table__.columns}
                                  for row in unavailable]}
     if eligibility:
-        # Include dated membership/support/academic changes even when eligibility
+        # Include dated membership/academic changes even when eligibility
         # still yields the same warning, so an old confirmation cannot be reused.
-        for name in ("timelines", "members", "supports"):
+        for name in ("timelines", "members"):
             inputs[name] = {
                 sid: [
                     {column.name: getattr(row, column.name) for column in row.__table__.columns}

@@ -4,7 +4,6 @@ from app.modules.identity.models import Role, UserAccount, UserRole
 from app.modules.inspection.group_sampling import GroupSamplingService
 from app.modules.inspection.models import InspectionTask
 from app.modules.inspection.scoped_service import ScopedInspectionService
-from app.modules.volunteer.member_service import GroupMemberService
 from sqlalchemy import select
 
 from tests.unit.test_campus_configuration import campus as campus_fixture
@@ -16,7 +15,7 @@ def fixture():
     yield from campus_fixture.__wrapped__()
 
 
-def test_authorized_foreign_support_appears_only_while_effective(campus, monkeypatch):
+def test_legacy_foreign_member_never_appears_as_candidate(campus, monkeypatch):
     db, admin, a, sem, group, own, *_ = arrange(campus, monkeypatch)
     foreign = db.scalar(select(Student).where(Student.student_no == "B"))
     person = UserAccount(display_name="support", student_id=foreign.id, status="ACTIVE")
@@ -30,15 +29,28 @@ def test_authorized_foreign_support_appears_only_while_effective(campus, monkeyp
         )
     )
     db.commit()
-    members = GroupMemberService(db, admin, int(a["id"]), int(group["id"]))
-    member = {
-        "student_id": str(foreign.id),
-        "semester_id": str(sem.id),
-        "effective_from": "2026-09-01",
-        "effective_to": "2027-01-31",
-    }
-    support = members.authorize_support(member)
-    members.create(member)
+    from datetime import date
+
+    from app.modules.volunteer.member_models import VolunteerGroupMember, VolunteerGroupSupport
+
+    fields = dict(
+        college_id=int(a["id"]),
+        group_id=int(group["id"]),
+        student_id=foreign.id,
+        semester_id=sem.id,
+        effective_from=date(2026, 9, 1),
+        effective_to=date(2027, 1, 31),
+    )
+    support = VolunteerGroupSupport(
+        **fields,
+        authorized_by=admin.id,
+        scope_snapshot={
+            "course_type_ids": group["configuration"]["course_type_ids"],
+            "class_mode": "ALL_AUTHORIZED",
+        },
+    )
+    db.add_all([support, VolunteerGroupMember(**fields)])
+    db.commit()
     sampling = GroupSamplingService(db, admin, int(a["id"]), int(group["id"]))
     body = {
         "semester_id": str(sem.id),
@@ -51,8 +63,8 @@ def test_authorized_foreign_support_appears_only_while_effective(campus, monkeyp
     task = db.scalar(select(InspectionTask).where(InspectionTask.group_id == int(group["id"])))
     service = ScopedInspectionService(db, admin, int(a["id"]))
     candidates = service.list_task_volunteer_candidates(task.id, actor=admin)
-    assert [row.user_id for row in candidates] == [str(person.id)]
-    assert candidates[0].eligible
+    assert candidates == []
     db.rollback()
-    members.revoke(int(support["id"]), support["lock_version"], support=True)
+    support.status = "INACTIVE"
+    db.commit()
     assert service.list_task_volunteer_candidates(task.id, actor=admin) == []

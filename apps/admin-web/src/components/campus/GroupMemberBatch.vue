@@ -35,7 +35,7 @@ onUnmounted(() => epoch.invalidate())
 </script>
 <template>
   <el-collapse><el-collapse-item title="按学号批量新增成员" name="batch">
-    <p>每次最多200人；支持换行、空格和逗号分隔。全部通过学籍、学院和支援范围校验后再整批新增；有资格管理权限时同时开通缺失的本学期资格；不自动获得跨院支援权限。</p>
+    <p>每次最多200人；支持换行、空格和逗号分隔。仅可加入本学院学生，学籍核对通过后整批新增；有资格管理权限时同时开通缺失的本学期资格。</p>
     <el-alert v-if="!session.hasPermission('volunteer.manage')" title="你没有开通资格权限。本次仅加入组织；请联系学院管理员核对本学期志愿者资格，否则不能排班。" type="warning" :closable="false" />
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="message" :title="message" type="success" :closable="false" />

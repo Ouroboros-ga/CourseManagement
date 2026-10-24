@@ -35,7 +35,6 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 
 export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi = groupMemberApi) {
   const members = shallowRef<GroupMember[]>([])
-  const supports = shallowRef<GroupMember[]>([])
   const candidates = shallowRef<MemberCandidate[]>([])
   const draft = ref<MemberDraft>(blankDraft())
   const selectedCandidate = shallowRef<MemberCandidate | null>(null)
@@ -52,7 +51,6 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
   const loading = shallowRef(false)
   const candidateLoading = shallowRef(false)
   const writing = shallowRef(false)
-  const activeKind = shallowRef<GroupMemberKind>('members')
   const busy = computed(() => loading.value || candidateLoading.value || writing.value)
 
   const contextKey = () => [context.collegeId(), context.groupId(), context.semesterId(), context.canManage() ? 'manage' : 'read', context.isSuper() ? 'super' : 'standard'].join(':')
@@ -62,7 +60,7 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
   let disposed = false
   const invalidate = () => { epoch++; loadEpoch++; candidateEpoch++ }
   const reset = () => {
-    members.value = []; supports.value = []; candidates.value = []
+    members.value = []; candidates.value = []
     draft.value = blankDraft(); selectedCandidate.value = null; editing.value = null
     pendingChange.value = null; confirmFutureAssignments.value = false; creating.value = false
     keyword.value = ''; candidateFrom.value = ''; candidateTo.value = ''
@@ -78,16 +76,13 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
 
   async function load() {
     const cid = context.collegeId(), gid = context.groupId(), sid = context.semesterId()
-    if (!cid || !gid || !sid) { members.value = []; supports.value = []; return }
+    if (!cid || !gid || !sid) { members.value = []; return }
     const ticket = ++loadEpoch, revision = epoch, key = contextKey()
     loading.value = true; error.value = ''
     try {
-      const [memberRows, supportRows] = await Promise.all([
-        api.list('members', cid, gid, sid),
-        api.list('support-authorizations', cid, gid, sid)
-      ])
+      const memberRows = await api.list('members', cid, gid, sid)
       if (!disposed && ticket === loadEpoch && revision === epoch && key === contextKey()) {
-        members.value = memberRows; supports.value = supportRows
+        members.value = memberRows
       }
     } catch (caught) {
       if (!disposed && ticket === loadEpoch && revision === epoch && key === contextKey()) error.value = errorMessage(caught)
@@ -102,7 +97,7 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
     const ticket = ++candidateEpoch, key = contextKey()
     candidateLoading.value = true; error.value = ''; candidates.value = []; selectedCandidate.value = null
     try {
-      const rows = await api.candidates(cid, gid, sid, candidateFrom.value, candidateTo.value, keyword.value, activeKind.value === 'support-authorizations' && context.isSuper())
+      const rows = await api.candidates(cid, gid, sid, candidateFrom.value, candidateTo.value, keyword.value)
       if (!disposed && ticket === candidateEpoch && key === contextKey()) candidates.value = rows
     } catch (caught) {
       if (!disposed && ticket === candidateEpoch && key === contextKey()) error.value = errorMessage(caught)
@@ -111,20 +106,15 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
     }
   }
 
-  function setKind(kind: GroupMemberKind) {
-    activeKind.value = kind; candidates.value = []; selectedCandidate.value = null
-    editing.value = null; creating.value = false; pendingChange.value = null; confirmFutureAssignments.value = false
-  }
-
   function startCreate() {
-    if (!context.canManage() || writing.value || (activeKind.value === 'support-authorizations' && !context.isSuper())) return
+    if (!context.canManage() || writing.value) return
     editing.value = null; creating.value = true; pendingChange.value = null; selectedCandidate.value = null
     draft.value = { ...blankDraft(), semester_id: context.semesterId() }
     candidateFrom.value = ''; candidateTo.value = ''; candidates.value = []; error.value = ''; message.value = ''
   }
 
   function startEdit(row: GroupMember) {
-    if (!context.canManage() || writing.value || (activeKind.value === 'support-authorizations' && !context.isSuper())) return
+    if (!context.canManage() || writing.value) return
     editing.value = row; creating.value = false; selectedCandidate.value = null; pendingChange.value = null
     draft.value = { student_id: row.student_id, semester_id: row.semester_id, effective_from: row.effective_from, effective_to: row.effective_to, status: row.status }
     error.value = ''; message.value = ''
@@ -138,22 +128,21 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
   async function create() {
     const cid = context.collegeId(), gid = context.groupId(), sid = context.semesterId(), key = contextKey()
     if (!context.canManage() || !cid || !gid || !sid || writing.value || !draft.value.effective_from || !draft.value.effective_to || !selectedCandidate.value) return
-    if (activeKind.value === 'support-authorizations' && !context.isSuper()) return
-    const ticket = epoch, kind = activeKind.value
+    const ticket = epoch, kind: GroupMemberKind = 'members'
     writing.value = true; error.value = ''; message.value = ''
     try {
       await api.create(kind, cid, gid, { student_id: selectedCandidate.value.id, semester_id: sid, effective_from: draft.value.effective_from, effective_to: draft.value.effective_to,
-        ...(kind === 'members' && enableQualification.value && context.canQualify?.() ? { enable_qualification: true } : {}) })
+        ...(enableQualification.value && context.canQualify?.() ? { enable_qualification: true } : {}) })
       if (ticket !== epoch || key !== contextKey() || disposed) return
-      cancelEdit(); message.value = kind === 'members' ? '已新增组成员' : '已新增跨院支援授权'
+      cancelEdit(); message.value = '已新增组成员'
       await load()
     } catch (caught) { if (ticket === epoch && key === contextKey() && !disposed) handleWriteError(caught) }
     finally { if (disposed || ticket === epoch) writing.value = false }
   }
 
   async function prepareChange(row: GroupMember, revoke = false) {
-    const cid = context.collegeId(), gid = context.groupId(), key = contextKey(), kind = activeKind.value
-    if (!context.canManage() || !cid || !gid || writing.value || (kind === 'support-authorizations' && !context.isSuper())) return
+    const cid = context.collegeId(), gid = context.groupId(), key = contextKey(), kind: GroupMemberKind = 'members'
+    if (!context.canManage() || !cid || !gid || writing.value) return
     const ticket = epoch
     writing.value = true; error.value = ''; message.value = ''; pendingChange.value = null; confirmFutureAssignments.value = false
     if (revoke) {
@@ -173,7 +162,6 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
     const pending = pendingChange.value
     const cid = context.collegeId(), gid = context.groupId(), key = contextKey()
     if (!pending || pending.context !== key || !context.canManage() || !cid || !gid || writing.value) return
-    if (pending.kind === 'support-authorizations' && !context.isSuper()) return
     if (pending.impact.retained_future_task_ids.length > 0 && !confirmFutureAssignments.value) {
       error.value = '请确认保留未来受派任务，并安排改派后再提交'
       return
@@ -215,9 +203,9 @@ export function useGroupMembers(context: GroupMemberContext, api: GroupMemberApi
   }
 
   return {
-    members, supports, candidates, draft, selectedCandidate, editing, creating, pendingChange, enableQualification,
+    members, candidates, draft, selectedCandidate, editing, creating, pendingChange, enableQualification,
     confirmFutureAssignments, keyword, candidateFrom, candidateTo, error, message,
-    loading, candidateLoading, writing, busy, activeKind, load, searchCandidates,
-    setKind, startCreate, startEdit, cancelEdit, create, prepareChange, applyChange
+    loading, candidateLoading, writing, busy, load, searchCandidates,
+    startCreate, startEdit, cancelEdit, create, prepareChange, applyChange
   }
 }

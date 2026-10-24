@@ -1,7 +1,7 @@
 import { request } from './http'
 
 export type MemberStatus = 'ACTIVE' | 'INACTIVE'
-export type MemberKind = 'members' | 'support-authorizations'
+export type MemberKind = 'members'
 export type GroupMemberKind = MemberKind
 
 export interface GroupMember {
@@ -51,7 +51,7 @@ export interface MemberRevokePayload {
 
 export interface GroupMemberApi {
   list(kind: MemberKind, collegeId: string, groupId: string, semesterId: string): Promise<GroupMember[]>
-  candidates(collegeId: string, groupId: string, semesterId: string, from: string, to: string, keyword: string, school: boolean): Promise<MemberCandidate[]>
+  candidates(collegeId: string, groupId: string, semesterId: string, from: string, to: string, keyword: string): Promise<MemberCandidate[]>
   create(kind: MemberKind, collegeId: string, groupId: string, payload: MemberCreatePayload): Promise<GroupMember>
   impact(kind: MemberKind, collegeId: string, groupId: string, id: string): Promise<MemberImpact>
   update(kind: MemberKind, collegeId: string, groupId: string, id: string, payload: MemberUpdatePayload): Promise<GroupMember>
@@ -66,9 +66,8 @@ export const groupMemberApi: GroupMemberApi = {
   list: (kind, collegeId, groupId, semesterId) => request<GroupMember[]>(
     `${base(collegeId, groupId)}/${kind}?semester_id=${encodeURIComponent(semesterId)}`
   ),
-  candidates: (collegeId, groupId, semesterId, from, to, keyword, school) => {
+  candidates: (collegeId, groupId, semesterId, from, to, keyword) => {
     const query = new URLSearchParams({ semester_id: semesterId, effective_from: from, effective_to: to, keyword })
-    if (school) query.set('school', 'true')
     return request<MemberCandidate[]>(`${base(collegeId, groupId)}/member-candidates?${query}`)
   },
   create: (kind, collegeId, groupId, payload) => request<GroupMember>(

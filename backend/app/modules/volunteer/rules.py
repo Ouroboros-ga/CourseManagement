@@ -1,4 +1,4 @@
-"""任务使用已冻结的组规则；成员与支援按执行日期重新核验。"""
+"""任务使用已冻结的组规则；本院成员学籍与资格按执行日期重新核验。"""
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session

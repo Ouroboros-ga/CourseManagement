@@ -12,7 +12,7 @@ const emit = defineEmits<{ changed: [] }>()
 const { saving, run } = useCampusMutation(() => props.collegeId, () => emit('changed'))
 const confirmImpact = useConfigurationImpact(() => props.collegeId)
 const updateExisting = (row: CourseType, body: Partial<CourseType>) => run(async cid => {
-  const revision = await confirmImpact('course-types', row.id)
+  const revision = body.status && body.status !== row.status ? await confirmImpact('course-types', row.id) : ''
   return updateCourseType(cid, row, body, revision)
 })
 const editing = shallowRef<CourseType | null>(null)

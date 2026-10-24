@@ -19,7 +19,7 @@ export interface PreparationBody {
 export interface PreparationPreview {
   revision: string; can_confirm: boolean; configuration: GroupConfiguration
   items: { source_member_id: string; student_id: string; ready: boolean; reason?: string }[]
-  source_config_id: string; identities_reused: boolean; support_grants_copied: boolean
+  source_config_id: string; identities_reused: boolean
 }
 export interface PreparationSource {
   configuration: GroupConfiguration; members: GroupMember[]

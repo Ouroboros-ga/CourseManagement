@@ -45,11 +45,10 @@ def member_candidates(
     db: Db,
     request: Request,
     keyword: Annotated[str, Query(max_length=100)] = "",
-    school: bool = False,
 ):
     return success(
         GroupMemberService(db, actor, cid, gid).candidates(
-            semester_id, effective_from, effective_to, keyword, school=school
+            semester_id, effective_from, effective_to, keyword
         ),
         getattr(request.state, "request_id", None),
     )
@@ -103,36 +102,6 @@ def revoke(
     )
 
 
-@router.post("/support-authorizations")
-def support(
-    cid: ResourceId,
-    gid: ResourceId,
-    body: MemberCreate,
-    actor: CurrentUserDep,
-    db: Db,
-    request: Request,
-):
-    return success(
-        GroupMemberService(db, actor, cid, gid).authorize_support(body.model_dump()),
-        getattr(request.state, "request_id", None),
-    )
-
-
-@router.get("/support-authorizations")
-def list_supports(
-    cid: ResourceId,
-    gid: ResourceId,
-    semester_id: SemesterId,
-    actor: CurrentUserDep,
-    db: Db,
-    request: Request,
-):
-    return success(
-        GroupMemberService(db, actor, cid, gid).supports(semester_id),
-        getattr(request.state, "request_id", None),
-    )
-
-
 @router.get("/members/{mid}/impact")
 def member_impact(
     cid: ResourceId,
@@ -144,21 +113,6 @@ def member_impact(
 ):
     return success(
         GroupMemberService(db, actor, cid, gid).impact(mid),
-        getattr(request.state, "request_id", None),
-    )
-
-
-@router.get("/support-authorizations/{rid}/impact")
-def support_impact(
-    cid: ResourceId,
-    gid: ResourceId,
-    rid: ResourceId,
-    actor: CurrentUserDep,
-    db: Db,
-    request: Request,
-):
-    return success(
-        GroupMemberService(db, actor, cid, gid).impact(rid, support=True),
         getattr(request.state, "request_id", None),
     )
 
@@ -175,43 +129,6 @@ def update_member(
 ):
     return success(
         GroupMemberService(db, actor, cid, gid).update(mid, body.model_dump()),
-        getattr(request.state, "request_id", None),
-    )
-
-
-@router.patch("/support-authorizations/{rid}")
-def update_support(
-    cid: ResourceId,
-    gid: ResourceId,
-    rid: ResourceId,
-    body: MemberUpdate,
-    actor: CurrentUserDep,
-    db: Db,
-    request: Request,
-):
-    return success(
-        GroupMemberService(db, actor, cid, gid).update(rid, body.model_dump(), support=True),
-        getattr(request.state, "request_id", None),
-    )
-
-
-@router.post("/support-authorizations/{rid}/revoke")
-def revoke_support(
-    cid: ResourceId,
-    gid: ResourceId,
-    rid: ResourceId,
-    body: MemberRevoke,
-    actor: CurrentUserDep,
-    db: Db,
-    request: Request,
-):
-    return success(
-        GroupMemberService(db, actor, cid, gid).revoke(
-            rid,
-            body.lock_version,
-            support=True,
-            confirm_future_assignments=body.confirm_future_assignments,
-        ),
         getattr(request.state, "request_id", None),
     )
 

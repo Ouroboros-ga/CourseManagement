@@ -56,6 +56,62 @@ def capture_impacts(db, cid, kind, source_id, source_version, *, task_ids=None, 
                 "source_before": before, "source_after": after}))
 
 
+def close_resolved_impacts(db, actor_id, task_ids):
+    """Called after an authorized task write, inside its existing transaction."""
+    if not task_ids:
+        return
+    db.flush()
+    tasks = {
+        t.id: t
+        for t in db.scalars(
+            select(InspectionTask)
+            .where(InspectionTask.id.in_(task_ids))
+            .order_by(InspectionTask.id)
+        )
+    }
+    assignments = assignment_snapshot(db, task_ids, lock=True)
+    rows = db.scalars(
+        select(ConfigurationImpactItem)
+        .where(
+            ConfigurationImpactItem.task_id.in_(task_ids),
+            ConfigurationImpactItem.status == "OPEN",
+        )
+        .order_by(ConfigurationImpactItem.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    for row in rows:
+        task = tasks[row.task_id]
+        assignment = assignments.get(task.id)
+        previous = row.snapshot.get("assignment") or {}
+        changed = assignment is not None and (
+            assignment.get("id") != previous.get("id")
+            or assignment.get("volunteer_user_id") != previous.get("volunteer_user_id")
+        )
+        if task.canceled_at is not None:
+            decision = "CANCEL"
+        elif changed:
+            decision = "REASSIGNED"
+        else:
+            continue
+        row.status, row.decided_by, row.decided_at = decision, actor_id, utcnow()
+        row.lock_version += 1
+        row.decision = {
+            "automatic": True,
+            "task_lock_version": task.lock_version,
+            "assignment": assignment,
+        }
+        db.add(
+            AuditLog(
+                actor_user_id=actor_id,
+                action="campus.impact.auto_resolve",
+                resource_type="configuration_impact_item",
+                resource_id=str(row.id),
+                after_json=scoped_snapshot(row.decision | {"status": decision}, row.college_id),
+            )
+        )
+
+
 class ConfigurationImpactService:
     def __init__(self, db, actor, cid):
         self.db, self.actor, self.cid = db, actor, cid
@@ -103,6 +159,11 @@ class ConfigurationImpactService:
             if task.canceled_at is None:
                 ScopedInspectionService(self.db, self.actor, self.cid).cancel_task(self.actor, task.id,
                     TaskCancelRequest(lock_version=task.lock_version, reason=body.note), None, commit=False)
+                # Cancellation closes its work items in the same transaction.
+                if row.status != "OPEN":
+                    result = self._dto(row, task, assignment)
+                    self.db.commit()
+                    return result
         elif body.decision == "REASSIGNED":
             if assignment is None or assignment.get("id") == (row.snapshot.get("assignment") or {}).get("id") or task.canceled_at is not None:
                 raise ConflictError(message="请先通过排班确认流程完成新的有效受派，再登记改派处置")

@@ -46,6 +46,8 @@ def semester_overview(db, actor, college_id: int, semester_id: int, as_of: date)
     )
     by_id = {row.id: row for row in configs}
     by_version = {(row.group_id, row.version): row for row in configs}
+    from app.modules.volunteer.college_membership import local_student_ids
+
     counts = dict(
         db.execute(
             select(
@@ -55,6 +57,7 @@ def semester_overview(db, actor, college_id: int, semester_id: int, as_of: date)
             .where(
                 VolunteerGroupMember.college_id == college_id,
                 VolunteerGroupMember.group_id.in_(ids),
+                VolunteerGroupMember.student_id.in_(local_student_ids(college_id, as_of)),
                 VolunteerGroupMember.semester_id == semester_id,
                 VolunteerGroupMember.status == "ACTIVE",
                 VolunteerGroupMember.effective_from <= as_of,

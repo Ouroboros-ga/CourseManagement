@@ -87,20 +87,12 @@ def test_member_can_reactivate_without_duplicate_and_reject_stale_or_past_edit(c
     assert service.impact(member.id)["retained_future_task_ids"] == []
 
 
-def test_member_candidates_only_include_college_or_full_period_supported_students(campus):
+def test_member_candidates_only_include_college_students(campus):
     _, task, own, foreign, service, _ = prepared_task(campus)
     start, end = date(2026, 9, 7), date(2026, 9, 14)
     assert [r["id"] for r in service.candidates(task.semester_id, start, end)] == [str(own.id)]
-    service.authorize_support(
-        {
-            "student_id": str(foreign.id),
-            "semester_id": str(task.semester_id),
-            "effective_from": start,
-            "effective_to": end,
-        }
-    )
     ids = {r["id"] for r in service.candidates(task.semester_id, start, end)}
-    assert ids == {str(own.id), str(foreign.id)}
+    assert ids == {str(own.id)}
     assert service.candidates(task.semester_id, start, date(2026, 9, 15)) == [
         r for r in service.candidates(task.semester_id, start, end) if r["id"] == str(own.id)
     ]

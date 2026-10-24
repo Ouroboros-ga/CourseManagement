@@ -144,17 +144,48 @@ class CampusService:
         return row
 
     def _commit(
-        self, actor, action, row, before=None, *, resource_id=None, resource_type="CourseType"
+        self,
+        actor,
+        action,
+        row,
+        before=None,
+        *,
+        resource_id=None,
+        resource_type="CourseType",
+        impact_task_ids=None,
+        group_config=None,
     ):
         try:
             self.db.flush()
-            after = self._dto(row) if row is not None else None
-            if before and action in {"campus.type.update", "campus.group.update", "campus.group.publish", "campus.college.update"}:
+            after = (
+                (
+                    self._dto(row, group_config=group_config, group_config_loaded=True)
+                    if group_config is not None
+                    else self._dto(row)
+                )
+                if row is not None
+                else None
+            )
+            impact_fields = {
+                "campus.type.update": ("status",),
+                "campus.group.update": ("status", "starts_on", "ends_on"),
+                "campus.group.publish": ("configuration",),
+                "campus.college.update": ("status",),
+            }.get(action, ())
+            if before and any(before.get(key) != after.get(key) for key in impact_fields):
                 from app.modules.organization.impact_service import capture_impacts
                 kind = {"campus.type.update": "course_type", "campus.group.update": "group",
                         "campus.group.publish": "group", "campus.college.update": "college"}[action]
-                capture_impacts(self.db, row.id if kind == "college" else row.college_id, kind,
-                                row.id, row.lock_version, before=before, after=after)
+                capture_impacts(
+                    self.db,
+                    row.id if kind == "college" else row.college_id,
+                    kind,
+                    row.id,
+                    row.lock_version,
+                    task_ids=impact_task_ids,
+                    before=before,
+                    after=after,
+                )
             self.db.add(
                 AuditLog(
                     actor_user_id=actor.id,
@@ -255,7 +286,8 @@ class CampusService:
             if key != "lock_version":
                 setattr(row, key, value)
         row.lock_version += 1
-        row.authorization_revision += 1
+        if row.status != before["status"]:
+            row.authorization_revision += 1
         return self._commit(actor, "campus.college.update", row, before)
 
     def workspaces(self, actor):
@@ -368,7 +400,9 @@ class CampusService:
         college.authorization_revision += 1
         return self._commit(actor, "campus.grant.revoke", row, before)
 
-    def configuration_impact(self, actor, cid, kind, rid):
+    def configuration_impact(
+        self, actor, cid, kind, rid, *, semester_id=None, configuration_only=False
+    ):
         model, action = {
             "course_type": (CourseType, "academic.course_type.read"),
             "group": (VolunteerGroup, "volunteer.group.read"),
@@ -376,13 +410,23 @@ class CampusService:
         scope = None
         if kind == "group":
             from app.modules.identity.resource_scope import resolve_scope
-            scope = resolve_scope(self.db, actor, cid, action)
+            scope = resolve_scope(self.db, actor, cid,
+                "volunteer.config.publish" if configuration_only else action)
             if not scope.permits_group(rid):
                 raise NotFoundError()
         else:
             self._authorize(actor, cid, action)
         row = self._resource(model, cid, rid)
-        return future_impact(self.db, cid, kind, row.id, row.lock_version, resource_scope=scope)
+        return future_impact(
+            self.db,
+            cid,
+            kind,
+            row.id,
+            row.lock_version,
+            resource_scope=scope,
+            semester_id=semester_id,
+            inherited_only=configuration_only and semester_id is None,
+        )
 
     def list_types(self, actor, cid, deleted_only=False):
         self._authorize(actor, cid, "academic.course_type.read")
@@ -414,7 +458,15 @@ class CampusService:
         college = self._authorize(actor, cid, "academic.course_type.manage", write=True)
         row = self._resource(CourseType, cid, rid)
         self._version(row, body.lock_version)
-        confirm_impact(self.db, cid, "course_type", row, body.future_impact_revision)
+        changes = {
+            k: v
+            for k, v in body.model_dump(exclude_unset=True, exclude_none=True).items()
+            if k not in {"lock_version", "future_impact_revision"} and getattr(row, k) != v
+        }
+        if not changes:
+            return self._dto(row)
+        if "status" in changes:
+            confirm_impact(self.db, cid, "course_type", row, body.future_impact_revision)
         before = self._dto(row)
         for key, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
             if key not in {"lock_version", "future_impact_revision"}:
@@ -582,8 +634,19 @@ class CampusService:
         if body.owner_user_id is not None and int(body.owner_user_id) != row.owner_user_id:
             raise ConflictError(message="负责人变更请使用交接预览与确认，以同步负责人专属授权")
         from app.modules.identity.resource_scope import resolve_scope
-        impact_scope = resolve_scope(self.db, actor, cid, "volunteer.group.manage" if isinstance(body, GroupUpdate) else "volunteer.config.publish", write=True)
-        confirm_impact(self.db, cid, "group", row, body.future_impact_revision, resource_scope=impact_scope)
+        impact_scope = resolve_scope(self.db, actor, cid, "volunteer.group.manage", write=True)
+        changes = {
+            k: v
+            for k, v in body.model_dump(exclude_unset=True).items()
+            if k not in {"lock_version", "future_impact_revision"}
+            and str(getattr(row, k)) != str(v)
+        }
+        if not changes:
+            return self._dto(row)
+        if {"status", "starts_on", "ends_on"} & changes.keys():
+            confirm_impact(
+                self.db, cid, "group", row, body.future_impact_revision, resource_scope=impact_scope
+            )
         before = self._dto(row)
         for key, value in body.model_dump(exclude_unset=True).items():
             if key not in {"lock_version", "future_impact_revision"}:
@@ -591,7 +654,7 @@ class CampusService:
         self._owner(row.owner_user_id)
         self._dates(row)
         row.normalized_name = normalized_name(row.name)
-        if row.status == "ACTIVE":
+        if changes.get("status") == "ACTIVE":
             config = before["configuration"]
             if not config or not config["course_type_ids"]:
                 raise ConflictError(message="组缺少已发布的查课范围")
@@ -604,15 +667,14 @@ class CampusService:
         return self._commit(actor, "campus.group.update", row, before)
 
     @atomic_write
-    def publish_group(self, actor, cid, rid, data):
+    def publish_group(self, actor, cid, rid, data, *, semester_id=None):
         body = validated(GroupPublish, data)
         college = self._authorize_group(actor, cid, "volunteer.config.publish", rid, write=True,
                                         proposed=body.model_dump())
         row = self._resource(VolunteerGroup, cid, rid)
         self._version(row, body.lock_version)
         from app.modules.identity.resource_scope import resolve_scope
-        impact_scope = resolve_scope(self.db, actor, cid, "volunteer.group.manage" if isinstance(body, GroupUpdate) else "volunteer.config.publish", write=True)
-        confirm_impact(self.db, cid, "group", row, body.future_impact_revision, resource_scope=impact_scope)
+        impact_scope = resolve_scope(self.db, actor, cid, "volunteer.config.publish", write=True)
         if not body.course_type_ids:
             raise ConflictError(message="必须明确选择查课类型，留空不表示全部")
         from app.modules.academic.models import AdministrativeClass, TeachingClass
@@ -621,7 +683,7 @@ class CampusService:
             self._resource(AdministrativeClass, cid, int(class_id))
         for teaching_id in body.teaching_class_overrides:
             self._resource(TeachingClass, cid, int(teaching_id))
-        type_ids = set(body.course_type_ids) | set(body.type_overrides)
+        type_ids = set(body.course_type_ids)
         for value in sorted(type_ids):
             if not value.isascii() or not value.isdigit() or not 0 < int(value) < 2**63:
                 raise AppError(ErrorCode.VALIDATION_ERROR, "类型标识无效", 422)
@@ -634,24 +696,88 @@ class CampusService:
                 ))
             if kind.status != "ACTIVE":
                 raise ConflictError(message="类型已停用")
-        before = self._dto(row)
-        configuration = body.model_dump(mode="json", exclude={"lock_version", "future_impact_revision"})
+        from app.modules.volunteer.preparation_models import (
+            GroupSemesterPreparation,
+            semester_group_config,
+        )
+
+        prepared = None
+        if semester_id is not None:
+            from app.modules.academic.models import Semester
+
+            semester = self.db.scalar(
+                select(Semester)
+                .where(Semester.id == semester_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if semester is None:
+                raise NotFoundError("学期不存在")
+            if semester.status != "ACTIVE":
+                raise ConflictError(message="该学期已归档，不可修改排班规则")
+            prepared = self.db.scalar(
+                select(GroupSemesterPreparation)
+                .where(
+                    GroupSemesterPreparation.group_id == rid,
+                    GroupSemesterPreparation.college_id == cid,
+                    GroupSemesterPreparation.semester_id == semester_id,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            current = semester_group_config(self.db, row, semester_id)
+            before = self._dto(row, group_config=current, group_config_loaded=True)
+        else:
+            before = self._dto(row)
+        configuration = body.model_dump(
+            mode="json", exclude={"lock_version", "future_impact_revision"}
+        )
         configuration["course_type_ids"] = sorted(body.course_type_ids, key=int)
         configuration["class_ids"] = sorted(body.class_ids, key=int)
-        row.config_version = (self.db.scalar(select(func.max(GroupConfigVersion.version)).where(
-            GroupConfigVersion.group_id == row.id)) or 0) + 1
+        existing = before["configuration"]
+        if existing is not None:
+            normalized = {
+                **GroupPublish(lock_version=1).model_dump(
+                    mode="json", exclude={"lock_version", "future_impact_revision"}
+                ),
+                **existing,
+            }
+            normalized["course_type_ids"] = sorted(normalized["course_type_ids"], key=int)
+            normalized["class_ids"] = sorted(normalized["class_ids"], key=int)
+            if normalized == configuration:
+                return before
+        impact = confirm_impact(
+            self.db,
+            cid,
+            "group",
+            row,
+            body.future_impact_revision,
+            resource_scope=impact_scope,
+            semester_id=semester_id,
+            inherited_only=semester_id is None,
+        )
+        next_version = (
+            self.db.scalar(
+                select(func.max(GroupConfigVersion.version)).where(
+                    GroupConfigVersion.group_id == row.id
+                )
+            )
+            or 0
+        ) + 1
+        if semester_id is None or row.config_version == 0:
+            row.config_version = next_version
         row.lock_version += 1
         college.configuration_revision += 1
         config = GroupConfigVersion(
             college_id=cid,
             group_id=rid,
-            version=row.config_version,
+            version=next_version,
             configuration=configuration,
             published_by=actor.id,
         )
         self.db.add(config)
         self.db.flush()
-        # 冲突例外也建立引用，避免删掉规则仍使用的类型。
+        # 新版本只记录被查课程类型，冲突统一采用默认规则。
         self.db.add_all(
             [
                 GroupScopeType(
@@ -663,7 +789,28 @@ class CampusService:
                 for value in type_ids
             ]
         )
-        return self._commit(actor, "campus.group.publish", row, before)
+        if semester_id is not None:
+            if prepared is None:
+                self.db.add(
+                    GroupSemesterPreparation(
+                        college_id=cid,
+                        group_id=rid,
+                        semester_id=semester_id,
+                        source_semester_id=semester_id,
+                        config_id=config.id,
+                    )
+                )
+            else:
+                prepared.config_id = config.id
+                prepared.lock_version += 1
+        return self._commit(
+            actor,
+            "campus.group.publish",
+            row,
+            before,
+            impact_task_ids=[int(t) for t in impact["retained_future_task_ids"]],
+            group_config=config,
+        )
 
     @atomic_write
     def delete_group(self, actor, cid, rid, version, deletion_revision=None):
