@@ -900,7 +900,7 @@ Web入口：“志愿者组织→组织与规则→组行的导入成员Excel”
 
 课次、正式课表、考勤摘要/分组和教工查课卡片增加 `time_basis`（PERIODS/CLOCK）、`time_label`；任务和排班预览通过 `time_snapshot` 返回。CLOCK显示时刻，不能显示内部单槽为学校第1节。排班冲突按实际起止时间，不按这个内部槽号判定。
 
-新 `POST /api/v1/academic/semesters/{semester_id}/period-definitions/initialize` 使用原学校写权限/超管守卫，返回 `{created,preserved}`，仅补齐缺少的预置1—12节，事务原子提交。已有时间不覆盖；非法已有配置导致整批拒绝。修改/删除仍被课表引用的学校节次返回409；改时走教务资料“作息与校历”的版本预览发布，删除先处置引用。现有任务时间快照保持原值。
+新 `POST /api/v1/academic/semesters/{semester_id}/period-definitions/initialize` 使用原学校写权限/超管守卫，返回 `{created,preserved}`，仅补齐缺少的预置1—12节，事务原子提交。已有时间不覆盖；非法已有配置导致整批拒绝。修改/删除仍被课表引用的学校节次返回409；学院独立作息编辑页目前保持隐藏，后台已有版本继续生效；删除学校节次前先处置引用。现有任务时间快照保持原值。
 
 完整边界与小程序适配见 [自习时间修复](development/SELF_STUDY_CLOCK_TIME_20261023.md)。
 

@@ -10,18 +10,17 @@ import CourseTypeManager from '../components/campus/CourseTypeManager.vue'
 import AcademicPublication from '../components/campus/AcademicPublication.vue'
 import ImportHome from '../components/academic/ImportHome.vue'
 import TeachingAssignments from '../components/staff/TeachingAssignments.vue'
-import CollegeTimeConfiguration from '../components/campus/CollegeTimeConfiguration.vue'
 const session = useSessionStore()
 const canManageStaff = computed(() => !!session.workspace?.capabilities.includes('staff.manage'))
 const route = useRoute()
 const router = useRouter()
-// 默认沿用学校作息；需要调整未来课程时，提供明确的版本预览与发布入口。
+// 学院独立作息入口保持隐藏；时间规则修复不改变已确认的导航范围。
+// 学校默认继承和已有作息版本仍由后端生效，不因隐藏页面而重写。
 const tabs = computed(() => [
   ...(session.hasPermission('academic.read') ? [{ id: 'timetable', label: '正式课表' }, { id: 'classes', label: '教学班与分类' }] : []),
   ...(canManageStaff.value ? [{ id: 'teaching-assignments', label: '任课教师' }] : []),
   ...(['import.execute', 'course_schedule.import'].some(p => session.hasPermission(p)) ? [{ id: 'imports', label: '资料导入', alert: true }] : []),
   ...(session.hasPermission('academic.course_type.read') ? [{ id: 'types', label: '课程类型' }] : []),
-  ...(session.hasPermission('academic.manage') && session.campusRuntime?.scheduling ? [{ id: 'time', label: '作息与校历' }] : []),
   ...(session.hasPermission('academic.manage') ? [{ id: 'publication', label: '发布给学生' }] : [])
 ])
 const tab = usePageTabs(() => tabs.value.map(row => row.id))
@@ -70,7 +69,6 @@ watch(
               <ScopedAcademicBrowser :college-id="scope.collegeId" :capabilities="scope.college.capabilities" :course-types="scope.types" :allowed-kinds="['teaching-classes', 'courses']" />
             </div>
             <TeachingAssignments v-else-if="tab === 'teaching-assignments'" key="teaching-assignments" :college-id="scope.collegeId" />
-            <CollegeTimeConfiguration v-else-if="tab === 'time'" key="time" :college-id="scope.collegeId" />
             <div v-else-if="tab === 'types'" key="types">
               <CourseTypeManager :college-id="scope.collegeId" :rows="scope.types" :can-manage="scope.can('academic.course_type.manage')" @changed="scope.reload" />
             </div>

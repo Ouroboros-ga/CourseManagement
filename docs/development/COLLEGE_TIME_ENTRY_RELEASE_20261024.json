@@ -1,0 +1,53 @@
+{
+  "deployment": {
+    "release": "20261024-hide-college-time-3acd81eed4",
+    "source_commit": "3acd81eed460780b9ce51f1f293aca2c718c965f",
+    "web": "/opt/course-management/admin-web/releases/20261024-hide-college-time-3acd81eed4",
+    "previous_web": "/opt/course-management/admin-web/releases/20261024-group-rules-fbdc632021-r3",
+    "backend_unchanged": true,
+    "backend": "/opt/course-management/releases/20261024-group-rules-fbdc632021-r3",
+    "configuration_unchanged": true,
+    "backend_process_unchanged": true,
+    "migration_executed": false,
+    "business_data_written": false,
+    "web_files_verified": 70,
+    "old_assets_retained": 978,
+    "backup": "/var/backups/course-management/20261024-hide-college-time-3acd81eed4",
+    "rollback": "/var/backups/course-management/20261024-hide-college-time-3acd81eed4/rollback.py",
+    "deployed_at": "2026-10-24T03:17:07.622829+00:00"
+  },
+  "public": {
+    "release": "20261024-hide-college-time-3acd81eed4",
+    "source_commit": "3acd81eed460780b9ce51f1f293aca2c718c965f",
+    "dns": [
+      "101.34.52.163"
+    ],
+    "public_files_verified": 70,
+    "checks": {
+      "GET /health/live": 200,
+      "GET /health/ready": 200,
+      "GET /api/v1/me": 401,
+      "GET /api/v1/files/1/access?delivery=direct": 401,
+      "POST /api/v1/inspection-tasks/1/exception": 401,
+      "POST /api/v1/colleges/1/inspection-tasks/1/exception/clear": 401,
+      "GET /api/v1/colleges/1/assignment-change-requests?semester_id=1&page_size=50": 401
+    },
+    "spa_route": 200,
+    "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://oss-pai-um7e66idcat8ihfw7v-cn-shanghai.oss-cn-shanghai.aliyuncs.com; connect-src 'self' https://oss-pai-um7e66idcat8ihfw7v-cn-shanghai.oss-cn-shanghai.aliyuncs.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    "synthetic_business_writes": false
+  },
+  "browser": {
+    "synthetic": true,
+    "browser": "Browser plugin not available; bundled Playwright Edge",
+    "hidden_for_admin": true,
+    "old_url_normalized": true,
+    "college_context_preserved": true,
+    "school_settings_preserved": true,
+    "errors": []
+  },
+  "local_validation": {
+    "targeted_tests_passed": 4,
+    "vue_typecheck_and_build": "passed",
+    "browser_scope": "synthetic API responses; built Web assets; no authenticated production business acceptance"
+  }
+}
