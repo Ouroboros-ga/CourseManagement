@@ -19,6 +19,7 @@ MANAGEMENT 运行必须绑定可访问学院；SELF_SERVICE 不接受管理学�
 | --- | --- | --- |
 | system_probe | 两组 | 空参数，返回固定 contract_version；同样需要运行身份 |
 | task_status_get | 两组 | task_id；只查询当前运行创建的任务，重新检查原有访问范围 |
+| read_task_submit | MANAGEMENT | 固定目标二选一（报表导出准备／资料预览核对）、对应严格 arguments、1—32位 request_key；按当前运行入队，返回任务实际状态与固定页面入口，不是作业完成回执；[交接合同](development/AGENT_READ_TASK_HANDOFF_20261025.md) |
 | import_preview_review | MANAGEMENT | 1—100个不同的预览编号字符串；仅本人当前学院/学期预览，复用原权限与冲突检查，返回数量及运行学期，不返回个人明细或保存凭证，始终要求人工确认；[Web衔接](development/AGENT_IMPORT_REVIEW_UI_20261024.md) |
 | report_attendance_summary | MANAGEMENT | 学期字符串 ID＋周次或完整日期范围；返回现有统计总数，不返回人员明细 |
 | report_attendance_export_prepare | MANAGEMENT | 与汇总相同的时间窗＋固定format；准备需要当前登录的下载操作，不生成文件或返回明细 |

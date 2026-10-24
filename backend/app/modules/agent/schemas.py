@@ -48,6 +48,7 @@ class ImportReviewQuery(ToolArguments):
             int(value) >= 2**63 for value in self.batch_ids
         ):
             raise ValueError("Choose distinct supported preview IDs")
+        self.batch_ids = sorted(self.batch_ids, key=int)
         return self
 
 
@@ -94,6 +95,23 @@ class SummaryQuery(TimetableQuery):
 
 class ReportExportQuery(SummaryQuery):
     format: Literal["ANALYTICS_XLSX", "DETAIL_DOCX", "STUDY_XLSX"] = "ANALYTICS_XLSX"
+
+
+class ReadTaskSubmitQuery(ToolArguments):
+    tool_name: Literal["report_attendance_export_prepare", "import_preview_review"]
+    arguments: ReportExportQuery | ImportReviewQuery
+    request_key: str = Field(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
+
+    @model_validator(mode="after")
+    def matching_arguments(self):
+        expected = (
+            ReportExportQuery
+            if self.tool_name == "report_attendance_export_prepare"
+            else ImportReviewQuery
+        )
+        if not isinstance(self.arguments, expected):
+            raise ValueError("Arguments do not match the selected read task")
+        return self
 
 
 class ResponsibilityQuery(TimetableQuery):

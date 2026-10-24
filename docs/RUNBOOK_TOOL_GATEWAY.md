@@ -16,6 +16,8 @@
 
 ## 当前任务接口
 
+云端 MANAGEMENT 工作流可通过[受限读取任务提交工具](development/AGENT_READ_TASK_HANDOFF_20261025.md)登记报表准备或资料核对任务。无需向模型提供登录 Bearer 或自由选择 run_id。工具只返回登记结果、实际任务状态及固定页面入口，正式业务操作仍需本人确认。该工具不允许作为队列中的目标工具，不代表管理助手会话已接通。
+
 资料预览核对已有只读工具及队列候选，见[接入记录](development/AGENT_IMPORT_REVIEW_20261024.md)。使用原上传入口生成的本人预览编号；[任务核对卡](development/AGENT_IMPORT_REVIEW_UI_20261024.md)可恢复同类型预览，再走原核对和人工保存。助手文件工作区与会话任务交接仍未接通。不得将该工具的 `can_confirm` 当作保存授权或跳过原确认页面。
 
 - `POST /api/v1/assistant/tasks`：当前登录用户提交 `run_id`、`tool_name`、`arguments`、`request_key`。只允许本人当前会话的运行，返回 task_id／真实状态；不返回运行密钥。

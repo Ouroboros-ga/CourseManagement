@@ -129,8 +129,8 @@ class TaskService:
         )
         if spec is None:
             raise NotFoundError("工具不存在")
-        if tool_name == "task_status_get":
-            raise AppError(ErrorCode.VALIDATION_ERROR, "状态查询无需排队", 422)
+        if tool_name in {"task_status_get", "read_task_submit"}:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "任务提交和状态查询无需排队", 422)
         try:
             normalized = spec.input_model.model_validate(arguments).model_dump(mode="json")
         except ValidationError:

@@ -145,6 +145,225 @@
         }
       }
     },
+    "/api/v1/agent-tools/v1/calls/read_task_submit": {
+      "post": {
+        "operationId": "read_task_submit",
+        "summary": "Queue a supported read task for this run and return a fixed human UI handoff",
+        "security": [
+          {
+            "ToolAppKey": [],
+            "AgentRunToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "arguments"
+                ],
+                "properties": {
+                  "arguments": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "tool_name": {
+                        "enum": [
+                          "report_attendance_export_prepare",
+                          "import_preview_review"
+                        ],
+                        "title": "Tool Name",
+                        "type": "string"
+                      },
+                      "arguments": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "semester_id": {
+                                "pattern": "^[1-9][0-9]{0,18}$",
+                                "title": "Semester Id",
+                                "type": "string"
+                              },
+                              "week_no": {
+                                "default": null,
+                                "title": "Week No",
+                                "maximum": 60,
+                                "minimum": 1,
+                                "type": "integer",
+                                "nullable": true
+                              },
+                              "date_from": {
+                                "default": null,
+                                "title": "Date From",
+                                "format": "date",
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "date_to": {
+                                "default": null,
+                                "title": "Date To",
+                                "format": "date",
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "format": {
+                                "default": "ANALYTICS_XLSX",
+                                "enum": [
+                                  "ANALYTICS_XLSX",
+                                  "DETAIL_DOCX",
+                                  "STUDY_XLSX"
+                                ],
+                                "title": "Format",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "semester_id"
+                            ],
+                            "title": "ReportExportQuery",
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "batch_ids": {
+                                "items": {
+                                  "pattern": "^[1-9][0-9]{0,18}$",
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "title": "Batch Ids",
+                                "type": "array"
+                              }
+                            },
+                            "required": [
+                              "batch_ids"
+                            ],
+                            "title": "ImportReviewQuery",
+                            "type": "object"
+                          }
+                        ],
+                        "title": "Arguments"
+                      },
+                      "request_key": {
+                        "maxLength": 32,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9_-]+$",
+                        "title": "Request Key",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "tool_name",
+                      "arguments",
+                      "request_key"
+                    ],
+                    "title": "ReadTaskSubmitQuery",
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result wrapped in data/requestId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "SUCCEEDED",
+                            "QUEUED",
+                            "RUNNING",
+                            "MANUAL_REQUIRED",
+                            "FAILED"
+                          ],
+                          "title": "Status",
+                          "type": "string"
+                        },
+                        "data": {
+                          "default": null,
+                          "title": "Data",
+                          "additionalProperties": true,
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "task_id": {
+                          "default": null,
+                          "title": "Task Id",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "result_ref": {
+                          "default": null,
+                          "title": "Result Ref",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "error_code": {
+                          "default": null,
+                          "title": "Error Code",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "retryable": {
+                          "default": false,
+                          "title": "Retryable",
+                          "type": "boolean"
+                        },
+                        "trace_id": {
+                          "title": "Trace Id",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "trace_id"
+                      ],
+                      "title": "ToolResult",
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid application credentials"
+          },
+          "403": {
+            "description": "Run expired or action forbidden"
+          },
+          "404": {
+            "description": "Tool or resource unavailable"
+          },
+          "409": {
+            "description": "Source, execution attempt or business state changed"
+          },
+          "422": {
+            "description": "Invalid parameters or result too large"
+          }
+        }
+      }
+    },
     "/api/v1/agent-tools/v1/calls/report_attendance_export_prepare": {
       "post": {
         "operationId": "report_attendance_export_prepare",

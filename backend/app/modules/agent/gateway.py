@@ -14,6 +14,7 @@ from app.modules.agent.registry import ToolRegistry
 from app.modules.agent.run_context import RunContext
 from app.modules.agent.schemas import (
     ImportReviewQuery,
+    ReadTaskSubmitQuery,
     ReportExportQuery,
     ResponsibilityQuery,
     SelfAttendanceQuery,
@@ -80,6 +81,11 @@ def invoke_tool(db: Session, context: RunContext, name: str, arguments: dict) ->
         from app.modules.timetable.service import PersonalTimetableService
 
         data = PersonalTimetableService(db, context.actor.id).get(int(query.semester_id))
+    elif name == "read_task_submit":
+        from app.modules.agent.read_task_submit import submit_read_task
+
+        assert isinstance(query, ReadTaskSubmitQuery)
+        data = submit_read_task(db, context, query)
     elif name == "import_preview_review":
         from app.modules.agent.import_review import review_previews
 

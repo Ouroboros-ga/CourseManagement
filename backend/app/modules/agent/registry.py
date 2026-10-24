@@ -5,6 +5,7 @@ from app.modules.agent.schemas import (
     ObjectionMaterialQuery,
     ObjectionSaveQuery,
     ProbeQuery,
+    ReadTaskSubmitQuery,
     ReportExportQuery,
     ResponsibilityQuery,
     SelfAttendanceQuery,
@@ -30,6 +31,12 @@ class ToolRegistry:
 
     def __init__(self):
         specs = (
+            ToolSpec(
+                "read_task_submit",
+                "Queue a supported read task for this run and return a fixed human UI handoff",
+                ReadTaskSubmitQuery,
+                frozenset({"MANAGEMENT"}),
+            ),
             ToolSpec(
                 "import_preview_review",
                 "Review owned import previews; human conflict review and saving remain required",
