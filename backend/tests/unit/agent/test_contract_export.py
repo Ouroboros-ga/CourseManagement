@@ -4,7 +4,7 @@ from app.modules.agent.contract_export import build_contract
 def test_export_is_small_and_never_exposes_identity_parameters():
     contract = build_contract()
     assert contract["openapi"] == "3.0.3"
-    assert len(contract["paths"]) == 7
+    assert len(contract["paths"]) == 8
     assert "/api/v1/academic/students" not in contract["paths"]
     operation = contract["paths"]["/api/v1/agent-tools/v1/calls/self_attendance_list"]["post"]
     inputs = operation["requestBody"]["content"]["application/json"]["schema"]

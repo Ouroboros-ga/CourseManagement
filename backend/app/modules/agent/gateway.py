@@ -13,6 +13,7 @@ from app.core.exceptions import AppError, ErrorCode, NotFoundError, PermissionDe
 from app.modules.agent.registry import ToolRegistry
 from app.modules.agent.run_context import RunContext
 from app.modules.agent.schemas import (
+    ImportReviewQuery,
     ReportExportQuery,
     ResponsibilityQuery,
     SelfAttendanceQuery,
@@ -79,6 +80,11 @@ def invoke_tool(db: Session, context: RunContext, name: str, arguments: dict) ->
         from app.modules.timetable.service import PersonalTimetableService
 
         data = PersonalTimetableService(db, context.actor.id).get(int(query.semester_id))
+    elif name == "import_preview_review":
+        from app.modules.agent.import_review import review_previews
+
+        assert isinstance(query, ImportReviewQuery)
+        data = review_previews(db, context, query)
     elif name == "report_attendance_export_prepare":
         from app.modules.agent.report_export import prepare_export
 

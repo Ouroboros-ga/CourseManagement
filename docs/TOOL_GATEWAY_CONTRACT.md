@@ -19,6 +19,7 @@ MANAGEMENT 运行必须绑定可访问学院；SELF_SERVICE 不接受管理学�
 | --- | --- | --- |
 | system_probe | 两组 | 空参数，返回固定 contract_version；同样需要运行身份 |
 | task_status_get | 两组 | task_id；只查询当前运行创建的任务，重新检查原有访问范围 |
+| import_preview_review | MANAGEMENT | 1—100个不同的预览编号字符串；仅本人当前学院/学期预览，复用原权限与冲突检查，返回数量，不返回个人明细或保存凭证，始终要求人工确认 |
 | report_attendance_summary | MANAGEMENT | 学期字符串 ID＋周次或完整日期范围；返回现有统计总数，不返回人员明细 |
 | report_attendance_export_prepare | MANAGEMENT | 与汇总相同的时间窗＋固定format；准备需要当前登录的下载操作，不生成文件或返回明细 |
 | responsibility_tasks_list | MANAGEMENT | 学期字符串 ID、周次、分页；复用 ScopedInspectionService 的当前责任区过滤 |

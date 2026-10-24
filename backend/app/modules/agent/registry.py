@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from app.modules.agent.schemas import (
+    ImportReviewQuery,
     ObjectionMaterialQuery,
     ObjectionSaveQuery,
     ProbeQuery,
@@ -29,6 +30,12 @@ class ToolRegistry:
 
     def __init__(self):
         specs = (
+            ToolSpec(
+                "import_preview_review",
+                "Review owned import previews; human conflict review and saving remain required",
+                ImportReviewQuery,
+                frozenset({"MANAGEMENT"}),
+            ),
             ToolSpec(
                 "objection_case_get",
                 "Read the bound objection and permitted material metadata",

@@ -39,6 +39,18 @@ class ProbeQuery(ToolArguments):
     pass
 
 
+class ImportReviewQuery(ToolArguments):
+    batch_ids: list[Id] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def unique_supported_ids(self):
+        if len(set(self.batch_ids)) != len(self.batch_ids) or any(
+            int(value) >= 2**63 for value in self.batch_ids
+        ):
+            raise ValueError("Choose distinct supported preview IDs")
+        return self
+
+
 class ObjectionMaterialQuery(ToolArguments):
     file_id: Id
 

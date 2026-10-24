@@ -38,7 +38,10 @@ def visibility_hash(db: Session, context: RunContext, tool_name: str) -> str:
     if tool_name == "system_probe":
         return digest({"actor": context.actor.id})
     if tool_name in {
-        "report_attendance_summary", "report_attendance_export_prepare", "responsibility_tasks_list"
+        "report_attendance_summary",
+        "report_attendance_export_prepare",
+        "responsibility_tasks_list",
+        "import_preview_review",
     }:
         from app.modules.identity.resource_scope import resolve_scope
 
@@ -47,7 +50,15 @@ def visibility_hash(db: Session, context: RunContext, tool_name: str) -> str:
         action = (
             "inspection.read" if tool_name == "responsibility_tasks_list" else "statistics.read"
         )
-        scope = resolve_scope(db, context.actor, context.college_id, action)
+        if tool_name == "import_preview_review":
+            action = "import.execute"
+        scope = resolve_scope(
+            db,
+            context.actor,
+            context.college_id,
+            action,
+            write=tool_name == "import_preview_review",
+        )
         # College revision changes invalidate stored results even if access still exists.
         return digest(
             {
