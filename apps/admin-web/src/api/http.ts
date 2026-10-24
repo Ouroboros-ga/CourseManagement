@@ -8,6 +8,20 @@
 
 let accessToken: string | null = null
 
+export interface DownloadResponse { blob: Blob; filename: string | null }
+
+function downloadFilename(disposition: string | null): string | null {
+  if (!disposition) return null
+  const value = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)?.[1]
+    || disposition.match(/filename\s*=\s*"?([^";]+)"?/i)?.[1]
+  if (!value) return null
+  try {
+    const name = decodeURIComponent(value.trim()).split(/[\\/]/).pop()
+      ?.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 200)
+    return name || null
+  } catch { return null }
+}
+
 export function setAccessToken(token: string | null): void {
   accessToken = token
 }
@@ -74,10 +88,10 @@ export async function request<T = unknown>(
   url: string,
   init: RequestInit = {},
   isRetry = false,
-  responseType: 'json' | 'blob' = 'json'
+  responseType: 'json' | 'blob' | 'download' = 'json'
 ): Promise<T> {
   const headers = new Headers(init.headers || {})
-  if (responseType === 'blob') {
+  if (responseType === 'blob' || responseType === 'download') {
     if (!headers.has('Accept')) {
       headers.set('Accept', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/octet-stream, */*')
     }
@@ -155,6 +169,9 @@ export async function request<T = unknown>(
   }
 
   if (responseType === 'blob') return await response.blob() as T
+  if (responseType === 'download') {
+    return { blob: await response.blob(), filename: downloadFilename(response.headers.get('Content-Disposition')) } as T
+  }
   const result = await response.json()
   return result.data as T
 }

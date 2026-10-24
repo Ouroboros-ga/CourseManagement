@@ -34,7 +34,8 @@
 | [学院预审开关](development/OBJECTION_PRECHECK_POLICY_UI_20261024.md) | 配置门禁、保存回执、冲突刷新及范围隔离；本地模拟浏览器验证 |
 | [学生本人申诉进度接口](integration/WECHAT_OBJECTION_PROGRESS_20261024.md) | 本人只读进度及小程序对接合同；后端及小程序源码候选，编译和真机待验收 |
 | [小程序办理进度接入](development/WECHAT_OBJECTION_PROGRESS_UI_20261024.md) | 详情进度、刷新、上下文隔离和BIGINT；Node行为验证，微信编译/真机待验收 |
-| [智能体报表导出准备](development/AGENT_REPORT_EXPORT_20261024.md) | 固定格式及当前学院下载操作；本地实际Excel生成/权限回归，管理助手卡片待接入 |
+| [智能体报表导出准备](development/AGENT_REPORT_EXPORT_20261024.md) | 固定格式及当前学院下载操作；本地实际文件生成/权限回归，统计页任务卡见下项 |
+| [助手报表下载卡](development/AGENT_REPORT_EXPORT_UI_20261024.md) | 按本人队列任务读取结果、登录下载及上下文隔离；模拟浏览器通过，真实助手会话待联调 |
 | [工具网关实施计划（本地）](superpowers/plans/2026-10-24-tool-gateway-implementation.md) | v0.3：网关 A、运行基础 B、业务增强 C 与验收；该目录按仓库规则不纳入 Git，其他检出可能没有此文件 |
 
 三份文档分别承担产品、架构与实施职责；本地候选进度统一看实施状态，设计和计划不作为已交付证明。旧“四模块＋排班内换班”和通用授权平台方案已被原位更新，不再另维护一份旧计划。2026-10-15校园重构批次的“智能体暂缓”只保留历史含义；AI实施状态见上方统一状态页。

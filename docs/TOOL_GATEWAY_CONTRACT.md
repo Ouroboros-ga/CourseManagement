@@ -29,7 +29,7 @@ MANAGEMENT 运行必须绑定可访问学院；SELF_SERVICE 不接受管理学�
 
 另有AUTOMATION/objection的3个工具：`objection_case_get`空参数、`objection_material_access`仅file_id、`objection_precheck_save`仅严格result建议对象。后台从绑定恢复申诉与批次，参数不得指定学院、账号或申诉；不改正式考勤或人工审核。独立合同见[预审工具OpenAPI](agent-objection-tools.openapi.json)，身份、保存幂等回执和验收边界见[预审运行接入](development/OBJECTION_PRECHECK_RUNTIME_20261024.md)。
 
-尚未注册导入保存、周期排班发布工具。统计报表新增导出准备工具，返回NOT_GENERATED及固定同源下载操作；实际生成仍在原REST下载边界重新鉴权，管理助手下载卡待接入。详见[导出准备](development/AGENT_REPORT_EXPORT_20261024.md)。AUTOMATION只允许change和objection两种独立绑定；未绑定工作流或未知流程不暴露工具。交互助手现有7个工具，不能调用这些后台工具。[换班工作流OpenAPI](agent-change-tools.openapi.json)保持独立2个工具。预审工具本地可用不等于真实ADP预审已接入。
+尚未注册导入保存、周期排班发布工具。统计报表新增导出准备工具，返回NOT_GENERATED及固定同源下载操作；实际生成仍在原REST下载边界重新鉴权，统计页任务下载卡已有候选，真实助手会话及任务链接分发待联调。详见[导出准备](development/AGENT_REPORT_EXPORT_20261024.md)。AUTOMATION只允许change和objection两种独立绑定；未绑定工作流或未知流程不暴露工具。交互助手现有7个工具，不能调用这些后台工具。[换班工作流OpenAPI](agent-change-tools.openapi.json)保持独立2个工具。预审工具本地可用不等于真实ADP预审已接入。
 
 分页上限50条；外部 ID 必须是规范十进制字符串，范围为1到2^63−1。统计日期区间最多93天；周次与日期区间二选一。额外字段（包括 user_id、student_id、role、college_id）拒绝，不做静默忽略。
 

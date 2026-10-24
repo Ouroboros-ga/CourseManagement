@@ -2,6 +2,7 @@
 import { collectPages } from '../utils/collectPages'
 import { useDisplayPage } from '../composables/useDisplayPage'
 import AppPagination from '../components/AppPagination.vue'
+import AssistantReportExportCard from '../components/AssistantReportExportCard.vue'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -26,6 +27,14 @@ import {
 
 const route = useRoute()
 const sessionStore = useSessionStore()
+const assistantTaskId = computed(() => typeof route.query.assistant_task_id === 'string' ? route.query.assistant_task_id : 'INVALID')
+const assistantExportAvailable = computed(() => !!sessionStore.campusRuntime?.business_scoped
+  && sessionStore.hasPermission('statistics.read') && !!sessionStore.workspaceCollegeId)
+const assistantExportContext = computed(() => JSON.stringify([
+  sessionStore.currentUser?.id, sessionStore.currentUser?.roles, sessionStore.workspaceCollegeId,
+  sessionStore.currentSemesterId, sessionStore.workspace?.authorization_revision,
+  sessionStore.workspace?.configuration_revision, sessionStore.workspace?.capabilities, assistantExportAvailable.value
+]))
 
 const loading = ref(false)
 const downloadLoading = ref(false)
@@ -666,6 +675,11 @@ const { page: display4Page, rows: display4Rows, total: display4Total } = useDisp
         <button class="btn btn-ghost btn-sm" @click="fetchReportData">刷新数据</button>
       </div>
     </header>
+
+    <AssistantReportExportCard v-if="route.query.assistant_task_id !== undefined"
+      :task-id="assistantTaskId" :college-id="sessionStore.workspaceCollegeId" :college-name="sessionStore.workspace?.name || '当前学院'"
+      :semester-id="sessionStore.currentSemesterId" :context-key="assistantExportContext" :available="assistantExportAvailable"
+    />
 
     <!-- 宏观统计分栏（无边框 · 细线分隔） -->
     <section v-if="attendanceStats" class="stat-row kpi-row">
