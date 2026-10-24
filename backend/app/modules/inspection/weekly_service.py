@@ -25,6 +25,15 @@ from app.modules.volunteer.models import VolunteerGroup
 from app.modules.volunteer.preparation_models import semester_group_config
 
 
+def configuration_permitted(scopes, group_id, configuration):
+    classes = {int(v) for v in configuration["counts"]}
+    types = {int(v) for v in configuration["course_type_ids"]}
+    return bool(classes and types) and all(
+        scope.permits_plan(group_id, tid, set(), classes)
+        for scope in scopes for tid in types
+    )
+
+
 class WeeklyInspectionService:
     def __init__(self, db, college_id, group_id, semester_id, *, environment=None):
         self.db, self.cid, self.gid, self.sid = db, college_id, group_id, semester_id
@@ -176,6 +185,12 @@ class WeeklyInspectionService:
         body = validated(WeeklyPlanUpdate, data)
         _, _, group_version = self._validate(actor, body)
         row = self._plan(lock=True)
+        if row is not None and not configuration_permitted(
+            [resolve_scope(self.db, actor, self.cid, action, write=True)
+             for action in ("inspection.generate", "assignment.manage")],
+            self.gid, row.configuration,
+        ):
+            raise NotFoundError("原每周计划超出当前授权范围")
         if body.current_version != (row.version if row else 0):
             raise ConflictError(message="每周计划已变化，请刷新后修改")
         if row is None:
@@ -200,9 +215,11 @@ class WeeklyInspectionService:
 
     @atomic_write
     def pause(self, actor, current_version):
-        self._context(actor, active=False)
+        generate, assign, _, _ = self._context(actor, active=False)
         row = self._plan(lock=True)
-        if row is None:
+        if row is None or not configuration_permitted(
+            (generate, assign), self.gid, row.configuration,
+        ):
             raise NotFoundError()
         if type(current_version) is not int or row.version != current_version:
             raise ConflictError(message="每周计划已变化，请刷新")

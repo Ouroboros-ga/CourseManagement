@@ -142,6 +142,9 @@ def create_app() -> FastAPI:
     from app.modules.volunteer.management_router import router as organization_management_router
     app.include_router(organization_management_router, prefix="/api/v1")
     app.include_router(group_inspection_router, prefix="/api/v1")
+    if get_settings().agent_weekly_inspection_enabled:
+        from app.modules.inspection.weekly_router import router as weekly_inspection_router
+        app.include_router(weekly_inspection_router, prefix="/api/v1")
     app.include_router(personal_timetable_router, prefix="/api/v1")
     app.include_router(scoped_attendance_router, prefix="/api/v1")
     app.include_router(scoped_objection_router, prefix="/api/v1")

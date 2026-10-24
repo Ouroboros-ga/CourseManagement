@@ -295,6 +295,43 @@ def test_pause_or_edit_fences_registered_run_without_rewriting_its_scope(case):
     assert service.register_due(int(plan["id"]), now=datetime(2026, 9, 4, 9)) == []
 
 
+def test_partial_type_manager_cannot_replace_or_pause_a_broader_existing_policy(case):
+    from app.core.exceptions import NotFoundError, PermissionDeniedError
+    from app.modules.identity.models import Role, UserAccount, UserRole
+    from app.modules.identity.service import CurrentUser
+    from app.modules.organization.service import CampusService
+    from app.modules.volunteer.models import VolunteerGroup
+
+    db, admin, cid, *_ = case
+    campus = CampusService(db)
+    service, body = arrange(case)
+    other = campus.create_type(admin, cid, {"name": "Second weekly type"})
+    group = db.get(VolunteerGroup, case[4])
+    campus.publish_group(admin, cid, case[4], {
+        "lock_version": group.lock_version,
+        "course_type_ids": [*body["course_type_ids"], other["id"]],
+    })
+    service.save(admin, {**body, "course_type_ids": [*body["course_type_ids"], other["id"]]})
+    user = db.scalar(select(UserAccount).where(UserAccount.id != admin.id))
+    role = Role(code="WEEKLY_READER", name="Weekly reader")
+    db.add(role)
+    db.flush()
+    db.add(UserRole(user_id=user.id, role_id=role.id))
+    db.commit()
+    grant = {
+        "user_id": str(user.id), "actions": ["inspection.generate", "assignment.manage"],
+        "resource_scope": {"kind": "COURSE_TYPES", "ids": body["course_type_ids"]},
+    }
+    campus.create_grant(admin, cid, {
+        **grant, "preview_revision": campus.preview_grant(admin, cid, grant)["revision"],
+    })
+    actor = CurrentUser(user.id, None, user.display_name, "ACTIVE", ["SUPER_ADMIN"], ["*"])
+    with pytest.raises((NotFoundError, PermissionDeniedError)):
+        service.save(actor, {**body, "current_version": 1})
+    with pytest.raises((NotFoundError, PermissionDeniedError)):
+        service.pause(actor, 1)
+
+
 def test_past_target_week_is_recorded_missed_without_generating_past_tasks(case):
     service, body = arrange(case)
     plan = service.save(case[1], body)
