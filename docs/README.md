@@ -22,7 +22,7 @@
 | --- | --- |
 | [五模块产品设计](product/AI_COLLABORATIVE_PLATFORM_FUNCTIONAL_DESIGN.md) | v1.1：功能、交互、权限范围与产品验收 |
 | [技术架构](development/AI_COLLABORATIVE_PLATFORM_ARCHITECTURE.md) | v0.4：腾讯云编排、薄网关、任务运行和领域服务边界 |
-| [工具合同](TOOL_GATEWAY_CONTRACT.md)、[运行手册](RUNBOOK_TOOL_GATEWAY.md) | 本地候选接口、身份与启用门禁；交互6工具、后台换班2工具和预审3工具分别导出合同，未联调腾讯云或部署 |
+| [工具合同](TOOL_GATEWAY_CONTRACT.md)、[运行手册](RUNBOOK_TOOL_GATEWAY.md) | 本地候选接口、身份与启用门禁；交互7工具、后台换班2工具和预审3工具分别导出合同，未联调腾讯云或部署 |
 | [ADP换班工作流接入规格](development/ADP_CHANGE_WORKFLOW_20261024.md) | 新版SDK适配器、节点配置、动态Header/元数据脱敏门禁；不是已创建的云端应用 |
 | [ADP持久派发与对账](development/ADP_CHANGE_DISPATCH_20261024.md) | 实例保存、重启恢复、创建结果不确定、容量和人工复查；本地模拟验证，未启动消费者 |
 | [申诉预审领域基础](development/OBJECTION_PRECHECK_DOMAIN_20261024.md) | 独立策略、任务、建议及材料权限；工具接入见下项，尚无云端执行或页面 |
@@ -34,6 +34,7 @@
 | [学院预审开关](development/OBJECTION_PRECHECK_POLICY_UI_20261024.md) | 配置门禁、保存回执、冲突刷新及范围隔离；本地模拟浏览器验证 |
 | [学生本人申诉进度接口](integration/WECHAT_OBJECTION_PROGRESS_20261024.md) | 本人只读进度及小程序对接合同；后端及小程序源码候选，编译和真机待验收 |
 | [小程序办理进度接入](development/WECHAT_OBJECTION_PROGRESS_UI_20261024.md) | 详情进度、刷新、上下文隔离和BIGINT；Node行为验证，微信编译/真机待验收 |
+| [智能体报表导出准备](development/AGENT_REPORT_EXPORT_20261024.md) | 固定格式及当前学院下载操作；本地实际Excel生成/权限回归，管理助手卡片待接入 |
 | [工具网关实施计划（本地）](superpowers/plans/2026-10-24-tool-gateway-implementation.md) | v0.3：网关 A、运行基础 B、业务增强 C 与验收；该目录按仓库规则不纳入 Git，其他检出可能没有此文件 |
 
 三份文档分别承担产品、架构与实施职责；本地候选进度统一看实施状态，设计和计划不作为已交付证明。旧“四模块＋排班内换班”和通用授权平台方案已被原位更新，不再另维护一份旧计划。2026-10-15校园重构批次的“智能体暂缓”只保留历史含义；AI实施状态见上方统一状态页。

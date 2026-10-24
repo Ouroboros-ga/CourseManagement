@@ -13,6 +13,7 @@ from app.core.exceptions import AppError, ErrorCode, NotFoundError, PermissionDe
 from app.modules.agent.registry import ToolRegistry
 from app.modules.agent.run_context import RunContext
 from app.modules.agent.schemas import (
+    ReportExportQuery,
     ResponsibilityQuery,
     SelfAttendanceQuery,
     SummaryQuery,
@@ -78,6 +79,11 @@ def invoke_tool(db: Session, context: RunContext, name: str, arguments: dict) ->
         from app.modules.timetable.service import PersonalTimetableService
 
         data = PersonalTimetableService(db, context.actor.id).get(int(query.semester_id))
+    elif name == "report_attendance_export_prepare":
+        from app.modules.agent.report_export import prepare_export
+
+        assert isinstance(query, ReportExportQuery)
+        data = prepare_export(db, context, query)
     elif name == "report_attendance_summary":
         assert isinstance(query, SummaryQuery)
         from app.modules.identity.resource_scope import resolve_scope

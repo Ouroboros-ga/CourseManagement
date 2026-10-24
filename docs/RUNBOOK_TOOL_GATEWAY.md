@@ -59,3 +59,7 @@ TaskService.submit只flush，业务入口可把源事件和作业放入同一事
 ```
 
 SQLite、HTTP和本地Uvicorn测试不代替真实MySQL、腾讯云、外部HTTPS或上线验证。
+
+## 统计报表导出准备
+
+MANAGEMENT增加 `report_attendance_export_prepare`，仍为只读准备，可进入原队列。交互合同7项，后台合同不变。只返回NOT_GENERATED及固定同源操作；原REST在用户实际下载时重验登录、学院和统计范围。不能将工具准备成功记作文件已生成，也不能把相对路径当作带授权的分享链接。详情及尚缺界面见[导出接入](development/AGENT_REPORT_EXPORT_20261024.md)。无新增迁移或存储配置，开关继续关闭。

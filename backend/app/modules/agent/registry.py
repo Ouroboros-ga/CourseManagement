@@ -4,6 +4,7 @@ from app.modules.agent.schemas import (
     ObjectionMaterialQuery,
     ObjectionSaveQuery,
     ProbeQuery,
+    ReportExportQuery,
     ResponsibilityQuery,
     SelfAttendanceQuery,
     SummaryQuery,
@@ -79,6 +80,12 @@ class ToolRegistry:
                 "report_attendance_summary",
                 "Read attendance totals in the current scope",
                 SummaryQuery,
+                frozenset({"MANAGEMENT"}),
+            ),
+            ToolSpec(
+                "report_attendance_export_prepare",
+                "Prepare an authenticated download action; the file is generated only on download",
+                ReportExportQuery,
                 frozenset({"MANAGEMENT"}),
             ),
             ToolSpec(

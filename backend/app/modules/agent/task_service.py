@@ -37,13 +37,15 @@ def visibility_hash(db: Session, context: RunContext, tool_name: str) -> str:
     """A digest of existing scope guards, never a second permission definition."""
     if tool_name == "system_probe":
         return digest({"actor": context.actor.id})
-    if tool_name in {"report_attendance_summary", "responsibility_tasks_list"}:
+    if tool_name in {
+        "report_attendance_summary", "report_attendance_export_prepare", "responsibility_tasks_list"
+    }:
         from app.modules.identity.resource_scope import resolve_scope
 
         if context.college_id is None or not get_settings().campus_business_scoped_enabled:
             raise PermissionDeniedError()
         action = (
-            "statistics.read" if tool_name == "report_attendance_summary" else "inspection.read"
+            "inspection.read" if tool_name == "responsibility_tasks_list" else "statistics.read"
         )
         scope = resolve_scope(db, context.actor, context.college_id, action)
         # College revision changes invalidate stored results even if access still exists.

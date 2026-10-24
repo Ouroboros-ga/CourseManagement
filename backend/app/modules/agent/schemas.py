@@ -80,6 +80,10 @@ class SummaryQuery(TimetableQuery):
         return self
 
 
+class ReportExportQuery(SummaryQuery):
+    format: Literal["ANALYTICS_XLSX", "DETAIL_DOCX", "STUDY_XLSX"] = "ANALYTICS_XLSX"
+
+
 class ResponsibilityQuery(TimetableQuery):
     week_no: int = Field(ge=1, le=60)
     page: int = Field(default=1, ge=1, le=1000)

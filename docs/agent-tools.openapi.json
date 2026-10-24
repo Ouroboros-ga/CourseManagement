@@ -5,6 +5,173 @@
     "version": "v1"
   },
   "paths": {
+    "/api/v1/agent-tools/v1/calls/report_attendance_export_prepare": {
+      "post": {
+        "operationId": "report_attendance_export_prepare",
+        "summary": "Prepare an authenticated download action; the file is generated only on download",
+        "security": [
+          {
+            "ToolAppKey": [],
+            "AgentRunToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "arguments"
+                ],
+                "properties": {
+                  "arguments": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "semester_id": {
+                        "pattern": "^[1-9][0-9]{0,18}$",
+                        "title": "Semester Id",
+                        "type": "string"
+                      },
+                      "week_no": {
+                        "default": null,
+                        "title": "Week No",
+                        "maximum": 60,
+                        "minimum": 1,
+                        "type": "integer",
+                        "nullable": true
+                      },
+                      "date_from": {
+                        "default": null,
+                        "title": "Date From",
+                        "format": "date",
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "date_to": {
+                        "default": null,
+                        "title": "Date To",
+                        "format": "date",
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "format": {
+                        "default": "ANALYTICS_XLSX",
+                        "enum": [
+                          "ANALYTICS_XLSX",
+                          "DETAIL_DOCX",
+                          "STUDY_XLSX"
+                        ],
+                        "title": "Format",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "semester_id"
+                    ],
+                    "title": "ReportExportQuery",
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result wrapped in data/requestId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "SUCCEEDED",
+                            "QUEUED",
+                            "RUNNING",
+                            "MANUAL_REQUIRED",
+                            "FAILED"
+                          ],
+                          "title": "Status",
+                          "type": "string"
+                        },
+                        "data": {
+                          "default": null,
+                          "title": "Data",
+                          "additionalProperties": true,
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "task_id": {
+                          "default": null,
+                          "title": "Task Id",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "result_ref": {
+                          "default": null,
+                          "title": "Result Ref",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "error_code": {
+                          "default": null,
+                          "title": "Error Code",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "retryable": {
+                          "default": false,
+                          "title": "Retryable",
+                          "type": "boolean"
+                        },
+                        "trace_id": {
+                          "title": "Trace Id",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "trace_id"
+                      ],
+                      "title": "ToolResult",
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid application credentials"
+          },
+          "403": {
+            "description": "Run expired or action forbidden"
+          },
+          "404": {
+            "description": "Tool or resource unavailable"
+          },
+          "409": {
+            "description": "Source, execution attempt or business state changed"
+          },
+          "422": {
+            "description": "Invalid parameters or result too large"
+          }
+        }
+      }
+    },
     "/api/v1/agent-tools/v1/calls/report_attendance_summary": {
       "post": {
         "operationId": "report_attendance_summary",
