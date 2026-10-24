@@ -1,3 +1,7 @@
+## 2026-10-24 学生本人申诉进度（候选）
+
+GET `/api/v1/me/objections/{objection_id}/progress`：原Bearer、实际学生绑定及本人所有权，只读公开进度。当前REST快照358路径/421操作；不代表生产已启用。[接口与小程序对接](integration/WECHAT_OBJECTION_PROGRESS_20261024.md)。
+
 # API 路由索引
 
 ## 2026-10-24 申诉预审管理（本地候选）

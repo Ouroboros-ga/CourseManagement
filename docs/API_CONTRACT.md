@@ -1,8 +1,12 @@
+## 2026-10-24 本人申诉进度（候选）
+
+新增GET `/api/v1/me/objections/{objection_id}/progress`，原Bearer及实际本人绑定，不接受客户端指定身份。返回办理阶段及正式状态，不返回内部任务或AI建议；归档/撤回历史仍只限本人。功能标记关闭404，GET不登记任务或改写结论。当前REST快照358路径/421操作。字段和端侧适配见[本人进度合同](integration/WECHAT_OBJECTION_PROGRESS_20261024.md)，小程序页面、真机及真实ADP/MySQL未验收。
+
 ## 2026-10-24 申诉预审管理（本地候选）
 
 新增学院预审策略GET/PUT、单条申诉最新预审状态GET、安全重试POST。路径及请求见[预审管理接口](development/OBJECTION_PRECHECK_MANAGEMENT_API_20261024.md)。沿用Bearer、实际教务角色和原学院/责任区范围，重试追加记录且要求旧云实例已确认结束；未知执行不盲目重发，归档学期只读。终审服务端约束、意见与终审表单及学院策略页面已有候选；真实ADP和MySQL仍待验收，默认关闭、未部署。详见[终审衔接](development/OBJECTION_PRECHECK_FINAL_REVIEW_20261024.md)及[学院开关](development/OBJECTION_PRECHECK_POLICY_UI_20261024.md)。
 
-当前普通REST OpenAPI候选为357路径/420操作；本轮增加3路径/4操作，无删除路径。智能体工具继续使用独立小型合同，不把此快照视为生产已启用清单。
+管理API批次普通REST OpenAPI候选为357路径/420操作；当时增加3路径/4操作，无删除路径。智能体工具继续使用独立小型合同，不把此快照视为生产已启用清单。
 
 ## 2026-10-21 学生资料与教工查课修复
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from sqlalchemy.orm import Session
 
 from app.common.pagination import PageParams, page_params
@@ -31,6 +31,7 @@ from app.modules.objection.schemas import (
     ObjectionInitialReviewRequest,
 )
 from app.modules.objection.service import ObjectionService
+from app.modules.objection.student_progress import StudentObjectionProgressResponse
 
 router = APIRouter(tags=["objection"])
 
@@ -68,6 +69,23 @@ ObjectionFinalReviewDep = Annotated[
 
 def _rid(request: Request) -> str | None:
     return getattr(request.state, "request_id", None)
+
+
+@router.get(
+    "/me/objections/{objection_id}/progress",
+    summary="查询本人申诉办理进度",
+    response_model=StudentObjectionProgressResponse,
+)
+def own_objection_progress(
+    objection_id: Annotated[int, Path(gt=0, le=2**63 - 1)],
+    actor: CurrentUserDep,
+    db: Annotated[Session, Depends(get_db)],
+    request: Request,
+) -> dict[str, object]:
+    from app.modules.objection.student_progress import StudentObjectionProgressService
+
+    result = StudentObjectionProgressService(db).get(actor, objection_id)
+    return success(result.model_dump(), _rid(request))
 
 
 # ---- 创建：学生对本人某条考勤提异议 ----

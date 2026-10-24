@@ -27416,6 +27416,55 @@
         }
       }
     },
+    "/api/v1/me/objections/{objection_id}/progress": {
+      "get": {
+        "tags": [
+          "objection"
+        ],
+        "summary": "查询本人申诉办理进度",
+        "operationId": "own_objection_progress_api_v1_me_objections__objection_id__progress_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "objection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Objection Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentObjectionProgressResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/attendance/{record_id}/objections": {
       "post": {
         "tags": [
@@ -39911,6 +39960,90 @@
           "class_code"
         ],
         "title": "StudentDataRow"
+      },
+      "StudentObjectionProgress": {
+        "properties": {
+          "objection_id": {
+            "type": "string",
+            "title": "Objection Id"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "SUBMITTED",
+              "PRECHECK_QUEUED",
+              "PRECHECK_RUNNING",
+              "ACADEMIC_REVIEW",
+              "COMPLETED",
+              "RECORD_WITHDRAWN",
+              "ARCHIVED"
+            ],
+            "title": "Stage"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "final_status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ],
+            "title": "Final Status"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "objection_id",
+          "stage",
+          "label",
+          "description",
+          "final_status",
+          "updated_at"
+        ],
+        "title": "StudentObjectionProgress"
+      },
+      "StudentObjectionProgressResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StudentObjectionProgress"
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "requestId"
+        ],
+        "title": "StudentObjectionProgressResponse"
       },
       "StudentUpdate": {
         "properties": {
