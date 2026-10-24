@@ -1,0 +1,504 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Course Objection Workflow Tools",
+    "version": "v1"
+  },
+  "paths": {
+    "/api/v1/agent-tools/v1/calls/objection_case_get": {
+      "post": {
+        "operationId": "objection_case_get",
+        "summary": "Read the bound objection and permitted material metadata",
+        "security": [
+          {
+            "ToolAppKey": [],
+            "AgentRunToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "arguments"
+                ],
+                "properties": {
+                  "arguments": {
+                    "additionalProperties": false,
+                    "properties": {},
+                    "title": "ProbeQuery",
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result wrapped in data/requestId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "SUCCEEDED",
+                            "QUEUED",
+                            "RUNNING",
+                            "MANUAL_REQUIRED",
+                            "FAILED"
+                          ],
+                          "title": "Status",
+                          "type": "string"
+                        },
+                        "data": {
+                          "default": null,
+                          "title": "Data",
+                          "additionalProperties": true,
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "task_id": {
+                          "default": null,
+                          "title": "Task Id",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "result_ref": {
+                          "default": null,
+                          "title": "Result Ref",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "error_code": {
+                          "default": null,
+                          "title": "Error Code",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "retryable": {
+                          "default": false,
+                          "title": "Retryable",
+                          "type": "boolean"
+                        },
+                        "trace_id": {
+                          "title": "Trace Id",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "trace_id"
+                      ],
+                      "title": "ToolResult",
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid application credentials"
+          },
+          "403": {
+            "description": "Run expired or action forbidden"
+          },
+          "404": {
+            "description": "Tool or resource unavailable"
+          },
+          "409": {
+            "description": "Source, execution attempt or business state changed"
+          },
+          "422": {
+            "description": "Invalid parameters or result too large"
+          }
+        }
+      }
+    },
+    "/api/v1/agent-tools/v1/calls/objection_material_access": {
+      "post": {
+        "operationId": "objection_material_access",
+        "summary": "Get short-lived access to a bound proof file",
+        "security": [
+          {
+            "ToolAppKey": [],
+            "AgentRunToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "arguments"
+                ],
+                "properties": {
+                  "arguments": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "file_id": {
+                        "pattern": "^[1-9][0-9]{0,18}$",
+                        "title": "File Id",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "file_id"
+                    ],
+                    "title": "ObjectionMaterialQuery",
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result wrapped in data/requestId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "SUCCEEDED",
+                            "QUEUED",
+                            "RUNNING",
+                            "MANUAL_REQUIRED",
+                            "FAILED"
+                          ],
+                          "title": "Status",
+                          "type": "string"
+                        },
+                        "data": {
+                          "default": null,
+                          "title": "Data",
+                          "additionalProperties": true,
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "task_id": {
+                          "default": null,
+                          "title": "Task Id",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "result_ref": {
+                          "default": null,
+                          "title": "Result Ref",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "error_code": {
+                          "default": null,
+                          "title": "Error Code",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "retryable": {
+                          "default": false,
+                          "title": "Retryable",
+                          "type": "boolean"
+                        },
+                        "trace_id": {
+                          "title": "Trace Id",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "trace_id"
+                      ],
+                      "title": "ToolResult",
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid application credentials"
+          },
+          "403": {
+            "description": "Run expired or action forbidden"
+          },
+          "404": {
+            "description": "Tool or resource unavailable"
+          },
+          "409": {
+            "description": "Source, execution attempt or business state changed"
+          },
+          "422": {
+            "description": "Invalid parameters or result too large"
+          }
+        }
+      }
+    },
+    "/api/v1/agent-tools/v1/calls/objection_precheck_save": {
+      "post": {
+        "operationId": "objection_precheck_save",
+        "summary": "Save advice only; never finalize attendance or objection",
+        "security": [
+          {
+            "ToolAppKey": [],
+            "AgentRunToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "arguments"
+                ],
+                "properties": {
+                  "arguments": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "result": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "recommendation": {
+                            "enum": [
+                              "SUPPORT",
+                              "NEEDS_INFORMATION",
+                              "NEEDS_VERIFICATION"
+                            ],
+                            "title": "Recommendation",
+                            "type": "string"
+                          },
+                          "summary": {
+                            "maxLength": 2000,
+                            "minLength": 1,
+                            "title": "Summary",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "source": {
+                                  "enum": [
+                                    "APPLICATION",
+                                    "ATTENDANCE",
+                                    "PROOF"
+                                  ],
+                                  "title": "Source",
+                                  "type": "string"
+                                },
+                                "file_id": {
+                                  "default": null,
+                                  "title": "File Id",
+                                  "pattern": "^[1-9][0-9]{0,18}$",
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "page": {
+                                  "default": null,
+                                  "title": "Page",
+                                  "maximum": 200,
+                                  "minimum": 1,
+                                  "type": "integer",
+                                  "nullable": true
+                                },
+                                "quote": {
+                                  "default": null,
+                                  "title": "Quote",
+                                  "maxLength": 400,
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "observation": {
+                                  "maxLength": 600,
+                                  "minLength": 1,
+                                  "title": "Observation",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "source",
+                                "observation"
+                              ],
+                              "title": "PrecheckEvidence",
+                              "type": "object"
+                            },
+                            "maxItems": 20,
+                            "title": "Evidence",
+                            "type": "array"
+                          },
+                          "questions": {
+                            "items": {
+                              "maxLength": 500,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxItems": 10,
+                            "title": "Questions",
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "recommendation",
+                          "summary",
+                          "evidence"
+                        ],
+                        "title": "PrecheckResult",
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "result"
+                    ],
+                    "title": "ObjectionSaveQuery",
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result wrapped in data/requestId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "SUCCEEDED",
+                            "QUEUED",
+                            "RUNNING",
+                            "MANUAL_REQUIRED",
+                            "FAILED"
+                          ],
+                          "title": "Status",
+                          "type": "string"
+                        },
+                        "data": {
+                          "default": null,
+                          "title": "Data",
+                          "additionalProperties": true,
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "task_id": {
+                          "default": null,
+                          "title": "Task Id",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "result_ref": {
+                          "default": null,
+                          "title": "Result Ref",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "error_code": {
+                          "default": null,
+                          "title": "Error Code",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "retryable": {
+                          "default": false,
+                          "title": "Retryable",
+                          "type": "boolean"
+                        },
+                        "trace_id": {
+                          "title": "Trace Id",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "trace_id"
+                      ],
+                      "title": "ToolResult",
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid application credentials"
+          },
+          "403": {
+            "description": "Run expired or action forbidden"
+          },
+          "404": {
+            "description": "Tool or resource unavailable"
+          },
+          "409": {
+            "description": "Source, execution attempt or business state changed"
+          },
+          "422": {
+            "description": "Invalid parameters or result too large"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ToolAppKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Tool-App-Key"
+      },
+      "AgentRunToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Agent-Run-Token"
+      }
+    }
+  }
+}

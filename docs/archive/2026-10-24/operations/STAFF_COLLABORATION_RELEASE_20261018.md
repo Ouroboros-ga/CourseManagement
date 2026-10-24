@@ -1,3 +1,5 @@
+> 归档说明（2026-10-24）：原路径 `docs/development/STAFF_COLLABORATION_RELEASE_20261018.md`。本文保留当时的计划、验证或发布事实，不代表当前部署状态；后续执行请看[当前实施状态](../../../development/IMPLEMENTATION_STATUS.md)。
+
 # 教职工协作发布记录（2026-10-18）
 
 本次按用户授权完成修复、提交、推送与服务器发布。浏览器业务验收由用户进行。

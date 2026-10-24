@@ -1,10 +1,12 @@
+> 归档说明（2026-10-24）：原路径 `docs/development/STAFF_TEMPORARY_ONBOARDING_ACCEPTANCE.md`。本文保留当时的计划、验证或发布事实，不代表当前部署状态；后续执行请看[当前实施状态](../../../development/IMPLEMENTATION_STATUS.md)。
+
 # 教职工临时工号：本地验收
 
 验收日期：2026-10-19。基线：`dev-main` / `75d8a9a`。本文件记录本地候选状态，不表示已提交、推送或发布。
 
 ## 实现结果
 
-- 后台 CLI 支持 `preview / confirm / export / set-real-number`，操作说明见 [临时工号流程](STAFF_TEMPORARY_ONBOARDING.md)。没有新增 Web 或小程序页面。
+- 后台 CLI 支持 `preview / confirm / export / set-real-number`，操作说明见 [临时工号流程](../../../development/STAFF_TEMPORARY_ONBOARDING.md)。没有新增 Web 或小程序页面。
 - 从有效正式课表、行政班责任文字及外部责任表提取逐来源候选；明确核对所属学院、同一人分组、已有档案关联或跳过。重复确认返回同一回执；源资料变化拦截；关系冲突整批回滚。
 - 新建稳定档案及易输入临时工号，不预建 Web 用户名、口令或角色。绑定码导出沿用一次性/时效/摘要规则，写文件失败回滚；导出不会覆盖已有文件。
 - 小程序既有工号加绑定码接口兼容临时号；补充真实工号保留原档案、微信账号、任职和历史。普通临时教师的 Web 登录、刷新和既有 Web 会话均受服务端限制；既有管理员保留登录。
@@ -30,7 +32,7 @@ Windows 沙箱限制会令 TestClient 的 asyncio 本地 socketpair 初始化挂
 
 ## 交付边界
 
-本地验收完成时尚未提交、推送或部署。用户随后确认发布，已完成提交、推送并部署到 `101.34.52.163`；实际版本、迁移、备份、线上核验及回滚路径见 [发布记录](STAFF_TEMPORARY_ONBOARDING_RELEASE.md)。本文件中的测试数量仍仅代表本地验收。
+本地验收完成时尚未提交、推送或部署。用户随后确认发布，已完成提交、推送并部署到 `101.34.52.163`；实际版本、迁移、备份、线上核验及回滚路径见 [发布记录](../operations/STAFF_TEMPORARY_ONBOARDING_RELEASE.md)。本文件中的测试数量仍仅代表本地验收。
 
 没有导入真实教务数据、没有向真实教师签发凭证，也没有验证微信真实 code2session/真机流程。真实数据进入后，仍需先运行后台提取并核对；不是上传课表即自动建号授权。
 

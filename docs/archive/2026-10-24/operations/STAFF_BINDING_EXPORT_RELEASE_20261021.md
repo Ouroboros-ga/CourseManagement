@@ -1,3 +1,5 @@
+> 归档说明（2026-10-24）：原路径 `docs/development/STAFF_BINDING_EXPORT_RELEASE_20261021.md`。本文保留当时的计划、验证或发布事实，不代表当前部署状态；后续执行请看[当前实施状态](../../../development/IMPLEMENTATION_STATUS.md)。
+
 # 教师绑定码 Excel 导出发布记录
 
 教师档案支持批量生成绑定码并下载 Excel，复用学生表格样式与下载工具。教师凭工号和一次性码绑定已有档案；不新建另一套账号，不改变管理角色、授课关系或责任班级。

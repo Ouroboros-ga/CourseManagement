@@ -38,4 +38,4 @@ GET `/api/v1/me/inspection-records?view=teaching&page=1&page_size=20&inspection_
 - 卡片新增 `start_period/end_period`，使用正式任务的小节，不由UTC小时推断。`class_name_snapshot` 同期远端补丁一并保留，用于显示该任务教学班。
 - 人数、名单、汇总、导出受本人任职范围约束；合班课可能只显示本人学生。教师更正、辅导员责任范围及文件授权不放宽；不需要更改请求认证方式。
 
-本轮仅实现后端及Web，未修改小程序页面。上线版本和验收边界见 [修复记录](../development/STUDENT_ME_STAFF_SCOPE_FIX_20261021.md)。
+本轮仅实现后端及Web，未修改小程序页面。上线版本和验收边界见 [修复记录](../archive/2026-10-24/operations/STUDENT_ME_STAFF_SCOPE_FIX_20261021.md)。

@@ -1,3 +1,5 @@
+> 归档说明（2026-10-24）：原路径 `docs/development/ASSIGNMENT_SCOPE_FIX_20261021.md`。本文保留当时的修复、验证与发布记录；历史版本和待验收项按当时语义理解，当前进度见[实施状态](../../../development/IMPLEMENTATION_STATUS.md)。
+
 # 自动排班批量范围与确认流程修复
 
 用户反馈：2026-10-20；发布：北京时间 2026-10-21 00:00。正式入口为 `https://course.zsitai.xyz`，服务器 `101.34.52.163`。

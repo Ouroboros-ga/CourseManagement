@@ -1,3 +1,5 @@
+> 归档说明（2026-10-24）：原路径 `docs/development/WECHAT_REBIND_IDENTITY_FIX_20261021.md`。本文保留当时的修复、验证与发布记录；历史版本和待验收项按当时语义理解，当前进度见[实施状态](../../../development/IMPLEMENTATION_STATUS.md)。
+
 # 微信换绑与学生业务账号归属修复
 
 ## 审查结论与定位

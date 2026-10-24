@@ -1,16 +1,24 @@
 # API 路由索引
 
+## 2026-10-24 申诉预审管理（本地候选）
+
+新增学院预审策略GET/PUT、单条申诉最新预审状态GET、安全重试POST。路径及请求见[预审管理接口](development/OBJECTION_PRECHECK_MANAGEMENT_API_20261024.md)。沿用Bearer、实际教务角色和原学院/责任区范围，重试追加记录且要求旧云实例已确认结束；未知执行不盲目重发，归档学期只读。原人工终审权限/流程尚未调整，页面、真实ADP和MySQL仍待验收，默认关闭、未部署。
+
+当前普通REST OpenAPI候选为357路径/420操作；本轮增加3路径/4操作，无删除路径。智能体工具继续使用独立小型合同，不把此快照视为生产已启用清单。
+
+2026-10-24 工具网关本地候选：默认关闭的 HTTP `/api/v1/agent-tools/v1/calls/{tool_name}` 与 MCP `/mcp/agent-tools`，复用运行身份和现有领域权限。交互入口支持6个只读／状态／探针工具，AUTOMATION/change另有2个绑定申请的换班工具、AUTOMATION/objection另有3个绑定申诉的预审工具；以及登录后的 `/api/v1/assistant/tasks` 创建、查询、取消；无公网运行凭据签发接口。专用合同见[工具网关合同](TOOL_GATEWAY_CONTRACT.md)及[小型 OpenAPI](agent-tools.openapi.json)。需迁移到 `f26a1024a009`；未联调腾讯云或部署，不能沿用历史生产路由数字推断已启用。
+
 2026-10-22 OSS Web 直连：`GET /api/v1/files/{file_id}/access` 新增可选 `delivery=proxy|direct`，默认代理兼容小程序；Web 显式 direct，权限和文件状态校验不变。无新增路由。见 [实施与发布记录](development/OSS_WEB_DIRECT_DOWNLOAD_20261022.md)。
 
-2026-10-21 微信换绑修复：`DELETE /me/student-binding` 保留原学生业务UID，只迁出微信登录身份；学生认领、登录/刷新并发和管理纠错历史保护同步补齐。无新增路由，353路径/414操作；见 [审查与修复记录](development/WECHAT_REBIND_IDENTITY_FIX_20261021.md)。
+2026-10-21 微信换绑修复：`DELETE /me/student-binding` 保留原学生业务UID，只迁出微信登录身份；学生认领、登录/刷新并发和管理纠错历史保护同步补齐。无新增路由，353路径/414操作；见 [审查与修复记录](archive/2026-10-24/operations/WECHAT_REBIND_IDENTITY_FIX_20261021.md)。
 
-2026-10-21：新增教师批量绑定码 Excel 导出，`POST /api/v1/colleges/{cid}/staff/export-binding-tokens`，共用学生导出样式和下载工具。353 个路径、414 个操作；已随 `145dfe8` 成套部署，见 [发布记录](development/STAFF_BINDING_EXPORT_RELEASE_20261021.md)。
+2026-10-21：新增教师批量绑定码 Excel 导出，`POST /api/v1/colleges/{cid}/staff/export-binding-tokens`，共用学生导出样式和下载工具。353 个路径、414 个操作；已随 `145dfe8` 成套部署，见 [发布记录](archive/2026-10-24/operations/STAFF_BINDING_EXPORT_RELEASE_20261021.md)。
 
 2026-10-21 增量修复：`GET /me` 新增学生摘要和学号/学院名便利字段；教工 `GET /me/inspection-records` 修正范围关联和带时区的时间，新增小节字段。路径数量不变，见 [小程序交接](integration/WECHAT_ME_STAFF_FIX_20261021.md)。
 
 2026-10-21：新增 GET `/attendance/groups` 及 `/colleges/{cid}/attendance/groups`（均带 `/api/v1`），按具体查课任务或历史行政班汇总；管理列表增加同口径检索条件。352个路径、413个操作，契约与边界见 [API契约](API_CONTRACT.md)。
 
-2026-10-21：排班计划 preview 响应新增 `display`（组/学期名称、任务资料、拟派发人员姓名/学号/当前班级），无新增路由。确认契约保持不变，详见 [API 契约](API_CONTRACT.md) 与 [改版记录](development/ASSIGNMENT_PREVIEW_REDESIGN_20261021.md)。
+2026-10-21：排班计划 preview 响应新增 `display`（组/学期名称、任务资料、拟派发人员姓名/学号/当前班级），无新增路由。确认契约保持不变，详见 [API 契约](API_CONTRACT.md) 与 [改版记录](archive/2026-10-24/operations/ASSIGNMENT_PREVIEW_REDESIGN_20261021.md)。
 
 2026-10-20，依据当前 app.main OpenAPI 生成：350 个路径、411 个操作。新增统一分页、任务筛选/摘要/导出、人员批量读取、任职分页及组织学期摘要；本轮尚未提交部署，状态见 [当前实施状态](development/IMPLEMENTATION_STATUS.md)，参数见 [API 契约](API_CONTRACT.md) 和 [查询整改说明](development/LIST_PAGINATION_QUERY_AUDIT_20261020.md)。
 
@@ -430,3 +438,11 @@
 | PUT | `/api/v1/colleges/{cid}/academic/teaching-classes/{rid}/roster` | college-academic |
 
 临时教职工初始化使用后台 CLI，不新增 HTTP 路由。既有 `/api/v1/me/staff-binding` 支持该档案保留的临时工号；Web 登录、刷新及会话禁止只有临时身份的普通教师使用。详见 [操作说明](development/STAFF_TEMPORARY_ONBOARDING.md) 和 API 契约。
+# 自动换班策略候选（本地未部署）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/colleges/{cid}/groups/{gid}/inspection/auto-change-policy` | 按学期读取策略；原管理/审核权限 |
+| PUT | `/api/v1/colleges/{cid}/groups/{gid}/inspection/auto-change-policy` | 修改策略，必传当前版本；默认关闭 |
+
+请求及启用边界见[API契约](API_CONTRACT.md)。不属于已注册的智能体工具，云端工作流尚未接通。

@@ -1,3 +1,5 @@
+> 归档说明（2026-10-24）：原路径 `docs/development/ASSIGNMENT_PREVIEW_REDESIGN_20261021.md`。本文保留当时的修复、验证与发布记录；历史版本和待验收项按当时语义理解，当前进度见[实施状态](../../../development/IMPLEMENTATION_STATUS.md)。
+
 # 排班推荐核对页面改版
 
 ## 目的与实现

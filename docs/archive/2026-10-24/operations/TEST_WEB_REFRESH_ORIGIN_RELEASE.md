@@ -1,3 +1,5 @@
+> 归档说明（2026-10-24）：原路径 `docs/development/TEST_WEB_REFRESH_ORIGIN_RELEASE.md`。本文保留当时的计划、验证或发布事实，不代表当前部署状态；后续执行请看[当前实施状态](../../../development/IMPLEMENTATION_STATUS.md)。
+
 # 测试站点登录刷新来源配置修复
 
 日期：2026-10-19。目标服务器：`101.34.52.163`；入口：`https://test.zsitai.xyz`。

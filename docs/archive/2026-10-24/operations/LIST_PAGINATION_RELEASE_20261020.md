@@ -1,3 +1,5 @@
+> 归档说明（2026-10-24）：原路径 `docs/development/LIST_PAGINATION_RELEASE_20261020.md`。本文保留当时的计划、验证或发布事实，不代表当前部署状态；后续执行请看[当前实施状态](../../../development/IMPLEMENTATION_STATUS.md)。
+
 # 统一分页与查询优化发布记录
 
 2026-10-20。用户确认正式域名 `course.zsitai.xyz` 已指向新服务器 `101.34.52.163`，测试域名已删除；本次正常 DNS 查询确认该解析。不再把新服务器标记为测试环境，旧文档中的测试入口只描述当时发布。
@@ -11,7 +13,7 @@
 - Web 指针：`/opt/course-management/admin-web/current` → `/opt/course-management/admin-web/releases/20261020-pagination-85c9dc547b`。
 - 数据库版本保持 `f26a1019s007`；没有迁移、seed、业务数据导入、运行配置或业务开关变更。小程序未发布。
 
-功能和保留的全量业务计算边界见 [查询审查](LIST_PAGINATION_QUERY_AUDIT_20261020.md)。发布后的文档提交仅记录证据，不改变这次应用源码及 Web 构建。
+功能和保留的全量业务计算边界见 [查询审查](../../../development/LIST_PAGINATION_QUERY_AUDIT_20261020.md)。发布后的文档提交仅记录证据，不改变这次应用源码及 Web 构建。
 
 ## 验证
 

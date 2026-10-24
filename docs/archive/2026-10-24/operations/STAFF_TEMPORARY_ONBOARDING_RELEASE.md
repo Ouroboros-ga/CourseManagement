@@ -1,3 +1,5 @@
+> 归档说明（2026-10-24）：原路径 `docs/development/STAFF_TEMPORARY_ONBOARDING_RELEASE.md`。本文保留当时的计划、验证或发布事实，不代表当前部署状态；后续执行请看[当前实施状态](../../../development/IMPLEMENTATION_STATUS.md)。
+
 # 教职工临时工号发布记录
 
 日期：2026-10-19。目标：`101.34.52.163`，测试入口：[test.zsitai.xyz](https://test.zsitai.xyz)。本次 DNS 核对：该测试域名指向 `101.34.52.163`；`course.zsitai.xyz` 仍指向 `120.26.32.241`，后者不属于本次发布目标。
@@ -20,7 +22,7 @@
 
 ## 发布与验证证据
 
-提交前复验：**102 passed / 1 skipped**，跳过的 MySQL 并发用例已有独立 MySQL 通过证据，见 [本地验收](STAFF_TEMPORARY_ONBOARDING_ACCEPTANCE.md)。本次定向 ruff、mypy、Alembic head 和差异检查通过。
+提交前复验：**102 passed / 1 skipped**，跳过的 MySQL 并发用例已有独立 MySQL 通过证据，见 [本地验收](../reviews/STAFF_TEMPORARY_ONBOARDING_ACCEPTANCE.md)。本次定向 ruff、mypy、Alembic head 和差异检查通过。
 
 上线过程：检查前置版本和源码哈希 → 数据库及文件备份并核验 → 提取已推送 Git 提交的后端包 → 保留三份服务器适配 → 复制并修正独立虚拟环境 → 增量迁移 → 服务用户运行后台 CLI 帮助检查 → `127.0.0.1:18021` 候选服务就绪和匿名授权检查 → 原子切换后端 current → 重启并核验正式服务。
 
@@ -45,7 +47,7 @@
 
 ## 下一步测试
 
-在测试入口导入真实课表和行政班资料后，按 [操作说明](STAFF_TEMPORARY_ONBOARDING.md) 后台提取候选、核对建档并导出绑定码。责任表缺少档案导致原导入无法确认时，可作为后台 `--responsibility-file` 输入。不自动把上传姓名变成教师权限。
+在测试入口导入真实课表和行政班资料后，按 [操作说明](../../../development/STAFF_TEMPORARY_ONBOARDING.md) 后台提取候选、核对建档并导出绑定码。责任表缺少档案导致原导入无法确认时，可作为后台 `--responsibility-file` 输入。不自动把上传姓名变成教师权限。
 
 生产 CLI 需加载 `/etc/course-management/backend.env`，使用当前发布自身 Python 并以受控运维方式执行；输入操作者和学院 ID 必须来自实际授权。候选名单和凭证写入私有目录，不放进静态站点。
 

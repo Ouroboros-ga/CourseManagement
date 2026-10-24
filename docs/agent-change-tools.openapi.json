@@ -1,0 +1,275 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Course Change Workflow Tools",
+    "version": "v1"
+  },
+  "paths": {
+    "/api/v1/agent-tools/v1/calls/change_apply": {
+      "post": {
+        "operationId": "change_apply",
+        "summary": "Apply the validated replacement for the bound request",
+        "security": [
+          {
+            "ToolAppKey": [],
+            "AgentRunToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "arguments"
+                ],
+                "properties": {
+                  "arguments": {
+                    "additionalProperties": false,
+                    "properties": {},
+                    "title": "ProbeQuery",
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result wrapped in data/requestId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "SUCCEEDED",
+                            "QUEUED",
+                            "RUNNING",
+                            "MANUAL_REQUIRED",
+                            "FAILED"
+                          ],
+                          "title": "Status",
+                          "type": "string"
+                        },
+                        "data": {
+                          "default": null,
+                          "title": "Data",
+                          "additionalProperties": true,
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "task_id": {
+                          "default": null,
+                          "title": "Task Id",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "result_ref": {
+                          "default": null,
+                          "title": "Result Ref",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "error_code": {
+                          "default": null,
+                          "title": "Error Code",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "retryable": {
+                          "default": false,
+                          "title": "Retryable",
+                          "type": "boolean"
+                        },
+                        "trace_id": {
+                          "title": "Trace Id",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "trace_id"
+                      ],
+                      "title": "ToolResult",
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid application credentials"
+          },
+          "403": {
+            "description": "Run expired or action forbidden"
+          },
+          "404": {
+            "description": "Tool or resource unavailable"
+          },
+          "409": {
+            "description": "Source, execution attempt or business state changed"
+          },
+          "422": {
+            "description": "Invalid parameters or result too large"
+          }
+        }
+      }
+    },
+    "/api/v1/agent-tools/v1/calls/change_prepare": {
+      "post": {
+        "operationId": "change_prepare",
+        "summary": "Prepare a replacement for the bound change request",
+        "security": [
+          {
+            "ToolAppKey": [],
+            "AgentRunToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "arguments"
+                ],
+                "properties": {
+                  "arguments": {
+                    "additionalProperties": false,
+                    "properties": {},
+                    "title": "ProbeQuery",
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result wrapped in data/requestId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "requestId"
+                  ],
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "SUCCEEDED",
+                            "QUEUED",
+                            "RUNNING",
+                            "MANUAL_REQUIRED",
+                            "FAILED"
+                          ],
+                          "title": "Status",
+                          "type": "string"
+                        },
+                        "data": {
+                          "default": null,
+                          "title": "Data",
+                          "additionalProperties": true,
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "task_id": {
+                          "default": null,
+                          "title": "Task Id",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "result_ref": {
+                          "default": null,
+                          "title": "Result Ref",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "error_code": {
+                          "default": null,
+                          "title": "Error Code",
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "retryable": {
+                          "default": false,
+                          "title": "Retryable",
+                          "type": "boolean"
+                        },
+                        "trace_id": {
+                          "title": "Trace Id",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "trace_id"
+                      ],
+                      "title": "ToolResult",
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid application credentials"
+          },
+          "403": {
+            "description": "Run expired or action forbidden"
+          },
+          "404": {
+            "description": "Tool or resource unavailable"
+          },
+          "409": {
+            "description": "Source, execution attempt or business state changed"
+          },
+          "422": {
+            "description": "Invalid parameters or result too large"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ToolAppKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Tool-App-Key"
+      },
+      "AgentRunToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Agent-Run-Token"
+      }
+    }
+  }
+}

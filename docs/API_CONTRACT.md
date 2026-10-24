@@ -1,4 +1,12 @@
+## 2026-10-24 申诉预审管理（本地候选）
+
+新增学院预审策略GET/PUT、单条申诉最新预审状态GET、安全重试POST。路径及请求见[预审管理接口](development/OBJECTION_PRECHECK_MANAGEMENT_API_20261024.md)。沿用Bearer、实际教务角色和原学院/责任区范围，重试追加记录且要求旧云实例已确认结束；未知执行不盲目重发，归档学期只读。终审服务端约束、意见与终审表单及学院策略页面已有候选；真实ADP和MySQL仍待验收，默认关闭、未部署。详见[终审衔接](development/OBJECTION_PRECHECK_FINAL_REVIEW_20261024.md)及[学院开关](development/OBJECTION_PRECHECK_POLICY_UI_20261024.md)。
+
+当前普通REST OpenAPI候选为357路径/420操作；本轮增加3路径/4操作，无删除路径。智能体工具继续使用独立小型合同，不把此快照视为生产已启用清单。
+
 ## 2026-10-21 学生资料与教工查课修复
+
+2026-10-24 工具网关本地候选：默认关闭的 HTTP `/api/v1/agent-tools/v1/calls/{tool_name}` 与 MCP `/mcp/agent-tools`，复用运行身份和现有领域权限。交互入口支持6个只读／状态／探针工具，AUTOMATION/change另有2个绑定申请的换班工具、AUTOMATION/objection另有3个绑定申诉的预审工具；以及登录后的 `/api/v1/assistant/tasks` 创建、查询、取消；无公网运行凭据签发接口。专用合同见[工具网关合同](TOOL_GATEWAY_CONTRACT.md)及[小型 OpenAPI](agent-tools.openapi.json)。需迁移到 `f26a1024a009`；未联调腾讯云或部署，不能沿用历史生产路由数字推断已启用。
 
 GET `/me` 增加 `student_no/college_name` 及 `app_context.student`，按本人绑定ID和当前日期学籍读取；无绑定为null，不改变角色、权限或教师摘要。GET `/me/inspection-records` 修复跨任务来源关联，旧误放行的卡片不再可见，详情/名单同样拒绝；`starts_at/ends_at` 明确附带UTC偏移，新增 `start_period/end_period`。详情见 [小程序接口修复交接](integration/WECHAT_ME_STAFF_FIX_20261021.md)。没有新增路径或迁移。
 
@@ -11,7 +19,7 @@ GET `/me` 增加 `student_no/college_name` 及 `app_context.student`，按本人
 - 课次项含 `task_id/course_name/teaching_class_name/inspection_date/start_period/end_period/classroom/volunteer_name`；执行人取最后通过提交的账号对应姓名，无可靠提交时明确待核对。行政班项含 `administrative_class_id/class_name`；null ID可用 `unknown_class=true` 下钻。
 - 管理列表/详情增加 `administrative_class_id/administrative_class_name`。历史名单优先取最后通过提交的 roster_version，无通过提交时回退任务版本；名单唯一连接避免多版本放大计数。学生个人响应不新增学院或管理字段，照片仍使用既有授权签名入口。
 
-Web按课次默认展示；行政班进入该班各次查课，再打开名单与照片，名单按需分页。新Web与后端需成套发布，细节与状态见 [实施记录](development/ATTENDANCE_GROUPING_20261021.md)。
+Web按课次默认展示；行政班进入该班各次查课，再打开名单与照片，名单按需分页。新Web与后端需成套发布，细节与状态见 [实施记录](archive/2026-10-24/operations/ATTENDANCE_GROUPING_20261021.md)。
 
 ## 2026-10-21 排班预览展示资料
 
@@ -23,7 +31,7 @@ Web按课次默认展示；行政班进入该班各次查课，再打开名单�
 - `display` 仅供展示，不写入冻结确认集合，不参与 revision，也不增加 `assigned` 项字段。确认仍提交原 `plan_id/revision/confirmations`，按精确任务、人员及警告校验。预览不创建正式受派。
 - Web 支持拟派发/未分配分栏、姓名/学号搜索与每页50项展示。筛选与翻页不改变计划、总派发数；取消、零分配或上下文过期不提交。新 Web 与后端建议成套发布；旧响应缺少展示资料时明确显示“姓名暂不可用”，不把编号冒充姓名。
 
-实现、验证与部署状态见 [排班预览改版记录](development/ASSIGNMENT_PREVIEW_REDESIGN_20261021.md)。
+实现、验证与部署状态见 [排班预览改版记录](archive/2026-10-24/operations/ASSIGNMENT_PREVIEW_REDESIGN_20261021.md)。
 
 > **2026-10-19 查课与组织修复候选（尚未部署）：**
 > - `GET /api/v1/inspection-course-occurrences` 及学院别名新增可选 `course_type_id`；`POST .../smart-sample` 同名字段可选。按数据库课程类型 ID 筛选，不按课程名猜测；类型进入精确课次范围和修订摘要，确认时重算，过期选择拒绝。旧调用不传字段仍保持原范围。
@@ -893,3 +901,11 @@ Web入口：“志愿者组织→组织与规则→组行的导入成员Excel”
 确认集合中的课表条目标识包含周次集合。同一教学班、课程、星期和节次但周次不相交的安排可以共存（例如单双周教室不同，或第1—10周和第11—14周分段授课）。实际周次有交集且节次区间重叠时仍阻断，问题码为 `SCHEDULE_OVERLAP`，提示包含课程、交集周次、星期、节次及另一个来源文件和行号，不再误报为“多个文件修改同一条资料”。
 
 普通/网格课表在同一文件中出现业务内容完全相同的行时，只应用一次并返回 `DUPLICATE_SCHEDULE_ROW` warning，保留来源定位；教师、教室或周次不同的安排不会作为重复行忽略。跨文件同一时间安排仍须明确核对；非课表实体保留原有跨文件冲突规则。预览、确认及重导幂等使用相同判定；请求/响应结构及 OpenAPI 字段未变。
+# 自动换班策略接口候选（2026-10-24，本地未部署）
+
+路径：`/api/v1/colleges/{cid}/groups/{gid}/inspection/auto-change-policy`。
+
+- GET查询参数`semester_id`；PUT请求`{"semester_id":"123","enabled":true,"current_version":0}`。拒绝未知字段、字符串布尔值和客户端指定授权人。
+- 返回`{enabled, version, authorizer_user_id}`，外层沿用`{data, requestId}`。未配置时关闭、版本0；成功修改递增版本，旧版本返回409。
+- 复用原学院/组排班管理与换班审核权限，授权人取实际登录账号。依赖学院配置/教务隔离/业务隔离/组织排班开关及`AGENT_AUTO_CHANGE_ENABLED`，新增迁移为`f26a1024a003`；所有新增能力默认关闭。
+- 开启不追溯处理已有申请。新申请同事务登记执行记录；自动改派仍需后台工作流调用领域服务。无合法候选保留原受派和待处理申请，关闭或变更策略后拒绝原执行。管理端卡片已接入并通过模拟交互验证，腾讯云触发闭环尚未完成，不作为已上线接口。

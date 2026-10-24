@@ -6,9 +6,11 @@
 
 ## 优先阅读
 
-1. [产品、架构与 Web 重构总体设计](docs/development/CAMPUS_PRODUCT_ARCHITECTURE_WEB_REDESIGN_20261015.md)：最新讨论形成的七入口、学院自导、跨学期数据、权限、跨院结果归属和 R0—R6 计划；智能体本轮暂缓。
+1. [产品、架构与 Web 重构总体设计](docs/development/CAMPUS_PRODUCT_ARCHITECTURE_WEB_REDESIGN_20261015.md)：校园业务的七入口、学院自导、跨学期数据、权限和跨院结果归属；R0—R6 为历史实施批次。
 2. [全校产品需求](docs/product/CAMPUS_MANAGEMENT_PRD.md)：需求编号、已确认规则和验收场景。
 3. [当前实施状态与下一步](docs/development/IMPLEMENTATION_STATUS.md)：区分已有代码、后续改造和未启用/未验收事项。
+
+当前 AI 规划见[五模块产品设计](docs/product/AI_COLLABORATIVE_PLATFORM_FUNCTIONAL_DESIGN.md)及[技术架构](docs/development/AI_COLLABORATIVE_PLATFORM_ARCHITECTURE.md)；本地候选进度见实施状态，不代表已部署。
 
 全部有效资料见 [文档导航](docs/README.md)。旧方案、阶段记录与发布验收见 [历史归档](docs/archive/README.md)，不作为当前执行计划。
 

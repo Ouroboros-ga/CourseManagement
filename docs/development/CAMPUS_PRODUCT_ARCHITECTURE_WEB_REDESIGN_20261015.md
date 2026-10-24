@@ -1,5 +1,7 @@
 # CourseManagement 产品、架构与 Web 重构总体设计
 
+> **适用范围更新（2026-10-24）：** 本文保留2026-10-15校园业务重构批次的设计与执行边界；D03及下文“智能体暂缓”仅描述该历史批次。当前 AI 产品与架构分别见[五模块产品基线](../product/AI_COLLABORATIVE_PLATFORM_FUNCTIONAL_DESIGN.md)和[技术架构](AI_COLLABORATIVE_PLATFORM_ARCHITECTURE.md)，不改变本文其他有效业务约束，也不代表 AI 已开发或上线。
+
 版本：确认基线 1.2 · 更新日期：2026-10-16。初始设计核对基线为 `29c29f382deb76757d639c5d2fee0d6b1785ede2`；当前候选实现及整合基线见 [实施状态](IMPLEMENTATION_STATUS.md)。
 
 **目标：** 面向各学院老师独立导入、维护和组织查课的真实工作流程，统一数据生命周期、学院权限、任务结果归属、页面结构和实施顺序，降低上手与日常维护成本。
