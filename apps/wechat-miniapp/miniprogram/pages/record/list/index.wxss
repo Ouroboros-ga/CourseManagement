@@ -234,6 +234,11 @@
 }
 
 /* 底部操作区 */
+.progress-label { font-size: 28rpx; font-weight: 600; color: #1E293B; margin-bottom: 10rpx; }
+.progress-message, .progress-formal { font-size: 26rpx; line-height: 1.7; color: #64748B; margin-bottom: 16rpx; word-break: break-all; }
+.progress-error, .record-read-error { font-size: 26rpx; line-height: 1.7; color: #B45309; margin-bottom: 16rpx; }
+.progress-block { border: 1rpx solid #E2E8F0; border-radius: 14rpx; padding: 24rpx; }
+
 .modal-footer {
   display: flex;
   padding: 24rpx 36rpx 32rpx;

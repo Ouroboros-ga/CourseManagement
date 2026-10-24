@@ -4,12 +4,18 @@
 
 ## 本地启动
 
-1. 按 [后端启动说明](../../backend/README.md) 启动 MySQL、运行 Alembic 迁移及角色权限种子，再启动 FastAPI。小程序默认请求开发者自己电脑上的 `http://127.0.0.1:18080`；在仓库的 `backend/` 目录执行 `uv run uvicorn app.main:app --host 127.0.0.1 --port 18080`。如果使用别的端口，修改 `miniprogram/utils/env.js` 中的本地地址。此地址指向**运行微信开发者工具的电脑**，不会指向原开发者的电脑。
-2. 在本目录执行 `Copy-Item project.private.config.example.json project.private.config.json`（PowerShell），仅供开发者工具本地模拟器关闭请求域名校验；私有文件被 Git 忽略。然后进入 `miniprogram/` 执行 `npm ci`、`npm test`，用微信开发者工具导入本目录并执行“工具 → 构建 npm”。提交的 `project.config.json` 仍保持 `urlCheck=true`。
+1. 按 [后端启动说明](../../backend/README.md) 启动 MySQL、运行 Alembic 迁移及角色权限种子，再启动 FastAPI。小程序当前默认使用 `utils/env.js` 中的生产地址；本地模拟器请显式设置 `wx.setStorageSync("debugBaseURL", "http://127.0.0.1:18080")`，隔离联调完成后删除该调试值。在仓库的 `backend/` 目录执行 `uv run uvicorn app.main:app --host 127.0.0.1 --port 18080`。如果使用别的端口，修改上述调试值。此地址指向**运行微信开发者工具的电脑**，不会指向原开发者的电脑。
+2. 在本目录执行 `Copy-Item project.private.config.example.json project.private.config.json`（PowerShell），仅供开发者工具本地模拟器关闭请求域名校验；私有文件被 Git 忽略。然后进入 `miniprogram/` 执行 `npm ci`，用微信开发者工具导入本目录并执行“工具 → 构建 npm”。提交的 `project.config.json` 仍保持 `urlCheck=true`。
 3. 核对 `project.config.json` 的 AppID 是否是开发者有权限使用的小程序。真实登录需在**后端私有配置**中提供相同的 `WECHAT_APPID`、对应 `WECHAT_SECRET` 并设置 `WECHAT_LOGIN_ENABLED=true`，随后重启 API；不要把 AppSecret 写入小程序或 Git。没有这些配置时，登录接口按设计返回 403，页面流程只能用测试中的微信 API 替身验证。
 4. 后台先导入学生并发放一次性绑定码。小程序首次登录后用“学号＋绑定码”绑定；本人受派任务可读取，但只有具备本学期有效志愿者资格的当前受派人能提交。
 
-可运行 `cd miniprogram && npm test` 验证 API 封装、令牌轮换、上传和页面流程。测试使用模拟 `wx`；不能代替真实 `wx.login → code2session`、域名校验、微信开发者工具编译及真机联调。
+当前 `miniprogram/package.json` 的 `npm test` 仍是占位命令。本人申诉进度的定向验证请在仓库根目录运行：
+
+```powershell
+node --test apps/wechat-miniapp/tests/objection-progress.test.mjs apps/wechat-miniapp/tests/objection-progress-api.test.mjs apps/wechat-miniapp/tests/env.test.mjs
+```
+
+该组使用模拟 `wx`，不能代替真实 `wx.login → code2session`、域名校验、微信开发者工具编译及真机联调，也不代表历史小程序测试全绿。2026-10-24本人办理进度源码及平台验收边界见[接入记录](../../docs/development/WECHAT_OBJECTION_PROGRESS_UI_20261024.md)。
 
 原开发电脑（2026-09-27）另有 Git 忽略的独立 MySQL 数据目录和管理员凭证；它们**不随仓库推送**。收到仓库的开发者应按上述步骤建立自己的后端环境。
 

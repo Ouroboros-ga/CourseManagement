@@ -1,4 +1,6 @@
 <view class="container">
+  <view class="record-read-error" wx:if="{{recordsError}}">{{recordsError}}</view>
+  <view class="record-read-error" wx:if="{{objectionsError}}">{{objectionsError}}</view>
   <view class="record-list">
     <block wx:if="{{records.length > 0}}">
       <view class="record-card" wx:for="{{records}}" wx:key="id">
@@ -17,10 +19,10 @@
           <text class="value">{{item.className}}</text>
         </view>
 
-        <view class="action-bar" wx:if="{{item.status !== '正常' && item.status !== '已撤销' && !item.objectionStatusStr}}">
+        <view class="action-bar" wx:if="{{objectionsReady && item.status !== '正常' && item.status !== '已撤销' && !item.objectionStatusStr}}">
           <t-button size="small" theme="primary" bind:tap="goToAppeal" data-id="{{item.id}}">提出异议</t-button>
         </view>
-        <view class="action-bar" wx:elif="{{item.objectionStatusStr}}">
+        <view class="action-bar" wx:elif="{{objectionsReady && item.objectionStatusStr}}">
           <view class="custom-tag {{item.objectionTagClass}}" bind:tap="showObjectionDetail" data-record="{{item}}">
             {{item.objectionStatusStr}} · 详情
           </view>
@@ -28,7 +30,7 @@
         </view>
       </view>
     </block>
-    <view wx:else class="empty-wrap">
+    <view wx:elif="{{!recordsError}}" class="empty-wrap">
       <t-empty icon="info-circle" description="暂无查课记录" />
     </view>
   </view>
@@ -71,15 +73,32 @@
           </view>
         </view>
 
+        <view class="detail-block progress-block" wx:if="{{progressVisible}}">
+          <view class="block-title">
+            <text class="dot primary"></text><text>办理进度</text>
+          </view>
+          <view class="progress-message" wx:if="{{progressLoading}}">正在读取办理进度…</view>
+          <view class="progress-error" wx:elif="{{progressError}}">{{progressError}}</view>
+          <view wx:elif="{{progressData}}">
+            <view class="progress-label">{{progressData.label}}</view>
+            <view class="progress-message">{{progressData.description}}</view>
+            <view class="progress-formal" wx:if="{{progressData.final_status !== 'PENDING'}}">
+              正式结果：{{progressData.final_status === 'APPROVED' ? '申诉已通过' : '申诉已驳回'}}。请下拉刷新记录，核对最新考勤。
+            </view>
+          </view>
+          <t-button size="small" variant="outline" loading="{{progressLoading}}" disabled="{{progressLoading}}" bind:tap="refreshProgress">刷新进度</t-button>
+        </view>
+
         <!-- 初审结果 (若已流转) -->
         <view class="detail-block" wx:if="{{selectedRecord.objection.initial_status && selectedRecord.objection.initial_status !== 'PENDING'}}">
           <view class="block-title">
             <text class="dot primary"></text>
-            <text>院系初审结果</text>
+            <text>历史初核记录</text>
             <view class="custom-tag {{selectedRecord.objection.initial_status === 'APPROVED' ? 'tag-success' : 'tag-danger'}}" style="margin-left: auto;">
               {{selectedRecord.objection.initial_status === 'APPROVED' ? '初核通过' : '初核驳回'}}
             </view>
           </view>
+          <view class="review-empty-comment">仅供历史查看，不代表当前审核结论。</view>
           <view class="review-comment-box" wx:if="{{selectedRecord.objection.initial_comment}}">
             <text class="comment-label">初审意见：</text>
             <text class="comment-content">{{selectedRecord.objection.initial_comment}}</text>
@@ -91,7 +110,7 @@
         <view class="detail-block" wx:if="{{selectedRecord.objection.final_status && selectedRecord.objection.final_status !== 'PENDING'}}">
           <view class="block-title">
             <text class="dot warning"></text>
-            <text>学工终审结果</text>
+            <text>正式审核结果</text>
             <view class="custom-tag {{selectedRecord.objection.final_status === 'APPROVED' ? 'tag-success' : 'tag-danger'}}" style="margin-left: auto;">
               {{selectedRecord.objection.final_status === 'APPROVED' ? '终审通过' : '终审驳回'}}
             </view>

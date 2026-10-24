@@ -32,7 +32,8 @@
 | [预审与教务终审衔接](development/OBJECTION_PRECHECK_FINAL_REVIEW_20261024.md) | 实际教务身份、当前预审确认及人工例外留痕；服务端与管理表单候选，未接真实云端 |
 | [预审意见与终审表单](development/OBJECTION_PRECHECK_UI_20261024.md) | 状态、建议、重试和终审确认；本地模拟浏览器验证；学院开关见下项 |
 | [学院预审开关](development/OBJECTION_PRECHECK_POLICY_UI_20261024.md) | 配置门禁、保存回执、冲突刷新及范围隔离；本地模拟浏览器验证 |
-| [学生本人申诉进度接口](integration/WECHAT_OBJECTION_PROGRESS_20261024.md) | 本人只读进度及小程序对接合同；后端候选，页面和真机待适配 |
+| [学生本人申诉进度接口](integration/WECHAT_OBJECTION_PROGRESS_20261024.md) | 本人只读进度及小程序对接合同；后端及小程序源码候选，编译和真机待验收 |
+| [小程序办理进度接入](development/WECHAT_OBJECTION_PROGRESS_UI_20261024.md) | 详情进度、刷新、上下文隔离和BIGINT；Node行为验证，微信编译/真机待验收 |
 | [工具网关实施计划（本地）](superpowers/plans/2026-10-24-tool-gateway-implementation.md) | v0.3：网关 A、运行基础 B、业务增强 C 与验收；该目录按仓库规则不纳入 Git，其他检出可能没有此文件 |
 
 三份文档分别承担产品、架构与实施职责；本地候选进度统一看实施状态，设计和计划不作为已交付证明。旧“四模块＋排班内换班”和通用授权平台方案已被原位更新，不再另维护一份旧计划。2026-10-15校园重构批次的“智能体暂缓”只保留历史含义；AI实施状态见上方统一状态页。
