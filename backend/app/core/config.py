@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     agent_management_chat_config: AdpChatConfiguration | None = Field(
         default=None, alias="AGENT_MANAGEMENT_CHAT_CONFIG", repr=False
     )
+    agent_import_workspace_enabled: bool = Field(default=False, alias="AGENT_IMPORT_WORKSPACE_ENABLED")
     agent_chat_queue_limits: AdpChatQueueLimits = Field(
         default_factory=AdpChatQueueLimits, alias="AGENT_CHAT_QUEUE_LIMITS"
     )

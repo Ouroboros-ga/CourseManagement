@@ -35,7 +35,7 @@ from app.modules.file import permissions as fperm
 from app.modules.file.models import FileCategory, FileObject, FileStatus
 from app.modules.file.repository import FileRepository
 from app.modules.file.schemas import FileAccessResponse, FileUploadResponse
-from app.modules.file.storage import StorageBackend, build_default_storage
+from app.modules.file.storage import PRIVATE_IMPORT_PREFIX, StorageBackend, build_default_storage
 from app.modules.file.validation import FileValidationError, validate_upload
 from app.modules.identity.repository import IdentityRepository
 from app.modules.identity.service import CurrentUser
@@ -152,6 +152,12 @@ class FileService:
     # 访问授权 + 短时链接
     # ------------------------------------------------------------------ #
     def can_access(self, actor: CurrentUser, file: FileObject) -> bool:
+        if (
+            file.category == FileCategory.IMPORT_FILE.value
+            and file.object_key.startswith(PRIVATE_IMPORT_PREFIX)
+        ):
+            # Workspace originals require their own source-session guard; no generic signed URL.
+            return False
         # 教工本人材料访问独立于学生绑定：已关联有效档案的受限会话仍按逐文件事实判定，
         # 由 can_staff_access_file 自己核对账号/档案/学院；学生与管理员路径守卫保持不变。
         from app.modules.file.staff_access import can_staff_access_file

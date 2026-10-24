@@ -112,7 +112,7 @@ def _interpreter():
     return str(path)
 
 
-def inspect_source(content: bytes, filename: str, *, timeout_seconds: float = 30) -> dict:
+def validate_source(content: bytes, filename: str) -> str:
     if (
         not isinstance(content, bytes)
         or not content
@@ -124,13 +124,17 @@ def inspect_source(content: bytes, filename: str, *, timeout_seconds: float = 30
         > (MAX_ARCHIVE_BYTES if filename.lower().endswith(".zip") else MAX_TABLE_BYTES)
     ):
         raise InspectionError("IMPORT_INSPECTION_INVALID")
+    return hashlib.sha256(content).hexdigest()
+
+
+def inspect_source(content: bytes, filename: str, *, timeout_seconds: float = 30) -> dict:
+    digest = validate_source(content, filename)
     if (
         not isinstance(timeout_seconds, (int, float))
         or not math.isfinite(timeout_seconds)
         or not 0 < timeout_seconds <= 60
     ):
         raise InspectionError("IMPORT_INSPECTION_INVALID")
-    digest = hashlib.sha256(content).hexdigest()
     with tempfile.TemporaryDirectory(prefix="course-import-") as folder:
         root = Path(folder)
         (root / "input.bin").write_bytes(content)

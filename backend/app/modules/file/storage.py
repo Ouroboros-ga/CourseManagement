@@ -25,6 +25,8 @@ from typing import Protocol
 
 from app.core.config import Settings
 
+PRIVATE_IMPORT_PREFIX = "private-import/"
+
 
 class StorageBackend(Protocol):
     """对象存储后端协议：落盘 / 读取 / 删除 / 生成短时访问 URL。"""
