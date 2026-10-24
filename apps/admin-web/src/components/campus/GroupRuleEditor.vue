@@ -38,7 +38,11 @@ function addException() {
 }
 const effects: { value: Effect; label: string }[] = [{ value: 'BLOCK', label: '禁止' }, { value: 'WARN', label: '人工确认后允许' }, { value: 'ALLOW', label: '允许' }]
 const missingTypeIds = computed(() => form.course_type_ids.filter(id => !availableTypes.value.some(row => row.id === id)))
+const missingOverrideIds = computed(() => Object.keys(form.type_overrides).filter(
+  id => !conflictTypes.value.some(row => row.id === id && row.status === 'ACTIVE')
+))
 function publish() {
+  if (loading.value || loadError.value || missingTypeIds.value.length || missingOverrideIds.value.length) return
   const payload: GroupConfiguration = JSON.parse(JSON.stringify(form))
   if (payload.class_mode === 'ALL_AUTHORIZED') payload.class_ids = []
   emit('publish', payload)
@@ -66,6 +70,13 @@ function updateOverride(id: string, value: Effect | '') {
       </el-select>
     </el-form-item>
     <h3>3. 组员什么时候可以查？</h3>
+    <section v-if="!loading && !loadError && missingOverrideIds.length" class="stale-rules">
+      <p>以下冲突规则引用了已删除、停用或不可见的课程类型，请先移除失效规则再保存。其他规则会保留。</p>
+      <div v-for="id in missingOverrideIds" :key="id">
+        <span>课程类型 {{ id }}</span>
+        <el-button :disabled="saving" link type="danger" @click="delete form.type_overrides[id]">移除失效规则</el-button>
+      </div>
+    </section>
     <el-form-item label="默认课程冲突处理"><el-select v-model="form.default_effect"><el-option v-for="effect in effects" :key="effect.value" :value="effect.value" :label="effect.label" /></el-select></el-form-item>
     <el-form-item v-for="row in conflictTypes" :key="row.id" :label="`本人正在上：${row.name}`">
       <el-select :model-value="form.type_overrides[row.id] || ''" placeholder="使用默认规则" @update:model-value="updateOverride(row.id, $event)">
@@ -89,11 +100,13 @@ function updateOverride(id: string, value: Effect | '') {
     <el-form-item label="移动缓冲（分钟）"><el-input-number v-model="form.buffer_minutes" :min="0" :max="120" /></el-form-item>
     </el-collapse-item></el-collapse>
     <p>另一组同时到场的任务始终禁止；允许本人课程重叠不会修改本人考勤。</p>
-    <el-button type="primary" :loading="saving" :disabled="loading || !!loadError || !form.course_type_ids.length || missingTypeIds.length > 0 || (form.class_mode === 'SPECIFIC' && !form.class_ids?.length)" @click="publish">保存查课范围与排班规则</el-button>
+    <el-button type="primary" :loading="saving" :disabled="loading || !!loadError || !form.course_type_ids.length || missingTypeIds.length > 0 || missingOverrideIds.length > 0 || (form.class_mode === 'SPECIFIC' && !form.class_ids?.length)" @click="publish">保存查课范围与排班规则</el-button>
   </el-form>
 </template>
 
 <style scoped>
+.stale-rules { padding: 12px; border: 1px solid var(--line); margin-bottom: 14px; }
+.stale-rules div { display: flex; gap: 16px; align-items: center; }
 h3 { margin: 22px 0 14px; }
 p { font-size: var(--text-sm); color: var(--ink-mute); line-height: 1.7; }
 </style>
