@@ -19,3 +19,10 @@
 补跑旧test_campus_configuration的22项发现5项失败。用修改前HEAD同文件独立核对后仍为同样5项失败、17项通过，涉及既有默认类型及旧期望；本次未扩大修复范围。完整套件不宣称全部通过。service.py存在基线长行Ruff问题，本次不扩改无关代码；新增测试文件检查通过。
 
 线上数据与运行配置不应修改；发布和回退证据追加于本文末尾。用户页面有未保存的输入，发布期间不刷新或替用户保存；发布后由用户刷新并重新设置。
+
+## 发布与回退（2026-10-24 11:02，北京时间）
+
+- 源码 `fbdc6320219c3af69b9348ccfa4ee153ce4756ed` 已推送dev-main并部署新服务器101.34.52.163；后端 `/opt/course-management/releases/20261024-group-rules-fbdc632021-r3`、Web `/opt/course-management/admin-web/releases/20261024-group-rules-fbdc632021-r3`。校验579个归档源码文件、候选ready及匿名组发布401、内外网ready、入口/教务JS哈希和接口鉴权通过。
+- 线上只读服务核对组3：conflict_type_ids为1、3，不再列出已删除类型2；没有调用带身份的发布接口、没有保存用户当前配置。
+- 环境配置哈希不变，结构仍 `f26a1023x001`，业务隔离及组织排班均维持true；没有迁移、依赖、数据回填或Nginx修改。线上与Git锁文件仅CRLF/LF差异，归一比较一致；新服务器禁用OpenAPI文档，候选沿用该设置，用目标接口匿名鉴权检查，不开启文档。
+- 备份 `/var/backups/course-management/20261024T030225Z.hDM7YW` 校验通过；上一后端/Web均为各自releases下的 `20261023-inspection-5d21eca5f6`。回退恢复两处current指针并重启，无需恢复数据库。证据 `/opt/course-management/incoming/20261024-group-rules-fbdc632/{DEPLOYED,ONLINE_VERIFICATION}.json`。
