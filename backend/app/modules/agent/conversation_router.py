@@ -13,9 +13,8 @@ from app.core.exceptions import AppError, ErrorCode, NotFoundError
 from app.modules.agent.adp_chat import AdpChatClient
 from app.modules.agent.adp_client import AdpCallError
 from app.modules.agent.conversation_service import ConversationService
-from app.modules.agent.schemas import Id, ManagementChatContext, TimetableQuery
+from app.modules.agent.schemas import Id, TimetableQuery
 from app.modules.identity.deps import CurrentUserDep, SessionIdDep
-from app.modules.identity.role_scope import business_today
 
 
 class ConversationCreate(TimetableQuery):
@@ -118,31 +117,12 @@ def send(
     db: Db,
     request: Request,
 ):
-    client, service = client_for(), service_for(db)
+    client_for()
+    service = service_for(db)
     scope = {"college_id": int(body.college_id), "semester_id": int(body.semester_id)}
-    claim = service.begin(
+    claim = service.enqueue(
         conversation_id, actor.id, sid, **scope, text=body.text, request_key=body.request_key
     )
-    if claim.can_send:
-        try:
-            reply = client.chat(
-                body.text.strip(),
-                conversation_id=claim.remote_conversation_id,
-                request_id=claim.remote_request_id,
-                user_id=claim.user_ref,
-                run_token=claim.run_token,
-                business_context=ManagementChatContext(
-                    college_id=body.college_id,
-                    semester_id=body.semester_id,
-                    business_date=business_today(),
-                ),
-            )
-        except AdpCallError as error:
-            service.fail(claim, error.code, ambiguous=error.ambiguous)
-        except Exception:
-            service.fail(claim, "CHAT_UPSTREAM_UNCERTAIN", ambiguous=True)
-        else:
-            service.complete(claim, reply.text)
     result = service.read(conversation_id, actor.id, sid, **scope)
     result["submitted_turn_id"] = str(claim.turn_id)
     return success(result, getattr(request.state, "request_id", None))

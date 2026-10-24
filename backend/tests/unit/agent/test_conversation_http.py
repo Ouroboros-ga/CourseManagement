@@ -58,6 +58,17 @@ def scope(case):
     return {"college_id": str(case[2].college_id), "semester_id": str(case[2].semester_id)}
 
 
+def worker(case):
+    from app.modules.agent.chat_worker import ChatWorker
+
+    return ChatWorker(
+        sessionmaker(bind=case[0][0][1].bind),
+        case[0][2].connections,
+        environment="dev",
+        app_key_id="management",
+    )
+
+
 def test_login_create_send_and_replay_return_history_without_credentials(case):
     _, client, _, calls = case
     response = client.post(ROOT, json=scope(case))
@@ -69,14 +80,18 @@ def test_login_create_send_and_replay_return_history_without_credentials(case):
     body = {**scope(case), "text": "合成问题", "request_key": "request-1"}
     sent = client.post(path, json=body)
     assert sent.status_code == 200, sent.text
-    assert sent.json()["data"]["turns"][0]["state"] == "SUCCEEDED"
-    assert len(calls) == 1 and calls[0][1]["run_token"] not in sent.text
+    assert sent.json()["data"]["turns"][0]["state"] == "QUEUED"
+    assert len(calls) == 0
     assert "synthetic-chat-platform-key" not in sent.text
     repeated = client.post(path, json=body)
-    assert repeated.status_code == 200 and len(calls) == 1
+    assert repeated.status_code == 200 and len(calls) == 0
     history = client.get(f"{ROOT}/{conversation['id']}", params=scope(case))
     assert history.status_code == 200
     assert history.json()["data"]["turns"] == repeated.json()["data"]["turns"]
+    assert worker(case).run_once()
+    completed = client.get(f"{ROOT}/{conversation['id']}", params=scope(case))
+    assert completed.json()["data"]["turns"][0]["state"] == "SUCCEEDED"
+    assert len(calls) == 1 and calls[0][1]["run_token"] not in completed.text
 
 
 def test_route_requires_actual_login(case):
@@ -116,7 +131,12 @@ def test_ambiguous_cloud_result_is_persisted_and_replay_does_not_resend(case, mo
     body = {**scope(case), "text": "合成问题", "request_key": "request-1"}
     first = client.post(path, json=body)
     assert first.status_code == 200
-    assert first.json()["data"]["state"] == "UNCERTAIN"
+    assert first.json()["data"]["turns"][0]["state"] == "QUEUED"
+    assert worker(case).run_once()
+    assert (
+        client.get(f"{ROOT}/{conversation['id']}", params=scope(case)).json()["data"]["state"]
+        == "UNCERTAIN"
+    )
     assert client.post(path, json=body).status_code == 200 and len(calls) == 1
     assert client.post(path, json={**body, "request_key": "next"}).status_code == 409
 

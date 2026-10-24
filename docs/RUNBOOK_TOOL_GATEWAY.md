@@ -16,7 +16,7 @@
 
 ## 当前任务接口
 
-已有[管理助手持久会话与登录API候选](development/AGENT_MANAGEMENT_CONVERSATIONS_20261025.md)，需要新迁移 `f26a1025a010`，默认关闭；未在运行库升级。API先持久化轮次，再调用新版对话适配；结果不明保留记录，不重发。Web对话和全局交互流量池、实际腾讯云／MySQL仍未完成，不能作为生产开放依据。
+已有[管理助手持久会话与登录API候选](development/AGENT_MANAGEMENT_CONVERSATIONS_20261025.md)，当前候选迁移头 `f26a1025a011`，默认关闭；未在运行库升级。API先保存排队轮次，独立聊天消费者调用新版对话适配，GET查询结果；未知结果保留容量且不重发。[聊天队列与双消费者运行说明](development/AGENT_CHAT_QUEUE_20261025.md)说明配置、超时和降级保护。Web对话、实际腾讯云／MySQL仍未完成，不能作为生产开放依据。
 
 管理交互新增[新版对话传输候选](development/ADP_MANAGEMENT_CHAT_TRANSPORT_20261025.md)，配置 `AGENT_MANAGEMENT_CHAT_CONFIG=null` 默认关闭。它使用独立交互 AppKey 与本环境 MANAGEMENT 连接，不复用后台工作流 Create 调用。登录与持久会话API已有上述候选，实际 Header／日志隔离和Web对话仍未验收；不能仅填写配置就描述为交互助手已经可用。
 

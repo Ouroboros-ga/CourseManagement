@@ -14,6 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.modules.agent.adp_schemas import (
     AdpChatConfiguration,
+    AdpChatQueueLimits,
     AdpConfiguration,
     AdpDispatchLimits,
     ObjectionAdpConfiguration,
@@ -42,6 +43,9 @@ class Settings(BaseSettings):
     agent_adp_enabled: bool = Field(default=False, alias="AGENT_ADP_ENABLED")
     agent_management_chat_config: AdpChatConfiguration | None = Field(
         default=None, alias="AGENT_MANAGEMENT_CHAT_CONFIG", repr=False
+    )
+    agent_chat_queue_limits: AdpChatQueueLimits = Field(
+        default_factory=AdpChatQueueLimits, alias="AGENT_CHAT_QUEUE_LIMITS"
     )
     agent_adp_config: AdpConfiguration | None = Field(
         default=None, alias="AGENT_ADP_CONFIG", repr=False

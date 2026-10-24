@@ -311,7 +311,14 @@ class RunService:
         )
 
     def rotate(self, run_id: int, user_id: int, session_id: int) -> str:
-        self._actor(user_id, session_id)
+        return self._rotate(run_id, user_id, session_id, commit=True)
+
+    @atomic_write
+    def rotate_in_transaction(self, run_id: int, user_id: int, session_id: int) -> str:
+        return self._rotate(run_id, user_id, session_id, commit=False)
+
+    def _rotate(self, run_id: int, user_id: int, session_id: int, *, commit: bool) -> str:
+        self._actor(user_id, session_id, touch_session=commit)
         run = self.db.scalar(
             select(AgentRun)
             .where(
@@ -324,10 +331,16 @@ class RunService:
         if run is None:
             raise NotFoundError()
         self._connection(run.app_key_id)
-        if run.status != "ACTIVE" or run.revoked_at is not None:
+        if (
+            run.environment != self.environment
+            or run.status != "ACTIVE"
+            or run.revoked_at is not None
+        ):
             raise PermissionDeniedError("运行已关闭")
         token = secrets.token_urlsafe(32)
         run.credential_digest = self._digest(token)
         run.credential_expires_at = utcnow() + timedelta(minutes=10)
-        self.db.commit()
+        self.db.flush()
+        if commit:
+            self.db.commit()
         return token

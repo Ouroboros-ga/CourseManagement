@@ -15,6 +15,7 @@ class AgentConversation(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("remote_conversation_id", name="uq_agent_conversation_remote"),
         Index("ix_agent_conversation_owner", "actor_user_id", "source_session_id", "created_at"),
+        Index("ix_agent_conversation_pool", "environment", "app_key_id", "id"),
         CheckConstraint("state IN ('OPEN','UNCERTAIN','CLOSED')", name="state"),
         MYSQL_TABLE_ARGS,
     )
@@ -40,8 +41,9 @@ class AgentTurn(TimestampMixin, Base):
         UniqueConstraint("run_id", name="uq_agent_turn_run"),
         UniqueConstraint("remote_request_id", name="uq_agent_turn_remote_request"),
         Index("ix_agent_turn_conversation", "conversation_id", "id"),
+        Index("ix_agent_turn_queue", "state", "id"),
         CheckConstraint(
-            "state IN ('SENDING','SUCCEEDED','FAILED','UNCERTAIN')", name="state"
+            "state IN ('QUEUED','SENDING','SUCCEEDED','FAILED','UNCERTAIN')", name="state"
         ),
         MYSQL_TABLE_ARGS,
     )

@@ -1,14 +1,12 @@
 """Conversation admission and receipts; no remote calls while database locks are held."""
 
-import hashlib
-import re
-import secrets
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, timedelta
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.database import iso_utc, utcnow
 from app.core.exceptions import (
     AppError,
@@ -37,6 +35,10 @@ class TurnClaim:
     user_ref: str | None = None
     attempt_token: str | None = field(default=None, repr=False)
     run_token: str | None = field(default=None, repr=False)
+    user_text: str = field(default="", repr=False)
+    college_id: int | None = None
+    semester_id: int | None = None
+    business_date: date | None = None
 
     @property
     def can_send(self):
@@ -46,9 +48,11 @@ class TurnClaim:
 class ConversationService:
     MAX_TURNS = 100
 
-    def __init__(self, db, connections, *, environment, app_key_id):
+    def __init__(self, db, connections, *, environment, app_key_id, limits=None):
         self.db, self.environment, self.app_key_id = db, environment, app_key_id
         self.runs = RunService(db, connections, environment=environment)
+        self.limits = limits or get_settings().agent_chat_queue_limits
+        self.changed = False
 
     def _scope_hash(self, actor, cid, sid):
         connection = self.runs._connection(self.app_key_id)
@@ -140,92 +144,35 @@ class ConversationService:
             select(AgentTurn)
             .where(
                 AgentTurn.conversation_id == conversation.id,
-                AgentTurn.state == "SENDING",
+                AgentTurn.state.in_(["QUEUED", "SENDING"]),
                 AgentTurn.deadline_at <= utcnow(),
             )
             .with_for_update()
             .execution_options(populate_existing=True)
         ).all()
         for turn in turns:
-            turn.state, turn.error_code, turn.attempt_token = "UNCERTAIN", "CHAT_WAIT_EXPIRED", None
+            queued = turn.state == "QUEUED"
+            turn.state = "FAILED" if queued else "UNCERTAIN"
+            turn.error_code = "CHAT_QUEUE_EXPIRED" if queued else "CHAT_WAIT_EXPIRED"
+            turn.attempt_token = None
             self._retire(turn.run_id)
-            conversation.state = "UNCERTAIN"
+            if not queued:
+                conversation.state = "UNCERTAIN"
         if turns:
+            self.changed = True
             self.db.commit()
 
     @atomic_write
-    def begin(
-        self, conversation_id, user_id, session_id, *, college_id, semester_id, text, request_key
-    ):
-        if (
-            not isinstance(text, str)
-            or not text.strip()
-            or len(text) > 4000
-            or not isinstance(request_key, str)
-            or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", request_key) is None
-        ):
-            raise AppError(ErrorCode.VALIDATION_ERROR, "对话内容或请求标识不合法", 422)
-        text, request_key = text.strip(), request_key.lower()
-        row = self._authorized(
-            conversation_id, user_id, session_id, college_id=college_id, semester_id=semester_id
-        )
-        self._expire(row)
-        input_hash = hashlib.sha256(text.encode()).hexdigest()
-        previous = self.db.scalar(
-            select(AgentTurn)
-            .where(AgentTurn.conversation_id == row.id, AgentTurn.request_key == request_key)
-            .execution_options(populate_existing=True)
-        )
-        if previous is not None:
-            if previous.input_hash != input_hash:
-                raise ConflictError(ErrorCode.IDEMPOTENCY_KEY_REUSED, "同一请求标识的内容已变化")
-            return TurnClaim(row.id, previous.id, previous.run_id)
-        if row.state != "OPEN":
-            raise ConflictError(message="上次对话结果不明或会话已关闭，请重新开始")
-        if self.db.scalar(
-            select(AgentTurn.id)
-            .where(AgentTurn.conversation_id == row.id, AgentTurn.state == "SENDING")
-            .limit(1)
-        ):
-            raise ConflictError(message="上一轮仍在处理中，请先查询状态")
-        if (
-            self.db.scalar(
-                select(func.count())
-                .select_from(AgentTurn)
-                .where(AgentTurn.conversation_id == row.id)
-            )
-            >= self.MAX_TURNS
-        ):
-            raise ConflictError(message="本会话已达轮次上限，请重新开始")
-        run, token = self.runs.issue_in_transaction(
-            self.app_key_id, user_id, session_id, college_id=college_id, semester_id=semester_id
-        )
-        turn = AgentTurn(
-            conversation_id=row.id,
-            run_id=run.id,
-            request_key=request_key,
-            input_hash=input_hash,
-            remote_request_id=uuid4().hex,
-            state="SENDING",
-            attempt_token=secrets.token_urlsafe(32),
-            deadline_at=utcnow() + timedelta(seconds=90),
-            user_text=text,
-        )
-        self.db.add(turn)
-        self.db.flush()
-        user_ref = hashlib.sha256(row.remote_conversation_id.encode()).hexdigest()
-        claim = TurnClaim(
-            row.id,
-            turn.id,
-            run.id,
-            row.remote_conversation_id,
-            turn.remote_request_id,
-            user_ref,
-            turn.attempt_token,
-            token,
-        )
-        self.db.commit()
-        return claim
+    def enqueue(self, conversation_id, user_id, session_id, **arguments):
+        from app.modules.agent.chat_queue import enqueue
+
+        return enqueue(self, conversation_id, user_id, session_id, **arguments)
+
+    @atomic_write
+    def claim_queued(self):
+        from app.modules.agent.chat_queue import claim_queued
+
+        return claim_queued(self)
 
     def _receipt(self, claim):
         row = self.db.scalar(

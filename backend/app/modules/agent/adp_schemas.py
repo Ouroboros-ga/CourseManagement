@@ -35,3 +35,10 @@ class AdpDispatchLimits(BaseModel):
     poll_interval: int = Field(default=2, ge=1, le=30, strict=True)
     wait_seconds: int = Field(default=300, ge=30, le=480, strict=True)
     max_polls: int = Field(default=100, ge=1, le=300, strict=True)
+
+
+class AdpChatQueueLimits(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    max_active: int = Field(default=1, ge=1, le=10, strict=True)
+    max_queued: int = Field(default=100, ge=1, le=1000, strict=True)
+    max_wait_seconds: int = Field(default=600, ge=30, le=3600, strict=True)

@@ -1,0 +1,24 @@
+[Unit]
+Description=CourseManagement management chat queue worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=course-management
+Group=course-management
+WorkingDirectory=/opt/course-management/current/backend
+EnvironmentFile=/etc/course-management/backend.env
+ExecStart=/opt/course-management/current/backend/.venv/bin/python -m app.modules.agent.chat_worker
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=384M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

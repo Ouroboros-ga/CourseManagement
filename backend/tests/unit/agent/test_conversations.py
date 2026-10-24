@@ -41,16 +41,15 @@ def arrange(case):
 
 
 def begin(case, service, conversation, source, **extra):
-    return service.begin(
-        conversation.id,
-        case[1].id,
-        source.source_session_id,
-        college_id=source.college_id,
-        semester_id=source.semester_id,
-        text="请导出本周考勤",
-        request_key="turn-1",
+    arguments = {
+        "college_id": source.college_id,
+        "semester_id": source.semester_id,
+        "text": "请导出本周考勤",
+        "request_key": "turn-1",
         **extra,
-    )
+    }
+    ticket = service.enqueue(conversation.id, case[1].id, source.source_session_id, **arguments)
+    return service.claim_queued() or ticket
 
 
 def read(case, service, conversation, source):
@@ -81,7 +80,7 @@ def test_replay_does_not_resend_and_changed_message_conflicts(case):
     repeated = begin(case, service, conversation, source)
     assert repeated.turn_id == first.turn_id and not repeated.can_send
     with pytest.raises(AppError) as error:
-        service.begin(
+        service.enqueue(
             conversation.id,
             case[1].id,
             source.source_session_id,
@@ -97,7 +96,7 @@ def test_only_one_inflight_turn_and_completion_fences_late_results(case):
     service, conversation, source = arrange(case)
     claim = begin(case, service, conversation, source)
     with pytest.raises(AppError) as error:
-        service.begin(
+        service.enqueue(
             conversation.id,
             case[1].id,
             source.source_session_id,
@@ -113,7 +112,7 @@ def test_only_one_inflight_turn_and_completion_fences_late_results(case):
     assert result["turns"][0]["reply"] == "已准备任务，请核对"
     run = case[0][1].get(AgentRun, claim.run_id)
     assert run.status == "ACTIVE" and run.credential_expires_at <= utcnow()
-    next_claim = service.begin(
+    next_claim = service.enqueue(
         conversation.id,
         case[1].id,
         source.source_session_id,
@@ -171,7 +170,7 @@ def test_ambiguous_failure_freezes_conversation_without_replaying_cloud(case):
     replay = begin(case, service, conversation, source)
     assert not replay.can_send
     with pytest.raises(AppError):
-        service.begin(
+        service.enqueue(
             conversation.id,
             case[1].id,
             source.source_session_id,
@@ -249,12 +248,11 @@ def test_send_claim_leaves_no_database_transaction_open_even_with_expiring_sessi
 def test_history_cursor_recovers_older_turns_without_duplicates(case):
     service, conversation, source = arrange(case)
     for number in range(23):
-        claim = service.begin(
-            conversation.id,
-            case[1].id,
-            source.source_session_id,
-            college_id=source.college_id,
-            semester_id=source.semester_id,
+        claim = begin(
+            case,
+            service,
+            conversation,
+            source,
             text=f"问题 {number}",
             request_key=f"page-{number}",
         )
@@ -290,7 +288,7 @@ def test_rejected_turn_can_be_followed_by_new_request_but_turn_limit_prevents_ne
     service.MAX_TURNS = 1
     before = case[0][1].query(AgentRun).count()
     with pytest.raises(AppError) as error:
-        service.begin(
+        service.enqueue(
             conversation.id,
             case[1].id,
             source.source_session_id,

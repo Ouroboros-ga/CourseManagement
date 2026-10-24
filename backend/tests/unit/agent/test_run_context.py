@@ -108,3 +108,16 @@ def test_interactive_run_can_share_a_parent_transaction_without_committing(campu
     assert run.credential_digest != token
     db.rollback()
     assert db.get(AgentRun, run_id) is None
+
+
+def test_rotation_can_share_dispatch_transaction_and_rollback_preserves_old_token(campus):
+    db, actor = campus[1], campus[3]
+    auth = session_for(db, actor)
+    service = RunService(db, [connection()], environment="dev")
+    run, old_token = service.issue("self-app", actor.id, auth.id)
+    assert hasattr(service, "rotate_in_transaction")
+    new_token = service.rotate_in_transaction(run.id, actor.id, auth.id)
+    db.rollback()
+    assert service.resolve("a" * 40, old_token).actor.id == actor.id
+    with pytest.raises(AppError):
+        service.resolve("a" * 40, new_token)
