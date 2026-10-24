@@ -38,6 +38,7 @@ function fixture(fetchObjections = async () => ({ total: 3 })) {
     '../composables/useWorkspaceContext': { useWorkspaceContext: () => ({ key }) },
     '../composables/useWorkspaceChanges': { useWorkspaceChanges() {} },
     '../components/workspace/WorkspaceContextBar.vue': {},
+    '../components/assistant/ManagementAssistant.vue': {},
     '../utils/contextEpoch': epoch, '../assets/school-logo.png': {}
   }, {
     console: { warn: (...args) => warnings.push(args) },

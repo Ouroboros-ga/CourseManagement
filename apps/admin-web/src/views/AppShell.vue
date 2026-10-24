@@ -7,6 +7,7 @@ import { primaryPages, auxiliaryPages, canAccessPage } from '../navigation/works
 import { useWorkspaceContext } from '../composables/useWorkspaceContext'
 import { useWorkspaceChanges } from '../composables/useWorkspaceChanges'
 import WorkspaceContextBar from '../components/workspace/WorkspaceContextBar.vue'
+import ManagementAssistant from '../components/assistant/ManagementAssistant.vue'
 import { ContextEpoch } from '../utils/contextEpoch'
 import schoolLogo from '../assets/school-logo.png'
 
@@ -256,6 +257,7 @@ async function handleLogout() {
       <header class="topbar">
         <button class="mobile-menu" @click="mobileNavigation = !mobileNavigation" :aria-expanded="mobileNavigation" aria-label="展开功能菜单">☰ 菜单</button>
         <WorkspaceContextBar />
+        <ManagementAssistant />
       </header>
       <nav v-if="mobileNavigation" class="mobile-nav" aria-label="移动端功能菜单">
         <router-link
