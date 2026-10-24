@@ -139,6 +139,8 @@ export async function finalReviewObjection(
     final_type?: ObjectionType
     comment?: string
     current_version: number
+    precheck_job_id?: string | null
+    manual_precheck_reason?: string
   }
 ): Promise<ObjectionItem> {
   return request<ObjectionItem>(`/api/v1/objections/${objectionId}/review`, {

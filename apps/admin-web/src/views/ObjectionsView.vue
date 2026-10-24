@@ -6,6 +6,9 @@ import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import AppPagination from '../components/AppPagination.vue'
 import AppIcon from '../components/AppIcon.vue'
+import ObjectionPrecheckCard from '../components/ObjectionPrecheckCard.vue'
+import ObjectionPrecheckPolicyCard from '../components/ObjectionPrecheckPolicyCard.vue'
+import { useObjectionPrecheck } from '../composables/useObjectionPrecheck'
 import { useFileAccess } from '../composables/useFileAccess'
 import {
   listObjections,
@@ -39,6 +42,7 @@ const total = ref(0)
 let listRequest = 0
 const attendanceMap = ref<Record<string, AttendanceRecord>>({})
 const reviewability = ref<Record<string, { can_review: boolean; review_block_reason?: string | null }>>({})
+const responsibleColleges = ref<Record<string, string>>({})
 
 // 审核表单
 const finalDecision = ref<'LEAVE' | 'NORMAL' | 'LATE' | 'ABSENT' | 'REJECTED'>('LEAVE')
@@ -80,6 +84,7 @@ async function fetchObjections() {
       if (requestId !== listRequest) return
       const rows = Array.isArray(res.items) ? res.items : []
       objections.value = rows.map(row => row.objection)
+      responsibleColleges.value = Object.fromEntries(rows.map(row => [row.objection.id, row.responsible_college_id || '']))
       reviewability.value = rows.reduce<Record<string, { can_review: boolean; review_block_reason?: string | null }>>((acc, row) => {
         acc[row.objection.id] = { can_review: row.can_review, review_block_reason: row.review_block_reason }
         return acc
@@ -145,6 +150,30 @@ const activeObjection = computed<ObjectionItem | null>(() => {
   if (objections.value.length === 0) return null
   return objections.value[activeIndex.value] || null
 })
+
+const precheckEnabled = computed(() => sessionStore.campusRuntime?.objection_precheck === true)
+const precheckPolicySaving = ref(false)
+const canConfigurePrecheck = computed(() => !props.selfScope && precheckEnabled.value
+  && !!sessionStore.campusRuntime?.business_scoped && !!sessionStore.workspaceCollegeId
+  && sessionStore.currentUser?.roles.some(role => ['SUPER_ADMIN', 'TEACHER_ADMIN'].includes(role))
+  && sessionStore.hasPermission('objection.read') && sessionStore.hasPermission('objection.final_review'))
+const precheckPolicyContextKey = computed(() => JSON.stringify([
+  sessionStore.currentUser?.id, sessionStore.currentUser?.roles, sessionStore.workspaceCollegeId,
+  sessionStore.workspace?.authorization_revision, sessionStore.workspace?.configuration_revision,
+  sessionStore.workspace?.capabilities, canConfigurePrecheck.value
+]))
+const reviewContextKey = computed(() => JSON.stringify([
+  sessionStore.currentUser?.id, sessionStore.workspaceCollegeId, sessionStore.currentSemesterId,
+  sessionStore.workspace?.authorization_revision, sessionStore.workspace?.configuration_revision,
+  sessionStore.workspace?.capabilities, props.selfScope, activeObjection.value?.id
+]))
+const precheck = useObjectionPrecheck(() => ({
+  key: reviewContextKey.value,
+  collegeId: props.selfScope ? responsibleColleges.value[activeObjection.value?.id || ''] || '' : sessionStore.workspaceCollegeId,
+  objectionId: activeObjection.value?.id || '', enabled: precheckEnabled.value
+}))
+const { snapshot: precheckSnapshot, loading: precheckLoading, retrying: precheckRetrying,
+  error: precheckError, confirmed: precheckConfirmed, manualReason: manualPrecheckReason } = precheck
 
 watch(() => activeObjection.value?.attendance_record_id, id => {
   if (id && !props.selfScope) void loadAttendanceForRecords([id], listRequest)
@@ -230,10 +259,19 @@ const activeBlockReason = computed(() =>
       '该查课任务由其他学院负责，需由该学院审核；你只能核对自己班级的记录。'
     : ''
 )
+const precheckReadyForReview = computed(() => {
+  if (precheckPolicySaving.value) return false
+  try { precheck.reviewFields(); return true } catch { return false }
+})
 
 async function handleFinalReview() {
   if (!activeObjection.value || submitLoading.value) return
+  if (precheckPolicySaving.value) { ElMessage.warning('请等待预审设置保存并刷新核对'); return }
   const objection = activeObjection.value
+  const capturedContext = reviewContextKey.value
+  let precheckFields
+  try { precheckFields = precheck.reviewFields() }
+  catch (cause) { ElMessage.warning(cause instanceof Error ? cause.message : '请核对预审状态'); return }
   if (!activeAttendance.value) {
     ElMessage.warning('正在加载考勤基准数据，请稍后重试')
     return
@@ -250,7 +288,8 @@ async function handleFinalReview() {
     decision: isReject ? ('REJECTED' as const) : ('APPROVED' as const),
     final_type: targetType,
     comment: finalReasonNote.value.trim() || undefined,
-    current_version: activeAttendance.value.current_version
+    current_version: activeAttendance.value.current_version,
+    ...precheckFields
   }
 
   submitLoading.value = true
@@ -258,6 +297,7 @@ async function handleFinalReview() {
   try {
     if (props.selfScope) await reviewResponsibleObjection(objection.id, payload)
     else await finalReviewObjection(objection.id, payload)
+    if (capturedContext !== reviewContextKey.value) return
 
     if (isReject) {
       ElMessage.warning('审核已驳回申诉，维持当前考勤认定。')
@@ -269,17 +309,22 @@ async function handleFinalReview() {
     if (!props.selfScope) {
       try {
         const updatedAtt = await getAttendanceRecord(objection.attendance_record_id)
+        if (capturedContext !== reviewContextKey.value) return
         attendanceMap.value[objection.attendance_record_id] = updatedAtt
       } catch {}
     }
 
     await fetchObjections()
   } catch (err: unknown) {
+    if (capturedContext !== reviewContextKey.value) return
     const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : '审核提交失败'
     ElMessage.error(msg)
     // 版本冲突（409）：不覆盖他人新认定，立刻重取当前版本供重新核对。
     if (err && typeof err === 'object' && (err as { status?: unknown }).status === 409) {
+      await precheck.refresh()
+      if (capturedContext !== reviewContextKey.value) return
       await fetchObjections()
+      if (capturedContext !== reviewContextKey.value) return
       const stillListed = objections.value.some(row => row.id === objection.id)
       reviewNotice.value = stillListed
         ? `${msg}（已保留你的判定与备注，按刷新后的事实重新确认后再次提交即可）`
@@ -430,7 +475,7 @@ const decisionOptions: DecisionOption[] = [
     <header class="page-head">
       <h1>学生考勤异议处理</h1>
       <p class="sub">
-        处理学生对考勤结果提出的异议申诉。学生负责人及以上权限一次审核即可生效。通过后按审核认定更新考勤，驳回保留原认定，所有结果保留操作账号与审核记录。
+        处理学生对考勤结果提出的异议申诉。{{ precheckEnabled ? '由授权教务管理员核对预审与材料后终审。' : '学生负责人及以上权限一次审核即可生效。' }}通过后按审核认定更新考勤，驳回保留原认定，所有结果保留操作账号与审核记录。
       </p>
     </header>
 
@@ -469,6 +514,13 @@ const decisionOptions: DecisionOption[] = [
 
       <button class="btn btn-sm btn-ghost" @click="fetchObjections">⟳ 刷新异议列表</button>
     </div>
+
+    <ObjectionPrecheckPolicyCard
+      v-if="canConfigurePrecheck"
+      :college-id="sessionStore.workspaceCollegeId" :college-name="sessionStore.workspace?.name || '当前学院'"
+      :context-key="precheckPolicyContextKey" :available="canConfigurePrecheck" :busy="submitLoading || precheckRetrying"
+      @saving-change="precheckPolicySaving = $event" @saved="precheck.refresh"
+    />
 
     <!-- 无数据状态 -->
     <div v-if="objections.length === 0" class="panel empty-box empty-state">
@@ -650,6 +702,11 @@ const decisionOptions: DecisionOption[] = [
           </div>
 
           <!-- 若当前已审核，展示审核结论只读状态 -->
+          <ObjectionPrecheckCard
+            v-if="precheckEnabled"
+            :snapshot="precheckSnapshot" :loading="precheckLoading" :retrying="precheckRetrying || submitLoading || precheckPolicySaving" :error="precheckError"
+            @refresh="precheck.refresh" @retry="precheck.retry"
+          />
           <div v-if="activeObjection.final_status !== 'PENDING'" class="decision-result">
             <div class="dr-title">
               审核结果：
@@ -696,6 +753,16 @@ const decisionOptions: DecisionOption[] = [
             </div>
 
             <div class="d-form">
+              <div v-if="precheckEnabled" class="precheck-review-controls">
+                <label v-if="precheckSnapshot?.manual_reason_required">
+                  人工核验原因（必填）
+                  <textarea v-model="manualPrecheckReason" class="input" maxlength="512" rows="3" placeholder="说明预审未能采用的原因及人工核验依据" />
+                </label>
+                <label>
+                  <input v-model="precheckConfirmed" type="checkbox" :disabled="!precheckSnapshot?.can_final_review || precheckLoading || precheckRetrying || submitLoading || !!precheckError" />
+                  我已核对当前预审状态与原始材料，确认由本人作出最终审核决定
+                </label>
+              </div>
               <input
                 v-model="finalReasonNote"
                 type="text"
@@ -705,7 +772,7 @@ const decisionOptions: DecisionOption[] = [
               />
               <button
                 class="btn btn-dark"
-                :disabled="submitLoading"
+                :disabled="submitLoading || !precheckReadyForReview"
                 @click="handleFinalReview"
               >
                 {{ submitLoading ? '正在提交裁决…' : (finalDecision === 'REJECTED' ? '确认维持原判（驳回申诉）' : `提交审核并更正为【${typeMap[finalDecision]}】`) }}
@@ -713,7 +780,7 @@ const decisionOptions: DecisionOption[] = [
             </div>
           </div>
           <div v-else class="cell-sub">
-            {{ selfScope ? activeBlockReason : '需要学生负责人或更高权限管理员审核。' }}
+            {{ selfScope ? activeBlockReason : precheckEnabled ? '需要当前授权范围内的教务管理员终审。' : '需要学生负责人或更高权限管理员审核。' }}
           </div>
         </div>
 
@@ -756,7 +823,7 @@ const decisionOptions: DecisionOption[] = [
               <div class="tl-body">
                 <span v-if="activeObjection.final_status === 'APPROVED'">审核裁决通过，考勤更正为【{{ typeMap[activeObjection.final_attendance_type || ''] }}】</span>
                 <span v-else-if="activeObjection.final_status === 'REJECTED'">审核驳回申诉，维持原考勤认定事实</span>
-                <span v-else>等待学生负责人或更高权限管理员审核</span>
+                <span v-else>{{ precheckEnabled ? '等待授权教务管理员核验并终审' : '等待学生负责人或更高权限管理员审核' }}</span>
               </div>
             </div>
 
@@ -1281,7 +1348,10 @@ const decisionOptions: DecisionOption[] = [
 .input-required { border-color: var(--accent) !important; }
 .input-required::placeholder { color: var(--accent); opacity: 0.75; }
 
-.d-form { display: flex; gap: 12px; }
+.d-form { display: flex; flex-wrap: wrap; gap: 12px; }
+.precheck-review-controls { flex-basis: 100%; display: grid; gap: 12px; font-size: 13px; line-height: 1.7; }
+.precheck-review-controls label { display: block; }
+.precheck-review-controls textarea { display: block; width: 100%; margin-top: 6px; resize: vertical; }
 .d-form .input { flex: 1; }
 
 /* 时间线 */

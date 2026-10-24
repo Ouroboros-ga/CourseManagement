@@ -1,7 +1,7 @@
 /** Explicit workspace routing for management APIs; personal/file/auth calls remain independent. */
 import { ApiError, request as httpRequest } from './http'
 
-export interface CampusRuntime { academic_scoped: boolean; business_scoped: boolean; scheduling: boolean }
+export interface CampusRuntime { academic_scoped: boolean; business_scoped: boolean; scheduling: boolean; objection_precheck?: boolean }
 let runtime: CampusRuntime | null = null
 let collegeId = ''
 let revision = 0

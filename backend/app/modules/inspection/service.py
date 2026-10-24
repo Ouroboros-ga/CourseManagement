@@ -260,7 +260,7 @@ class InspectionService:
     def _audit(
         self,
         *,
-        actor_user_id: int,
+        actor_user_id: int | None,
         action: str,
         resource_type: str,
         resource_id: str,
@@ -2419,6 +2419,7 @@ class InspectionService:
     # 语义边界：申请仅表达"本人希望调整该受派"的诉求并留痕，approve/reject 只迁移申请状态，
     # 不隐式改派——真正的改派仍走 assignment.manage（模型无替补志愿者字段，避免审核即换人的
     # 越权副作用）。数据范围：志愿者只读本人申请（强制 requester=本人）；管理视图读取全部。
+    @atomic_write
     def create_change_request(
         self,
         actor: CurrentUser,
@@ -2437,6 +2438,33 @@ class InspectionService:
         task = self._repo.get_task(assignment.task_id)
         if task is None:
             raise NotFoundError("查课任务不存在")
+        auto_change = None
+        if get_settings().agent_auto_change_enabled and task.college_id and task.group_id:
+            from app.modules.inspection.auto_change_service import AutoChangeService
+            from app.modules.organization.models import College
+
+            # Serialize with policy changes before locking the task/assignment, as apply does.
+            self._session.scalar(
+                select(College).where(College.id == task.college_id).with_for_update()
+            )
+            auto_change = AutoChangeService(
+                self._session, task.college_id, task.group_id, task.semester_id
+            )
+            auto_change._policy(lock=True)
+            task = self._session.scalar(
+                select(InspectionTask).where(InspectionTask.id == task.id)
+                .with_for_update().execution_options(populate_existing=True)
+            )
+            assignment = self._session.scalar(
+                select(InspectionAssignment).where(InspectionAssignment.id == assignment.id)
+                .with_for_update().execution_options(populate_existing=True)
+            )
+            if assignment is None or assignment.revoked_at is not None:
+                raise ConflictError(ErrorCode.STATE_CONFLICT, "受派已失效")
+            if assignment.volunteer_user_id != actor.id:
+                raise PermissionDeniedError("仅可对本人的当前受派发起调班申请")
+            if task is None:
+                raise NotFoundError("查课任务不存在")
         if task.canceled_at is not None:
             raise ConflictError(ErrorCode.STATE_CONFLICT, "任务已取消，不可发起调班申请")
         if self._repo.has_pending_change_request(assignment.id):
@@ -2449,6 +2477,8 @@ class InspectionService:
         )
         self._repo.add(req)
         self._repo.flush()
+        if auto_change is not None:
+            auto_change.register(req.id)
         self._audit(
             actor_user_id=actor.id,
             action="assignment.change_request.create",

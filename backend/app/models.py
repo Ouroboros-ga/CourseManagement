@@ -14,6 +14,7 @@ Mapped + mapped_column 风格，枚举以字符串值存储）。当前为空骨
 from __future__ import annotations
 
 from app.core.database import Base
+from app.modules.agent import models as agent_models  # noqa: F401
 from app.modules.academic import campus_models as campus_academic_models  # noqa: F401
 from app.modules.academic import enrollment_models  # noqa: F401
 
@@ -32,9 +33,11 @@ from app.modules.identity import models as identity_models  # noqa: F401
 from app.modules.identity import staff_binding_models as staff_binding_models  # noqa: F401
 from app.modules.importer import models as importer_models  # noqa: F401
 from app.modules.inspection import assignment_plan_models  # noqa: F401
+from app.modules.inspection import automation_models  # noqa: F401
 from app.modules.inspection import models as inspection_models  # noqa: F401
 from app.modules.inspection import responsibility  # noqa: F401
 from app.modules.objection import models as objection_models  # noqa: F401
+from app.modules.objection import precheck_models  # noqa: F401
 from app.modules.organization import impact_models  # noqa: F401
 from app.modules.organization import models as organization_models  # noqa: F401
 from app.modules.report import models as report_models  # noqa: F401

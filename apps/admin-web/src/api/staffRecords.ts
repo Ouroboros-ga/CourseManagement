@@ -293,7 +293,7 @@ export function getResponsibleObjection(objectionId: string) {
 
 export function reviewResponsibleObjection(
   objectionId: string,
-  body: { decision: 'APPROVED' | 'REJECTED'; final_type?: string | null; comment?: string | null; current_version: number }
+  body: { decision: 'APPROVED' | 'REJECTED'; final_type?: string | null; comment?: string | null; current_version: number; precheck_job_id?: string | null; manual_precheck_reason?: string }
 ) {
   return request<ObjectionItem>(
     `/api/v1/me/responsible-objections/${encodeURIComponent(objectionId)}/review`,

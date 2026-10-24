@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.modules.academic.schemas import IdStr, OptIdStr
 
@@ -59,6 +59,22 @@ class ObjectionFinalReviewRequest(BaseModel):
     final_type: ObjectionTypeLiteral | None = None
     comment: str | None = Field(default=None, max_length=512)
     current_version: int = Field(ge=1)
+    precheck_job_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,18}$")
+    manual_precheck_reason: str | None = Field(default=None, min_length=1, max_length=512)
+
+    @field_validator("precheck_job_id")
+    @classmethod
+    def bounded_precheck_id(cls, value):
+        if value is not None and int(value) >= 2**63:
+            raise ValueError("预审编号超出范围")
+        return value
+
+    @field_validator("manual_precheck_reason")
+    @classmethod
+    def nonblank_reason(cls, value):
+        if value is not None and not value.strip():
+            raise ValueError("请填写人工核验原因")
+        return value.strip() if value is not None else None
 
 
 class ObjectionStudentBrief(BaseModel):

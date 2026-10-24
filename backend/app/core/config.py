@@ -12,6 +12,9 @@ from typing import Literal
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.modules.agent.adp_schemas import AdpConfiguration, AdpDispatchLimits, ObjectionAdpConfiguration
+from app.modules.agent.schemas import AppConnection
+
 
 class Settings(BaseSettings):
     academic_publication_enabled: bool = Field(default=False, alias="ACADEMIC_PUBLICATION_ENABLED")
@@ -24,6 +27,39 @@ class Settings(BaseSettings):
     # ---- 应用 ----
     app_env: str = Field(default="dev", alias="APP_ENV")
     debug: bool = Field(default=False, alias="DEBUG")
+    agent_tools_enabled: bool = Field(default=False, alias="AGENT_TOOLS_ENABLED")
+    agent_mcp_enabled: bool = Field(default=False, alias="AGENT_MCP_ENABLED")
+    agent_worker_enabled: bool = Field(default=False, alias="AGENT_WORKER_ENABLED")
+    agent_auto_change_enabled: bool = Field(default=False, alias="AGENT_AUTO_CHANGE_ENABLED")
+    agent_objection_precheck_enabled: bool = Field(
+        default=False, alias="AGENT_OBJECTION_PRECHECK_ENABLED"
+    )
+    agent_adp_enabled: bool = Field(default=False, alias="AGENT_ADP_ENABLED")
+    agent_adp_config: AdpConfiguration | None = Field(
+        default=None, alias="AGENT_ADP_CONFIG", repr=False
+    )
+    agent_change_app_key_id: str = Field(default="", max_length=64, alias="AGENT_CHANGE_APP_KEY_ID")
+    agent_adp_objection_config: ObjectionAdpConfiguration | None = Field(
+        default=None, alias="AGENT_ADP_OBJECTION_CONFIG", repr=False
+    )
+    agent_objection_app_key_id: str = Field(
+        default="", max_length=64, alias="AGENT_OBJECTION_APP_KEY_ID"
+    )
+    agent_adp_dispatch_limits: AdpDispatchLimits = Field(
+        default_factory=AdpDispatchLimits, alias="AGENT_ADP_DISPATCH_LIMITS"
+    )
+    agent_run_max_pending_tasks: int = Field(
+        default=100, ge=1, le=1000, alias="AGENT_RUN_MAX_PENDING_TASKS"
+    )
+    agent_mcp_allowed_hosts: list[str] = Field(
+        default=["127.0.0.1:*", "localhost:*"], alias="AGENT_MCP_ALLOWED_HOSTS"
+    )
+    agent_mcp_allowed_origins: list[str] = Field(
+        default=["http://127.0.0.1:*", "http://localhost:*"], alias="AGENT_MCP_ALLOWED_ORIGINS"
+    )
+    agent_tool_connections: list[AppConnection] = Field(
+        default_factory=list, alias="AGENT_TOOL_CONNECTIONS", repr=False
+    )
     # 配置底座先行，默认关闭；启用不代表旧业务已具备学院隔离。
     campus_configuration_enabled: bool = Field(default=False, alias="CAMPUS_CONFIGURATION_ENABLED")
     # 控制显式学院入口；新旧基础数据路径均由数据库身份限制范围。

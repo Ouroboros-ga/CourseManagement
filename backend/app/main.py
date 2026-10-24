@@ -48,12 +48,17 @@ logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_logging()
     settings = get_settings()
     logger.info("应用启动", extra={"env": settings.app_env})
     # 说明：V1.0 不在每个服务进程启动时抢跑数据库迁移，迁移由单独发布步骤执行。
-    yield
+    mcp_server = getattr(app.state, "agent_mcp_server", None)
+    if mcp_server is not None:
+        async with mcp_server.session_manager.run():
+            yield
+    else:
+        yield
     logger.info("应用关闭")
 
 
@@ -140,6 +145,8 @@ def create_app() -> FastAPI:
     app.include_router(personal_timetable_router, prefix="/api/v1")
     app.include_router(scoped_attendance_router, prefix="/api/v1")
     app.include_router(scoped_objection_router, prefix="/api/v1")
+    from app.modules.objection.precheck_router import router as precheck_management_router
+    app.include_router(precheck_management_router, prefix="/api/v1")
     app.include_router(enrollment_router, prefix="/api/v1/academic")
     from app.modules.academic.scoped_enrollment_router import router as scoped_enrollment_router
     app.include_router(scoped_enrollment_router, prefix="/api/v1")
@@ -192,6 +199,19 @@ def create_app() -> FastAPI:
 
     # Literal academic endpoints must precede the generic /{kind}/{rid} reader.
     app.include_router(scoped_academic_router, prefix="/api/v1")
+
+    if settings.agent_tools_enabled:
+        from app.modules.agent.http_router import router as agent_tools_router
+        from app.modules.agent.task_router import router as agent_tasks_router
+
+        app.include_router(agent_tools_router, prefix="/api/v1")
+        app.include_router(agent_tasks_router, prefix="/api/v1")
+        if settings.agent_mcp_enabled:
+            from app.modules.agent.mcp_adapter import create_mcp_app
+
+            mcp_app, mcp_server = create_mcp_app()
+            app.state.agent_mcp_server = mcp_server
+            app.mount("/mcp", mcp_app)
 
     return app
 

@@ -283,7 +283,8 @@ class FileService:
         return False
 
     def get_access(
-        self, actor: CurrentUser, file_id: int, *, delivery: str = "proxy", style: str = "original"
+        self, actor: CurrentUser, file_id: int, *, delivery: str = "proxy", style: str = "original",
+        max_ttl_seconds: int | None = None,
     ) -> FileAccessResponse:
         file = self._repo.get(file_id)
         # 不可见或不存在统一 404，避免枚举探测（技术方案 16.2 资源归属）。
@@ -292,6 +293,10 @@ class FileService:
         self._assert_accessible(file)
 
         ttl = self._settings.file_signed_url_ttl_seconds
+        if max_ttl_seconds is not None:
+            if type(max_ttl_seconds) is not int or not 1 <= max_ttl_seconds <= 300:
+                raise ValueError("材料访问时效上限须为1—300秒")
+            ttl = min(ttl, max_ttl_seconds)
         # 待处理异议的证明沿用既有延长访问规则，其余文件不能签发超出保留期的链接。
         if file.expires_at is not None and file.expires_at > utcnow():
             ttl = min(ttl, int((file.expires_at - utcnow()).total_seconds()))

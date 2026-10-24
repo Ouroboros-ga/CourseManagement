@@ -34,6 +34,7 @@ from app.modules.objection.models import Objection
 from app.modules.objection.schemas import ObjectionFinalReviewRequest, ObjectionResponse
 from app.modules.objection.service import ObjectionService, assert_pending_review
 from app.modules.organization.models import College
+from app.modules.organization.service import atomic_write
 
 READ_BLOCK_REASONS = {
     "foreign_college": "该查课任务由其他学院负责，请由该学院审核；你仍可核对自己班级的记录",
@@ -139,6 +140,27 @@ class StaffResponsibleObjectionService(ObjectionService):
         ids = [o.id for o in objs]
         context = self._repo.responsible_context(ids)
         reviewable = self._repo.reviewable_responsible_ids(self.actor.id, as_of, ids)
+        original_reviewable = set(reviewable)
+        if self._settings.agent_objection_precheck_enabled:
+            from app.modules.identity.resource_scope import resolve_scope
+            from app.modules.inspection.models import InspectionTask
+
+            roles = IdentityRepository(self._session).list_effective_role_codes(self.actor.id)
+            if not {"SUPER_ADMIN", "TEACHER_ADMIN"}.intersection(roles):
+                reviewable = set()
+            else:
+                try:
+                    scope = resolve_scope(
+                        self._session, self.actor, self._staff.college_id,
+                        "objection.final_review",
+                    )
+                    tasks = {context[oid][0] for oid in reviewable if oid in context}
+                    permitted_tasks = set(self._session.scalars(select(InspectionTask.id).where(
+                        InspectionTask.id.in_(tasks), scope.task_condition()
+                    )))
+                    reviewable = {oid for oid in reviewable if context[oid][0] in permitted_tasks}
+                except (PermissionDeniedError, NotFoundError):
+                    reviewable = set()
         colleges = self._college_names({task[1] for task in context.values()})
         responses = self._assemble(objs)
         items: list[StaffResponsibleObjectionItem] = []
@@ -157,7 +179,12 @@ class StaffResponsibleObjectionService(ObjectionService):
                     can_review=can_review,
                     review_block_reason=None
                     if can_review
-                    else READ_BLOCK_REASONS["foreign_college"],
+                    else (
+                        "智能预审启用后，须由授权教务管理员终审"
+                        if (obj.id in original_reviewable
+                            and self._settings.agent_objection_precheck_enabled)
+                        else READ_BLOCK_REASONS["foreign_college"]
+                    ),
                 )
             )
         return items
@@ -172,6 +199,7 @@ class StaffResponsibleObjectionService(ObjectionService):
         }
 
     # -- 写：一次审核 ---------------------------------------------------------- #
+    @atomic_write
     def review(
         self,
         objection_id: int,
@@ -190,6 +218,12 @@ class StaffResponsibleObjectionService(ObjectionService):
         if anchor is None:
             raise NotFoundError("异议不存在或不在本人责任班级")
 
+        from app.modules.objection.precheck_review import prepare_if_enabled
+
+        if self._settings.agent_objection_precheck_enabled:
+            self._assert_reviewable(anchor.id)
+        precheck_guard = prepare_if_enabled(self._session, self.actor.id, objection_id)
+
         # 全局锁层级：考勤 → 异议（技术方案 15），与教师更正共用同一行作为并发锚点。
         record = self._repo.get_attendance_for_update(anchor.attendance_record_id)
         obj = self._repo.get_objection_for_update(objection_id)
@@ -203,7 +237,8 @@ class StaffResponsibleObjectionService(ObjectionService):
         assert_pending_review(obj)
         try:
             self.apply_final_review(
-                obj, record, body, actor_user_id=self.actor.id, request_id=request_id
+                obj, record, body, actor_user_id=self.actor.id, request_id=request_id,
+                precheck_guard=precheck_guard,
             )
         except Exception:
             self._session.rollback()

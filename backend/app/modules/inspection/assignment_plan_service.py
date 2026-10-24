@@ -1,5 +1,6 @@
 """Freeze a proposed allocation; confirm exact warnings before one atomic commit."""
 
+from dataclasses import asdict, dataclass
 from datetime import timedelta
 from uuid import uuid4
 
@@ -32,6 +33,15 @@ from app.modules.inspection.scoped_service import ScopedInspectionService
 from app.modules.organization.service import atomic_write, validated
 from app.modules.volunteer.member_models import VolunteerGroupMember
 from app.modules.volunteer.models import VolunteerGroup
+
+
+@dataclass(frozen=True)
+class AutoChangeOrigin:
+    execution_id: str
+    request_id: str
+    policy_id: str
+    policy_version: int
+    authorizer_user_id: str
 
 
 class AssignmentPlanService:
@@ -113,8 +123,45 @@ class AssignmentPlanService:
             }
         )
 
+    def candidate_ids(self, semester, tasks):
+        return list(
+            self.db.scalars(
+                select(UserAccount.id)
+                .join(
+                    VolunteerGroupMember, VolunteerGroupMember.student_id == UserAccount.student_id
+                )
+                .join(
+                    VolunteerQualification,
+                    VolunteerQualification.student_id == UserAccount.student_id,
+                )
+                .join(UserRole, UserRole.user_id == UserAccount.id)
+                .join(Role, Role.id == UserRole.role_id)
+                .where(
+                    VolunteerGroupMember.college_id == self.cid,
+                    VolunteerGroupMember.group_id == self.gid,
+                    VolunteerGroupMember.semester_id == semester.id,
+                    VolunteerGroupMember.status == "ACTIVE",
+                    VolunteerGroupMember.effective_from <= max(t.inspection_date for t in tasks),
+                    VolunteerGroupMember.effective_to > min(t.inspection_date for t in tasks),
+                    VolunteerQualification.semester_id == semester.id,
+                    VolunteerQualification.enabled.is_(True),
+                    UserAccount.status == "ACTIVE",
+                    Role.code == "VOLUNTEER",
+                )
+                .distinct()
+                .order_by(UserAccount.id)
+                .limit(501)
+            )
+        )
+
     @atomic_write
     def preview(self, data):
+        result = self.preview_in_transaction(data)
+        self.db.commit()
+        return result
+
+    def preview_in_transaction(self, data):
+        """Create the draft without committing the caller's transaction."""
         body = validated(AssignmentPlanPreview, data)
         scope, semester, group = self._context(int(body.semester_id))
         tasks = self._targets(semester.id, [int(value) for value in body.task_ids])
@@ -125,40 +172,7 @@ class AssignmentPlanService:
         candidates = (
             sorted({int(value) for value in body.assignments.values()})
             if manual
-            else (
-                list(
-                    self.db.scalars(
-                        select(UserAccount.id)
-                        .join(
-                            VolunteerGroupMember,
-                            VolunteerGroupMember.student_id == UserAccount.student_id,
-                        )
-                        .join(
-                            VolunteerQualification,
-                            VolunteerQualification.student_id == UserAccount.student_id,
-                        )
-                        .join(UserRole, UserRole.user_id == UserAccount.id)
-                        .join(Role, Role.id == UserRole.role_id)
-                        .where(
-                            VolunteerGroupMember.college_id == self.cid,
-                            VolunteerGroupMember.group_id == self.gid,
-                            VolunteerGroupMember.semester_id == semester.id,
-                            VolunteerGroupMember.status == "ACTIVE",
-                            VolunteerGroupMember.effective_from
-                            <= max(t.inspection_date for t in tasks),
-                            VolunteerGroupMember.effective_to
-                            > min(t.inspection_date for t in tasks),
-                            VolunteerQualification.semester_id == semester.id,
-                            VolunteerQualification.enabled.is_(True),
-                            UserAccount.status == "ACTIVE",
-                            Role.code == "VOLUNTEER",
-                        )
-                        .distinct()
-                        .order_by(UserAccount.id)
-                        .limit(501)
-                    )
-                )
-            )
+            else self.candidate_ids(semester, tasks)
         )
         if len(candidates) > 500:
             raise ConflictError(message="单次计划最多500名候选人，请缩小范围")
@@ -232,11 +246,20 @@ class AssignmentPlanService:
             "unassigned": payload["unassigned"],
             "display": plan_display(self.db, semester, group, tasks, assignments),
         }
-        self.db.commit()
+        self.db.flush()
         return response
 
     @atomic_write
     def commit(self, plan_id, data, request_id=None):
+        result = self.commit_in_transaction(plan_id, data, request_id)
+        self.db.commit()
+        return result
+
+    def commit_in_transaction(self, plan_id, data, request_id=None, *, automation=None):
+        """Reuse validation and writes inside a caller-owned domain transaction.
+
+        The caller must commit/rollback. No HTTP route exposes this method directly.
+        """
         body = validated(AssignmentPlanCommit, data)
         row = self.db.scalar(
             select(AssignmentConfirmationPlan).where(
@@ -258,8 +281,9 @@ class AssignmentPlanService:
         if body.revision != row.revision:
             raise ConflictError(message="计划修订不匹配，请重新预览")
         if row.status == "COMMITTED":
+            if automation is not None:
+                raise ConflictError(message="计划已由其他流程处理，请核对原换班结果")
             result = row.result
-            self.db.commit()
             return result
         if row.expires_at <= utcnow():
             raise ConflictError(message="计划已过期，请重新预览")
@@ -276,6 +300,10 @@ class AssignmentPlanService:
             (item.task_id, item.volunteer_user_id, tuple(sorted(item.warning_codes)))
             for item in body.confirmations
         ]
+        if automation is not None and (
+            automation.authorizer_user_id != str(self.actor.id) or required or len(assignments) != 1
+        ):
+            raise ConflictError(message="自动改派必须由有效策略授权，且不得确认人工警告")
         if len(set(confirmed)) != len(confirmed) or set(confirmed) != required:
             raise ConflictError(message="请明确确认计划中每项任务及人员的具体警告")
         initial_tasks = self._targets(semester.id, payload["task_ids"])
@@ -311,6 +339,31 @@ class AssignmentPlanService:
         )
         if failure:
             raise ConflictError(message=f"计划校验失败：{REASONS.get(failure[1], failure[1])}")
+        if automation is not None:
+            target = tasks[0]
+            previous = existing[target.id]
+            request = self.db.scalar(
+                select(AssignmentChangeRequest)
+                .where(
+                    AssignmentChangeRequest.id == int(automation.request_id),
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if (
+                previous is None
+                or request is None
+                or request.status != "PENDING"
+                or request.assignment_id != previous.id
+                or request.request_user_id != previous.volunteer_user_id
+                or assignments[target.id] == previous.volunteer_user_id
+            ):
+                raise ConflictError(message="换班申请或原受派已变化")
+            # Preserve the original assignee's deadline fact before replacing the assignment.
+            self.inspection._repo.deadline_scope_id = self.cid
+            self.inspection._settle_assessment(
+                target, self.inspection._repo.deadline_for_task(target)
+            )
         for task in tasks:
             if task.id not in assignments:
                 continue
@@ -329,7 +382,7 @@ class AssignmentPlanService:
                 ):
                     request.status, request.processed_by, request.processed_at = (
                         "APPROVED",
-                        self.actor.id,
+                        None if automation is not None else self.actor.id,
                         utcnow(),
                     )
                     request.comment = payload["reason"] or "管理员已通过确认计划改派"
@@ -338,10 +391,10 @@ class AssignmentPlanService:
                     task_id=task.id,
                     volunteer_user_id=assignments[task.id],
                     assign_method=AssignMethod.MANUAL.value
-                    if payload["manual"]
+                    if payload["manual"] and automation is None
                     else AssignMethod.AUTO.value,
                     assign_reason=payload["reason"],
-                    assigned_by=self.actor.id,
+                    assigned_by=None if automation is not None else self.actor.id,
                     lock_version=0,
                 )
             )
@@ -355,18 +408,21 @@ class AssignmentPlanService:
             "unassigned": payload["unassigned"],
         }
         self.inspection._audit(
-            actor_user_id=self.actor.id,
-            action="assignment.plan.commit",
+            actor_user_id=None if automation is not None else self.actor.id,
+            action="assignment.auto_change.apply"
+            if automation is not None
+            else "assignment.plan.commit",
             resource_type="assignment_confirmation_plan",
             resource_id=row.id,
             after={
                 "revision": row.revision,
                 "confirmed": [item.model_dump() for item in body.confirmations],
                 "result": result,
+                **({"automation": asdict(automation)} if automation is not None else {}),
             },
             reason=payload["reason"],
             request_id=request_id,
         )
         row.status, row.result = "COMMITTED", result
-        self.db.commit()
+        self.db.flush()
         return result

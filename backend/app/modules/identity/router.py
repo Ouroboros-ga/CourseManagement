@@ -60,7 +60,8 @@ def campus_runtime(actor: CurrentUserDep):
     settings = get_settings()
     return success({"academic_scoped": settings.campus_academic_scoped_enabled,
                     "business_scoped": settings.campus_business_scoped_enabled,
-                    "scheduling": settings.campus_scheduling_enabled})
+                    "scheduling": settings.campus_scheduling_enabled,
+                    "objection_precheck": settings.agent_objection_precheck_enabled})
 
 # refresh Cookie 作用路径：仅覆盖 auth 子路径，缩小暴露面。
 _REFRESH_COOKIE_PATH = "/api/v1/auth"

@@ -80,6 +80,7 @@ from app.modules.objection.schemas import (
     ObjectionStudentBrief,
     ObjectionTaskBrief,
 )
+from app.modules.organization.service import atomic_write
 from app.modules.report.source_revision import SourceRevisionService
 
 # 认定类型的中文表述：冲突说明与响应装配共用一张表，避免同一事实出现两种说法。
@@ -156,6 +157,7 @@ class ObjectionService:
     # ================================================================== #
     # 创建（objection.create + SELF_STUDENT / OWN_OBJECTION）
     # ================================================================== #
+    @atomic_write
     def create(
         self,
         actor: CurrentUser,
@@ -211,6 +213,13 @@ class ObjectionService:
         for fid in file_ids:
             self._repo.add(ObjectionFile(objection_id=obj.id, file_id=fid))
         self._repo.flush()
+        if self._settings.agent_objection_precheck_enabled:
+            from app.modules.objection.precheck_service import ObjectionPrecheckService
+
+            task = self._session.get(InspectionTask, record.task_id)
+            if task is None:
+                raise NotFoundError("考勤所属任务不存在")
+            ObjectionPrecheckService(self._session, task.college_id).enqueue(obj.id, actor.id)
         self._audit(
             actor_user_id=actor.id,
             action="objection.create",
@@ -368,6 +377,7 @@ class ObjectionService:
     # ================================================================== #
     # 终审（objection.final_review；通过且需更正时同事务改判考勤）
     # ================================================================== #
+    @atomic_write
     def final_review(
         self,
         actor: CurrentUser,
@@ -379,8 +389,9 @@ class ObjectionService:
 
         objection.final_review 包含通过该异议时的考勤改判能力；独立手工更正仍由
         attendance.correct 控制。审核者所见 `current_version` 必须与考勤当前版本一致，否则
-        VERSION_CONFLICT，不覆盖他人新认定。锁序：先锁考勤、再锁异议（populate_existing 重读
-        状态）。驳回不改考勤。改判写入由 `apply_final_review` 完成，与教工责任区审核共用。
+        VERSION_CONFLICT，不覆盖他人新认定。预审启用时，先准备同事务的实际教务身份及任务范围
+        授权，并按学期→任务→考勤→异议锁定；关闭时保留原考勤→异议锁序。驳回不改考勤。
+        改判写入由 `apply_final_review` 完成，与教工责任区审核共用。
         """
         self._require(actor.id, perms.OBJECTION_FINAL_REVIEW_PERMISSION)
         self._legacy_manage_gate()
@@ -389,7 +400,10 @@ class ObjectionService:
         if anchor is None:
             raise NotFoundError("异议不存在")
 
-        # 全局锁层级：先锁考勤行，再锁异议行并重读状态。
+        from app.modules.objection.precheck_review import prepare_if_enabled
+        precheck_guard = prepare_if_enabled(self._session, actor.id, objection_id)
+
+        # 预审启用时已由 guard 按完整锁序取得源记录；此处保留原入口的锁定重读。
         record = self._repo.get_attendance_for_update(anchor.attendance_record_id)
         obj = self._repo.get_objection_for_update(objection_id)
         if record is None or obj is None:
@@ -398,7 +412,8 @@ class ObjectionService:
         require_open_task(self._session, record.task_id)
         assert_pending_review(obj)
         self.apply_final_review(
-            obj, record, body, actor_user_id=actor.id, request_id=request_id
+            obj, record, body, actor_user_id=actor.id, request_id=request_id,
+            precheck_guard=precheck_guard,
         )
         self._session.commit()
         self._session.refresh(obj)
@@ -412,12 +427,14 @@ class ObjectionService:
         *,
         actor_user_id: int,
         request_id: str | None,
+        precheck_guard=None,
     ) -> bool:
         """一次审核的事务核心：状态机、考勤版本链、审计与报表源修订。
 
         管理员终审与教职工责任区审核共用同一条状态机（架构合同 §3：不新建第二套审批）。
-        调用方必须已按“考勤→异议”顺序锁定这两行、复核归档与各自的资源授权，并在本方法
-        成功后自行完成**单次**提交；本方法不读权限、不提交、失败由调用方回滚。
+        调用方须先完成资源授权与归档校验。预审启用时必须提供同事务、同人员和同申诉的
+        PreparedFinalReview；它在取得源记录锁前准备权限，核心再核验当前预审及人工例外原因。
+        关闭时沿用“考勤→异议”锁序。本方法不提交，成功由调用方单次提交，失败整体回滚。
 
         版本口径：任何决定（通过或驳回）都必须提交所见的 `current_version`，与考勤当前版本
         不符即 409，绝不静默结案。审核者看到的事实与库里不一致时，需要刷新后重新确认；
@@ -433,6 +450,13 @@ class ObjectionService:
                 f" {ATTENDANCE_TYPE_LABELS.get(record.effective_type, record.effective_type)}"
                 f"（v{record.current_version}），请刷新核对后再决定",
             )
+        precheck_audit = None
+        if self._settings.agent_objection_precheck_enabled:
+            from app.modules.objection.precheck_review import PreparedFinalReview
+
+            if not isinstance(precheck_guard, PreparedFinalReview):
+                raise PermissionDeniedError("缺少已授权的教务终审上下文")
+            precheck_audit = precheck_guard.accept(self._session, actor_user_id, obj, record, body)
         now = utcnow()
         if body.decision == "REJECTED":
             obj.final_status = ObjectionFinalStatus.REJECTED.value
@@ -445,7 +469,8 @@ class ObjectionService:
                 action="objection.final_review",
                 resource_id=f"{obj.id}",
                 before={"final_status": ObjectionFinalStatus.PENDING.value},
-                after={"final_status": obj.final_status, "corrected": False},
+                after={"final_status": obj.final_status, "corrected": False,
+                       **({"precheck": precheck_audit} if precheck_audit else {})},
                 reason=body.comment,
                 request_id=request_id,
             )
@@ -510,6 +535,7 @@ class ObjectionService:
                 # 考勤在异议发起后已被他人合法写入（如教师更正）；审核者已按新版本重新核对。
                 "attendance_changed_since_filing": changed_since_filing,
                 "base_attendance_version": obj.base_attendance_version,
+                **({"precheck": precheck_audit} if precheck_audit else {}),
             },
             reason=body.comment,
             request_id=request_id,

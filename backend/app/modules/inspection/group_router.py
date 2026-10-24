@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from sqlalchemy.orm import Session
 
 from app.common.responses import success
@@ -12,6 +12,8 @@ from app.modules.inspection.assignment_plan_schemas import (
     AssignmentPlanPreview,
 )
 from app.modules.inspection.assignment_plan_service import AssignmentPlanService
+from app.modules.inspection.auto_change_schemas import AutoChangePolicyUpdate
+from app.modules.inspection.auto_change_service import AutoChangeService
 from app.modules.inspection.group_sampling import (
     GroupAssignRequest,
     GroupSampleConfirm,
@@ -27,6 +29,26 @@ router = APIRouter(
 )
 Db = Annotated[Session, Depends(get_db)]
 ResourceId = Annotated[int, Path(gt=0, le=2**63 - 1)]
+
+
+@router.get("/auto-change-policy")
+def read_auto_change_policy(
+    cid: ResourceId, gid: ResourceId, actor: CurrentUserDep, db: Db,
+    semester_id: Annotated[int, Query(gt=0, le=2**63 - 1)], request: Request,
+):
+    result = AutoChangeService(db, cid, gid, semester_id).get_policy(actor)
+    return success(result, getattr(request.state, "request_id", None))
+
+
+@router.put("/auto-change-policy")
+def update_auto_change_policy(
+    cid: ResourceId, gid: ResourceId, body: AutoChangePolicyUpdate,
+    actor: CurrentUserDep, db: Db, request: Request,
+):
+    result = AutoChangeService(db, cid, gid, int(body.semester_id)).set_policy(
+        actor, enabled=body.enabled, current_version=body.current_version,
+    )
+    return success(result, getattr(request.state, "request_id", None))
 
 
 @router.post("/assignment-plans/preview")

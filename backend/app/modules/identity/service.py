@@ -351,7 +351,9 @@ class IdentityService:
     # ------------------------------------------------------------------ #
     # 会话解析（供权限依赖调用）
     # ------------------------------------------------------------------ #
-    def resolve_session_user(self, user_id: int, session_id: int) -> CurrentUser:
+    def resolve_session_user(
+        self, user_id: int, session_id: int, *, touch_session: bool = True
+    ) -> CurrentUser:
         user = self._repo.get_user_by_id(user_id)
         if user is None or not user.is_active:
             raise UnauthenticatedError("账号不可用")
@@ -365,8 +367,9 @@ class IdentityService:
 
         if session.client_type == ClientType.WEB.value:
             self._require_staff_web_eligibility(user)
-        session.last_used_at = utcnow()
-        self._session.commit()  # 刷新 last_used，只读事务下的轻量写入
+        if touch_session:
+            session.last_used_at = utcnow()
+            self._session.commit()  # HTTP登录路径保留既有行为；事务内任务检查不提交父事务。
         roles = self._repo.list_role_codes(user.id)
         # PRE_BINDING：微信侧登录成功但尚未完成学生绑定（无 student_id 且无任何角色）。
         pre_binding = user.student_id is None and not roles

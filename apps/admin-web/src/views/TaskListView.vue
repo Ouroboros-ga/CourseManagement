@@ -8,6 +8,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { ContextEpoch } from '../utils/contextEpoch'
 import AppPagination from '../components/AppPagination.vue'
 import TaskStatusTag from '../components/TaskStatusTag.vue'
+import AutoChangePolicyCard from '../components/AutoChangePolicyCard.vue'
 import TaskDrawer from '../components/TaskDrawer.vue'
 import AppIcon from '../components/AppIcon.vue'
 import {
@@ -53,6 +54,15 @@ const selectedDayFilter = ref<string>('ALL')
 const filterOnlyChangeRequests = ref(false)
 
 const pendingChangeRequestsCount = computed(() => summary.value.pending_change)
+const canConfigureAutoChange = computed(() => !!sessionStore.campusRuntime?.scheduling
+  && sessionStore.hasPermission('assignment.manage')
+  && sessionStore.hasPermission('assignment.change_review')
+  && sessionStore.hasPermission('volunteer.group.read'))
+const autoChangeContextKey = computed(() => JSON.stringify([
+  sessionStore.currentUser?.id, sessionStore.workspaceCollegeId,
+  sessionStore.workspace?.authorization_revision, sessionStore.workspace?.configuration_revision,
+  sessionStore.workspace?.capabilities, sessionStore.currentSemesterId, canConfigureAutoChange.value
+]))
 
 function getTodayDateStr(): string {
   const d = new Date()
@@ -613,6 +623,16 @@ async function handleConfirmCancelFromEdit() {
         <div class="note">考勤结果已生效</div>
       </div>
     </div>
+
+    <AutoChangePolicyCard
+      v-if="canConfigureAutoChange && sessionStore.currentSemester?.status === 'ACTIVE'"
+      :college-id="sessionStore.workspaceCollegeId"
+      :college-name="sessionStore.workspace?.name || '当前学院'"
+      :semester-id="sessionStore.currentSemesterId"
+      :semester-name="sessionStore.currentSemesterName"
+      :context-key="autoChangeContextKey"
+      :available="canConfigureAutoChange"
+    />
 
     <!-- 换班申请待处理提醒条 -->
     <div v-if="pendingChangeRequestsCount > 0" class="cr-alert-bar">
