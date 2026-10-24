@@ -503,7 +503,9 @@ class CampusService:
         self._resource(VolunteerGroup, cid, gid)
         classes = select(AdministrativeClass).where(AdministrativeClass.college_id == cid)
         teaching = select(TeachingClass).where(TeachingClass.college_id == cid)
-        types = select(CourseType).where(CourseType.college_id == cid)
+        types = select(CourseType).where(
+            CourseType.college_id == cid, CourseType.deleted_at.is_(None)
+        )
         if not scope.unrestricted:
             bounds = [clause.get("bounds", {}).get(str(gid), {}) for clause in scope.constraints
                       if clause["kind"] == "GROUPS" and str(gid) in clause["ids"]]
@@ -516,7 +518,10 @@ class CampusService:
         # The check-target selector obeys frozen ceilings. Conflict exceptions need
         # same-college catalog metadata even for courses the group does not inspect.
         # No enrollment, student, schedule or roster facts are exposed here.
-        conflicts = list(self.db.scalars(select(CourseType).where(CourseType.college_id == cid).order_by(CourseType.id)))
+        conflicts = list(self.db.scalars(select(CourseType).where(
+            CourseType.college_id == cid, CourseType.deleted_at.is_(None),
+            CourseType.status == "ACTIVE",
+        ).order_by(CourseType.id)))
         return {"conflict_types": [self._dto(row) for row in conflicts], "types": [self._dto(row) for row in self.db.scalars(types.order_by(CourseType.id))],
                 "classes": [{"id": str(row.id), "class_name": row.class_name, "status": row.status}
                             for row in self.db.scalars(classes.order_by(AdministrativeClass.id))],
@@ -620,7 +625,13 @@ class CampusService:
         for value in sorted(type_ids):
             if not value.isascii() or not value.isdigit() or not 0 < int(value) < 2**63:
                 raise AppError(ErrorCode.VALIDATION_ERROR, "类型标识无效", 422)
-            kind = self._resource(CourseType, cid, int(value))
+            kind = self.repo.resource(CourseType, cid, int(value))
+            if kind is None:
+                raise NotFoundError()
+            if kind.deleted_at is not None:
+                raise ConflictError(message=(
+                    "课程类型已删除，请刷新并移除对应的查课范围或冲突规则后重试"
+                ))
             if kind.status != "ACTIVE":
                 raise ConflictError(message="类型已停用")
         before = self._dto(row)
