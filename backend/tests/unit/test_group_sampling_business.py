@@ -132,3 +132,111 @@ def test_reclassification_invalidates_group_preview_and_never_fills_other_type(c
     ScopedAcademicService(db, admin, int(a["id"])).set_course_type(teaching.id, int(other["id"]), 2)
     with pytest.raises(ConflictError):
         service.generate(body, preview["selection_revision"])
+
+
+def test_generation_can_share_callers_transaction_and_roll_back_all_business_facts(
+    campus, monkeypatch
+):
+    from app.modules.audit.models import AuditLog
+    from app.modules.inspection.group_sampling import GroupSamplingService
+    from app.modules.inspection.models import (
+        InspectionTask,
+        TaskRosterMember,
+        SubmissionDeadlineDay,
+        SubmissionDeadlineVersion,
+    )
+
+    db, admin, college, semester, group, own, _, _ = arrange(campus, monkeypatch)
+    service = GroupSamplingService(db, admin, int(college["id"]), int(group["id"]))
+    body = {
+        "semester_id": str(semester.id),
+        "date_from": "2026-09-07",
+        "date_to": "2026-09-07",
+        "counts": {str(own.administrative_class_id): 1},
+        "draw_id": "weekly-transaction",
+    }
+    models = [
+        InspectionTask,
+        TaskRosterMember,
+        SubmissionDeadlineDay,
+        SubmissionDeadlineVersion,
+        AuditLog,
+    ]
+    before = [db.query(model).count() for model in models]
+    revision = service.preview(body)["selection_revision"]
+    result = service.generate_in_transaction(body, revision)
+    assert result.created == 1
+    assert db.query(InspectionTask).count() == before[0] + 1
+    db.rollback()
+    assert [db.query(model).count() for model in models] == before
+
+
+def test_explicit_course_type_filter_is_exact_and_cannot_expand_group_scope(campus, monkeypatch):
+    from app.modules.inspection.group_sampling import GroupSamplingService
+    from app.core.exceptions import NotFoundError
+
+    db, admin, college, semester, group, own, teaching, other = arrange(campus, monkeypatch)
+    service = GroupSamplingService(db, admin, int(college["id"]), int(group["id"]))
+    body = {
+        "semester_id": str(semester.id),
+        "date_from": "2026-09-07",
+        "date_to": "2026-09-07",
+        "counts": {str(own.administrative_class_id): 1},
+        "draw_id": "explicit-types",
+        "course_type_ids": [str(teaching.course_type_id)],
+    }
+    assert service.preview(body)["selected_count"] == 1
+    with pytest.raises(NotFoundError):
+        service.preview({**body, "course_type_ids": [other["id"]]})
+    from app.modules.academic.scoped_service import ScopedAcademicService
+    from app.modules.organization.service import CampusService
+    from app.modules.volunteer.models import VolunteerGroup
+
+    current = db.get(VolunteerGroup, int(group["id"]))
+    CampusService(db).publish_group(
+        admin,
+        int(college["id"]),
+        current.id,
+        {
+            "lock_version": current.lock_version,
+            "course_type_ids": [str(teaching.course_type_id), other["id"]],
+        },
+    )
+    ScopedAcademicService(db, admin, int(college["id"])).set_course_type(
+        teaching.id, int(other["id"]), teaching.classification_revision
+    )
+    with pytest.raises(ConflictError):
+        service.preview(body)
+    assert service.preview({**body, "course_type_ids": [other["id"]]})["selected_count"] == 1
+    from app.modules.academic.campus_models import CourseType
+
+    db.get(CourseType, int(body["course_type_ids"][0])).status = "INACTIVE"
+    db.commit()
+    with pytest.raises(NotFoundError):
+        service.preview(body)
+    # An omitted filter preserves the original group-wide behavior: inactive
+    # types are skipped rather than blocking unrelated active types.
+    assert (
+        service.preview({key: value for key, value in body.items() if key != "course_type_ids"})[
+            "selected_count"
+        ]
+        == 1
+    )
+
+
+@pytest.mark.parametrize("ids", [[], ["01"], [True], ["1", "1"], [str(2**63)]])
+def test_explicit_type_filter_refuses_ambiguous_identifiers(ids):
+    from app.modules.inspection.group_sampling import GroupSampleRequest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        GroupSampleRequest.model_validate(
+            {
+                "semester_id": "1",
+                "date_from": "2026-09-07",
+                "date_to": "2026-09-07",
+                "counts": {"1": 1},
+                "draw_id": "strict",
+                "course_type_ids": ids,
+            }
+        )

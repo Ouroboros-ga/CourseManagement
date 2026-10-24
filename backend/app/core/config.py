@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     agent_mcp_enabled: bool = Field(default=False, alias="AGENT_MCP_ENABLED")
     agent_worker_enabled: bool = Field(default=False, alias="AGENT_WORKER_ENABLED")
     agent_auto_change_enabled: bool = Field(default=False, alias="AGENT_AUTO_CHANGE_ENABLED")
+    agent_weekly_inspection_enabled: bool = Field(default=False, alias="AGENT_WEEKLY_INSPECTION_ENABLED")
     agent_objection_precheck_enabled: bool = Field(
         default=False, alias="AGENT_OBJECTION_PRECHECK_ENABLED"
     )

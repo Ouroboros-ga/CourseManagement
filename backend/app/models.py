@@ -36,6 +36,7 @@ from app.modules.identity import staff_binding_models as staff_binding_models  #
 from app.modules.importer import models as importer_models  # noqa: F401
 from app.modules.inspection import assignment_plan_models  # noqa: F401
 from app.modules.inspection import automation_models  # noqa: F401
+from app.modules.inspection import weekly_models  # noqa: F401
 from app.modules.inspection import models as inspection_models  # noqa: F401
 from app.modules.inspection import responsibility  # noqa: F401
 from app.modules.objection import models as objection_models  # noqa: F401

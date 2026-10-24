@@ -589,6 +589,8 @@ class InspectionService:
         items: list[PlanItem],
         actor_user_id: int,
         request_id: str | None,
+        *,
+        commit: bool = True,
     ) -> GenerateResultResponse:
         existing = self._repo.find_task_ids_by_keys([it.task_key for it in items])
         if existing:
@@ -760,7 +762,10 @@ class InspectionService:
             if r.assignment_id is None and r.status in {"待执行", "已逾期"}
         ]
         # 单一提交点：任务 + 名单快照 + 截止记录 + 审计同事务原子生效。
-        self._session.commit()
+        if commit:
+            self._session.commit()
+        else:
+            self._session.flush()
         return GenerateResultResponse(
             semester_id=sem.id,
             inspection_type=body.inspection_type,

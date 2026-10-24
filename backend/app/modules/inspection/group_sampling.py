@@ -27,6 +27,8 @@ from app.modules.organization.schemas import StrictModel
 from app.modules.organization.service import atomic_write, validated
 from app.modules.volunteer.models import VolunteerGroup
 
+CourseTypeId = Annotated[str, Field(strict=True, pattern=r"^[1-9][0-9]{0,18}$")]
+
 
 def choose_exact(candidates: list[tuple[str, frozenset[int]]], counts: dict[int, int], seed: str):
     if (
@@ -96,9 +98,18 @@ class GroupSampleRequest(StrictModel):
     )
     draw_id: str = Field(min_length=1, max_length=64)
     require_photo: bool = True
+    course_type_ids: list[CourseTypeId] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
 
     @model_validator(mode="after")
     def scope(self):
+        if self.course_type_ids is not None:
+            if len(set(self.course_type_ids)) != len(self.course_type_ids) or any(
+                int(value) >= 2**63 for value in self.course_type_ids
+            ):
+                raise ValueError("课程类型标识无效或重复")
+            self.course_type_ids.sort(key=int)
         if not 0 <= (self.date_to - self.date_from).days < 31:
             raise ValueError("抽查范围须为1至31天")
         if int(self.semester_id) >= 2**63 or any(
@@ -201,6 +212,16 @@ class GroupSamplingService:
         if len(classes) != len(requested):
             raise NotFoundError("抽查班级不在本院或已停用")
         config = version.configuration
+        selected_types = set(body.course_type_ids or config["course_type_ids"])
+        if not selected_types <= set(config["course_type_ids"]):
+            raise NotFoundError("课程类型不在执行组已发布范围")
+        if body.course_type_ids is not None:
+            active_types = set(self.db.scalars(select(CourseType.id).where(
+                CourseType.id.in_([int(value) for value in selected_types]),
+                CourseType.college_id == self.cid, CourseType.status == "ACTIVE",
+            )))
+            if active_types != {int(value) for value in selected_types}:
+                raise NotFoundError("课程类型不在本院或已停用")
         if config["class_mode"] == "SPECIFIC" and not requested.keys() <= {
             int(v) for v in config["class_ids"]
         }:
@@ -215,7 +236,7 @@ class GroupSamplingService:
                     TeachingClass.status == "ACTIVE",
                     CourseType.college_id == self.cid,
                     CourseType.status == "ACTIVE",
-                    CourseType.id.in_([int(v) for v in config["course_type_ids"]]),
+                    CourseType.id.in_([int(v) for v in selected_types]),
                 )
                 .order_by(TeachingClass.id)
             )
@@ -314,6 +335,12 @@ class GroupSamplingService:
 
     @atomic_write
     def generate(self, data, revision: str, request_id=None):
+        result = self.generate_in_transaction(data, revision, request_id)
+        self.db.commit()
+        return result
+
+    def generate_in_transaction(self, data, revision: str, request_id=None):
+        """Flush exact tasks and their snapshots; caller commits its execution receipt."""
         body, inspection, semester, selected, preview = self._build(data, write=True)
         if revision != preview["selection_revision"]:
             raise ConflictError(ErrorCode.VERSION_CONFLICT, "课次、组配置或授权已变化，请重新预览")
@@ -325,4 +352,6 @@ class GroupSamplingService:
             teaching_class_ids=sorted({p.teaching_class_id for p in selected}),
             require_photo=body.require_photo,
         )
-        return inspection._materialize(semester, request, selected, self.actor.id, request_id)
+        return inspection._materialize(
+            semester, request, selected, self.actor.id, request_id, commit=False
+        )
