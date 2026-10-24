@@ -109,3 +109,41 @@ def test_login_feature_gate_and_strict_upload_fields(case, monkeypatch):
     assert send(case, college_id="01").status_code == 422
     monkeypatch.setattr(get_settings(), "agent_import_workspace_enabled", False)
     assert send(case).status_code == 404
+
+
+def test_lookup_and_stored_preview_use_owned_login_and_strict_business_parameters(case):
+    from app.modules.agent.import_workspace_worker import ImportWorkspaceWorker
+    from sqlalchemy.orm import sessionmaker
+
+    uploaded = send(case).json()["data"]
+    lookup = case[1].get(f"{ROOT}/by-request/UPLOAD-1", params=scope(case), headers=case[3])
+    assert (
+        lookup.status_code == 200
+        and lookup.json()["data"]["workspace_id"] == uploaded["workspace_id"]
+    )
+    assert lookup.headers["Cache-Control"] == "private, no-store"
+    assert case[1].get(f"{ROOT}/by-request/upload-1", params=scope(case)).status_code == 401
+    worker = ImportWorkspaceWorker(
+        sessionmaker(bind=case[0][0][1].bind),
+        case[0][2].connections,
+        environment="dev",
+        app_key_id="management",
+        storage=case[2],
+    )
+    assert worker.run_once()
+    path = f"{ROOT}/{uploaded['workspace_id']}/previews"
+    body = {**scope(case), "target": "faculty_staff", "member_nos": [1], "request_key": "first"}
+    queued = case[1].post(path, json=body, headers=case[3])
+    assert queued.status_code == 200, queued.text
+    assert queued.json()["data"]["preview"]["status"] == "QUEUED"
+    assert case[1].post(path, json={**body, "approve": True}, headers=case[3]).status_code == 422
+    assert (
+        case[1].post(path, json={**body, "member_nos": [True]}, headers=case[3]).status_code == 422
+    )
+    assert case[1].post(
+        path, json={**body, "college_id": str(case[0][0][5]["id"])}, headers=case[3]
+    ).status_code in {403, 404}
+    assert (
+        case[1].post(path, json=body, headers=case[3]).json()["data"]["preview"]["request_key"]
+        == "first"
+    )

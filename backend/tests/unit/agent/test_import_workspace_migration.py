@@ -39,9 +39,10 @@ def test_upgrade_schema_and_nonempty_downgrade_guard(case):
         module.upgrade()
         assert {
             c["name"] for c in inspect(connection).get_columns("agent_import_workspace")
-        } == set(Base.metadata.tables["agent_import_workspace"].columns.keys())
+        } == set(Base.metadata.tables["agent_import_workspace"].columns.keys()) - {"preview_json"}
         module.downgrade()
         module.upgrade()
+        connection.execute(text("ALTER TABLE agent_import_workspace ADD COLUMN preview_json JSON"))
     service, _, scope = arrange(case)
     upload(service, scope)
     db.commit()

@@ -4,6 +4,7 @@ import time
 
 from app.core.config import get_settings
 from app.modules.agent.import_inspection import InspectionError, inspect_source, validate_source
+from app.modules.agent.import_preview_process import run_preview_claim
 from app.modules.agent.import_workspace import ImportWorkspaceService
 from app.modules.file.storage import build_default_storage
 
@@ -18,11 +19,13 @@ class ImportWorkspaceWorker:
         app_key_id,
         storage=None,
         inspector=inspect_source,
+        preview_executor=run_preview_claim,
     ):
         self.session_factory, self.connections = session_factory, connections
         self.environment, self.app_key_id = environment, app_key_id
         self.storage = storage if storage is not None else build_default_storage(get_settings())
         self.inspector = inspector
+        self.preview_executor = preview_executor
 
     def _service(self, db):
         return ImportWorkspaceService(
@@ -51,6 +54,15 @@ class ImportWorkspaceWorker:
             fingerprint = validate_source(content, claim.filename)
             if fingerprint != claim.sha256 or len(content) != claim.size_bytes:
                 code = "SOURCE_CHANGED"
+            elif claim.stage == "PREVIEW":
+                self.preview_executor(
+                    claim,
+                    content,
+                    connections=self.connections,
+                    environment=self.environment,
+                    app_key_id=self.app_key_id,
+                )
+                return True
             else:
                 inspection = self.inspector(content, claim.filename)
         except InspectionError as error:

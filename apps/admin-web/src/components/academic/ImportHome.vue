@@ -9,6 +9,7 @@ import { formatBeijingTime } from '../../utils/datetime'
 import ImportWizard from './ImportWizard.vue'
 import ImportCenter from './ImportCenter.vue'
 import AssistantImportReviewCard from './AssistantImportReviewCard.vue'
+import StoredImportWorkspaceCard from './StoredImportWorkspaceCard.vue'
 import type { ResumableImport } from '../../api/assistantImports'
 
 const router = useRouter()
@@ -25,9 +26,12 @@ const detailBusy = ref(false)
 const assistantTaskId = computed(() => route.query.assistant_task_id === undefined ? ''
   : typeof route.query.assistant_task_id === 'string' && route.query.assistant_task_id ? route.query.assistant_task_id : 'INVALID')
 const assistantAvailable = computed(() => !!session.campusRuntime?.business_scoped && session.hasPermission('import.execute'))
+const assistantWorkspaceId = computed(() => route.query.assistant_workspace_id === undefined ? ''
+  : typeof route.query.assistant_workspace_id === 'string' && route.query.assistant_workspace_id ? route.query.assistant_workspace_id : 'INVALID')
+const storedAvailable = computed(() => assistantAvailable.value && import.meta.env.VITE_AGENT_IMPORT_ENABLED === 'true')
 const context = () => JSON.stringify([session.currentUser?.id, session.currentUser?.roles,
   session.workspaceCollegeId, session.currentSemesterId, session.workspace?.authorization_revision,
-  session.workspace?.configuration_revision, session.workspace?.capabilities, assistantTaskId.value, assistantAvailable.value])
+  session.workspace?.configuration_revision, session.workspace?.capabilities, assistantTaskId.value, assistantWorkspaceId.value, assistantAvailable.value])
 let requestId = 0
 
 async function loadRecent() {
@@ -56,8 +60,8 @@ function resumeAssistant(rows: ResumableImport[]) {
 }
 function backToImport() {
   resumeBatch.value = null; resumeBatches.value = []
-  if (assistantTaskId.value) {
-    const query = { ...route.query }; delete query.assistant_task_id
+  if (assistantTaskId.value || assistantWorkspaceId.value) {
+    const query = { ...route.query }; delete query.assistant_task_id; delete query.assistant_workspace_id
     void router.replace({ query })
   }
 }
@@ -87,6 +91,9 @@ async function open(row: ImportBatchListItem) {
 
 <template>
   <section aria-label="资料导入">
+    <StoredImportWorkspaceCard v-if="assistantWorkspaceId" :key="context()" :workspace-id="assistantWorkspaceId"
+      :college-id="session.workspaceCollegeId" :semester-id="session.currentSemesterId"
+      :context-key="context()" :available="storedAvailable" @saved="loadRecent" @busy="busy = $event" />
     <AssistantImportReviewCard v-if="assistantTaskId" :task-id="assistantTaskId"
       :college-id="session.workspaceCollegeId" :semester-id="session.currentSemesterId"
       :context-key="context()" :available="assistantAvailable" :locked="busy" @resume="resumeAssistant" />
@@ -97,9 +104,9 @@ async function open(row: ImportBatchListItem) {
       @saved="loadRecent"
       @busy="busy = $event"
     />
-    <ImportCenter v-else-if="!assistantTaskId" @saved="loadRecent" @busy="busy = $event" />
+    <ImportCenter v-else-if="!assistantTaskId && !assistantWorkspaceId" @saved="loadRecent" @busy="busy = $event" />
 
-    <el-button v-if="resumeBatch || resumeBatches.length || assistantTaskId" :disabled="busy" @click="backToImport">返回统一导入</el-button>
+    <el-button v-if="resumeBatch || resumeBatches.length || assistantTaskId || assistantWorkspaceId" :disabled="busy" @click="backToImport">返回统一导入</el-button>
 
     <div class="other-actions">
       <span>其他操作</span>

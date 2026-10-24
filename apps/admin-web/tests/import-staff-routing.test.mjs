@@ -45,12 +45,17 @@ function wizard(session) {
     } }
   }
   const composable = load(read('../src/composables/useImportWizard.ts'), imports)
+  const storedComposable = load(read('../src/composables/useStoredImportPreview.ts'), {
+    vue: runtimeVue, '../api/assistantWorkspaces': {},
+    '../utils/contextEpoch': load(read('../src/utils/contextEpoch.ts'), {})
+  })
   const source = compileScript(parse(read('../src/components/academic/ImportWizard.vue')).descriptor,
     { id: 'staff-routing' }).content
   const component = load(source, {
     vue: runtimeVue, 'vue-router': { useRouter: () => ({}) }, 'element-plus': {},
     '../../stores/session': imports['../stores/session'],
     '../../composables/useImportWizard': composable,
+    '../../composables/useStoredImportPreview': storedComposable,
     '../../api/campus': { listCourseTypes: async () => [] }, '../../api/scopedAcademic': {},
     '../../api/importer': {}, '../../composables/useWorkspaceChanges': {},
     './ImportIdentityReview.vue': {}, './ImportReview.vue': {}, './ImportConflictHelp.vue': {},

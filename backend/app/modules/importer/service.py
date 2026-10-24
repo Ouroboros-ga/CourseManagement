@@ -193,6 +193,7 @@ class ImporterService:
         filename: str | None,
         replace: bool,
         request_id: str | None,
+        commit: bool = True,
     ) -> ImportPreviewResponse:
         # 旧页面的责任表入口与行政班名单共用真实解析/落库目标，不能落入课表解析。
         if target == "class_duty":
@@ -327,7 +328,10 @@ class ImporterService:
             reason=None,
             request_id=request_id,
         )
-        self._session.commit()
+        if commit:
+            self._session.commit()
+        else:
+            self._session.flush()
         return self._to_preview(batch)
 
     def _validate_scope(

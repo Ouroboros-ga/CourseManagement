@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../../stores/session'
 import { useImportWizard } from '../../composables/useImportWizard'
+import { useStoredImportPreview } from '../../composables/useStoredImportPreview'
+import type { StoredSelection } from '../../api/assistantWorkspaces'
 import { listCourseTypes, type CourseType } from '../../api/campus'
 import { listScopedAcademic, type ScopedAcademicRow } from '../../api/scopedAcademic'
 import { downloadImportTemplateFile, type ImportPreviewResult, type ImportUploadSource, type ImportSetResult } from '../../api/importer'
@@ -13,10 +15,18 @@ import ImportReview from './ImportReview.vue'
 import ImportConflictHelp from './ImportConflictHelp.vue'
 import { savedSummary } from './importLabels'
 
-const props = withDefaults(defineProps<{ initialTarget?: string; resumeBatch?: (ImportPreviewResult & { filename: string }) | null; resumeBatches?: Array<ImportPreviewResult & { filename: string }>; sources?: ImportUploadSource[]; embedded?: boolean }>(), { initialTarget: 'grid_timetable', resumeBatch: null, embedded: false })
+const props = withDefaults(defineProps<{ initialTarget?: string; resumeBatch?: (ImportPreviewResult & { filename: string }) | null; resumeBatches?: Array<ImportPreviewResult & { filename: string }>; sources?: ImportUploadSource[]; storedSource?: StoredSelection; embedded?: boolean }>(), { initialTarget: 'grid_timetable', resumeBatch: null, embedded: false })
 const emit = defineEmits<{ saved: [result: ImportSetResult]; busy: [value: boolean] }>()
 const router = useRouter(), session = useSessionStore(), state = useImportWizard()
-const { target, teachingClassId, courseTypeId, files, drafts, plan, result, busy, error, uploadErrors, failuresExcluded, canUpload, canConfirm, upload, review, confirm, removeDraft, reset, resumeMany } = state
+const { target, teachingClassId, courseTypeId, files, drafts, plan, result, busy: wizardBusy, error, uploadErrors, failuresExcluded, canUpload: localCanUpload, canConfirm, upload, review, confirm, removeDraft, reset, resumeMany } = state
+const stored = useStoredImportPreview(() => ({
+  key: JSON.stringify([session.currentUser?.id, session.currentUser?.roles, session.workspace?.authorization_revision, session.workspace?.configuration_revision, session.workspace?.capabilities]),
+  collegeId: session.workspaceCollegeId, semesterId: session.currentSemesterId,
+  available: !!props.storedSource && !!session.campusRuntime?.business_scoped && session.hasPermission('import.execute'),
+  selection: props.storedSource, target: target.value, teachingClassId: target.value === 'roster' ? teachingClassId.value : '', courseTypeId: ['grid_timetable', 'timetable'].includes(target.value) ? courseTypeId.value : ''
+}), resumeMany)
+const busy = computed(() => wizardBusy.value || stored.busy.value)
+const canUpload = computed(() => props.storedSource ? !!target.value && !stored.waiting.value && (target.value !== 'roster' || !!teachingClassId.value) : localCanUpload.value)
 const options = computed(() => [
   ...(session.hasPermission('staff.manage') ? [{ id: 'faculty_staff', label: '教职工档案（首次准备）' }, { id: 'class_responsibility', label: '班级责任关系（工号模板／明确交接）' }, { id: 'teaching_assignment', label: '授课关系补充表（特殊情况）' }] : []),
   ...(session.hasPermission('course_schedule.import') ? [{ id: 'grid_timetable', label: '教务系统导出的班级课表' }, { id: 'timetable', label: '标准长表课表' }, { id: 'elective_course', label: '选修／分层补充资料' }] : []),
@@ -74,7 +84,7 @@ function selectFiles(event: Event) {
   selectingError.value = accepted.length > 100 ? `选中了 ${accepted.length} 个表格/压缩包，每次最多 100 个。请分批选择。` : !accepted.length ? '没有找到 Excel、CSV 或 ZIP 文件，请重新选择。' : ''
   files.value = accepted
 }
-async function uploadAndReview() { await upload(props.sources); if (drafts.value.length) await review() }
+async function uploadAndReview() { if (props.storedSource) { await stored.prepare(); return }; await upload(props.sources); if (drafts.value.length) await review() }
 async function removeFile(id: string) { removeDraft(id); if (drafts.value.length) await review() }
 async function template() {
   templateBusy.value = true
@@ -112,6 +122,10 @@ function classesOpened(value: boolean) { if (value) void searchClasses('') }
       </div>
       <el-alert v-if="selectingError" :title="selectingError" type="warning" :closable="false" /><details v-if="skippedFiles.length" class="disclosure"><summary>{{ skippedFiles.length }} 个非表格或临时文件未选入</summary><p v-for="name in skippedFiles" :key="name">{{ name }}</p></details>
       <div v-if="files.length && !hasPreview" class="selected-files"><strong>已选择 {{ files.length }} 个文件{{ files.some(f => /\.zip$/i.test(f.name)) ? '（压缩包将在下一步展开）' : '' }}</strong><ul><li v-for="(file, index) in files" :key="index">{{ file.webkitRelativePath || file.name }}</li></ul></div>
+      <div v-if="storedSource && !hasPreview" class="selected-files"><strong>已整理 {{ storedSource.filenames.length }} 份资料</strong><ul><li v-for="name in storedSource.filenames" :key="name">{{ name }}</li></ul></div>
+      <el-alert v-if="stored.error.value" :title="stored.error.value" type="error" :closable="false" />
+      <p v-if="stored.message.value" role="status">{{ stored.message.value }}</p>
+      <el-button v-if="storedSource && !hasPreview" :disabled="busy" @click="stored.refresh">查询预览进度</el-button>
       <div v-if="target === 'roster' && !hasPreview" class="setting-row"><label>对应教学班</label><el-select v-model="teachingClassId" filterable remote :remote-method="searchClasses" :loading="classBusy" placeholder="搜索本学期教学班" @visible-change="classesOpened"><el-option v-for="row in teachingClasses" :key="row.id" :value="row.id" :label="String(row.class_name || row.class_code || row.id)" /></el-select><p v-if="classError" role="alert">{{ classError }}</p></div>
       <details v-if="isTimetable && !hasPreview" class="advanced disclosure"><summary>其他格式与课程类型</summary><div v-if="!embedded" class="setting-row"><span>文件格式</span><el-radio-group v-model="target"><el-radio value="grid_timetable">教务系统原表</el-radio><el-radio value="timetable">按平台模板填写的表格</el-radio></el-radio-group></div><div class="setting-row"><span>课程类型</span><el-select v-model="courseTypeId" placeholder="普通课（系统默认）" clearable><el-option v-for="row in courseTypes" :key="row.id" :value="row.id" :label="row.name" /></el-select></div><p v-if="courseTypeError" role="alert">{{ courseTypeError }}</p></details>
       <el-alert v-if="error" :title="error" type="error" :closable="false" /><div v-if="!hasPreview" class="parse-action"><el-button type="primary" size="large" :disabled="!canUpload || busy || !!selectingError" @click="uploadAndReview">读取文件并预览</el-button><span class="hint">这一步只读取文件，不会保存正式资料。</span></div>

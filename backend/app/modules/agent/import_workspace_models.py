@@ -18,7 +18,9 @@ class AgentImportWorkspace(TimestampMixin, Base):
         Index("ix_agent_import_queue", "state", "id"),
         Index("ix_agent_import_owner_expiry", "actor_user_id", "expires_at"),
         CheckConstraint(
-            "state IN ('QUEUED','PROCESSING','READY','FAILED','CANCELED')", name="state"
+            "state IN ('QUEUED','PROCESSING','READY','FAILED','CANCELED',"
+            "'PREVIEW_QUEUED','PREVIEW_PROCESSING')",
+            name="state",
         ),
         CheckConstraint("attempt_count >= 0 AND attempt_count <= 3", name="attempts"),
         MYSQL_TABLE_ARGS,
@@ -33,8 +35,9 @@ class AgentImportWorkspace(TimestampMixin, Base):
     request_key: Mapped[str] = mapped_column(String(64))
     input_hash: Mapped[str] = mapped_column(String(64))
     scope_hash: Mapped[str] = mapped_column(String(64))
-    state: Mapped[str] = mapped_column(String(16), default="QUEUED")
+    state: Mapped[str] = mapped_column(String(24), default="QUEUED")
     inspection_json: Mapped[dict | None] = mapped_column(JSON)
+    preview_json: Mapped[dict | None] = mapped_column(JSON)
     error_code: Mapped[str | None] = mapped_column(String(64))
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
     attempt_token: Mapped[str | None] = mapped_column(String(64))

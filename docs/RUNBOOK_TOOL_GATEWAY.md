@@ -22,7 +22,7 @@
 
 云端 MANAGEMENT 工作流可通过[受限读取任务提交工具](development/AGENT_READ_TASK_HANDOFF_20261025.md)登记报表准备或资料核对任务。无需向模型提供登录 Bearer 或自由选择 run_id。工具只返回登记结果、实际任务状态及固定页面入口，正式业务操作仍需本人确认。该工具不允许作为队列中的目标工具，不代表管理助手会话已接通。
 
-资料预览核对已有只读工具及队列候选，见[接入记录](development/AGENT_IMPORT_REVIEW_20261024.md)。使用原上传入口生成的本人预览编号；[任务核对卡](development/AGENT_IMPORT_REVIEW_UI_20261024.md)可恢复同类型预览，再走原核对和人工保存。助手文件已有[持久工作区后端候选](development/AGENT_IMPORT_WORKSPACE_20261025.md)，默认关闭，迁移头a012；管理端附件及原预览交接继续实施。会话真实任务操作已有上述Web侧栏候选，实际云端交接仍待验收。不得将该工具的 `can_confirm` 当作保存授权或跳过原确认页面。
+资料预览核对已有只读工具及队列候选，见[接入记录](development/AGENT_IMPORT_REVIEW_20261024.md)。使用原上传入口生成的本人预览编号；[任务核对卡](development/AGENT_IMPORT_REVIEW_UI_20261024.md)可恢复同类型预览，再走原核对和人工保存。助手文件已有[原件工作区及管理端交接候选](development/AGENT_IMPORT_WORKSPACE_20261025.md)，默认关闭，迁移头a013；附件入口、后台原预览和人工核对已接通，`VITE_AGENT_IMPORT_ENABLED`独立默认false。固定预览子进程有512MiB／45秒CPU／60秒墙钟上限；超时回收后原事务回滚，仍需真实MySQL并发、Linux限额及最重分组验收。会话真实任务操作已有上述Web侧栏候选，实际云端交接仍待验收。不得将该工具的 `can_confirm` 当作保存授权或跳过原确认页面。
 
 - `POST /api/v1/assistant/tasks`：当前登录用户提交 `run_id`、`tool_name`、`arguments`、`request_key`。只允许本人当前会话的运行，返回 task_id／真实状态；不返回运行密钥。
 - `GET /api/v1/assistant/tasks/{id}`：仅本人查看，并重新检查原运行和可见范围；范围变化后拒绝返回旧结果。

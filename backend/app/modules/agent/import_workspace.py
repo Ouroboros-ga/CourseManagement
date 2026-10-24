@@ -50,6 +50,8 @@ class ImportClaim:
     sha256: str = field(repr=False)
     size_bytes: int
     can_inspect: bool = True
+    stage: str = "INSPECT"
+    preview_request: dict | None = field(default=None, repr=False)
 
 
 class ImportWorkspaceService:
@@ -150,7 +152,11 @@ class ImportWorkspaceService:
             "filename": file.original_name,
             "college_id": str(college_id),
             "semester_id": str(semester_id),
-            "inspection": row.inspection_json if row.state == "READY" else None,
+            "inspection": row.inspection_json
+            if row.state in {"READY", "PREVIEW_QUEUED", "PREVIEW_PROCESSING"}
+            else None,
+            "preview": (row.preview_json or {}).get("current"),
+            "preview_receipts": (row.preview_json or {}).get("receipts", []),
             "error_code": row.error_code,
             "created_at": iso_utc(row.created_at),
             "expires_at": iso_utc(row.expires_at),
@@ -295,11 +301,27 @@ class ImportWorkspaceService:
         return self._view(row, file, college_id, semester_id)
 
     @atomic_write
+    def prepare_previews(self, workspace_id, **arguments):
+        from app.modules.agent.import_workspace_previews import prepare
+
+        return prepare(self, workspace_id, **arguments)
+
+    @atomic_write
+    def execute_previews(self, claim, content):
+        from app.modules.agent.import_workspace_previews import execute
+
+        return execute(self, claim, content)
+
+    @atomic_write
     def cancel(self, workspace_id, *, user_id, session_id, college_id, semester_id):
         row, _ = self._authorized(
             workspace_id, user_id, session_id, college_id, semester_id, lock=True
         )
-        if row.state in {"QUEUED", "PROCESSING"}:
+        if row.state in {"QUEUED", "PROCESSING", "PREVIEW_QUEUED", "PREVIEW_PROCESSING"}:
+            if row.state.startswith("PREVIEW_"):
+                from app.modules.agent.import_workspace_previews import update_receipt
+
+                update_receipt(row, status="CANCELED", batch_ids=[], error_code=None)
             row.state, row.attempt_token, row.lease_until = "CANCELED", None, None
         self.db.commit()
 
@@ -312,9 +334,9 @@ class ImportWorkspaceService:
             .where(
                 AgentRun.environment == self.environment,
                 AgentRun.app_key_id == self.app_key_id,
-                (AgentImportWorkspace.state == "QUEUED")
+                (AgentImportWorkspace.state.in_(["QUEUED", "PREVIEW_QUEUED"]))
                 | (
-                    (AgentImportWorkspace.state == "PROCESSING")
+                    (AgentImportWorkspace.state.in_(["PROCESSING", "PREVIEW_PROCESSING"]))
                     & (AgentImportWorkspace.lease_until <= now)
                 ),
             )
@@ -334,6 +356,17 @@ class ImportWorkspaceService:
             if row.attempt_count >= 3:
                 raise ConflictError(message="资料整理重试已达上限")
         except AppError:
+            if row.state.startswith("PREVIEW_"):
+                from app.modules.agent.import_workspace_previews import update_receipt
+
+                update_receipt(
+                    row,
+                    status="FAILED",
+                    batch_ids=[],
+                    error_code="IMPORT_PREVIEW_FAILED"
+                    if row.attempt_count >= 3
+                    else "CONTEXT_CHANGED",
+                )
             row.state = "FAILED"
             row.error_code = (
                 "IMPORT_INSPECTION_FAILED" if row.attempt_count >= 3 else "CONTEXT_CHANGED"
@@ -342,7 +375,15 @@ class ImportWorkspaceService:
             self.db.commit()
             self.changed = True
             return None
-        row.state, row.attempt_token = "PROCESSING", secrets.token_urlsafe(32)
+        preview = row.state.startswith("PREVIEW_")
+        row.state, row.attempt_token = (
+            ("PREVIEW_PROCESSING" if preview else "PROCESSING"),
+            secrets.token_urlsafe(32),
+        )
+        if preview:
+            from app.modules.agent.import_workspace_previews import update_receipt
+
+            update_receipt(row, status="RUNNING")
         row.attempt_count += 1
         row.lease_until = now + timedelta(seconds=120)
         claim = ImportClaim(
@@ -352,6 +393,8 @@ class ImportWorkspaceService:
             file.original_name,
             file.sha256,
             file.size_bytes,
+            stage="PREVIEW" if preview else "INSPECT",
+            preview_request=(row.preview_json or {}).get("current") if preview else None,
         )
         self.db.commit()
         self.changed = True
@@ -359,6 +402,10 @@ class ImportWorkspaceService:
 
     @atomic_write
     def finish(self, claim, inspection, *, error_code=None):
+        if claim.stage == "PREVIEW":
+            from app.modules.agent.import_workspace_previews import fail
+
+            return fail(self, claim, error_code or "IMPORT_PREVIEW_FAILED")
         row = self.db.scalar(
             select(AgentImportWorkspace)
             .where(AgentImportWorkspace.id == claim.workspace_id)

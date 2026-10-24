@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.core.exceptions import AppError, ErrorCode, NotFoundError
 from app.modules.agent.conversation_router import ConversationCreate
 from app.modules.agent.import_workspace import ImportWorkspaceService
+from app.modules.agent.import_workspace_previews import PreviewIntent
 from app.modules.identity.deps import CurrentUserDep, SessionIdDep
 from app.modules.importer.limits import MAX_ARCHIVE_BYTES
 
@@ -33,6 +34,10 @@ Db = Annotated[Session, Depends(get_db)]
 WorkspaceId = Annotated[int, Path(gt=0, le=2**63 - 1)]
 ScopeId = Annotated[int, Query(gt=0, le=2**63 - 1)]
 FormId = Annotated[str, Form(pattern=r"^[1-9][0-9]{0,18}$")]
+
+
+class StoredPreviewRequest(ConversationCreate, PreviewIntent):
+    pass
 
 
 def service_for(db):
@@ -128,3 +133,46 @@ def cancel(
     )
     service.cancel(workspace_id, **scope)
     return success(service.read(workspace_id, **scope), getattr(request.state, "request_id", None))
+
+
+@router.get("/by-request/{request_key}")
+def lookup(
+    request_key: Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+    college_id: ScopeId,
+    semester_id: ScopeId,
+    actor: CurrentUserDep,
+    sid: SessionIdDep,
+    db: Db,
+    request: Request,
+):
+    service = service_for(db)
+    service._preflight(actor.id, sid, college_id, semester_id)
+    row = service._existing(actor.id, sid, request_key.lower())
+    if row is None:
+        raise NotFoundError("尚未找到本次上传记录")
+    return success(
+        service.read(
+            row.id, user_id=actor.id, session_id=sid, college_id=college_id, semester_id=semester_id
+        ),
+        getattr(request.state, "request_id", None),
+    )
+
+
+@router.post("/{workspace_id}/previews")
+def previews(
+    workspace_id: WorkspaceId,
+    body: StoredPreviewRequest,
+    actor: CurrentUserDep,
+    sid: SessionIdDep,
+    db: Db,
+    request: Request,
+):
+    result = service_for(db).prepare_previews(
+        workspace_id,
+        user_id=actor.id,
+        session_id=sid,
+        college_id=int(body.college_id),
+        semester_id=int(body.semester_id),
+        **body.model_dump(mode="json", exclude={"college_id", "semester_id"}),
+    )
+    return success(result, getattr(request.state, "request_id", None))
