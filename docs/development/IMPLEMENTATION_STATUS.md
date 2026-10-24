@@ -2,7 +2,7 @@
 
 ## 2026-10-24 AI 网关与任务基础候选（本地，未部署）
 
-- [资料预览助手核对](AGENT_IMPORT_REVIEW_20261024.md)：新增 MANAGEMENT 只读工具 `import_preview_review`，复用原确认集合和各资料类型权限，限定本人、当前学院与学期，汇总变化/问题数量；不返回人员行、保存 revision 或自动确认。支持原持久 Worker 与 HTTP/MCP。文件上传工作区、对话核对卡片和真实 ADP/MySQL 仍待接通。
+- [资料预览助手核对](AGENT_IMPORT_REVIEW_20261024.md)：新增 MANAGEMENT 只读工具 `import_preview_review`，复用原确认集合和各资料类型权限，限定本人、当前学院与学期，汇总变化/问题数量；不返回人员行、保存 revision 或自动确认。支持原持久 Worker 与 HTTP/MCP。已有[任务核对卡](AGENT_IMPORT_REVIEW_UI_20261024.md)按类型恢复多份预览并走原人工确认；44项相关Web测试、类型构建与模拟桌面/窄屏通过。文件上传工作区、会话任务交接和真实 ADP/MySQL 仍待接通。
 - 产品和架构分别见[产品基线 v1.1](../product/AI_COLLABORATIVE_PLATFORM_FUNCTIONAL_DESIGN.md)、[架构 v0.4](AI_COLLABORATIVE_PLATFORM_ARCHITECTURE.md)。整体五模块尚未完成。
 - [申诉预审领域候选](OBJECTION_PRECHECK_DOMAIN_20261024.md)：原学生创建入口同事务登记独立任务；学院策略、真实授权人、资料摘要、批次与结构化建议独立保存，不复用旧初核或改写考勤/终审。资料变化、撤回、人工先终审、策略关闭或角色撤销均拦截迟到结果。原18项领域测试加17项材料测试共35项通过。内部资料读取与60秒上限的材料访问复用原FileService，并核对申诉、批次、类别和当前权限；摘要无学生编号/对象路径，签名不落审计，建议拒绝网址/签名下载串。领域及材料方法已由下述专用AI工具适配；已有下述派发/恢复候选；未接入真实云端，终审服务端约束、意见及终审表单已有候选（见下项），不能作为完整预审功能验收。新开关默认关闭。
 - 网关已有：固定工具目录、严格DTO、应用密钥摘要与运行记录、真实会话恢复／过期／撤销／轮换、HTTP和MCP、本人与责任区读取、状态查询；交互入口8个工具、AUTOMATION/change独立2个换班工具、AUTOMATION/objection独立3个预审工具。SDK2.2.0锁定，新开关默认关闭。

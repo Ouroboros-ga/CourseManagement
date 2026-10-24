@@ -12,7 +12,7 @@ export function useImportWizard() {
   const failuresExcluded = ref(false)
   const canConfirm = computed(() => !!plan.value?.can_confirm && !busy.value && !result.value
     && (!uploadErrors.value.length || failuresExcluded.value))
-  let generation = 0, active = true
+  let generation = 0, active = true, resumeRequest = 0
   const scopeContext = () => JSON.stringify([session.currentUser?.id, session.workspaceCollegeId,
     session.currentSemesterId, session.workspace?.authorization_revision])
   const context = () => JSON.stringify([scopeContext(), target.value, teachingClassId.value, courseTypeId.value])
@@ -103,14 +103,22 @@ export function useImportWizard() {
     if (!drafts.value.length) { files.value = []; plan.value = null; result.value = null }
   }
   function excludeUploadFailures() { failuresExcluded.value = true }
-  function reset() { files.value = []; selectedIds.value = []; drafts.value = []; plan.value = null; result.value = null; error.value = ''; uploadErrors.value = []; failuresExcluded.value = false }
-  async function resume(draft: ImportPreviewResult & { filename: string }) {
+  function reset() { resumeRequest++; files.value = []; selectedIds.value = []; drafts.value = []; plan.value = null; result.value = null; error.value = ''; uploadErrors.value = []; failuresExcluded.value = false }
+  async function resumeMany(rows: Array<ImportPreviewResult & { filename: string }>) {
     reset()
+    const request = ++resumeRequest, captured = scopeContext(), draft = rows[0]
+    if (!draft || rows.length > IMPORT_MAX_BATCH || new Set(rows.map(row => row.id)).size !== rows.length
+      || rows.some(row => row.target !== draft.target || row.status !== 'PREVIEW'
+        || (row.semester_id != null && row.semester_id !== session.currentSemesterId))) {
+      error.value = '资料预览与当前类型或学期不一致，请重新核对'; return
+    }
     target.value = draft.target
     teachingClassId.value = draft.teaching_class_id || ''
     await nextTick()
-    drafts.value = [draft]; selectedIds.value = [draft.id]
+    if (!active || request !== resumeRequest || captured !== scopeContext()) return
+    drafts.value = [...rows]; selectedIds.value = rows.map(row => row.id)
     await review()
   }
-  return { target, teachingClassId, courseTypeId, files, drafts, selectedIds, plan, result, busy, error, uploadErrors, failuresExcluded, canConfirm, canUpload, upload, review, confirm, removeDraft, excludeUploadFailures, reset, resume }
+  async function resume(draft: ImportPreviewResult & { filename: string }) { await resumeMany([draft]) }
+  return { target, teachingClassId, courseTypeId, files, drafts, selectedIds, plan, result, busy, error, uploadErrors, failuresExcluded, canConfirm, canUpload, upload, review, confirm, removeDraft, excludeUploadFailures, reset, resume, resumeMany }
 }

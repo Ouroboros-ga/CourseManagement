@@ -13,10 +13,10 @@ import ImportReview from './ImportReview.vue'
 import ImportConflictHelp from './ImportConflictHelp.vue'
 import { savedSummary } from './importLabels'
 
-const props = withDefaults(defineProps<{ initialTarget?: string; resumeBatch?: (ImportPreviewResult & { filename: string }) | null; sources?: ImportUploadSource[]; embedded?: boolean }>(), { initialTarget: 'grid_timetable', resumeBatch: null, embedded: false })
+const props = withDefaults(defineProps<{ initialTarget?: string; resumeBatch?: (ImportPreviewResult & { filename: string }) | null; resumeBatches?: Array<ImportPreviewResult & { filename: string }>; sources?: ImportUploadSource[]; embedded?: boolean }>(), { initialTarget: 'grid_timetable', resumeBatch: null, embedded: false })
 const emit = defineEmits<{ saved: [result: ImportSetResult]; busy: [value: boolean] }>()
 const router = useRouter(), session = useSessionStore(), state = useImportWizard()
-const { target, teachingClassId, courseTypeId, files, drafts, plan, result, busy, error, uploadErrors, failuresExcluded, canUpload, canConfirm, upload, review, confirm, removeDraft, reset, resume } = state
+const { target, teachingClassId, courseTypeId, files, drafts, plan, result, busy, error, uploadErrors, failuresExcluded, canUpload, canConfirm, upload, review, confirm, removeDraft, reset, resumeMany } = state
 const options = computed(() => [
   ...(session.hasPermission('staff.manage') ? [{ id: 'faculty_staff', label: '教职工档案（首次准备）' }, { id: 'class_responsibility', label: '班级责任关系（工号模板／明确交接）' }, { id: 'teaching_assignment', label: '授课关系补充表（特殊情况）' }] : []),
   ...(session.hasPermission('course_schedule.import') ? [{ id: 'grid_timetable', label: '教务系统导出的班级课表' }, { id: 'timetable', label: '标准长表课表' }, { id: 'elective_course', label: '选修／分层补充资料' }] : []),
@@ -44,7 +44,7 @@ watch(() => session.workspaceCollegeId, async cid => {
     if (request !== typeRequest || cid !== session.workspaceCollegeId) return
     courseTypes.value = rows.filter(row => row.status === 'ACTIVE')
     const regular = courseTypes.value.find(row => row.code === 'builtin_regular')
-    if (regular && !files.value.length && !drafts.value.length && !props.resumeBatch) courseTypeId.value = regular.id
+    if (regular && !files.value.length && !drafts.value.length && !props.resumeBatch && !props.resumeBatches?.length) courseTypeId.value = regular.id
   } catch { if (request === typeRequest) courseTypeError.value = '课程类型读取失败，请在更多设置中检查。' }
 }, { immediate: true })
 watch(() => [session.currentUser?.id, session.workspaceCollegeId, session.currentSemesterId, target.value].join(':'), () => {
@@ -53,15 +53,18 @@ watch(() => [session.currentUser?.id, session.workspaceCollegeId, session.curren
 watch(busy, value => emit('busy', value), { immediate: true })
 watch(result, value => { if (value) { markWorkspaceSaved(form.value); emit('saved', value) } })
 watch(() => props.sources, sources => { if (sources) files.value = sources.map(source => source.file) }, { immediate: true })
-watch(() => props.resumeBatch, async batch => {
-  if (!batch || busy.value) return
+watch(() => props.resumeBatches || (props.resumeBatch ? [props.resumeBatch] : []), async batches => {
+  if (!batches.length || busy.value) return
   if ((files.value.length || drafts.value.length) && !result.value) {
     try { await ElMessageBox.confirm('当前尚未导入的文件将被替换，是否继续核对这条记录？', '继续未完成导入', { confirmButtonText: '继续核对', cancelButtonText: '保留当前文件' }) }
     catch { return }
   }
+  if (!options.value.some(option => option.id === batches[0]?.target)) {
+    selectingError.value = '当前账号无权核对此类资料，请交由有权管理员处理。'; return
+  }
   selectingError.value = ''; skippedFiles.value = []
-  await resume(batch)
-})
+  await resumeMany(batches)
+}, { immediate: true })
 function selectFiles(event: Event) {
   const input = event.target as HTMLInputElement, chosen = Array.from(input.files || [])
   input.value = ''

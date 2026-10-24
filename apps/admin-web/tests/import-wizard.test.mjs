@@ -13,6 +13,65 @@ function load(path, imports) {
 }
 const flush = async () => { await vue.nextTick(); await Promise.resolve(); await vue.nextTick() }
 
+test('assistant group resumes the original review and requires an explicit confirm', async () => {
+  const session = vue.reactive({ currentUser: { id: '1' }, workspaceCollegeId: 'A', currentSemesterId: 'S1', workspace: { authorization_revision: 1 } })
+  const cleanup = [], previews = [], confirmations = []
+  const { useImportWizard } = load('../src/composables/useImportWizard.ts', {
+    vue: { ...vue, onUnmounted: fn => cleanup.push(fn) },
+    '../stores/session': { useSessionStore: () => session },
+    '../api/importer': {
+      previewImportSet: async (_cid, ids) => { previews.push([...ids]); return { batch_ids: [...ids], revision: 'fresh', can_confirm: true, files: [] } },
+      confirmImportSet: async (...args) => { confirmations.push(args); return { status: 'CONFIRMED', files: [] } }
+    }
+  })
+  const scope = vue.effectScope(), state = scope.run(() => useImportWizard())
+  try {
+    assert.equal(typeof state.resumeMany, 'function')
+    await state.resumeMany(['11', '12'].map(id => ({ id, target: 'volunteer', status: 'PREVIEW', semester_id: 'S1', filename: id })))
+    assert.deepEqual(previews, [['11', '12']]); assert.equal(state.drafts.value.length, 2)
+    assert.equal(confirmations.length, 0); assert.equal(state.canConfirm.value, true)
+    await state.confirm(); assert.equal(confirmations.length, 1)
+    assert.equal(confirmations[0][2], 'fresh')
+  } finally { cleanup.forEach(fn => fn()); scope.stop() }
+})
+
+test('a semester change during resume cannot populate drafts in the new workspace', async () => {
+  const session = vue.reactive({ currentUser: { id: '1' }, workspaceCollegeId: 'A', currentSemesterId: 'S1', workspace: { authorization_revision: 1 } })
+  const cleanup = [], previews = []
+  const { useImportWizard } = load('../src/composables/useImportWizard.ts', {
+    vue: { ...vue, onUnmounted: fn => cleanup.push(fn) },
+    '../stores/session': { useSessionStore: () => session },
+    '../api/importer': { previewImportSet: async (...args) => { previews.push(args); return {} } }
+  })
+  const scope = vue.effectScope(), state = scope.run(() => useImportWizard())
+  try {
+    assert.equal(typeof state.resumeMany, 'function')
+    const pending = state.resumeMany([{ id: '11', target: 'volunteer', status: 'PREVIEW', semester_id: 'S1', filename: 'a' }])
+    session.currentSemesterId = 'S2'; await pending; await flush()
+    assert.equal(state.drafts.value.length, 0); assert.equal(previews.length, 0)
+  } finally { cleanup.forEach(fn => fn()); scope.stop() }
+})
+
+test('resume refuses mixed types and only the latest requested group reaches review', async () => {
+  const session = vue.reactive({ currentUser: { id: '1' }, workspaceCollegeId: 'A', currentSemesterId: 'S1', workspace: { authorization_revision: 1 } })
+  const cleanup = [], previews = []
+  const { useImportWizard } = load('../src/composables/useImportWizard.ts', {
+    vue: { ...vue, onUnmounted: fn => cleanup.push(fn) },
+    '../stores/session': { useSessionStore: () => session },
+    '../api/importer': { previewImportSet: async (_cid, ids) => { previews.push([...ids]); return { batch_ids: ids, can_confirm: false, files: [] } } }
+  })
+  const scope = vue.effectScope(), state = scope.run(() => useImportWizard())
+  const draft = (id, target = 'volunteer') => ({ id, target, status: 'PREVIEW', semester_id: 'S1', filename: id })
+  try {
+    await state.resumeMany([draft('11'), draft('12', 'roster')]); assert.ok(state.error.value)
+    assert.equal(previews.length, 0)
+    const first = state.resumeMany([draft('11')]), second = state.resumeMany([draft('12')])
+    await Promise.all([first, second])
+    assert.deepEqual(previews, [['12']]); assert.equal(state.drafts.value[0].id, '12')
+    assert.equal(state.canConfirm.value, false)
+  } finally { cleanup.forEach(fn => fn()); scope.stop() }
+})
+
 test('changing format keeps the chosen files but changing college clears them', async () => {
   const session = vue.reactive({ currentUser: { id: '1' }, workspaceCollegeId: 'A', currentSemesterId: 'S1', workspace: { authorization_revision: 1 } })
   const cleanup = []

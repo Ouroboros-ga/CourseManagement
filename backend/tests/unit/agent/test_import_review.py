@@ -39,6 +39,7 @@ def test_review_uses_real_conflicts_without_applying_or_exposing_rows(case):
     data = review(case, [good.id, bad.id]).data
     assert data["requires_human_confirmation"] is True
     assert data["business_data_applied"] is False
+    assert data["semester_id"] == str(case[4].semester_id)
     assert data["can_confirm"] is False
     assert sum(f["error_count"] for f in data["files"]) > 0
     assert data["files"][0]["changes"]["CREATE"] == 1

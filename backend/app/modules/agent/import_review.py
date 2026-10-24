@@ -52,6 +52,7 @@ def review_previews(db: Session, context: RunContext, query: ImportReviewQuery) 
     return {
         "kind": "IMPORT_PREVIEW_REVIEW",
         "college_id": str(context.college_id),
+        "semester_id": str(context.semester_id) if context.semester_id is not None else None,
         "files": files,
         "can_confirm": plan["can_confirm"],
         "requires_human_confirmation": True,
