@@ -41,6 +41,211 @@ def arrange(case):
     return service, body
 
 
+def generated_pair(case):
+    from app.modules.academic.models import CourseSchedule, CourseScheduleWeek
+
+    db = case[0]
+    source = db.scalar(select(CourseSchedule).where(CourseSchedule.teaching_class_id == case[6].id))
+    second = CourseSchedule(
+        college_id=case[2], semester_id=case[3].id, teaching_class_id=case[6].id,
+        weekday=3, start_period=source.start_period, end_period=source.end_period,
+        classroom=source.classroom,
+    )
+    db.add(second)
+    db.flush()
+    db.add(CourseScheduleWeek(schedule_id=second.id, week_no=2))
+    db.commit()
+    service, body = arrange(case)
+    body["counts"] = {key: 2 for key in body["counts"]}
+    plan = service.save(case[1], body)
+    run = service.register_due(int(plan["id"]), now=datetime(2026, 9, 4, 8))[0]
+    generated = service.generate(int(run["id"]), now=datetime(2026, 9, 4, 8))
+    assert len(generated["task_ids"]) == 2
+    return service, int(run["id"]), generated["task_ids"]
+
+
+def existing_assignment(case, task_id):
+    from app.modules.inspection.models import InspectionAssignment
+
+    row = InspectionAssignment(
+        task_id=int(task_id), volunteer_user_id=case[1].id,
+        assign_method="MANUAL", assigned_by=case[1].id, assign_reason="existing manual assignment",
+    )
+    case[0].add(row)
+    case[0].commit()
+    return row
+
+
+def test_weekly_draft_preserves_existing_assignment_and_targets_only_unassigned_tasks(case):
+    from app.modules.inspection.assignment_plan_models import AssignmentConfirmationPlan
+    from app.modules.inspection.models import InspectionAssignment
+
+    service, eid, ids = generated_pair(case)
+    manual = existing_assignment(case, ids[0])
+    ready = service.prepare(eid, now=datetime(2026, 9, 4, 8))
+    assert ready["task_ids"] == ids
+    assert ready["result"]["coverage"] == {
+        "sampled_task_ids": ids,
+        "draft_task_ids": [ids[1]],
+        "already_assigned": [{"task_id": ids[0], "assignment_id": str(manual.id)}],
+    }
+    draft = case[0].get(AssignmentConfirmationPlan, ready["assignment_plan_id"])
+    assert draft.payload["task_ids"] == [int(ids[1])]
+    assert case[0].query(InspectionAssignment).count() == 1
+    assert manual.revoked_at is None
+    assert service.prepare(eid, now=datetime(2026, 9, 4, 8))["assignment_plan_id"] == draft.id
+
+
+def test_all_assigned_weekly_tasks_have_coverage_receipt_without_empty_or_fake_draft(case):
+    from app.modules.inspection.assignment_plan_models import AssignmentConfirmationPlan
+
+    service, eid, ids = generated_pair(case)
+    for tid in ids:
+        existing_assignment(case, tid)
+    ready = service.prepare(eid, now=datetime(2026, 9, 4, 8))
+    assert ready["status"] == "PREPARED"
+    assert ready["assignment_plan_id"] is None
+    assert ready["reason_code"] == "ALL_TASKS_ASSIGNED"
+    assert ready["result"]["coverage"]["draft_task_ids"] == []
+    assert len(ready["result"]["coverage"]["already_assigned"]) == 2
+    assert case[0].query(AssignmentConfirmationPlan).count() == 0
+    assert service.prepare(eid, now=datetime(2026, 9, 4, 8))["result"] == ready["result"]
+
+
+def test_human_recheck_repartitions_original_sample_after_manual_assignment_changes(case):
+    from app.modules.inspection.assignment_plan_models import AssignmentConfirmationPlan
+    from app.modules.inspection.models import InspectionAssignment
+
+    service, eid, ids = generated_pair(case)
+    manual = existing_assignment(case, ids[0])
+    before = service.prepare(eid, now=datetime(2026, 9, 4, 8))
+    manual.revoked_at = datetime(2026, 9, 4, 9)
+    case[0].commit()
+    other = existing_assignment(case, ids[1])
+    ready = service.refresh_draft(case[1], eid)
+    assert ready["task_ids"] == ids
+    assert ready["result"]["coverage"]["draft_task_ids"] == [ids[0]]
+    assert ready["result"]["coverage"]["already_assigned"] == [
+        {"task_id": ids[1], "assignment_id": str(other.id)}
+    ]
+    previous = case[0].get(AssignmentConfirmationPlan, before["assignment_plan_id"])
+    assert previous.expires_at <= datetime(2026, 9, 1)
+    assert case[0].query(InspectionAssignment).count() == 2
+
+
+def test_all_assigned_receipt_detects_revocation_and_human_recheck_can_prepare_missing_task(case):
+    from app.core.exceptions import ConflictError
+
+    service, eid, ids = generated_pair(case)
+    rows = [existing_assignment(case, tid) for tid in ids]
+    service.prepare(eid, now=datetime(2026, 9, 4, 8))
+    rows[0].revoked_at = datetime(2026, 9, 4, 9)
+    case[0].commit()
+    with pytest.raises(ConflictError, match="重新核对"):
+        service.prepare(eid, now=datetime(2026, 9, 4, 9))
+    ready = service.refresh_draft(case[1], eid)
+    assert ready["assignment_plan_id"]
+    assert ready["reason_code"] is None
+    assert ready["result"]["coverage"]["draft_task_ids"] == [ids[0]]
+
+
+def test_weekly_subset_draft_rejects_tampered_target_provenance(case):
+    from app.core.exceptions import ConflictError
+    from app.modules.inspection.assignment_plan_models import AssignmentConfirmationPlan
+
+    service, eid, ids = generated_pair(case)
+    existing_assignment(case, ids[0])
+    ready = service.prepare(eid, now=datetime(2026, 9, 4, 8))
+    draft = case[0].get(AssignmentConfirmationPlan, ready["assignment_plan_id"])
+    draft.payload = {**draft.payload, "task_ids": [int(ids[0])]}
+    case[0].commit()
+    with pytest.raises(ConflictError, match="不一致"):
+        service.prepare(eid, now=datetime(2026, 9, 4, 8))
+
+
+def test_recheck_to_all_assigned_invalidates_old_draft_and_receipt_failure_rolls_back(
+    case, monkeypatch
+):
+    from app.modules.inspection.assignment_plan_models import AssignmentConfirmationPlan
+    from app.modules.inspection.weekly_models import WeeklyInspectionExecution
+
+    service, eid, ids = generated_pair(case)
+    existing_assignment(case, ids[0])
+    old = service.prepare(eid, now=datetime(2026, 9, 4, 8))
+    previous = case[0].get(AssignmentConfirmationPlan, old["assignment_plan_id"])
+    expiry = previous.expires_at
+    existing_assignment(case, ids[1])
+    audit = service._audit
+
+    def fail_receipt(*args):
+        raise RuntimeError("synthetic coverage receipt failure")
+
+    monkeypatch.setattr(service, "_audit", fail_receipt)
+    with pytest.raises(RuntimeError):
+        service.refresh_draft(case[1], eid)
+    assert case[0].get(WeeklyInspectionExecution, eid).assignment_plan_id == previous.id
+    assert previous.expires_at == expiry
+    monkeypatch.setattr(service, "_audit", audit)
+    result = service.refresh_draft(case[1], eid)
+    assert result["assignment_plan_id"] is None
+    assert "assignment_plan_status" not in result
+    assert result["reason_code"] == "ALL_TASKS_ASSIGNED"
+    assert previous.expires_at <= datetime(2026, 9, 1)
+    assert case[0].query(AssignmentConfirmationPlan).count() == 1
+
+
+def test_revoked_assignment_is_not_counted_as_existing_coverage(case):
+    service, eid, ids = generated_pair(case)
+    old = existing_assignment(case, ids[0])
+    old.revoked_at = datetime(2026, 9, 4, 8)
+    case[0].commit()
+    result = service.prepare(eid, now=datetime(2026, 9, 4, 8))
+    assert result["result"]["coverage"]["already_assigned"] == []
+    assert result["result"]["coverage"]["draft_task_ids"] == ids
+
+
+@pytest.mark.parametrize("replacement", [False, True])
+def test_mixed_draft_replay_requires_recheck_when_skipped_assignment_changes(case, replacement):
+    from app.core.exceptions import ConflictError
+
+    service, eid, ids = generated_pair(case)
+    manual = existing_assignment(case, ids[0])
+    service.prepare(eid, now=datetime(2026, 9, 4, 8))
+    manual.revoked_at = datetime(2026, 9, 4, 9)
+    case[0].commit()
+    if replacement:
+        existing_assignment(case, ids[0])
+    with pytest.raises(ConflictError, match="重新核对"):
+        service.prepare(eid, now=datetime(2026, 9, 4, 9))
+
+
+def test_published_subset_preserves_receipt_but_discloses_changed_skipped_coverage(case):
+    from app.modules.inspection.assignment_plan_models import AssignmentConfirmationPlan
+    from app.modules.inspection.assignment_plan_service import AssignmentPlanService
+
+    service, eid, ids = generated_pair(case)
+    manual = existing_assignment(case, ids[0])
+    ready = service.prepare(eid, now=datetime(2026, 9, 4, 8))
+    published = AssignmentPlanService(case[0], case[1], case[2], case[4]).commit(
+        ready["assignment_plan_id"], {"revision": ready["result"]["revision"], "confirmations": []}
+    )
+    manual.revoked_at = datetime(2026, 9, 4, 9)
+    case[0].commit()
+    count = case[0].query(AssignmentConfirmationPlan).count()
+    for replay in (
+        service.prepare(eid, now=datetime(2026, 9, 4, 9)),
+        service.refresh_draft(case[1], eid),
+    ):
+        assert replay["publication_result"] == published
+        assert replay["coverage_status"] == "CHANGED"
+        assert replay["coverage_changes"] == [{
+            "task_id": ids[0], "expected_assignment_id": str(manual.id),
+            "current_assignment_id": None,
+        }]
+        assert replay["requires_manual_recheck"] is True
+    assert case[0].query(AssignmentConfirmationPlan).count() == count
+
+
 def test_weekly_plan_uses_real_owner_and_due_time_is_shanghai_previous_week(case):
     service, body = arrange(case)
     plan = service.save(case[1], body)

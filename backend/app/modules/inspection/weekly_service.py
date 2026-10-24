@@ -17,7 +17,7 @@ from app.modules.identity.service import CurrentUser
 from app.modules.inspection.assignment_plan_models import AssignmentConfirmationPlan
 from app.modules.inspection.assignment_plan_service import AssignmentPlanService
 from app.modules.inspection.group_sampling import GroupSamplingService
-from app.modules.inspection.models import InspectionTask
+from app.modules.inspection.models import InspectionAssignment, InspectionTask
 from app.modules.inspection.weekly_models import WeeklyInspectionExecution, WeeklyInspectionPlan
 from app.modules.inspection.weekly_schemas import WeeklyPlanUpdate, weekly_period
 from app.modules.organization.service import atomic_write, validated
@@ -367,25 +367,32 @@ class WeeklyInspectionService:
     def prepare(self, execution_id, *, now=None):
         actor, run = self._execution(execution_id, now or utcnow())
         if run.status == "PREPARED":
+            if run.assignment_plan_id is None:
+                plans = AssignmentPlanService(self.db, actor, self.cid, self.gid)
+                coverage = self._partition(plans, run)
+                if (
+                    (run.result_json or {}).get("kind") != "ALREADY_ASSIGNED"
+                    or coverage != self._saved_coverage(run)
+                    or coverage["draft_task_ids"]
+                ):
+                    raise ConflictError(message="原受派记录已变化，请由管理员重新核对")
+                result = self.execution_dto(run)
+                self.db.commit()
+                return result
             draft = self._current_draft(run)
             if draft.status != "COMMITTED" and draft.expires_at <= utcnow():
                 raise ConflictError(
                     message="草案已过期，请由管理员明确重新核对；原课次不会重复抽取"
                 )
-            result = self._draft_receipt(run, draft)
+            result = self._draft_receipt(actor, run, draft)
             self.db.commit()
             return result
         if run.status != "GENERATED" or not run.task_ids:
             raise ConflictError(message="请先完成本周期课次生成")
-        draft = AssignmentPlanService(self.db, actor, self.cid, self.gid).preview_in_transaction(
-            {
-                "semester_id": str(self.sid),
-                "task_ids": run.task_ids,
-                "reason": f"每周计划{run.plan_id}第{run.target_week}周草案，需人工确认发布",
-            }
+        self._prepare_remaining(
+            AssignmentPlanService(self.db, actor, self.cid, self.gid), run,
+            f"每周计划{run.plan_id}第{run.target_week}周草案，需人工确认发布",
         )
-        run.assignment_plan_id, run.status = draft["id"], "PREPARED"
-        run.result_json = draft
         result = self.execution_dto(run)
         self._audit(
             actor.id,
@@ -393,15 +400,85 @@ class WeeklyInspectionService:
             run.id,
             {
                 "plan_id": str(run.plan_id),
-                "assignment_plan_id": draft["id"],
-                "assigned_count": len(draft["assigned"]),
-                "unassigned_count": len(draft["unassigned"]),
+                "assignment_plan_id": run.assignment_plan_id,
+                "coverage": run.result_json["coverage"],
+                "assigned_count": len(run.result_json["assigned"]),
+                "unassigned_count": len(run.result_json["unassigned"]),
             },
         )
         self.db.commit()
         return result
 
+    def _partition(self, plans, run):
+        """Lock the exact original sample before observing active assignment facts."""
+        plans._context(self.sid)
+        tasks = plans._targets(self.sid, [int(v) for v in run.task_ids], lock=True)
+        assigned = list(self.db.scalars(
+            select(InspectionAssignment)
+            .where(
+                InspectionAssignment.task_id.in_([task.id for task in tasks]),
+                InspectionAssignment.revoked_at.is_(None),
+            )
+            .order_by(InspectionAssignment.task_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ))
+        covered = {row.task_id for row in assigned}
+        return {
+            "sampled_task_ids": list(run.task_ids),
+            "draft_task_ids": [tid for tid in run.task_ids if int(tid) not in covered],
+            "already_assigned": [
+                {"task_id": str(row.task_id), "assignment_id": str(row.id)} for row in assigned
+            ],
+        }
+
+    @staticmethod
+    def _saved_coverage(run):
+        coverage = (run.result_json or {}).get("coverage")
+        if coverage is None:
+            # Drafts created before coverage partitioning targeted the entire sample.
+            return {
+                "sampled_task_ids": list(run.task_ids),
+                "draft_task_ids": list(run.task_ids), "already_assigned": [],
+            }
+        ids = list(run.task_ids)
+        try:
+            targets = coverage["draft_task_ids"]
+            skipped = [item["task_id"] for item in coverage["already_assigned"]]
+            valid = (
+                coverage["sampled_task_ids"] == ids
+                and len(set(ids)) == len(ids)
+                and len(set(targets)) == len(targets)
+                and len(set(skipped)) == len(skipped)
+                and not set(targets) & set(skipped)
+                and set(targets) | set(skipped) == set(ids)
+                and all(type(v) is str and v.isdecimal() for v in targets + skipped)
+                and all(
+                    type(item["assignment_id"]) is str and item["assignment_id"].isdecimal()
+                    for item in coverage["already_assigned"]
+                )
+            )
+        except (KeyError, TypeError, AttributeError):
+            valid = False
+        if not valid:
+            raise ConflictError(message="原草案覆盖记录与本周期任务不一致，请核对原记录")
+        return coverage
+
+    def _prepare_remaining(self, plans, run, reason):
+        coverage = self._partition(plans, run)
+        if coverage["draft_task_ids"]:
+            draft = plans.preview_in_transaction({
+                "semester_id": str(self.sid), "task_ids": coverage["draft_task_ids"],
+                "reason": reason,
+            })
+            run.assignment_plan_id, run.reason_code = draft["id"], None
+        else:
+            draft = {"kind": "ALREADY_ASSIGNED", "assigned": [], "unassigned": []}
+            run.assignment_plan_id, run.reason_code = None, "ALL_TASKS_ASSIGNED"
+        run.status, run.result_json = "PREPARED", {**draft, "coverage": coverage}
+
     def _current_draft(self, run):
+        coverage = self._saved_coverage(run)
         draft = self.db.scalar(
             select(AssignmentConfirmationPlan)
             .where(
@@ -413,14 +490,51 @@ class WeeklyInspectionService:
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        if draft is None or set(draft.payload["task_ids"]) != {int(v) for v in run.task_ids}:
+        if (
+            draft is None or not coverage["draft_task_ids"]
+            or set(draft.payload["task_ids"]) != {int(v) for v in coverage["draft_task_ids"]}
+        ):
             raise ConflictError(message="原草案与本周期任务不一致，请核对原记录")
         return draft
 
-    def _draft_receipt(self, run, draft):
+    def _draft_receipt(self, actor, run, draft):
+        coverage = self._saved_coverage(run)
+        plans = AssignmentPlanService(self.db, actor, self.cid, self.gid)
+        scope, _, _ = plans._context(self.sid)
+        ids = {int(v) for v in run.task_ids}
+        visible = set(self.db.scalars(
+            select(InspectionTask.id).where(
+                InspectionTask.id.in_(ids), InspectionTask.college_id == self.cid,
+                InspectionTask.group_id == self.gid, InspectionTask.semester_id == self.sid,
+                scope.task_condition(),
+            ).order_by(InspectionTask.id).with_for_update()
+        ))
+        if visible != ids:
+            raise NotFoundError("本周期任务已超出当前授权范围")
+        skipped = coverage["already_assigned"]
+        current = {
+            str(row.task_id): str(row.id)
+            for row in self.db.scalars(
+                select(InspectionAssignment).where(
+                    InspectionAssignment.task_id.in_([int(item["task_id"]) for item in skipped]),
+                    InspectionAssignment.revoked_at.is_(None),
+                ).order_by(InspectionAssignment.task_id).with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        }
+        changes = [
+            {"task_id": item["task_id"], "expected_assignment_id": item["assignment_id"],
+             "current_assignment_id": current.get(item["task_id"])}
+            for item in skipped if current.get(item["task_id"]) != item["assignment_id"]
+        ]
+        if changes and draft.status != "COMMITTED":
+            raise ConflictError(message="原受派记录已变化，请由管理员重新核对")
         return {
             **self.execution_dto(run),
             "assignment_plan_status": draft.status,
+            "coverage_status": "CHANGED" if changes else "CURRENT",
+            "coverage_changes": changes,
+            "requires_manual_recheck": bool(changes),
             **(
                 {"publication_result": deepcopy(draft.result)}
                 if draft.status == "COMMITTED"
@@ -465,29 +579,27 @@ class WeeklyInspectionService:
         if run.assignment_plan_id:
             previous = self._current_draft(run)
             if previous.status == "COMMITTED":
-                result = self._draft_receipt(run, previous)
+                result = self._draft_receipt(actor, run, previous)
                 self.db.commit()
                 return result
             previous.expires_at = min(previous.expires_at, utcnow())
         previous_id = run.assignment_plan_id
-        draft = plans.preview_in_transaction(
-            {
-                "semester_id": str(self.sid),
-                "task_ids": run.task_ids,
-                "reason": f"人工重新核对每周计划{run.plan_id}第{run.target_week}周原任务",
-            }
+        self._prepare_remaining(
+            plans, run, f"人工重新核对每周计划{run.plan_id}第{run.target_week}周原任务",
         )
-        run.assignment_plan_id, run.status, run.result_json = draft["id"], "PREPARED", draft
         self._audit(
             actor.id,
             "rechecked",
             run.id,
             {
                 "previous_assignment_plan_id": previous_id,
-                "assignment_plan_id": draft["id"],
+                "assignment_plan_id": run.assignment_plan_id,
                 "task_ids": run.task_ids,
+                "coverage": run.result_json["coverage"],
             },
         )
-        result = {**self.execution_dto(run), "assignment_plan_status": "READY"}
+        result = self.execution_dto(run)
+        if run.assignment_plan_id:
+            result["assignment_plan_status"] = "READY"
         self.db.commit()
         return result
