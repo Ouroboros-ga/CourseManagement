@@ -36,11 +36,15 @@ def submit_read_task(db: Session, context: RunContext, query: ReadTaskSubmitQuer
         f"run_{context.run_id}_{query.request_key}",
     )
     db.commit()
+    return task_handoff(task, query.tool_name)
+
+
+def task_handoff(task, tool_name: str) -> dict:
     return {
         "kind": "TASK_HANDOFF",
         "task_id": str(task.id),
         "task_status": task.status,
-        "open_path": f"{PAGES[query.tool_name]}{task.id}",
+        "open_path": f"{PAGES[tool_name]}{task.id}",
         "requires_login": True,
         "business_data_applied": False,
         "message": "任务已登记，处理状态以任务查询结果为准。打开页面后仍需本人核对或下载。",

@@ -94,3 +94,17 @@ def test_session_from_another_user_cannot_issue_a_run(campus):
     auth = session_for(db, campus[3])
     with pytest.raises(AppError):
         RunService(db, [connection()], environment="dev").issue("self-app", campus[2].id, auth.id)
+
+
+def test_interactive_run_can_share_a_parent_transaction_without_committing(campus):
+    from app.modules.agent.models import AgentRun
+
+    db, actor = campus[1], campus[3]
+    auth = session_for(db, actor)
+    service = RunService(db, [connection()], environment="dev")
+    assert hasattr(service, "issue_in_transaction")
+    run, token = service.issue_in_transaction("self-app", actor.id, auth.id)
+    run_id = run.id
+    assert run.credential_digest != token
+    db.rollback()
+    assert db.get(AgentRun, run_id) is None

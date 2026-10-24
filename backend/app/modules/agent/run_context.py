@@ -61,11 +61,49 @@ class RunService:
         college_id: int | None = None,
         semester_id: int | None = None,
     ):
+        return self._issue(
+            app_key_id,
+            user_id,
+            session_id,
+            college_id=college_id,
+            semester_id=semester_id,
+            commit=True,
+        )
+
+    @atomic_write
+    def issue_in_transaction(
+        self,
+        app_key_id: str,
+        user_id: int,
+        session_id: int,
+        *,
+        college_id: int | None = None,
+        semester_id: int | None = None,
+    ):
+        return self._issue(
+            app_key_id,
+            user_id,
+            session_id,
+            college_id=college_id,
+            semester_id=semester_id,
+            commit=False,
+        )
+
+    def _issue(
+        self,
+        app_key_id: str,
+        user_id: int,
+        session_id: int,
+        *,
+        college_id: int | None = None,
+        semester_id: int | None = None,
+        commit: bool,
+    ):
         """Internal only; never expose raw credentials to a browser or model."""
         connection = self._connection(app_key_id)
         if connection.entry_kind == "AUTOMATION":
             raise PermissionDeniedError("后台运行必须绑定有效策略申请")
-        actor = self._actor(user_id, session_id)
+        actor = self._actor(user_id, session_id, touch_session=commit)
         if connection.entry_kind == "MANAGEMENT":
             if college_id is None:
                 raise PermissionDeniedError("请选择有权访问的学院")
@@ -90,7 +128,9 @@ class RunService:
             status="ACTIVE",
         )
         self.db.add(run)
-        self.db.commit()
+        self.db.flush()
+        if commit:
+            self.db.commit()
         return run, token
 
     @atomic_write

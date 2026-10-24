@@ -318,3 +318,25 @@ def test_transport_logs_never_include_request_credentials_or_error_body(caplog):
     with pytest.raises(AdpCallError):
         chat(client)
     assert KEY not in caplog.text and TOKEN not in caplog.text
+
+
+def test_management_business_context_is_separate_from_the_question_text():
+    from datetime import date
+
+    from app.modules.agent import schemas
+
+    cls = getattr(schemas, "ManagementChatContext", None)
+    assert cls is not None, "Trusted business context has not been implemented"
+    context = cls(college_id="1", semester_id="2", business_date=date(2026, 10, 25))
+    client, calls = arrange()
+    chat(client, business_context=context)
+    body = json.loads(calls[0].content)
+    variables = body["Contents"][1]["CustomVariables"]
+    assert variables == {
+        "agent_run_token": TOKEN,
+        "college_id": "1",
+        "semester_id": "2",
+        "business_date": "2026-10-25",
+        "timezone": "Asia/Shanghai",
+    }
+    assert body["Contents"][0]["Text"] == "请核对合成资料"

@@ -16,7 +16,9 @@
 
 ## 当前任务接口
 
-管理交互新增[新版对话传输候选](development/ADP_MANAGEMENT_CHAT_TRANSPORT_20261025.md)，配置 `AGENT_MANAGEMENT_CHAT_CONFIG=null` 默认关闭。它使用独立交互 AppKey 与本环境 MANAGEMENT 连接，不复用后台工作流 Create 调用。实际 Header／日志隔离尚未验收，登录会话和对话页面仍未接入；不能仅填写配置就描述为交互助手已经可用。
+已有[管理助手持久会话与登录API候选](development/AGENT_MANAGEMENT_CONVERSATIONS_20261025.md)，需要新迁移 `f26a1025a010`，默认关闭；未在运行库升级。API先持久化轮次，再调用新版对话适配；结果不明保留记录，不重发。Web对话和全局交互流量池、实际腾讯云／MySQL仍未完成，不能作为生产开放依据。
+
+管理交互新增[新版对话传输候选](development/ADP_MANAGEMENT_CHAT_TRANSPORT_20261025.md)，配置 `AGENT_MANAGEMENT_CHAT_CONFIG=null` 默认关闭。它使用独立交互 AppKey 与本环境 MANAGEMENT 连接，不复用后台工作流 Create 调用。登录与持久会话API已有上述候选，实际 Header／日志隔离和Web对话仍未验收；不能仅填写配置就描述为交互助手已经可用。
 
 云端 MANAGEMENT 工作流可通过[受限读取任务提交工具](development/AGENT_READ_TASK_HANDOFF_20261025.md)登记报表准备或资料核对任务。无需向模型提供登录 Bearer 或自由选择 run_id。工具只返回登记结果、实际任务状态及固定页面入口，正式业务操作仍需本人确认。该工具不允许作为队列中的目标工具，不代表管理助手会话已接通。
 
@@ -68,4 +70,4 @@ SQLite、HTTP和本地Uvicorn测试不代替真实MySQL、腾讯云、外部HTTP
 
 ## 统计报表导出准备
 
-MANAGEMENT增加 `report_attendance_export_prepare`，仍为只读准备，可进入原队列。交互合同7项，后台合同不变。只返回NOT_GENERATED及固定同源操作；原REST在用户实际下载时重验登录、学院和统计范围。不能将工具准备成功记作文件已生成，也不能把相对路径当作带授权的分享链接。详情及助手会话联调边界见[导出接入](development/AGENT_REPORT_EXPORT_20261024.md)。无新增迁移或存储配置，开关继续关闭。
+MANAGEMENT增加 `report_attendance_export_prepare`，仍为只读准备，可进入原队列。随后目录加入资料核对及受限任务提交，当前交互合同9项，后台合同不变。只返回NOT_GENERATED及固定同源操作；原REST在用户实际下载时重验登录、学院和统计范围。不能将工具准备成功记作文件已生成，也不能把相对路径当作带授权的分享链接。详情及助手会话联调边界见[导出接入](development/AGENT_REPORT_EXPORT_20261024.md)。报表准备本身无新增迁移或存储配置，开关继续关闭；会话迁移见上文。

@@ -10,6 +10,7 @@ import httpx
 
 from app.modules.agent.adp_client import AdpCallError
 from app.modules.agent.adp_schemas import AdpChatConfiguration
+from app.modules.agent.schemas import ManagementChatContext
 
 ENDPOINT = "https://wss.lke.cloud.tencent.com/adp/v2/chat"
 MAX_RESPONSE_BYTES = 512 * 1024
@@ -133,7 +134,14 @@ class AdpChatClient:
         self.config, self.client_factory, self.clock = config, client_factory, clock
 
     def chat(
-        self, text: str, *, conversation_id: str, request_id: str, user_id: str, run_token: str
+        self,
+        text: str,
+        *,
+        conversation_id: str,
+        request_id: str,
+        user_id: str,
+        run_token: str,
+        business_context: ManagementChatContext | None = None,
     ) -> AdpChatReply:
         if not self.config.header_binding_verified:
             raise AdpCallError("HEADER_BINDING_UNVERIFIED")
@@ -150,6 +158,9 @@ class AdpChatClient:
         ):
             raise AdpCallError("INVALID_LOCAL_INPUT")
         app_key = self.config.app_key.get_secret_value()
+        variables = {"agent_run_token": run_token}
+        if business_context is not None:
+            variables.update(business_context.model_dump(mode="json"))
         payload = {
             "AppKey": app_key,
             "ConversationId": conversation_id,
@@ -158,7 +169,7 @@ class AdpChatClient:
             "VisitorId": user_id,
             "Contents": [
                 {"Type": "text", "Text": text},
-                {"Type": "custom_variables", "CustomVariables": {"agent_run_token": run_token}},
+                {"Type": "custom_variables", "CustomVariables": variables},
             ],
             "Incremental": True,
             "Stream": "enable",

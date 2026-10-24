@@ -201,11 +201,13 @@ def create_app() -> FastAPI:
     app.include_router(scoped_academic_router, prefix="/api/v1")
 
     if settings.agent_tools_enabled:
+        from app.modules.agent.conversation_router import router as agent_conversations_router
         from app.modules.agent.http_router import router as agent_tools_router
         from app.modules.agent.task_router import router as agent_tasks_router
 
         app.include_router(agent_tools_router, prefix="/api/v1")
         app.include_router(agent_tasks_router, prefix="/api/v1")
+        app.include_router(agent_conversations_router, prefix="/api/v1")
         if settings.agent_mcp_enabled:
             from app.modules.agent.mcp_adapter import create_mcp_app
 

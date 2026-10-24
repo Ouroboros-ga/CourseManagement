@@ -14,6 +14,7 @@ Mapped + mapped_column 风格，枚举以字符串值存储）。当前为空骨
 from __future__ import annotations
 
 from app.core.database import Base
+from app.modules.agent import conversation_models as agent_conversation_models  # noqa: F401
 from app.modules.agent import models as agent_models  # noqa: F401
 from app.modules.academic import campus_models as campus_academic_models  # noqa: F401
 from app.modules.academic import enrollment_models  # noqa: F401

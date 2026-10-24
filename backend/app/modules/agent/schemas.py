@@ -75,6 +75,12 @@ class TimetableQuery(ToolArguments):
     semester_id: Id
 
 
+class ManagementChatContext(TimetableQuery):
+    college_id: Id
+    business_date: date
+    timezone: Literal["Asia/Shanghai"] = "Asia/Shanghai"
+
+
 class SummaryQuery(TimetableQuery):
     week_no: int | None = Field(default=None, ge=1, le=60)
     date_from: date | None = None
