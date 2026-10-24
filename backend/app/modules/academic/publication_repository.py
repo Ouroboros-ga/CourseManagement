@@ -93,7 +93,7 @@ class AcademicPublicationRepository:
             "first_monday": str(semester.first_monday),
             "total_weeks": semester.total_weeks,
             "timezone": "Asia/Shanghai",
-            "historical_display_policy": "MIGRATION_BASELINE_CLASS_PROJECTION",
+            "historical_display_policy": "UNCONFIRMED_INITIAL_BASELINE_CLASS_PROJECTION_V2",
             "calendar_overrides": overrides,
         }
         schedules = list(

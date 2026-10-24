@@ -139,9 +139,9 @@ class RosterIndex:
         )
 
     def for_personal_timetable(self, on_date: date) -> dict[int, list[Student]]:
-        """个人显示可投影迁移基线之前的整班课表，不作为历史学籍证据。
+        """个人显示可投影初始建档基线之前的整班课表，不作为历史学籍证据。
 
-        仅适用尚未核实历史、没有任何变更的单一迁移基线。正式名单调用 at()，
+        仅适用尚未核实历史、没有任何变更的单一初始基线（含导入和迁移）。正式名单调用 at()，
         选修课的带日期参与记录不放宽，已核实或转班等真实历史不投影。
         """
         result = self.at(on_date)
@@ -157,7 +157,6 @@ class RosterIndex:
                 or baseline.status != "ENROLLED"
                 or baseline.effective_to is not None
                 or baseline.effective_from <= on_date
-                or (baseline.snapshot or {}).get("origin") != "MIGRATION_CURRENT_ONLY"
                 or baseline.administrative_class_id != student.administrative_class_id
             ):
                 continue
