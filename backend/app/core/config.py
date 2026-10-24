@@ -12,7 +12,12 @@ from typing import Literal
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.modules.agent.adp_schemas import AdpConfiguration, AdpDispatchLimits, ObjectionAdpConfiguration
+from app.modules.agent.adp_schemas import (
+    AdpChatConfiguration,
+    AdpConfiguration,
+    AdpDispatchLimits,
+    ObjectionAdpConfiguration,
+)
 from app.modules.agent.schemas import AppConnection
 
 
@@ -35,6 +40,9 @@ class Settings(BaseSettings):
         default=False, alias="AGENT_OBJECTION_PRECHECK_ENABLED"
     )
     agent_adp_enabled: bool = Field(default=False, alias="AGENT_ADP_ENABLED")
+    agent_management_chat_config: AdpChatConfiguration | None = Field(
+        default=None, alias="AGENT_MANAGEMENT_CHAT_CONFIG", repr=False
+    )
     agent_adp_config: AdpConfiguration | None = Field(
         default=None, alias="AGENT_ADP_CONFIG", repr=False
     )

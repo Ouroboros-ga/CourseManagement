@@ -16,6 +16,8 @@
 
 ## 当前任务接口
 
+管理交互新增[新版对话传输候选](development/ADP_MANAGEMENT_CHAT_TRANSPORT_20261025.md)，配置 `AGENT_MANAGEMENT_CHAT_CONFIG=null` 默认关闭。它使用独立交互 AppKey 与本环境 MANAGEMENT 连接，不复用后台工作流 Create 调用。实际 Header／日志隔离尚未验收，登录会话和对话页面仍未接入；不能仅填写配置就描述为交互助手已经可用。
+
 云端 MANAGEMENT 工作流可通过[受限读取任务提交工具](development/AGENT_READ_TASK_HANDOFF_20261025.md)登记报表准备或资料核对任务。无需向模型提供登录 Bearer 或自由选择 run_id。工具只返回登记结果、实际任务状态及固定页面入口，正式业务操作仍需本人确认。该工具不允许作为队列中的目标工具，不代表管理助手会话已接通。
 
 资料预览核对已有只读工具及队列候选，见[接入记录](development/AGENT_IMPORT_REVIEW_20261024.md)。使用原上传入口生成的本人预览编号；[任务核对卡](development/AGENT_IMPORT_REVIEW_UI_20261024.md)可恢复同类型预览，再走原核对和人工保存。助手文件工作区与会话任务交接仍未接通。不得将该工具的 `can_confirm` 当作保存授权或跳过原确认页面。

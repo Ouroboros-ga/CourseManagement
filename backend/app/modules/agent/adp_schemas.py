@@ -19,6 +19,16 @@ class ObjectionAdpConfiguration(AdpConfiguration):
     proof_delivery_verified: StrictBool = False
 
 
+class AdpChatConfiguration(BaseModel):
+    """Interactive application configuration; independent of background workflow credentials."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+    app_key: SecretStr = Field(min_length=1, max_length=512, repr=False)
+    tool_app_key_id: str = Field(min_length=1, max_length=64)
+    header_binding_verified: StrictBool = False
+    timeout_seconds: float = Field(default=30, gt=0, le=60)
+
+
 class AdpDispatchLimits(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     max_active: int = Field(default=5, ge=1, le=10, strict=True)

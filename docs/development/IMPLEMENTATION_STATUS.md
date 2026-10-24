@@ -2,6 +2,7 @@
 
 ## 2026-10-24 AI 网关与任务基础候选（本地，未部署）
 
+- 2026-10-25补充[管理交互新版对话传输候选](ADP_MANAGEMENT_CHAT_TRANSPORT_20261025.md)：按官方 `/adp/v2/chat` 实现独立出站适配，提取唯一成功响应中的正式回复，丢弃思考/过程/任意组件并隐藏已知凭据；默认空配置与未验证Header门禁。新增33项与原相关回归合计82项通过，均为模拟传输；登录、持久会话、浏览器流式展示和真实腾讯云仍未完成。
 - 2026-10-25补充[云端读取任务交接](AGENT_READ_TASK_HANDOFF_20261025.md)：新增 MANAGEMENT `read_task_submit`，目标仅报表准备和资料预览核对，复用原持久队列、身份与容量控制，返回实际任务状态和固定页面入口。HTTP及本地真实Uvicorn/MCP验证通过；管理助手登录/会话、操作渲染及实际腾讯云调用尚未接通。
 - [资料预览助手核对](AGENT_IMPORT_REVIEW_20261024.md)：新增 MANAGEMENT 只读工具 `import_preview_review`，复用原确认集合和各资料类型权限，限定本人、当前学院与学期，汇总变化/问题数量；不返回人员行、保存 revision 或自动确认。支持原持久 Worker 与 HTTP/MCP。已有[任务核对卡](AGENT_IMPORT_REVIEW_UI_20261024.md)按类型恢复多份预览并走原人工确认；44项相关Web测试、类型构建与模拟桌面/窄屏通过。文件上传工作区、会话任务交接和真实 ADP/MySQL 仍待接通。
 - 产品和架构分别见[产品基线 v1.1](../product/AI_COLLABORATIVE_PLATFORM_FUNCTIONAL_DESIGN.md)、[架构 v0.4](AI_COLLABORATIVE_PLATFORM_ARCHITECTURE.md)。整体五模块尚未完成。
